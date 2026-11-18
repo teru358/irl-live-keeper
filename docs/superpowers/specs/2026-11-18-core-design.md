@@ -1,6 +1,7 @@
 # irl-live-keeper 設計 — 全体構成と第1段階（コア）
 
 - 作成日: 2026-11-18
+- 版: v1.1（変更は末尾の変更履歴を参照）
 - 状態: ユーザー承認済みの設計（セクション1〜5）を文書化したもの
 - 対象バージョン: MediaMTX v1.21.4（2026-11-15 リリース）、obs-websocket v5
 
@@ -37,7 +38,7 @@ Discord / Twitch 連携、OBS シーンの自動作成、待機素材のアッ�
  └ config     : config.yaml が唯一の設定元
 ```
 
-- 管理ページと API は LAN 内からの利用を前提とし、パスワードで保護する。ルーターで転送しない
+- 管理ページと API はパスワードで保護する。待ち受けの既定は `127.0.0.1`（OBS と同じ PC から操作する）。別 PC から操作するときは、利用者が config で LAN のアドレスを明示し、起動時に警告を出す。ルーターで転送しない
 - 配布物: zip に `irl-live-keeper(.exe)`、`mediamtx(.exe)`、ライセンス表記（MediaMTX は MIT）を入れる。`config.yaml` は初回起動時に生成する
 - 生成物（`config.yaml`、`mediamtx.yml`、`logs/`）は実行ファイルと同じディレクトリに置く
 - Go の依存: obs-websocket は `github.com/andreykaipov/goobs`、HTTP は標準の `net/http`、設定は YAML（`gopkg.in/yaml.v3`）、ログは `log/slog`、Windows の Job Object は `golang.org/x/sys/windows`。管理ページは素の HTML と JS を `go:embed` で埋め込み、ビルド工程は持たない
@@ -73,7 +74,7 @@ internal/logging              … 標準出力 + 日付ごとのログファイ�
 
 ```yaml
 admin:
-  listen: "0.0.0.0:8787"     # 管理 API（LAN 向け。ルーターで転送しない）
+  listen: "127.0.0.1:8787"   # 管理 API。別 PC から操作するときだけ LAN のアドレスに変える（ルーターで転送しない）
   password: "*"              # Basic 認証のパスワード（ユーザー名は admin）
 
 mediamtx:
@@ -118,6 +119,8 @@ log:
 - `stream.name`、`publish_user`、`publish_pass` は空でない。`publish_pass` は8文字以上
 - `obs.scenes` の4つは空でなく、互いに異なる
 - `admin.password` は空でない
+
+`admin.listen` が loopback 以外（`0.0.0.0` や LAN のアドレス）のときは、起動するたびに警告をログに出す: 管理 API を LAN に公開していること、通信は平文で LAN 内では盗聴されうること、ルーターで転送しないこと。値を省略したときに LAN 公開と解釈することはない（省略時は既定の `127.0.0.1:8787`）。
 
 ## 5. 受信状態の判定（ingest）
 
@@ -171,6 +174,22 @@ zero、below、good の各累積は、その条件を満たさない Sample が�
 - `DOWN` のとき非 zero の Sample が来た → `LOW`（good の累積はそのまま続ける）
 - `LOW` / `DOWN` で good が `recover_sec` 続いた → `OK`
 - したがって `fail_kbps` 以上 `recover_kbps` 未満の Sample は、`OK` を `LOW` にはしないが、`OK` への復帰の累積を 0 に戻す
+
+### 実時刻の例（既定値。テストでこの値を確かめる）
+
+`t` は Sample の `At`（開始からの秒）。特記がなければ `Interval` は 1 秒。
+
+| # | 始めの状態 | Sample の列 | 期待 |
+|---|---|---|---|
+| 1 | OK | t=1、2 が zero | t=1 は OK のまま、t=2 で DOWN |
+| 2 | OK | t=1〜5 が 600kbps | t=4 は OK のまま、t=5 で LOW |
+| 3 | OK | t=1〜4 が 600kbps、t=5 が 1000kbps、t=6 以降 600kbps | t=5 で below の累積が 0 に戻り、t=10 で LOW |
+| 4 | DOWN | t=1〜10 が 2000kbps | t=1 で LOW、t=9 は LOW のまま、t=10 で OK |
+| 5 | LOW | t=1〜6 が 2000kbps、t=7 が 1200kbps、t=8 以降 2000kbps | t=7 で good の累積が 0 に戻り、t=17 で OK |
+| 6 | OK | `Interval` 1.5 秒で t=1.5、3.0 が zero | t=1.5 は OK のまま（1.5 秒）、t=3.0 で DOWN（3.0 秒） |
+| 7 | OK | t=1 だけ `Err`、t=2 以降 2000kbps | OK のまま変わらない |
+| 8 | LOW | t=1、2 が zero | t=2 で DOWN |
+| 9 | OK | t=1 が zero、t=2 が 600kbps、t=3〜5 が 600kbps | zero の累積は t=2 で 0 に戻り DOWN にならない。below は t=1 から続くので t=5 で LOW |
 
 ## 6. シーンの状態機械（switcher）
 
@@ -364,7 +383,7 @@ goroutine 1本が switcher の状態を持ち、次を `select` で受ける: in
 
 ### 単体テスト（`go test -race ./...`）
 
-- **switcher:** 表形式のテストで、Event の列を入れて Action と `cmdErr` を確かめる。時刻は Event の `At` で注入する。必ず含めるケース:
+- **switcher:** 整合は状態機械の中心（`Handle`）だけで守り、入口ごとに確認を足さない。テストは「入口 × 状態」の表1つにまとめる。入口は各 Event と各 Command、状態は役割（Intro / Live / Fail / Pause / Other）× 受信状態（OK / LOW / DOWN）× 配信中か × OBS 接続 × 手動保持の有無。表の各行で、出る Action と `cmdErr` を確かめる。時刻は Event の `At` で注入する。表とは別に、Event の列で確かめる必須のケース:
   - 自動切替は、配信中かつ Live / Fail のときだけ。Intro、Pause、Other、配信停止中、OBS 未接続では何も出さない
   - Fail → Live で `RestartMedia` が `SetScene(live)` より先に出る
   - PauseOff の戻り先（直前が Intro、Live、Fail、不明 × 受信状態）
@@ -372,8 +391,8 @@ goroutine 1本が switcher の状態を持ち、次を `select` で受ける: in
   - 再送が5秒以上あく
   - 各 Command の 409 になる条件
   - 手動保持: 期待どおりの `SceneChanged` は本体の切替とみなし、期限切れや別のシーンへの変化は手動とみなす。手動の Live / Fail で保持に入り、再送を取り消す。OK と不良の間の変化で解除し、LOW と DOWN の間の変化では解除しない。Command と `OBSConnected` でも解除する
-- **ingest.Judge:** 時刻は `Sample.At` と `Interval` で注入する。閾値と継続時間の境界（ちょうど X 秒、X 秒未満）、`down_sec` の判定、`fail_kbps` と `recover_kbps` の間の値、`Err` のある Sample
-- **ingest.Poller:** `httptest` のサーバーで、spike ③ で録った MediaMTX v1.21.4 の JSON を返す。差分の計算、カウンターの減少、タイムアウト、SRT の統計の取り出し
+- **ingest.Judge:** 時刻は `Sample.At` と `Interval` で注入する。5章「実時刻の例」の表の全行を、そのままテストにする。あわせて、閾値ちょうどの値（`fail_kbps`、`recover_kbps` と等しい kbps）を確かめる
+- **ingest.Poller:** `httptest` のサーバーで、spike ③ で録った MediaMTX v1.21.4 の JSON を返す。差分の計算、カウンターの減少、タイムアウト、SRT の統計の取り出し。JSON の形を手書きで再現しない。録った実物と違う形への fallback（別のフィールド名も読む、など）も足さない。偽の形でテストが通り続ける穴になるため
 - **config:** 既定値の生成、読み込み、4章の検証すべて
 - **supervisor:** mediamtx.yml の生成をゴールデンファイルと比べる。再起動の待ち時間は、偽の子プロセス（Go のヘルパープロセスの手法）で確かめる。ポートの事前確認
 - **core:** obs.Client の偽物を使い、Sample → 切替 → Action の実行 → 失敗時の `ActionFailed` までを通しで確かめる
@@ -406,5 +425,13 @@ goobs のラッパーは実際の OBS を相手に手動で確かめる。自動
 - macOS では、本体が強制終了されると MediaMTX が残ることがある
 - 本体と外部ツールがほぼ同時にシーンを切り替えると、最後に届いた切替が残る。本体の切替が人の操作より後に届いた場合は、人の選択が上書きされることがある（間隔は数十ミリ秒）。もう一度切り替えれば手動保持に入って定着する
 - 外部ツール（IRL Link など）にもビットレートによる自動切替の機能があり、それを有効にすると二重に切り替わる。自動切替はどちらか一方だけで使う
+- 管理 API を LAN に公開した場合、通信は平文の HTTP と Basic 認証なので、LAN 内で盗聴されるとパスワードと操作を奪われうる。操作はシーンの切替と配信の開始・停止に限られるため、第1段階では TLS を入れず、利用者の判断で LAN 公開を選ぶ形にする
+
+## 変更履歴
+
+| 日付 | 版 | 変更 | 理由 | commit |
+|---|---|---|---|---|
+| 2026-11-18 | v1.0 | 初版。設計セクション1〜5と、外部ツールからの手動切替を尊重する手動保持（6章） | brainstorming での承認。手動保持は IRL Link との競合についてのユーザーの指摘 | 764e12a |
+| 2026-11-18 | v1.1 | 管理 API の待ち受けの既定を `127.0.0.1` にし、LAN 公開時の警告を追加（2章、4章、13章）。Judge に実時刻の例の表を追加（5章）。switcher のテストを「入口 × 状態」の表にし、テスト用 JSON に fallback を足さないことを明記（11章）。変更履歴の表を追加 | agentic-fx での裁定と教訓（既定は安全側、整合は状態機械の中心で守る、時刻の契約は実時刻の例で固定する、フィクスチャは実物から作る）を、ユーザーが選んで取り込んだ | この版の commit |
 - SRT の streamid に含めた資格情報は暗号化されない（SRT のパスフレーズは第1段階では使わない）
 - MediaMTX の受信サーバーの設定（ポートなど）や path の認証設定を変えると、配信が切れる。第2段階の設定編集では「配信中に変えると切れる」設定として扱う
