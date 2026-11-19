@@ -1,7 +1,7 @@
 # irl-live-keeper 設計 — 全体構成と第1段階（コア）
 
 - 作成日: 2026-11-18
-- 版: v1.4（変更は末尾の変更履歴を参照）
+- 版: v1.5（変更は末尾の変更履歴を参照）
 - 状態: ユーザー承認済みの設計（セクション1〜5）を文書化したもの
 - 対象バージョン: MediaMTX v1.21.4（2026-11-15 リリース）、obs-websocket v5
 
@@ -345,6 +345,36 @@ PauseOn は旧版と違い、Intro からも受け付ける（開始前の待機
 
 `OBSDisconnected` から `OBSConnected` までは Action を出さず、`Approve` もすべて却下する。`OBSDisconnected` で期待をすべて消す。`ConnEpoch` が進むので、切断前のバッチは再接続後に実行されない。`OBSConnected` で配信状態と現在のシーンを取り直してから判定を再開する。
 
+### 細部の規則（入口 × 状態の表を作る中で決めたこと）
+
+表 `docs/superpowers/plans/2026-11-19-switcher-table.md` の 4章（U-01〜U-23）で挙がった不明点を、次のとおり決める。番号は表の文書の不明点の番号。
+
+- **承認の順序（U-01）:** 共通の条件（接続、3つの Epoch）→ `SetScene` で現在の役割がすでに目的の役割なら `Skip` → Purpose の有効条件、の順に確かめる。`Skip` は目的を達しているので `last_error` に残さない。`RestartMedia` には `Skip` がなく、役割がすでに Live なら有効条件で却下する
+- **配信開始の待ち（U-02、U-03、U-17）:**
+  - StartIntro の `BatchDone{Completed}` を受けた時点で、待ちが「Intro の確認待ち」で役割が Intro なら、「Intro 確認済み」に進めて StartStream のバッチを出す（`Skip` されて `SceneChanged` が来ない場合）
+  - 前の StreamStart が登録した Intro への期待に一致する `SceneChanged` でも、今の待ちを「Intro 確認済み」に進める。一方、バッチの却下と `BatchDone` は、自分と同じ番号の待ちにだけ作用する
+  - `StreamStateChanged{Streaming: true}` で待ちを消すのは成功とみなし、記録しない。「Intro 確認済み」のあとの StartIntro の失敗も記録しない
+- **実行中の操作の重複（U-04）:** 受け付ける条件を満たす Command でも、同じ操作のバッチが未完了なら `ErrInvalidState`（理由: 同じ操作が実行待ち）を返し、状態を変えない。同じ操作として扱う Purpose は、GoLive なら GoLive / GoFail、PauseOff なら PauseOffLive / PauseOffFail / PauseOffIntro、StreamStart なら StartIntro / StartStream
+- **`last_error`（U-05、U-18）:** `BatchDone{Failed}` は Auto でも記録する。`Rejected` は Command 由来だけ記録する。`RestartMedia` だけが失敗して続く `SetScene` が成功したバッチは `Result: Completed` で `Err` に RESTART のエラーを入れ、`Err` があれば記録する。switcher は `last_error` を消さず、新しい記録で上書きする
+- **GoFail / PauseOffFail の役割（U-06）:** GoFail は役割が Intro のときだけ、PauseOffFail は Pause のときだけ有効
+- **`Tick`（U-07）:** `Tick` のたびに、イベント起点と同じ自動切替の判定を行い、再送の5秒の条件だけを足す。5秒の起点は、`Handle` がそのバッチを返した Event の `At`。その Purpose を一度も出していなければ、5秒の条件は満たしたものとする
+- **切替中の自動判定（U-12）:** Live / Fail 以外の役割（Pause、Intro）への期待が残っている間は、自動切替をしない。Auto の承認もこの間は却下する。Pause を押した直後に回線が悪化しても、Pause が Fail で上書きされないようにするため
+- **期限（U-09、U-10、U-11）:**
+  - `Override` が `Unknown` のときは、全体の長さがあれば「全体の長さ + 3秒」と「10秒」の長いほう、なければ10秒
+  - 期限に使う全体の長さと `Override` は、`Approve` の時点の値を期待に写す
+  - `At > 期限` で期限切れとする（ちょうどは残る）。期限切れの期待は、`Tick` に限らず、すべての `Handle` と `Approve` の入口でその時刻を使って消す
+  - 期限切れそのものは手動の切替として扱わない（`SceneEpoch` を進めず、保持にも入らない）
+- **未接続の間の保持（U-13）:** 切断中でも、受信状態が OK と不良の間で変わったら保持を解く
+- **同じ値の Event（U-14）:** 今と同じ値の `StreamStateChanged` と `LinkChanged` では何もしない（Epoch も進めない）
+- **初期値（U-15）:** 受信状態は DOWN、切断前の配信状態は false、切断前のシーンは空、3つの Epoch は 0
+- **配信停止で消す再送待ち（U-16）:** 各 Purpose の前回の送出時刻を消す
+- **保持を解く Command（U-08）:** 受け付けた Command（`cmdErr` が nil）はどれでも保持を解く。その `Handle` では Command のバッチだけを返し、自動判定は次の Event か `Tick` で行う
+- **保持中の手動の Live ↔ Fail（U-20）:** 保持に入った時刻（`since`）は更新しない
+- **`ReqID`（U-21）:** `SetScene` 以外の `Proceed` の `ReqID` は 0
+- **未知の番号（U-22）:** 未完了の一覧にない `BatchID` の `Approve` は `Reject`、`BatchDone` は無視。期待にない `ReqID` の `SceneRequestDone` は無視（期待が先に `SceneChanged` で消える通常の列で起きる）
+- **再接続でシーンが変わっていたとき（U-23）:** 手動の切替としては扱わない（`SceneEpoch` を進めず、保持に入らない。保持は解くだけ）
+- **テストの置き場所（U-18、U-19）:** バッチ内の失敗の続行と打ち切りは実行役の規則なので core（T9）で確かめる。配信状態の写像は obs（T7）の変換関数で確かめる
+
 ## 7. OBS 接続（obs）
 
 ```go
@@ -545,4 +575,5 @@ goobs のラッパーは実際の OBS を相手に手動で確かめる。自動
 | 2026-11-18 | v1.1 | 管理 API の待ち受けの既定を `127.0.0.1` にし、LAN 公開時の警告を追加（2章、4章、13章）。Judge に実時刻の例の表を追加（5章）。switcher のテストを「入口 × 状態」の表にし、テスト用 JSON に fallback を足さないことを明記（11章）。変更履歴の表を追加 | agentic-fx での裁定と教訓（既定は安全側、整合は状態機械の中心で守る、時刻の契約は実時刻の例で固定する、フィクスチャは実物から作る）を、ユーザーが選んで取り込んだ | 39c8ea4 |
 | 2026-11-18 | v1.2 | 読み出しにも認証を必須にした（4章、8章）。実行待ちのバッチを世代番号で失効させ、実行直前に承認を取る（6章、9章）。期待シーンを送信時に登録し、期限をトランジション時間から決め、列で持つ（6章）。配信開始は Intro になってから始める。バッチは失敗した時点で残りを捨てる（6章、7章）。手動保持を再接続で解除しない条件、配信停止で消すこと、Pause の直前の役割の寿命を定義（6章）。Judge の評価順、Kbps の分母、新しい publisher の検出を定義（5章）。MediaMTX の全プロトコルのスイッチを明示し、RTSP を TCP だけにした（8章）。Pdeathsig のスレッド固定、Job Object を本体自身に掛ける方式に変更、ポートの事前確認を補助の診断にした（8章）。名前とパスワードの使える文字を制限（4章）。`cmdErr` の型で 503 と 409 を分け、POST に独自ヘッダーを必須にした（9章）。テスト表の状態の軸を追加（11章）。13章の2項目が変更履歴の後ろにずれていたのを戻した | 設計レビュー1周目（Fable: Critical 1 / Important 8 / Minor 8、codex sol: Critical 1 / Important 10 / Minor 2）。読み出しの認証はユーザーの裁定 | 1a0378c |
 | 2026-11-19 | v1.3 | 世代番号を廃止し、バッチの目的（Purpose）ごとの有効条件を承認の時点で確かめる方式に変えた。配信停止や Pause は受信状態の変化で捨てない。GoLive / PauseOff は回線の悪化で Fail へ決め直す（6章）。`Approve` を `Machine.Approve` に分け、`Proceed` / `Skip` / `Reject` を返す。`SceneRequestDone` と `BatchDone` を追加し、同じ Purpose の未完了のバッチがある間は重ねて出さない（6章、9章）。期待の期限を応答の時点から数え、タイムアウトでは消さず、Transition Override の長さを使う。一致した期待より前の期待も消す（6章、7章）。中核ループと実行役のチャネルの決まりを追加（9章）。配信状態の写像を定義し、出力の再接続を停止として扱わない（7章）。手動保持は配信中だけ入る（6章）。配信開始の待ちを消す条件を列挙（6章）。Poller の残りの未定義を決めた（5章）。Windows の Job の割当失敗時とハンドルの扱い（8章）。テスト表の展開の仕方（11章） | 設計レビュー2周目（Fable: Critical 0 / Important 5 / Minor 6、codex sol: Critical 0 / Important 7 / Minor 1） | 6566a38 |
-| 2026-11-19 | v1.4 | 配信開始の待ちに「Intro 確認済み」の段階を足し、確認後の StartIntro のタイムアウトで開始を取り消さない。`Approve` に `Replace{Batch}` を足して GoLive / PauseOffLive の決め直しを受け渡す。トランジションの上書きを `Override`（`None` / `Known` / `Unknown`）で渡す。`StreamEpoch` を足し、前の配信のバッチを次の配信で実行しない。実行役が次のバッチを受け取る順序と、`SceneRequestDone` と `BatchDone` の順序を明記（6章、7章、9章、11章） | 設計レビュー3周目（codex sol、新しい方式に絞った周: Critical 0 / Important 4 / Minor 0）。Critical 0 が続いたので、この版で設計レビューを終える | この版の commit |
+| 2026-11-19 | v1.4 | 配信開始の待ちに「Intro 確認済み」の段階を足し、確認後の StartIntro のタイムアウトで開始を取り消さない。`Approve` に `Replace{Batch}` を足して GoLive / PauseOffLive の決め直しを受け渡す。トランジションの上書きを `Override`（`None` / `Known` / `Unknown`）で渡す。`StreamEpoch` を足し、前の配信のバッチを次の配信で実行しない。実行役が次のバッチを受け取る順序と、`SceneRequestDone` と `BatchDone` の順序を明記（6章、7章、9章、11章） | 設計レビュー3周目（codex sol、新しい方式に絞った周: Critical 0 / Important 4 / Minor 0）。Critical 0 が続いたので、この版で設計レビューを終える | 26ed572 |
+| 2026-11-19 | v1.5 | 6章に「細部の規則」を追加（承認の順序、配信開始の待ちの細部、実行中の操作の重複、`last_error`、`Tick` の判定、切替中の自動判定の停止、期限の境界、初期値など23項目） | switcher の「入口 × 状態」の表を作る中で見つかった不明点（U-01〜U-23）。技術で決まるものとして、表の案どおりに決めた | この版の commit |
