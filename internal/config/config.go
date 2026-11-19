@@ -351,6 +351,6 @@ func (c *Config) Warnings() []string {
 		return nil
 	}
 	return []string{fmt.Sprintf(
-		"admin.listen が loopback 以外（%s）です。管理 API を LAN に公開しています。通信は平文のため LAN 内で盗聴されうります。ルーターでこのポートを転送しないでください",
+		"admin.listen が loopback 以外（%s）です。管理 API を LAN に公開しています。通信は平文のため LAN 内で盗聴されるおそれがあります。ルーターでこのポートを転送しないでください",
 		c.Admin.Listen)}
 }
