@@ -440,14 +440,41 @@ func (m *Machine) onBatchDone(e BatchDone) *Batch {
 		return nil
 	}
 	delete(s.Pending, e.BatchID)
+	// 配信開始の待ちには、同じ番号のバッチだけが作用する。
+	var own *StartWait
+	if w := s.StartWait; w != nil && pb.StartID != 0 && w.ID == pb.StartID {
+		own = w
+	}
 	switch e.Result {
 	case BatchCompleted:
 		if e.Err != nil {
 			m.recordError(e.At, pb.Purpose.String()+" の一部が失敗した: "+e.Err.Error())
 		}
+		switch {
+		case own == nil:
+		case pb.Purpose == PurposeStartStream:
+			s.StartWait = nil
+		case pb.Purpose == PurposeStartIntro && own.Stage == StageWaitIntro && s.Role == RoleIntro:
+			// SetScene が Skip されたので、期待どおりの SceneChanged は来ない。ここで確かめたことにする。
+			own.Stage = StageIntroConfirmed
+			return m.emit(PurposeStartStream, e.At, own.ID)
+		}
 	case BatchFailed:
+		if own != nil && pb.Purpose == PurposeStartIntro && own.Stage == StageIntroConfirmed {
+			// Intro にはなっているので、StartIntro の目的は達している。
+			return nil
+		}
+		if own != nil {
+			s.StartWait = nil
+		}
 		m.recordError(e.At, failMsg(pb.Purpose, e.Err))
 	case BatchRejected:
+		if own != nil {
+			s.StartWait = nil
+		}
+		if !pb.Purpose.IsAuto() && !pb.Replaced {
+			m.recordError(e.At, pb.Purpose.String()+" は実行の直前に状況が変わったため取りやめた")
+		}
 	}
 	return nil
 }
@@ -460,6 +487,97 @@ func failMsg(p Purpose, err error) string {
 	return msg
 }
 
+// onCommand は手動操作を受け付ける。受け付けたら保持を解き、Command のバッチだけを返す。
+// 受け付けないときは cmdErr を返し、状態を変えない。
 func (m *Machine) onCommand(e Command) (*Batch, error) {
-	return nil, nil
+	s := &m.st
+	if !s.Connected {
+		return nil, ErrNotConnected{}
+	}
+	if reason := m.commandRefusal(e.Kind); reason != "" {
+		return nil, ErrInvalidState{Reason: reason}
+	}
+	m.releaseHold()
+	switch e.Kind {
+	case CmdStreamStart:
+		id := s.NextStartID
+		s.NextStartID++
+		if s.Role == RoleIntro {
+			s.StartWait = &StartWait{ID: id, Stage: StageIntroConfirmed}
+			return m.emit(PurposeStartStream, e.At, id), nil
+		}
+		s.StartWait = &StartWait{ID: id, Stage: StageWaitIntro}
+		return m.emit(PurposeStartIntro, e.At, id), nil
+	case CmdStreamStop:
+		return m.emit(PurposeStopStream, e.At, 0), nil
+	case CmdGoLive:
+		if s.Link == ingest.LinkOK {
+			return m.emit(PurposeGoLive, e.At, 0), nil
+		}
+		return m.emit(PurposeGoFail, e.At, 0), nil
+	case CmdPauseOn:
+		return m.emit(PurposePauseOn, e.At, 0), nil
+	case CmdPauseOff:
+		switch {
+		case s.PausePrev == RoleIntro:
+			return m.emit(PurposePauseOffIntro, e.At, 0), nil
+		case s.Link == ingest.LinkOK:
+			return m.emit(PurposePauseOffLive, e.At, 0), nil
+		default:
+			return m.emit(PurposePauseOffFail, e.At, 0), nil
+		}
+	}
+	return nil, ErrInvalidState{Reason: "未知の操作"}
+}
+
+// commandRefusal は Command を受け付けない理由を返す。受け付けるなら空文字列。
+// 同じ操作のバッチが未完了の間も受け付けない。
+func (m *Machine) commandRefusal(k CommandKind) string {
+	s := &m.st
+	var same []Purpose
+	switch k {
+	case CmdStreamStart:
+		if s.Streaming {
+			return "配信中"
+		}
+		if s.StartWait != nil {
+			return "配信開始の待ちがある"
+		}
+		same = []Purpose{PurposeStartIntro, PurposeStartStream}
+	case CmdStreamStop:
+		if !s.Streaming {
+			return "配信中でない"
+		}
+		same = []Purpose{PurposeStopStream}
+	case CmdGoLive:
+		if !s.Streaming {
+			return "配信中でない"
+		}
+		if s.Role != RoleIntro {
+			return "役割が Intro でない"
+		}
+		same = []Purpose{PurposeGoLive, PurposeGoFail}
+	case CmdPauseOn:
+		if !s.Streaming {
+			return "配信中でない"
+		}
+		if s.Role != RoleIntro && s.Role != RoleLive && s.Role != RoleFail {
+			return "役割が Intro / Live / Fail でない"
+		}
+		same = []Purpose{PurposePauseOn}
+	case CmdPauseOff:
+		if !s.Streaming {
+			return "配信中でない"
+		}
+		if s.Role != RolePause {
+			return "役割が Pause でない"
+		}
+		same = []Purpose{PurposePauseOffLive, PurposePauseOffFail, PurposePauseOffIntro}
+	default:
+		return "未知の操作"
+	}
+	if m.hasPending(same...) {
+		return "同じ操作が実行待ち"
+	}
+	return ""
 }

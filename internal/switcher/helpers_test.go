@@ -170,9 +170,9 @@ func showExp(e Expectation) string {
 		e.Responded, show(e.RespondedAt), e.Result, show(e.Deadline))
 }
 
-// ---- 入口ごとの表の行を流す仕組み ----
+// ---- 入口ごとに、1つの Event の前後の状態を比べる仕組み ----
 
-// baseState は表の「特記がなければ」の状態: 接続、配信中、Live、OK、保持なし、
+// baseState は既定の前提の状態: 接続、配信中、Live、OK、保持なし、
 // 未完了なし、期待なし。Epoch と通し番号は 0 / 1 以外にしておき、動いたかがわかるようにする。
 func baseState(s *state) {
 	s.Connected = true
@@ -230,7 +230,7 @@ func unhold(s *state) {
 	s.HoldSince = time.Time{}
 }
 
-// wantB は表の B をそのまま期待の状態に当てはめ、返るべきバッチを返す。
+// wantB はバッチを出したときの共通の変化を期待の状態に当てはめ、返るべきバッチを返す。
 func wantB(s *state, p Purpose, atT time.Time) *Batch {
 	id := s.NextBatchID
 	s.NextBatchID++
@@ -327,7 +327,7 @@ func checkRecErr(t *testing.T, m *Machine, want *state, before *ErrorInfo, rec b
 	want.LastError = got
 }
 
-// ---- Approve の表の行を流す仕組み ----
+// ---- Approve の前後の状態を比べる仕組み ----
 
 type apRow struct {
 	name     string

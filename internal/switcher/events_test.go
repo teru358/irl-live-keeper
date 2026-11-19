@@ -9,7 +9,7 @@ import (
 	"github.com/teru358/irl-live-keeper/internal/ingest"
 )
 
-const evMs = 50_000 // 表の行の Event の時刻
+const evMs = 50_000 // 1つの Event を流すケースの時刻
 
 func link(l ingest.LinkState) func(*state) { return func(s *state) { s.Link = l } }
 
@@ -116,7 +116,7 @@ func TestLinkChanged(t *testing.T) {
 }
 
 func TestOBSConnected(t *testing.T) {
-	// 再接続の前提: 切断中。切断の直前は配信中で、表の役割。
+	// 再接続の前提: 切断中。切断の直前の役割と配信状態は引数のとおり。
 	disconnectedFrom := func(r Role, streaming bool) func(*state) {
 		return func(s *state) {
 			setRole(s, r)
