@@ -10,7 +10,7 @@
 | # | task | 依存 | 受入条件（spec の章） | テストの完成形 |
 |---|---|---|---|---|
 | T0 | spike（実機。コードは捨てる） | — | 12章 ①②③ の3つに答えが出て、spec に反映されている | なし。結果は spec の 8章（OBS 用 URL）、6章（`RestartMedia.Wait`）、5章（publisher の識別子のフィールド）と `internal/ingest/testdata/` の JSON |
-| T1 | 雛形 | — | `go.mod`（module 名と Go の版を固定）、3章のディレクトリ、`go test ./...` が空で通る。依存は goobs、yaml.v3、x/sys だけ | `go build ./...` と `go test ./...` が通る |
+| T1 | 雛形 | — | `go.mod`（module `github.com/teru358/irl-live-keeper`、`go 1.27`）、3章のディレクトリ、`go test ./...` が空で通る。外部の依存は goobs、yaml.v3、x/sys だけとし、使う task で足す | `go build ./...` と `go test ./...` が通る |
 | T2 | config | T1 | 4章の既定値の生成（`*` はランダム、`[A-Za-z0-9_-]`）、読み込み、検証の全項目、`admin.listen` が loopback 以外のときの警告 | 検証の各項目ごとに、通る例と落ちる例を表形式で。生成した値が検証を通ること。警告の有無 |
 | T3 | ingest.Judge | T1 | 5章 Judge の遷移（評価順を含む） | 5章「実時刻の例」#1〜#11 の全行と、閾値ちょうどの値 |
 | T4 | ingest.Poller | T1、T0③ | 5章 Poller（基準、識別子、SRT の統計、失敗時のフィールド） | 5章の P1〜P4 の全行。録った JSON を `httptest` で返す。タイムアウト。SRT の統計だけの失敗 |
