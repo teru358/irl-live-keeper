@@ -326,6 +326,7 @@ type Expectation struct {
 	RespondedAt  time.Time
 	Result       RequestResult // OK か Timeout。Error の期待は消すので残らない
 	Deadline     time.Time     // Responded のときだけ有効
+	StartID      int           // StartIntro が登録した期待なら、その配信開始の待ちの番号。ほかは 0
 }
 
 // StartStage は配信開始の待ちの段階。

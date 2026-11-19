@@ -20,6 +20,12 @@ func waitAt(id int, st StartStage) func(*state) {
 
 func noWait(s *state) { s.StartWait = nil }
 
+// fromStart は、その番号の StreamStart の StartIntro が登録した期待にする。
+func fromStart(e Expectation, startID int) Expectation {
+	e.StartID = startID
+	return e
+}
+
 func offAir(s *state) { s.Streaming = false }
 
 func heldNow(s *state) { hold(s, evMs-5000) }
@@ -113,11 +119,17 @@ func TestEventRowsStart(t *testing.T) {
 			ev: ssc(evMs, true), out: PurposeAutoFail, change: up},
 		evRow{name: "SRD-TO-2", setup: all(offAir, roleIs(RoleIntro), waitAt(5, StageIntroConfirmed)),
 			ev: srd(evMs, 1, RequestTimeout)},
-		evRow{name: "SRD-ERR-2", setup: all(offAir, waitAt(5, StageWaitIntro), exps(expect(1, RoleIntro))),
+		evRow{name: "SRD-ERR-2", setup: all(offAir, waitAt(5, StageWaitIntro), exps(fromStart(expect(1, RoleIntro), 5))),
 			ev: srd(evMs, 1, RequestError), change: all(exps(), noWait), recErr: true},
+		evRow{name: "SRD-ERR-2/earlier StreamStart", setup: all(offAir, waitAt(5, StageWaitIntro),
+			exps(fromStart(expect(1, RoleIntro), 4), fromStart(expect(2, RoleIntro), 5))),
+			ev: srd(evMs, 1, RequestError), change: exps(fromStart(expect(2, RoleIntro), 5))},
 		evRow{name: "TK-10", setup: all(offAir, waitAt(5, StageWaitIntro),
-			exps(responded(1, RoleIntro, RequestOK, evMs-3400, evMs-100))),
+			exps(fromStart(responded(1, RoleIntro, RequestOK, evMs-3400, evMs-100), 5))),
 			ev: tick(evMs), change: all(exps(), noWait), recErr: true},
+		evRow{name: "TK-10/earlier StreamStart", setup: all(offAir, waitAt(5, StageWaitIntro),
+			exps(fromStart(responded(1, RoleIntro, RequestTimeout, evMs-3400, evMs-100), 4), fromStart(expect(2, RoleIntro), 5))),
+			ev: tick(evMs), change: exps(fromStart(expect(2, RoleIntro), 5))},
 	)
 	runEvRows(t, rows)
 }

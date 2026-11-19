@@ -535,3 +535,63 @@ func TestSeqPauseThenLinkDrop(t *testing.T) {
 		q.pausePrev(RoleLive)
 	})
 }
+
+func TestSeqEarlierIntroExpectation(t *testing.T) {
+	// 1回目の StreamStart の Intro への期待 r1 がタイムアウトのあとも残ったまま、2回目の StreamStart に進める。
+	secondStart := func(t *testing.T) *seq {
+		q := newSeq(t).p("Live", false, OK)
+		q.batch(cmd(1000, CmdStreamStart), 1, PurposeStartIntro)
+		q.approve(1, introA, 1000, Proceed{ReqID: 1})
+		q.wait(&StartWait{ID: 1, Stage: StageWaitIntro})
+		q.none(srd(6000, 1, RequestTimeout))
+		q.deadline(1, 9300)
+		q.none(bd(6000, 1, BatchFailed))
+		q.wait(nil)
+		q.lastErr(true)
+		q.batch(cmd(6500, CmdStreamStart), 2, PurposeStartIntro)
+		q.wait(&StartWait{ID: 2, Stage: StageWaitIntro})
+		q.approve(2, introA, 6500, Proceed{ReqID: 2})
+		q.expRoles(RoleIntro, 1, RoleIntro, 2)
+		if got := q.m.st.Expectations[1].StartID; got != 2 {
+			t.Fatalf("r2 StartID: got %d, want 2", got)
+		}
+		return q
+	}
+	t.Run("SQ-28 前の StreamStart の Intro 期待の期限切れは次の待ちを消さない", func(t *testing.T) {
+		q := secondStart(t)
+		errAt := q.m.st.LastError
+		q.none(tick(9400))
+		q.expRoles(RoleIntro, 2)
+		q.wait(&StartWait{ID: 2, Stage: StageWaitIntro})
+		if q.m.st.LastError != errAt {
+			t.Fatalf("LastError changed: %s", show(q.m.st.LastError))
+		}
+		q.batch(sc(9500, "Intro"), 3, PurposeStartStream)
+		q.wait(&StartWait{ID: 2, Stage: StageIntroConfirmed})
+		if pb := q.m.st.Pending[3]; pb.StartID != 2 {
+			t.Fatalf("StartStream StartID: got %d, want 2", pb.StartID)
+		}
+	})
+	t.Run("SQ-28/own expiry clears the wait", func(t *testing.T) {
+		q := secondStart(t)
+		q.none(srd(6600, 2, RequestOK))
+		q.deadline(2, 9900)
+		q.none(tick(9400))
+		q.wait(&StartWait{ID: 2, Stage: StageWaitIntro})
+		q.none(tick(10000))
+		q.expRoles()
+		q.wait(nil)
+		if e := q.m.st.LastError; e == nil || !e.At.Equal(at(10000)) {
+			t.Fatalf("LastError: got %s, want a record at 10000ms", show(e))
+		}
+	})
+	t.Run("SQ-28/own Error clears the wait", func(t *testing.T) {
+		q := secondStart(t)
+		q.none(srd(6600, 2, RequestError))
+		q.expRoles(RoleIntro, 1)
+		q.wait(nil)
+		if e := q.m.st.LastError; e == nil || !e.At.Equal(at(6600)) {
+			t.Fatalf("LastError: got %s, want a record at 6600ms", show(e))
+		}
+	})
+}

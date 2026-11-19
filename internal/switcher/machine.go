@@ -252,11 +252,9 @@ func (m *Machine) onRequestDone(e SceneRequestDone) {
 			continue
 		}
 		if e.Result == RequestError {
-			role := x.Role
+			failed := *x
 			s.Expectations = append(s.Expectations[:i:i], s.Expectations[i+1:]...)
-			if role == RoleIntro {
-				m.dropWaitingIntro(e.At, "Intro への切替が失敗したため配信を始めなかった")
-			}
+			m.dropWaitingIntro(failed, e.At, "Intro への切替が失敗したため配信を始めなかった")
 			return
 		}
 		x.Responded = true
@@ -292,22 +290,20 @@ func (m *Machine) expectWindow(x Expectation) time.Duration {
 func (m *Machine) expire(at time.Time) {
 	s := &m.st
 	kept := s.Expectations[:0:0]
-	introExpired := false
+	var expired []Expectation
 	for _, x := range s.Expectations {
 		if x.Responded && at.After(x.Deadline) {
-			if x.Role == RoleIntro {
-				introExpired = true
-			}
+			expired = append(expired, x)
 			continue
 		}
 		kept = append(kept, x)
 	}
-	if len(kept) == len(s.Expectations) {
+	if len(expired) == 0 {
 		return
 	}
 	s.Expectations = kept
-	if introExpired {
-		m.dropWaitingIntro(at, "Intro への切替を確かめられなかったため配信を始めなかった")
+	for _, x := range expired {
+		m.dropWaitingIntro(x, at, "Intro への切替を確かめられなかったため配信を始めなかった")
 	}
 }
 
@@ -329,11 +325,15 @@ func (m *Machine) dropStartWait(at time.Time, msg string) {
 	m.recordError(at, msg)
 }
 
-// dropWaitingIntro は「Intro の確認待ち」の段階の待ちだけを消す。
-func (m *Machine) dropWaitingIntro(at time.Time, msg string) {
-	if w := m.st.StartWait; w != nil && w.Stage == StageWaitIntro {
-		m.dropStartWait(at, msg)
+// dropWaitingIntro は、Intro への期待 x が期限切れか失敗になったときに、x を登録した
+// StreamStart の待ちが「Intro の確認待ち」の段階なら消す。前の StreamStart の期待では、
+// 今の待ちを消さない。
+func (m *Machine) dropWaitingIntro(x Expectation, at time.Time, msg string) {
+	w := m.st.StartWait
+	if x.Role != RoleIntro || w == nil || w.Stage != StageWaitIntro || x.StartID != w.ID {
+		return
 	}
+	m.dropStartWait(at, msg)
 }
 
 // judge は自動切替の判定。すべての条件を満たすときだけ AutoFail か AutoRecover の

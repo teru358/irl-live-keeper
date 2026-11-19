@@ -40,13 +40,17 @@ func (m *Machine) Approve(batchID int, action Action, override Override, at time
 	}
 	id := s.NextReqID
 	s.NextReqID++
-	s.Expectations = append(s.Expectations, Expectation{
+	x := Expectation{
 		ReqID:        id,
 		Role:         set.Role,
 		RegisteredAt: at,
 		Override:     override,
 		TransitionMs: copyInt(s.TransitionMs),
-	})
+	}
+	if pb.Purpose == PurposeStartIntro {
+		x.StartID = pb.StartID
+	}
+	s.Expectations = append(s.Expectations, x)
 	return Proceed{ReqID: id}
 }
 

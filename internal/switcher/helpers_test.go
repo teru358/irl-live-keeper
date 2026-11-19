@@ -165,9 +165,9 @@ func show(v any) string {
 }
 
 func showExp(e Expectation) string {
-	return fmt.Sprintf("{r%d %v reg=%s ov=%T%+v tr=%s resp=%v at=%s res=%v dl=%s}",
+	return fmt.Sprintf("{r%d %v reg=%s ov=%T%+v tr=%s resp=%v at=%s res=%v dl=%s start=%d}",
 		e.ReqID, e.Role, show(e.RegisteredAt), e.Override, e.Override, show(e.TransitionMs),
-		e.Responded, show(e.RespondedAt), e.Result, show(e.Deadline))
+		e.Responded, show(e.RespondedAt), e.Result, show(e.Deadline), e.StartID)
 }
 
 // ---- 入口ごとに、1つの Event の前後の状態を比べる仕組み ----
@@ -371,7 +371,7 @@ func runApRows(t *testing.T, rows []apRow) {
 					}
 					want.Expectations = append(want.Expectations, Expectation{
 						ReqID: before.NextReqID, Role: r.register, RegisteredAt: atT,
-						Override: ov, TransitionMs: before.TransitionMs})
+						Override: ov, TransitionMs: before.TransitionMs, StartID: startIDOf(before.Pending[1])})
 					want.NextReqID++
 				} else if p.ReqID != exp.ReqID {
 					t.Errorf("ReqID: got %d, want %d", p.ReqID, exp.ReqID)
@@ -398,6 +398,14 @@ func runApRows(t *testing.T, rows []apRow) {
 			}
 		})
 	}
+}
+
+// startIDOf は、StartIntro のバッチなら待ちの番号を返す。期待に写る値。
+func startIDOf(pb PendingBatch) int {
+	if pb.Purpose == PurposeStartIntro {
+		return pb.StartID
+	}
+	return 0
 }
 
 // ---- Event の列を流す仕組み ----
