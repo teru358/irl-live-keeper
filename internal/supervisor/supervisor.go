@@ -53,10 +53,14 @@ type Supervisor struct {
 	sleep func(ctx context.Context, d time.Duration) error
 	grace time.Duration
 
-	mu      sync.Mutex
-	status  Status
+	// api の資格情報。New で1回だけ作り、プロセスが終わるまで変えない
+	// （Poller は作成時に受け取った資格情報で API を呼び続けるため）。
 	apiUser string
 	apiPass string
+	credErr error // 作れなかったときの理由。起動のたびにこれで失敗する
+
+	mu     sync.Mutex
+	status Status
 }
 
 // New は Supervisor を作る。binPath は mediamtx の実行ファイル、workDir は mediamtx.yml を置く場所。
@@ -64,13 +68,26 @@ func New(cfg *config.Config, binPath, workDir string, log *slog.Logger) *Supervi
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Supervisor{
+	s := &Supervisor{
 		cfg: cfg, binPath: binPath, workDir: workDir, log: log,
 		now:    time.Now,
 		sleep:  sleepCtx,
 		grace:  defaultGrace,
 		status: Status{State: StateDown},
 	}
+	s.apiUser, s.apiPass, s.credErr = newCredentials()
+	return s
+}
+
+// newCredentials は api のユーザー名とパスワードをランダムに作る。
+func newCredentials() (user, pass string, err error) {
+	if user, err = randomString(12); err != nil {
+		return "", "", fmt.Errorf("api の資格情報を作れません: %w", err)
+	}
+	if pass, err = randomString(24); err != nil {
+		return "", "", fmt.Errorf("api の資格情報を作れません: %w", err)
+	}
+	return user, pass, nil
 }
 
 func sleepCtx(ctx context.Context, d time.Duration) error {
@@ -91,10 +108,8 @@ func (s *Supervisor) Status() Status {
 	return s.status
 }
 
-// APICredentials は現在の API の資格情報を返す。起動のたびに変わる。
+// APICredentials は API の資格情報を返す。New で決まり、MediaMTX を再起動しても変わらない。
 func (s *Supervisor) APICredentials() (user, pass string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	return s.apiUser, s.apiPass
 }
 
@@ -157,15 +172,11 @@ func (s *Supervisor) runOnce(ctx context.Context) (time.Duration, error) {
 	if err := CheckPorts(s.cfg); err != nil {
 		return fail(err)
 	}
-	user, err := randomString(12)
-	if err != nil {
-		return fail(err)
+	if s.credErr != nil {
+		return fail(s.credErr)
 	}
-	pass, err := randomString(24)
-	if err != nil {
-		return fail(err)
-	}
-	yml, err := GenerateYAML(s.cfg, user, pass)
+	pass := s.apiPass
+	yml, err := GenerateYAML(s.cfg, s.apiUser, pass)
 	if err != nil {
 		return fail(err)
 	}
@@ -173,10 +184,6 @@ func (s *Supervisor) runOnce(ctx context.Context) (time.Duration, error) {
 	if err := os.WriteFile(ymlPath, yml, 0o600); err != nil {
 		return fail(fmt.Errorf("mediamtx.yml を書き込めません: %w", err))
 	}
-	s.mu.Lock()
-	s.apiUser, s.apiPass = user, pass
-	s.mu.Unlock()
-
 	lw := newLineWriter(s.log.With("component", "mediamtx"), s.cfg.Stream.PublishPass, s.cfg.Stream.ReadPass, pass)
 	cmd := exec.Command(s.binPath, ymlPath)
 	cmd.Dir = s.workDir

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"runtime"
@@ -199,27 +200,44 @@ func TestPortInUseStopsStart(t *testing.T) {
 	}
 }
 
-func TestAPICredentialsChangePerStart(t *testing.T) {
+func TestAPICredentialsSameAcrossRestarts(t *testing.T) {
 	s, _ := newSup(t, "exit")
+	re := regexp.MustCompile(`^[A-Za-z0-9]+$`)
+	// Poller は作成時に資格情報を受け取るので、Run の前から決まっている必要がある。
+	u0, p0 := s.APICredentials()
+	if !re.MatchString(u0) || !re.MatchString(p0) || len(p0) < 20 {
+		t.Fatalf("資格情報の形が不正: %q %q", u0, p0)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	re := regexp.MustCompile(`^[A-Za-z0-9]+$`)
-	seen := map[string]bool{}
+	starts := 0
 	s.sleep = func(context.Context, time.Duration) error {
-		u, p := s.APICredentials()
-		if !re.MatchString(u) || !re.MatchString(p) || len(p) < 20 {
-			t.Errorf("資格情報の形が不正: %q %q", u, p)
+		starts++
+		if u, p := s.APICredentials(); u != u0 || p != p0 {
+			t.Errorf("%d 回目の起動のあとで資格情報が変わった: %q %q", starts, u, p)
 		}
-		seen[p] = true
-		if len(seen) == 3 {
+		// MediaMTX に渡した設定にも、同じ資格情報が入っている。
+		yml, err := os.ReadFile(filepath.Join(s.workDir, ymlName))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(yml), u0) || !strings.Contains(string(yml), p0) {
+			t.Errorf("%d 回目の mediamtx.yml に資格情報がない:\n%s", starts, yml)
+		}
+		if starts == 3 {
 			cancel()
 			return context.Canceled
 		}
 		return nil
 	}
 	s.Run(ctx)
-	if len(seen) != 3 {
-		t.Errorf("起動ごとに変わっていない: %v", seen)
+	if starts != 3 {
+		t.Errorf("起動の回数 = %d, want 3", starts)
+	}
+	// 別の Supervisor は別の資格情報を持つ。
+	other, _ := newSup(t, "exit")
+	if _, p := other.APICredentials(); p == p0 {
+		t.Errorf("別の Supervisor で同じパスワード: %q", p)
 	}
 }
 
