@@ -1,0 +1,42 @@
+{
+  "name": "live",
+  "confName": "live",
+  "ready": true,
+  "readyTime": "2026-11-19T20:51:21.10972393+09:00",
+  "available": true,
+  "availableTime": "2026-11-19T20:51:21.10972393+09:00",
+  "online": true,
+  "onlineTime": "2026-11-19T20:51:21.109727907+09:00",
+  "source": {
+    "type": "rtmpConn",
+    "id": "754c24d1-d4b6-4ccb-9959-5fff1f0896ba"
+  },
+  "tracks": [
+    "H264",
+    "MPEG-4 Audio"
+  ],
+  "tracks2": [
+    {
+      "codec": "H264",
+      "codecProps": {
+        "width": 640,
+        "height": 360,
+        "profile": "High 4:4:4 Predictive",
+        "level": "3"
+      }
+    },
+    {
+      "codec": "MPEG-4 Audio",
+      "codecProps": {
+        "sampleRate": 44100,
+        "channelCount": 1
+      }
+    }
+  ],
+  "readers": [],
+  "inboundBytes": 187791,
+  "outboundBytes": 0,
+  "inboundFramesInError": 0,
+  "bytesReceived": 187791,
+  "bytesSent": 0
+}

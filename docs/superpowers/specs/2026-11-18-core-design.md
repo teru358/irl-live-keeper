@@ -1,7 +1,7 @@
 # irl-live-keeper 設計 — 全体構成と第1段階（コア）
 
 - 作成日: 2026-11-18
-- 版: v1.5（変更は末尾の変更履歴を参照）
+- 版: v1.6（変更は末尾の変更履歴を参照）
 - 状態: ユーザー承認済みの設計（セクション1〜5）を文書化したもの
 - 対象バージョン: MediaMTX v1.21.4（2026-11-15 リリース）、obs-websocket v5
 
@@ -132,7 +132,7 @@ log:
 
 1秒ごとに次を読む（各リクエストのタイムアウトは 500ms）。
 
-- `GET /v3/paths/get/{stream.name}`: `online`、`inboundBytes`、`source.type`（`rtmpConn` / `srtConn` など）、publisher の識別子（`source.id` か `onlineTime`。どちらを使うかは spike ③ で録った実物を見て1つに決め、もう一方を fallback として読まない）
+- `GET /v3/paths/get/{stream.name}`: `online`、`inboundBytes`、`source.type`（`rtmpConn` / `srtConn` など）、publisher の識別子 `source.id`（接続ごとに変わる UUID。spike ③ で確認。`onlineTime` は fallback として読まない）
 - `source.type` が `srtConn` のときだけ `GET /v3/srt/conns/list` を読み、その path を publish している接続の `msRTT`、`mbpsReceiveRate`、`packetsReceivedLossRate` を取る（表示用）。この読み取りだけが失敗したときは `SRT` を nil にし、`Kbps` と `Err` には影響させない
 
 非推奨のフィールドとエンドポイント（`ready`、`bytesReceived`、`/v3/srtconns/*`）は使わない。
@@ -154,7 +154,8 @@ type Sample struct {
 - `inboundBytes` の差分から自前でビットレートを出す。モバイル回線では TCP 接続が残ったままバイトだけ止まることがあるため、切断イベントではなく差分が 0 かどうかで途切れを判定する
 - **基準:** Poller は「最後に path の API を読めたときの `inboundBytes`、時刻、publisher の識別子」を基準として持つ。`Kbps` の分母は基準からの経過時間で、`Interval`（前回の Sample から）とは別物である。API が失敗した回は基準を変えないので、失敗の次の回は2秒分のバイトを2秒で割る
 - 次のときは、その回の `Kbps` を 0 とし、読めた値を新しい基準にする: 起動後の最初の読み取り、publisher の識別子が変わったとき（識別子がない状態からある状態への変化を含む。再接続や MediaMTX の再起動はこれか次の条件で必ず検出されるので、再起動の通知は使わない）、`inboundBytes` が基準より減ったとき
-- `Online` が false の間は `Kbps` を 0 とする（publisher がいなくても、設定にある path は API で返る）
+- `Online` が false の間は `Kbps` を 0 とする（publisher がいなくても、設定にある path は HTTP 200 で `online: false`、`source: null`、`inboundBytes: 0` を返す）
+- 送信が TCP 接続を残したまま止まると、`online` は true のまま `inboundBytes` だけが増えなくなる。MediaMTX は約10秒（`readTimeout`）でその接続を閉じる。止まっていた送信が再開すると、たまっていたデータがまとめて届き、直後の `Kbps` が一時的に大きくなる（spike ③ で確認）
 - path の API が失敗したときは `Err` を入れ、`Kbps` を 0、`Online` を false、`Protocol` を空にする。`Interval` は前回の Sample からの経過時間のまま
 - 起動後の最初の Sample の `Interval` は 0 とする（累積に何も足さない）
 
@@ -404,7 +405,7 @@ type Client interface {
 
 ### 生成する mediamtx.yml
 
-起動のたびに config から生成して上書きする（先頭に「自動生成。編集しないこと」と書く）。要点:
+起動のたびに config から生成して上書きする（先頭に「自動生成。編集しないこと」と書く）。v1.21.4 で動くことを確かめた見本は `internal/supervisor/testdata/reference-v1.21.4.yml`（spike ③）。要点:
 
 - 既定値に頼らず、v1.21.4 にあるすべてのプロトコルと機能のスイッチを明示して書く。有効にするのは RTMP（`:rtmp_port`、`rtmpEncryption: "no"`）、SRT（`:srt_port`）、RTSP（`:rtsp_port`、`rtspTransports: [tcp]`、`rtspEncryption: "no"`）、API（`127.0.0.1:api_port`）だけ。HLS、WebRTC、MoQ、playback、metrics、pprof は `false` にする。RTSP の UDP とマルチキャスト（既定では 8000/8001 UDP などを開く）と MoQ（既定で有効、8892/8893）を止めるのは、事前確認していないポートで起動に失敗するのと、意図しない待ち受けを開くのを防ぐため
 - path は `stream.name` の1本だけ。それ以外の path は受け付けない
@@ -412,6 +413,7 @@ type Client interface {
   - publish: `stream.publish_user` / `stream.publish_pass`（RTMP と SRT で共通）、IP 制限なし
   - read: `stream.read_user` / `stream.read_pass`、IP 制限なし。パスワードなしの読み出しは作らない。トンネルやポートプロキシ、送信元を書き換える転送を使うと、インターネットからの接続も 127.0.0.1 や LAN のアドレスに見えるため、IP だけで許可すると生映像を誰でも読めてしまう
   - api: 起動のたびにランダムに作るユーザー名とパスワード、`127.0.0.1` と `::1` からだけ許可。Poller はこの資格情報で API を呼ぶ
+- MediaMTX の API の応答は、ログにそのまま書かない。`/v3/rtmp/conns/list` は RTMP の publisher のクエリ（`user=…&pass=…`）を平文で返す（spike ③ で確認）
 
 送信用 URL（status と、起動時の標準出力に表示する。10章のログの規則を参照）:
 - SRT: `srt://<host>:<srt_port>?streamid=publish:<name>:<user>:<pass>`
@@ -556,7 +558,7 @@ goobs のラッパーは実際の OBS を相手に手動で確かめる。自動
 
 1. **OBS からの読み出し:** rtsp / rtmp / srt のうち、遅延が小さく再接続が確実な URL と、メディアソースの設定（`reconnect_delay_sec`、バッファリング、ネットワークバッファ）を決める。決まった URL を 8章の OBS 用 URL とする
 2. **Fail → Live の復帰:** 待機シーン中はメディアソースが非表示になる。`restart_on_activate`（既定 ON）だと、非表示中に再接続しても表示されるまで再生を始めない。この挙動のもとで、切替の前に `RESTART` を送ると映像がすぐ出るか、RESTART と切替の順序と待ち時間をどうするかを決める。結果は 6章の定数に反映する
-3. **テスト用の JSON:** 実際の API の応答（`/v3/paths/get/{name}`、`/v3/rtmp/conns/list`、`/v3/srt/conns/list`）を、RTMP と SRT それぞれ送信中・未送信の状態で録り、`internal/ingest/testdata/` に置く。TCP 接続が残ったままバイトが止まる状況を再現できれば、それも録る。あわせて、MediaMTX のログに publish の資格情報が出るかを確かめる（8章の置き換えが効いているかの確認）
+3. **（済）テスト用の JSON:** 実際の API の応答（`/v3/paths/get/{name}`、`/v3/rtmp/conns/list`、`/v3/srt/conns/list`）を、RTMP と SRT それぞれ送信中・未送信の状態で録り、`internal/ingest/testdata/` に置く。TCP 接続が残ったままバイトが止まる状況を再現できれば、それも録る。あわせて、MediaMTX のログに publish の資格情報が出るかを確かめる（8章の置き換えが効いているかの確認）
 
 ## 13. 既知の制約
 
@@ -577,4 +579,5 @@ goobs のラッパーは実際の OBS を相手に手動で確かめる。自動
 | 2026-11-18 | v1.2 | 読み出しにも認証を必須にした（4章、8章）。実行待ちのバッチを世代番号で失効させ、実行直前に承認を取る（6章、9章）。期待シーンを送信時に登録し、期限をトランジション時間から決め、列で持つ（6章）。配信開始は Intro になってから始める。バッチは失敗した時点で残りを捨てる（6章、7章）。手動保持を再接続で解除しない条件、配信停止で消すこと、Pause の直前の役割の寿命を定義（6章）。Judge の評価順、Kbps の分母、新しい publisher の検出を定義（5章）。MediaMTX の全プロトコルのスイッチを明示し、RTSP を TCP だけにした（8章）。Pdeathsig のスレッド固定、Job Object を本体自身に掛ける方式に変更、ポートの事前確認を補助の診断にした（8章）。名前とパスワードの使える文字を制限（4章）。`cmdErr` の型で 503 と 409 を分け、POST に独自ヘッダーを必須にした（9章）。テスト表の状態の軸を追加（11章）。13章の2項目が変更履歴の後ろにずれていたのを戻した | 設計レビュー1周目（Fable: Critical 1 / Important 8 / Minor 8、codex sol: Critical 1 / Important 10 / Minor 2）。読み出しの認証はユーザーの裁定 | 1a0378c |
 | 2026-11-19 | v1.3 | 世代番号を廃止し、バッチの目的（Purpose）ごとの有効条件を承認の時点で確かめる方式に変えた。配信停止や Pause は受信状態の変化で捨てない。GoLive / PauseOff は回線の悪化で Fail へ決め直す（6章）。`Approve` を `Machine.Approve` に分け、`Proceed` / `Skip` / `Reject` を返す。`SceneRequestDone` と `BatchDone` を追加し、同じ Purpose の未完了のバッチがある間は重ねて出さない（6章、9章）。期待の期限を応答の時点から数え、タイムアウトでは消さず、Transition Override の長さを使う。一致した期待より前の期待も消す（6章、7章）。中核ループと実行役のチャネルの決まりを追加（9章）。配信状態の写像を定義し、出力の再接続を停止として扱わない（7章）。手動保持は配信中だけ入る（6章）。配信開始の待ちを消す条件を列挙（6章）。Poller の残りの未定義を決めた（5章）。Windows の Job の割当失敗時とハンドルの扱い（8章）。テスト表の展開の仕方（11章） | 設計レビュー2周目（Fable: Critical 0 / Important 5 / Minor 6、codex sol: Critical 0 / Important 7 / Minor 1） | 6566a38 |
 | 2026-11-19 | v1.4 | 配信開始の待ちに「Intro 確認済み」の段階を足し、確認後の StartIntro のタイムアウトで開始を取り消さない。`Approve` に `Replace{Batch}` を足して GoLive / PauseOffLive の決め直しを受け渡す。トランジションの上書きを `Override`（`None` / `Known` / `Unknown`）で渡す。`StreamEpoch` を足し、前の配信のバッチを次の配信で実行しない。実行役が次のバッチを受け取る順序と、`SceneRequestDone` と `BatchDone` の順序を明記（6章、7章、9章、11章） | 設計レビュー3周目（codex sol、新しい方式に絞った周: Critical 0 / Important 4 / Minor 0）。Critical 0 が続いたので、この版で設計レビューを終える | 26ed572 |
-| 2026-11-19 | v1.5 | 6章に「細部の規則」を追加（承認の順序、配信開始の待ちの細部、実行中の操作の重複、`last_error`、`Tick` の判定、切替中の自動判定の停止、期限の境界、初期値など23項目） | switcher の「入口 × 状態」の表を作る中で見つかった不明点（U-01〜U-23）。技術で決まるものとして、表の案どおりに決めた | この版の commit |
+| 2026-11-19 | v1.5 | 6章に「細部の規則」を追加（承認の順序、配信開始の待ちの細部、実行中の操作の重複、`last_error`、`Tick` の判定、切替中の自動判定の停止、期限の境界、初期値など23項目） | switcher の「入口 × 状態」の表を作る中で見つかった不明点（U-01〜U-23）。技術で決まるものとして、表の案どおりに決めた | 9f3fbb8 |
+| 2026-11-19 | v1.6 | publisher の識別子を `source.id` に決めた。path の応答、送信が止まったときと再開したときの挙動を 5章に記録。8章に見本の設定ファイルの場所と、API の応答をログに書かない注意を追加。spike ③ を済みにした | spike ③（MediaMTX v1.21.4 を実際に動かして応答を録った。設定の項目名はすべて正しかった） | この版の commit |

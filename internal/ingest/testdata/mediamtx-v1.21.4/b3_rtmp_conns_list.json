@@ -1,0 +1,22 @@
+{
+  "itemCount": 1,
+  "pageCount": 1,
+  "items": [
+    {
+      "id": "754c24d1-d4b6-4ccb-9959-5fff1f0896ba",
+      "created": "2026-11-19T20:51:18.282779364+09:00",
+      "remoteAddr": "127.0.0.1:36102",
+      "state": "publish",
+      "path": "live",
+      "query": "user=irl&pass=***",
+      "user": "irl",
+      "expiresAt": null,
+      "userAgent": "FMLE/3.0 (compatible; Lavf62.3.100)",
+      "inboundBytes": 263851,
+      "outboundBytes": 3467,
+      "outboundFramesDiscarded": 0,
+      "bytesReceived": 263851,
+      "bytesSent": 3467
+    }
+  ]
+}

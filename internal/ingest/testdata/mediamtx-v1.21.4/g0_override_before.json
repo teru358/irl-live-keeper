@@ -1,0 +1,42 @@
+{
+  "name": "live",
+  "confName": "live",
+  "ready": true,
+  "readyTime": "2026-11-19T20:54:05.53698163+09:00",
+  "available": true,
+  "availableTime": "2026-11-19T20:54:05.53698163+09:00",
+  "online": true,
+  "onlineTime": "2026-11-19T20:54:05.536983985+09:00",
+  "source": {
+    "type": "srtConn",
+    "id": "d27db732-ca32-4d0f-bd9c-d2f96b330ab3"
+  },
+  "tracks": [
+    "H264",
+    "MPEG-4 Audio"
+  ],
+  "tracks2": [
+    {
+      "codec": "H264",
+      "codecProps": {
+        "width": 640,
+        "height": 360,
+        "profile": "High 4:4:4 Predictive",
+        "level": "3"
+      }
+    },
+    {
+      "codec": "MPEG-4 Audio",
+      "codecProps": {
+        "sampleRate": 44100,
+        "channelCount": 1
+      }
+    }
+  ],
+  "readers": [],
+  "inboundBytes": 327264,
+  "outboundBytes": 0,
+  "inboundFramesInError": 0,
+  "bytesReceived": 327264,
+  "bytesSent": 0
+}
