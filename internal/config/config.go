@@ -19,12 +19,13 @@ import (
 
 // Config は config.yaml 全体。
 type Config struct {
-	Admin    Admin    `yaml:"admin"`
-	MediaMTX MediaMTX `yaml:"mediamtx"`
-	Stream   Stream   `yaml:"stream"`
-	OBS      OBS      `yaml:"obs"`
-	Switch   Switch   `yaml:"switch"`
-	Log      Log      `yaml:"log"`
+	Admin         Admin         `yaml:"admin"`
+	MediaMTX      MediaMTX      `yaml:"mediamtx"`
+	Stream        Stream        `yaml:"stream"`
+	OBS           OBS           `yaml:"obs"`
+	OnStreamStart OnStreamStart `yaml:"on_stream_start"`
+	Switch        Switch        `yaml:"switch"`
+	Log           Log           `yaml:"log"`
 }
 
 // Admin は管理 API の設定。
@@ -57,24 +58,26 @@ type OBS struct {
 	Port        int    `yaml:"port"`
 	Password    string `yaml:"password"`
 	MediaSource string `yaml:"media_source"`
-	Scenes      Scenes `yaml:"scenes"`
+	// StandbyScene は回線が悪い間に出す待機シーン名（1つ）。
+	StandbyScene string `yaml:"standby_scene"`
+	// MonitoredScenes は監視対象のシーン名（1つ以上）。カメラ映像を使うシーン。
+	MonitoredScenes []string `yaml:"monitored_scenes"`
 }
 
-// Scenes は役割から実際の OBS シーン名への対応。
-type Scenes struct {
-	Intro string `yaml:"intro"`
-	Live  string `yaml:"live"`
-	Fail  string `yaml:"fail"`
-	Pause string `yaml:"pause"`
+// OnStreamStart は配信開始時の切替（安全機能）の設定。
+type OnStreamStart struct {
+	Enabled bool   `yaml:"enabled"`
+	Scene   string `yaml:"scene"`
 }
 
 // Switch はシーン切り替えのしきい値。秒は整数の秒、ビットレートは kbps。
 type Switch struct {
-	FailKbps    int `yaml:"fail_kbps"`
-	LowSec      int `yaml:"low_sec"`
-	RecoverKbps int `yaml:"recover_kbps"`
-	RecoverSec  int `yaml:"recover_sec"`
-	DownSec     int `yaml:"down_sec"`
+	AutoEnabled bool `yaml:"auto_enabled"`
+	FailKbps    int  `yaml:"fail_kbps"`
+	LowSec      int  `yaml:"low_sec"`
+	RecoverKbps int  `yaml:"recover_kbps"`
+	RecoverSec  int  `yaml:"recover_sec"`
+	DownSec     int  `yaml:"down_sec"`
 }
 
 // Log はログの出力設定。
@@ -93,9 +96,9 @@ func defaults() *Config {
 		Stream: Stream{Name: "live", PublishUser: "irl", ReadUser: "obs"},
 		OBS: OBS{
 			Host: "127.0.0.1", Port: 4455, MediaSource: "IRL",
-			Scenes: Scenes{Intro: "Intro", Live: "Live", Fail: "Fail", Pause: "Pause"},
+			StandbyScene: "Standby", MonitoredScenes: []string{"Camera"},
 		},
-		Switch: Switch{FailKbps: 800, LowSec: 5, RecoverKbps: 1500, RecoverSec: 10, DownSec: 2},
+		Switch: Switch{AutoEnabled: true, FailKbps: 800, LowSec: 5, RecoverKbps: 1500, RecoverSec: 10, DownSec: 2},
 		Log:    Log{Dir: "logs", KeepDays: 14},
 	}
 }
@@ -162,13 +165,16 @@ obs:
   port: 4455
   password: ""               # 空なら認証なしで接続する（OBS 側で認証を無効にしている場合）
   media_source: IRL          # MediaMTX を読むメディアソースの入力名
-  scenes:                    # 役割 → 実際の OBS シーン名
-    intro: Intro
-    live: Live
-    fail: Fail
-    pause: Pause
+  standby_scene: Standby     # 待機シーン（1つ）。回線が悪い間に出す OBS のシーン名。既定値は Standby
+  monitored_scenes:          # 監視対象のシーン（1つ以上）。カメラ映像（メディアソース）を使うシーン。既定値は Camera の1つ
+    - Camera
+
+on_stream_start:             # 配信開始時の切替（安全機能）
+  enabled: false             # true にすると、配信が始まったときに scene へ切り替える
+  scene: ""
 
 switch:
+  auto_enabled: true         # 自動切替。あえて乱れた映像を出したいときに false にする
   fail_kbps: 800             # これ未満が low_sec 続いたら LOW
   low_sec: 5
   recover_kbps: 1500         # これ以上が recover_sec 続いたら OK
@@ -309,22 +315,33 @@ func (c *Config) Validate() error {
 	}
 
 	// シーン名
-	scenes := []struct{ field, v string }{
-		{"obs.scenes.intro", c.OBS.Scenes.Intro},
-		{"obs.scenes.live", c.OBS.Scenes.Live},
-		{"obs.scenes.fail", c.OBS.Scenes.Fail},
-		{"obs.scenes.pause", c.OBS.Scenes.Pause},
+	if c.OBS.StandbyScene == "" {
+		add("obs.standby_scene", "空にできません")
 	}
-	for i, s := range scenes {
-		if s.v == "" {
-			add(s.field, "空にできません")
+	if len(c.OBS.MonitoredScenes) == 0 {
+		add("obs.monitored_scenes", "1つ以上指定してください")
+	}
+	for i, s := range c.OBS.MonitoredScenes {
+		field := fmt.Sprintf("obs.monitored_scenes[%d]", i)
+		if s == "" {
+			add(field, "空にできません")
 			continue
 		}
-		for _, prev := range scenes[:i] {
-			if prev.v == s.v {
-				add(s.field, fmt.Sprintf("%s と同じシーン名 %q です。互いに異なる名前にしてください", prev.field, s.v))
+		if s == c.OBS.StandbyScene {
+			add("obs.standby_scene", fmt.Sprintf("obs.monitored_scenes に含まれないシーンにしてください（%q は %s にあります）", s, field))
+		}
+		for j, prev := range c.OBS.MonitoredScenes[:i] {
+			if prev == s {
+				add(field, fmt.Sprintf("obs.monitored_scenes[%d] と同じシーン名 %q です。互いに異なる名前にしてください", j, s))
 				break
 			}
+		}
+	}
+	if c.OnStreamStart.Enabled {
+		if c.OnStreamStart.Scene == "" {
+			add("on_stream_start.scene", "on_stream_start.enabled が true のときは空にできません")
+		} else if c.OnStreamStart.Scene == c.OBS.StandbyScene {
+			add("on_stream_start.scene", "obs.standby_scene と異なるシーンにしてください（待機シーンで配信が始まると自動で戻らないため）")
 		}
 	}
 
