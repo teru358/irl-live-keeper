@@ -1,0 +1,262 @@
+package config
+
+import (
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"testing"
+)
+
+// valid は検証を通る基準の設定を返す。
+func valid() *Config {
+	c := defaults()
+	c.Admin.Password = "adminpass"
+	c.Stream.PublishPass = "publishpass"
+	c.Stream.ReadPass = "readpass1"
+	return c
+}
+
+func TestValidate(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(c *Config)
+		field  string // 空なら通ること
+	}{
+		{"基準は通る", func(c *Config) {}, ""},
+
+		{"recover>fail 通る", func(c *Config) { c.Switch.FailKbps = 800; c.Switch.RecoverKbps = 801 }, ""},
+		{"recover==fail 落ちる", func(c *Config) { c.Switch.RecoverKbps = c.Switch.FailKbps }, "switch.recover_kbps"},
+		{"recover<fail 落ちる", func(c *Config) { c.Switch.RecoverKbps = 100 }, "switch.recover_kbps"},
+
+		{"秒が1 通る", func(c *Config) { c.Switch.LowSec, c.Switch.RecoverSec, c.Switch.DownSec = 1, 1, 1 }, ""},
+		{"low_sec 0 落ちる", func(c *Config) { c.Switch.LowSec = 0 }, "switch.low_sec"},
+		{"recover_sec 0 落ちる", func(c *Config) { c.Switch.RecoverSec = 0 }, "switch.recover_sec"},
+		{"down_sec 0 落ちる", func(c *Config) { c.Switch.DownSec = 0 }, "switch.down_sec"},
+		{"down_sec==low_sec 通る", func(c *Config) { c.Switch.DownSec = c.Switch.LowSec }, ""},
+		{"down_sec>low_sec 落ちる", func(c *Config) { c.Switch.DownSec = c.Switch.LowSec + 1 }, "switch.down_sec"},
+
+		{"ポート 1 と 65535 通る", func(c *Config) { c.MediaMTX.RTMPPort = 1; c.MediaMTX.SRTPort = 65535 }, ""},
+		{"rtmp_port 0 落ちる", func(c *Config) { c.MediaMTX.RTMPPort = 0 }, "mediamtx.rtmp_port"},
+		{"srt_port 65536 落ちる", func(c *Config) { c.MediaMTX.SRTPort = 65536 }, "mediamtx.srt_port"},
+		{"rtsp_port 負 落ちる", func(c *Config) { c.MediaMTX.RTSPPort = -1 }, "mediamtx.rtsp_port"},
+		{"api_port 0 落ちる", func(c *Config) { c.MediaMTX.APIPort = 0 }, "mediamtx.api_port"},
+		{"obs.port 0 落ちる", func(c *Config) { c.OBS.Port = 0 }, "obs.port"},
+		{"mediamtx 同士の重複 落ちる", func(c *Config) { c.MediaMTX.SRTPort = c.MediaMTX.RTMPPort }, "mediamtx.srt_port"},
+		{"admin.listen と重複 落ちる", func(c *Config) { c.Admin.Listen = "127.0.0.1:9997" }, "admin.listen"},
+		{"admin.listen 重複なし 通る", func(c *Config) { c.Admin.Listen = "0.0.0.0:18787" }, ""},
+		{"admin.listen ポートなし 落ちる", func(c *Config) { c.Admin.Listen = "127.0.0.1" }, "admin.listen"},
+		{"admin.listen ポート範囲外 落ちる", func(c *Config) { c.Admin.Listen = "127.0.0.1:70000" }, "admin.listen"},
+		{"admin.listen ポート非数値 落ちる", func(c *Config) { c.Admin.Listen = "127.0.0.1:abc" }, "admin.listen"},
+
+		{"stream.name 空 落ちる", func(c *Config) { c.Stream.Name = "" }, "stream.name"},
+		{"stream.name 記号 落ちる", func(c *Config) { c.Stream.Name = "a/b" }, "stream.name"},
+		{"stream.name 英数_- 通る", func(c *Config) { c.Stream.Name = "Live_1-a" }, ""},
+		{"publish_user 空 落ちる", func(c *Config) { c.Stream.PublishUser = "" }, "stream.publish_user"},
+		{"publish_user コロン 落ちる", func(c *Config) { c.Stream.PublishUser = "a:b" }, "stream.publish_user"},
+		{"publish_pass 空 落ちる", func(c *Config) { c.Stream.PublishPass = "" }, "stream.publish_pass"},
+		{"publish_pass # 落ちる", func(c *Config) { c.Stream.PublishPass = "abcdefg#h" }, "stream.publish_pass"},
+		{"read_user & 落ちる", func(c *Config) { c.Stream.ReadUser = "a&b" }, "stream.read_user"},
+		{"read_user 空 落ちる", func(c *Config) { c.Stream.ReadUser = "" }, "stream.read_user"},
+		{"read_pass 空白 落ちる", func(c *Config) { c.Stream.ReadPass = "abcd efgh" }, "stream.read_pass"},
+		{"read_pass 空 落ちる", func(c *Config) { c.Stream.ReadPass = "" }, "stream.read_pass"},
+
+		{"publish_pass 8文字 通る", func(c *Config) { c.Stream.PublishPass = "12345678" }, ""},
+		{"publish_pass 7文字 落ちる", func(c *Config) { c.Stream.PublishPass = "1234567" }, "stream.publish_pass"},
+		{"read_pass 7文字 落ちる", func(c *Config) { c.Stream.ReadPass = "1234567" }, "stream.read_pass"},
+
+		{"publish_user any 落ちる", func(c *Config) { c.Stream.PublishUser = "any" }, "stream.publish_user"},
+		{"read_user any 落ちる", func(c *Config) { c.Stream.ReadUser = "any" }, "stream.read_user"},
+		{"user が同じ 落ちる", func(c *Config) { c.Stream.ReadUser = c.Stream.PublishUser }, "stream.read_user"},
+		{"user が異なる 通る", func(c *Config) { c.Stream.PublishUser = "alice"; c.Stream.ReadUser = "bob" }, ""},
+
+		{"シーン intro 空 落ちる", func(c *Config) { c.OBS.Scenes.Intro = "" }, "obs.scenes.intro"},
+		{"シーン live 空 落ちる", func(c *Config) { c.OBS.Scenes.Live = "" }, "obs.scenes.live"},
+		{"シーン fail 空 落ちる", func(c *Config) { c.OBS.Scenes.Fail = "" }, "obs.scenes.fail"},
+		{"シーン pause 空 落ちる", func(c *Config) { c.OBS.Scenes.Pause = "" }, "obs.scenes.pause"},
+		{"シーン重複 落ちる", func(c *Config) { c.OBS.Scenes.Pause = c.OBS.Scenes.Live }, "obs.scenes.pause"},
+		{"シーンに日本語 通る", func(c *Config) { c.OBS.Scenes.Intro = "オープニング" }, ""},
+
+		{"admin.password 空 落ちる", func(c *Config) { c.Admin.Password = "" }, "admin.password"},
+		{"obs.password 空 通る", func(c *Config) { c.OBS.Password = "" }, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := valid()
+			tt.mutate(c)
+			err := c.Validate()
+			if tt.field == "" {
+				if err != nil {
+					t.Fatalf("通るはずが落ちた: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("落ちるはずが通った（%s）", tt.field)
+			}
+			if !strings.Contains(err.Error(), tt.field+":") {
+				t.Fatalf("エラーに項目名 %s がない: %v", tt.field, err)
+			}
+		})
+	}
+}
+
+func TestValidateは違反をすべて集める(t *testing.T) {
+	c := valid()
+	c.Switch.RecoverKbps = 1
+	c.Admin.Password = ""
+	c.OBS.Scenes.Fail = ""
+	err := c.Validate()
+	if err == nil {
+		t.Fatal("落ちるはず")
+	}
+	for _, f := range []string{"switch.recover_kbps", "admin.password", "obs.scenes.fail"} {
+		if !strings.Contains(err.Error(), f) {
+			t.Errorf("%s が含まれない: %v", f, err)
+		}
+	}
+}
+
+func TestGenerateとLoad(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	cfg, err := Generate(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("生成した設定が検証を通らない: %v", err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if *loaded != *cfg {
+		t.Fatalf("読み込み直した値が一致しない: %+v vs %+v", loaded, cfg)
+	}
+	if d := defaults(); loaded.MediaMTX != d.MediaMTX || loaded.Switch != d.Switch || loaded.Admin.Listen != d.Admin.Listen {
+		t.Fatalf("既定値と異なる: %+v", loaded)
+	}
+
+	st, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := st.Mode().Perm(); perm != 0o600 {
+		t.Errorf("ファイルの権限が 0600 でない: %o", perm)
+	}
+	raw, _ := os.ReadFile(path)
+	if !strings.Contains(string(raw), "# 管理 API。別 PC から") {
+		t.Error("説明コメントが残っていない")
+	}
+	if strings.Contains(string(raw), `"*"`) {
+		t.Error("* が置き換わっていない")
+	}
+
+	re := regexp.MustCompile(`^[A-Za-z0-9]{24}$`)
+	secrets := []string{cfg.Admin.Password, cfg.Stream.PublishPass, cfg.Stream.ReadPass}
+	for _, s := range secrets {
+		if !re.MatchString(s) {
+			t.Errorf("生成した値が文字種・長さに合わない: %q", s)
+		}
+	}
+	if secrets[0] == secrets[1] || secrets[1] == secrets[2] || secrets[0] == secrets[2] {
+		t.Error("生成した値が重複している")
+	}
+}
+
+func TestGenerateは上書きしない(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Generate(path); err == nil {
+		t.Fatal("既存ファイルがあるのに成功した")
+	}
+	got, _ := os.ReadFile(path)
+	if string(got) != "keep" {
+		t.Fatalf("既存ファイルが書き換わった: %q", got)
+	}
+}
+
+func TestLoad(t *testing.T) {
+	write := func(t *testing.T, s string) string {
+		p := filepath.Join(t.TempDir(), "c.yaml")
+		if err := os.WriteFile(p, []byte(s), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	const minimal = "admin:\n  password: adminpass\nstream:\n  publish_pass: publishpass\n  read_pass: readpass1\n"
+
+	t.Run("省略した項目は既定値", func(t *testing.T) {
+		cfg, err := Load(write(t, minimal))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.Admin.Listen != "127.0.0.1:8787" || cfg.Switch.FailKbps != 800 || cfg.OBS.Scenes.Pause != "Pause" || cfg.Log.KeepDays != 14 {
+			t.Fatalf("既定値が入っていない: %+v", cfg)
+		}
+	})
+	t.Run("指定した値は既定値を上書きする", func(t *testing.T) {
+		cfg, err := Load(write(t, minimal+"switch:\n  fail_kbps: 500\n"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.Switch.FailKbps != 500 || cfg.Switch.RecoverKbps != 1500 {
+			t.Fatalf("%+v", cfg.Switch)
+		}
+	})
+	t.Run("未知のキーは拒否", func(t *testing.T) {
+		if _, err := Load(write(t, minimal+"bogus: 1\n")); err == nil {
+			t.Fatal("通ってしまった")
+		}
+		if _, err := Load(write(t, minimal+"switch:\n  fail_kb: 1\n")); err == nil {
+			t.Fatal("入れ子の未知キーが通ってしまった")
+		}
+	})
+	t.Run("検証に落ちる", func(t *testing.T) {
+		_, err := Load(write(t, "admin:\n  password: x\n"))
+		if err == nil || !strings.Contains(err.Error(), "stream.publish_pass") {
+			t.Fatalf("err=%v", err)
+		}
+	})
+	t.Run("空ファイルは検証で落ちる", func(t *testing.T) {
+		if _, err := Load(write(t, "")); err == nil {
+			t.Fatal("通ってしまった")
+		}
+	})
+	t.Run("ファイルなし", func(t *testing.T) {
+		if _, err := Load(filepath.Join(t.TempDir(), "none.yaml")); err == nil {
+			t.Fatal("通ってしまった")
+		}
+	})
+}
+
+func TestWarnings(t *testing.T) {
+	tests := []struct {
+		listen string
+		warn   bool
+	}{
+		{"127.0.0.1:8787", false},
+		{"127.5.6.7:8787", false},
+		{"[::1]:8787", false},
+		{"localhost:8787", false},
+		{"0.0.0.0:8787", true},
+		{"192.168.1.10:8787", true},
+		{":8787", true},
+		{"[::]:8787", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.listen, func(t *testing.T) {
+			c := valid()
+			c.Admin.Listen = tt.listen
+			w := c.Warnings()
+			if (len(w) > 0) != tt.warn {
+				t.Fatalf("警告=%v 期待=%v", w, tt.warn)
+			}
+			if tt.warn && !strings.Contains(w[0], "平文") {
+				t.Errorf("警告文に平文の注意がない: %v", w)
+			}
+		})
+	}
+}
