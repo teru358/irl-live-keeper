@@ -353,6 +353,7 @@ PauseOn は旧版と違い、Intro からも受け付ける（開始前の待機
 - **配信開始の待ち（U-02、U-03、U-17）:**
   - StartIntro の `BatchDone{Completed}` を受けた時点で、待ちが「Intro の確認待ち」で役割が Intro なら、「Intro 確認済み」に進めて StartStream のバッチを出す（`Skip` されて `SceneChanged` が来ない場合）
   - 前の StreamStart が登録した Intro への期待に一致する `SceneChanged` でも、今の待ちを「Intro 確認済み」に進める。一方、バッチの却下と `BatchDone` は、自分と同じ番号の待ちにだけ作用する
+  - Intro への期待は、それを登録した StreamStart の番号を持つ。期待の期限切れと `Result: Error` で待ちを消すのは、その番号が今の待ちと同じときだけ
   - `StreamStateChanged{Streaming: true}` で待ちを消すのは成功とみなし、記録しない。「Intro 確認済み」のあとの StartIntro の失敗も記録しない
 - **実行中の操作の重複（U-04）:** 受け付ける条件を満たす Command でも、同じ操作のバッチが未完了なら `ErrInvalidState`（理由: 同じ操作が実行待ち）を返し、状態を変えない。同じ操作として扱う Purpose は、GoLive なら GoLive / GoFail、PauseOff なら PauseOffLive / PauseOffFail / PauseOffIntro、StreamStart なら StartIntro / StartStream
 - **`last_error`（U-05、U-18）:** `BatchDone{Failed}` は Auto でも記録する。`Rejected` は Command 由来だけ記録する。`RestartMedia` だけが失敗して続く `SetScene` が成功したバッチは `Result: Completed` で `Err` に RESTART のエラーを入れ、`Err` があれば記録する。switcher は `last_error` を消さず、新しい記録で上書きする

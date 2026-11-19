@@ -1,6 +1,6 @@
 # switcher「入口 × 状態」の表（T5 / T6 の期待値）
 
-- 対象 spec: `docs/superpowers/specs/2026-11-18-core-design.md` v1.4 の 6章、7章、9章、11章
+- 対象 spec: `docs/superpowers/specs/2026-11-18-core-design.md` v1.5 の 6章、7章、9章、11章
 - 対象 task: `docs/superpowers/plans/2026-11-19-core-tasks.md` の T5、T6（実装の前にこの表をレビューする）
 - 状態: 不明点は spec v1.5 の 6章「細部の規則」で決めた（すべて 4章の案どおり）。`U-xx` を引いている行は、その案を期待値とする
 - 読み方: 表の行番号（`LC-1`、`CMD-START-3`、`AP-AUTOFAIL-2`、`SQ-05a` など）をテスト名かテーブルの行の名前に入れ、どの行を確かめているかを辿れるようにする
@@ -82,6 +82,7 @@
 | 名前 | 型 | 意味 |
 |---|---|---|
 | `ReqID` | `int` | `Approve` が `Proceed` で返した番号。`SceneRequestDone` と1対1 |
+| `StartID` | `int` | StartIntro のバッチが登録した Intro への期待なら、その StreamStart の番号。それ以外は 0 |
 | `Role` | `Role` | 送った `SetScene` の切替先の役割 |
 | `RegisteredAt` | `time.Time` | `Approve` の `at` |
 | `Override` | `Override` | `Approve` に渡された上書きの状態（`None` / `Known{Ms}` / `Unknown`） |
@@ -238,7 +239,7 @@ Purpose の一覧: `AutoFail`、`AutoRecover`、`GoLive`、`GoFail`、`PauseOffL
 | SRD-TO-1 | T5 | `Timeout`。期待が応答待ち | SRD-OK-1 と同じ（`Result=Timeout`）。期待は期限まで残る |
 | SRD-TO-2 | T6 | `Timeout`。Intro への期待はすでに `SceneChanged` で消えていて、`StartWait` は `StageIntroConfirmed` | —（待ちは消えない） |
 | SRD-ERR-1 | T5 | `Error`。期待が応答待ち | その期待だけをすぐ消す（列の他の期待は残る） |
-| SRD-ERR-2 | T6 | `Error`。Intro への期待、`StartWait` が `StageWaitIntro` | 期待を消す。`StartWait=nil`、`LastError` を記録 |
+| SRD-ERR-2 | T6 | `Error`。Intro への期待で `StartID == StartWait.ID`、`StartWait` が `StageWaitIntro` | 期待を消す。`StartWait=nil`、`LastError` を記録 |
 | SRD-ERR-3 | T5 | `Error`。その `ReqID` の期待がない | — |
 
 `Deadline` の式（`G` は全体の長さ。どの時点の `G` かは U-10）:
@@ -288,12 +289,12 @@ Purpose の一覧: `AutoFail`、`AutoRecover`、`GoLive`、`GoFail`、`PauseOffL
 | TK-7 | T5 | Live かつ OK、Fail かつ不良、Intro / Pause / Other、配信中でない、未接続 | — | — |
 | TK-8 | T5 | 期限を過ぎた期待あり | J（消したあとの状態で） | その期待を消す。`SceneEpoch` は進めず、保持にも入らない（U-11） |
 | TK-9 | T5 | 応答待ち（`Responded=false`）の期待。登録からどれだけたっていても | — | 期待は残る |
-| TK-10 | T6 | 期限を過ぎた Intro への期待、`StartWait` が `StageWaitIntro` | — | 期待を消す。`StartWait=nil`、`LastError` を記録 |
+| TK-10 | T6 | 期限を過ぎた Intro への期待で `StartID == StartWait.ID`、`StartWait` が `StageWaitIntro` | — | 期待を消す。`StartWait=nil`、`LastError` を記録 |
 | TK-11 | T5 | J の 1〜4 を満たすが、その Purpose を一度も出していない（保持が Command で解けたあと、など） | U-07（提案: 出す） | U-07 |
 
 ### 2.11 Command
 
-共通: `cmdErr` を返す行では状態を何も変えない（保持も解除しない）。受け付けた行では保持を解除する（範囲は U-08）。未接続の判定が最初（`ErrNotConnected`）。
+共通: `cmdErr` を返す行では、Command による状態の変化はない（保持も解除しない）。ただし、すべての `Handle` の入口で行う期限切れの期待の削除（U-11）は、`cmdErr` を返す場合でも行う。受け付けた行では保持を解除する（範囲は U-08）。未接続の判定が最初（`ErrNotConnected`）。
 
 **StreamStart**
 
@@ -883,6 +884,10 @@ SQ-14 の t=1.15 までと同じ（期待 [Fail r1, Pause r2]）。t=1.30 に `S
 | a | 準備 P(Fail, 配信中, LOW)、t=1.0 `LinkChanged{OK}` → `AutoRecover#1`。`Approve(1, RestartMedia, None)` → `Proceed`。（実行役の側で RESTART が失敗したとする。）t=1.0+W `Approve(1, SetScene(live), None)` | `Proceed{r1}`、期待 [Live r1]（`RestartMedia` の失敗は承認に影響しない）。続く `BatchDone` の `Result` と `LastError` は U-18 |
 | b | 準備 P(Intro, 配信中, OK)、t=1.0 `Command{GoLive}` → `GoLive#1`。`Approve(1, RestartMedia, None)` → `Proceed`、`Approve(1, SetScene(live), None)` → `Proceed{r1}`、t=1.1+W `SceneRequestDone{r1, Error}`、`BatchDone{1, Failed}` | 期待が空、`Pending` が空、`LastError` を記録（BD-F-2）。そのあと #1 への `Approve` は来ない |
 
+### SQ-28 前の StreamStart の Intro への期待の期限切れは、次の待ちを消さない（T6）
+
+前の StreamStart（#1）の StartIntro がタイムアウトし、その期待（`StartID=1`）が期限まで残っている間に、次の StreamStart（#2）を受け付けた列。#1 の期待の期限切れや `Error` は #2 の待ちを消さない（`StartID` が違う）。一方、#1 の期待に一致する `SceneChanged(Intro)` は、U-03 のとおり #2 の待ちを「Intro 確認済み」に進める。#2 自身の期待（`StartID=2`）の期限切れは、#2 の待ちを消す。テストはこの両方を確かめる。
+
 ### SQ-27 PauseOn の直後の回線の悪化（T6。必須ではない。U-12 の確認用）
 
 準備 P(Live, 配信中, OK)。
@@ -941,7 +946,7 @@ spec（v1.4）が期待値を1つに決めていない箇所と、2つの規則�
 - 不明な点: (1) `Tick` は「前に出したバッチの再送」だけか、その時点の状態での判定そのものか。判定を起こす Event の一覧にない変化（Command による保持の解除、`BatchDone`、期待の期限切れ）のあと、次の Event が来るまで誰も判定しない。(2) 「前回の送出」は `Handle` がバッチを返した時刻か、`Approve` が `Proceed` を返した時刻か。(3) その Purpose を一度も出していないときの扱い
 - 決定（案どおり）: (1) `Tick` はイベント起点と同じ判定（J）を毎回行い、5秒の条件だけを足す。(2) 起点は `Handle` がバッチを返した Event の `At`。(3) 記録がなければ5秒の条件は満たしたものとする
 - 注（不明点ではない）: 文面どおり、イベント起点の判定には5秒の条件が掛からない。`Error` で失敗した直後に LOW ↔ DOWN の `LinkChanged` が来ると、5秒を待たずに出し直す（LC-5）。これを避けたいなら spec の変更になる
-- 引いている行: J の 5、B、LC-5、TK-11
+- 引いている行: J の 6、B、LC-5、TK-11
 
 **U-12 期待が残っている間の自動判定に使う役割**
 - spec: 「自動切替は、OBS に接続していて、配信中で、現在の役割が Live か Fail のときだけ行う」「現在のシーンは OBS のイベントで追う」（6章）、AutoFail の有効条件「役割が Live」
