@@ -1,7 +1,7 @@
 # irl-live-keeper 設計 — 全体構成と第1段階（コア）
 
 - 作成日: 2026-11-18
-- 版: v1.2（変更は末尾の変更履歴を参照）
+- 版: v1.3（変更は末尾の変更履歴を参照）
 - 状態: ユーザー承認済みの設計（セクション1〜5）を文書化したもの
 - 対象バージョン: MediaMTX v1.21.4（2026-11-15 リリース）、obs-websocket v5
 
@@ -132,7 +132,7 @@ log:
 
 1秒ごとに次を読む（各リクエストのタイムアウトは 500ms）。
 
-- `GET /v3/paths/get/{stream.name}`: `online`、`available`、`inboundBytes`、`source.type`（`rtmpConn` / `srtConn` など）、publisher の識別子（`source.id` か `onlineTime`。どちらを使うかは spike ③ で録った実物を見て1つに決め、もう一方を fallback として読まない）
+- `GET /v3/paths/get/{stream.name}`: `online`、`inboundBytes`、`source.type`（`rtmpConn` / `srtConn` など）、publisher の識別子（`source.id` か `onlineTime`。どちらを使うかは spike ③ で録った実物を見て1つに決め、もう一方を fallback として読まない）
 - `source.type` が `srtConn` のときだけ `GET /v3/srt/conns/list` を読み、その path を publish している接続の `msRTT`、`mbpsReceiveRate`、`packetsReceivedLossRate` を取る（表示用）。この読み取りだけが失敗したときは `SRT` を nil にし、`Kbps` と `Err` には影響させない
 
 非推奨のフィールドとエンドポイント（`ready`、`bytesReceived`、`/v3/srtconns/*`）は使わない。
@@ -153,9 +153,10 @@ type Sample struct {
 
 - `inboundBytes` の差分から自前でビットレートを出す。モバイル回線では TCP 接続が残ったままバイトだけ止まることがあるため、切断イベントではなく差分が 0 かどうかで途切れを判定する
 - **基準:** Poller は「最後に path の API を読めたときの `inboundBytes`、時刻、publisher の識別子」を基準として持つ。`Kbps` の分母は基準からの経過時間で、`Interval`（前回の Sample から）とは別物である。API が失敗した回は基準を変えないので、失敗の次の回は2秒分のバイトを2秒で割る
-- 次のときは、その回の `Kbps` を 0 とし、読めた値を新しい基準にする: 起動後の最初の読み取り、MediaMTX の再起動後の最初の読み取り、publisher の識別子が変わったとき（再接続）、`inboundBytes` が基準より減ったとき
-- `Online` が false の間は `Kbps` を 0 とする
-- path の API が失敗したときは `Err` を入れ、`Kbps` を 0 とする。`Interval` は前回の Sample からの経過時間のまま
+- 次のときは、その回の `Kbps` を 0 とし、読めた値を新しい基準にする: 起動後の最初の読み取り、publisher の識別子が変わったとき（識別子がない状態からある状態への変化を含む。再接続や MediaMTX の再起動はこれか次の条件で必ず検出されるので、再起動の通知は使わない）、`inboundBytes` が基準より減ったとき
+- `Online` が false の間は `Kbps` を 0 とする（publisher がいなくても、設定にある path は API で返る）
+- path の API が失敗したときは `Err` を入れ、`Kbps` を 0、`Online` を false、`Protocol` を空にする。`Interval` は前回の Sample からの経過時間のまま
+- 起動後の最初の Sample の `Interval` は 0 とする（累積に何も足さない）
 
 ### Judge
 
@@ -203,7 +204,7 @@ Poller の例（Judge ではなく Poller のテストで確かめる。1秒ご�
 
 | # | API の応答 | 期待する `Kbps` |
 |---|---|---|
-| P1 | t=0 で `inboundBytes`=0（起動後の最初）、t=1 で 87,500 | t=0 は 0（基準を取るだけ）、t=1 は 700 |
+| P1 | t=0 で publisher がすでにいて `inboundBytes`=0（起動後の最初）、t=1 で同じ publisher のまま 87,500 | t=0 は 0（基準を取るだけ）、t=1 は 700 |
 | P2 | t=0 で 0、t=1 で失敗、t=2 で 175,000 | t=1 は 0（`Err`）、t=2 は 700（2秒分を2秒で割る） |
 | P3 | t=0 で 500,000、t=1 で publisher の識別子が変わり 600,000 | t=1 は 0（新しい基準）、t=2 からは新しい基準との差分 |
 | P4 | t=0 で 500,000、t=1 で 20,000（識別子は同じ） | t=1 は 0（新しい基準） |
@@ -219,14 +220,14 @@ OBS の現在のシーン名を、config の割り当てで役割に変換する
 ```go
 // Event はすべて At（時刻）を持つ
 LinkChanged{State LinkState}
-OBSConnected{Streaming bool, Scene string, TransitionMs *int} // TransitionMs: 現在のトランジションの長さ。固定長（スティンガーなど）で取れなければ nil
+OBSConnected{Streaming bool, Scene string, TransitionMs *int} // TransitionMs: 全体のトランジションの長さ。固定長（カット、スティンガー）で取れなければ nil
 OBSDisconnected{}
-SceneChanged{Scene string}          // program のシーンの変更（CurrentProgramSceneChanged）だけ。Studio Mode の preview は扱わない
-TransitionChanged{TransitionMs *int} // トランジションまたはその長さが変わった
-StreamStateChanged{Streaming bool}
+SceneChanged{Scene string}           // program のシーンの変更（CurrentProgramSceneChanged）だけ。Studio Mode の preview は扱わない
+TransitionChanged{TransitionMs *int} // 全体のトランジションまたはその長さが変わった
+StreamStateChanged{Streaming bool}   // 写像は 7章。出力の再接続では流れない
 Command{Kind: StreamStart | StreamStop | GoLive | PauseOn | PauseOff}
-Approve{Gen int, Action Action}      // 実行役が Action を送る直前の承認要求（9章）。応答は承認か却下
-ActionFailed{Gen int, Action Action, Err error}
+SceneRequestDone{ReqID int, Result: OK | Timeout | Error} // 送った SetScene の応答（期待の期限の起点）
+BatchDone{BatchID int, Result: Completed | Failed | Rejected, Err error} // バッチの終わり（成功、失敗、承認の却下のどれでも1回）
 Tick{}        // 1秒ごと。再送と期待の期限の判定に使う
 
 // Action
@@ -236,15 +237,32 @@ StartStream{}
 StopStream{}
 ```
 
-`Machine.Handle(Event) (batch Batch, cmdErr error)`。`Batch` は `Gen`（世代番号）と Action の列を持つ。
+- `Machine.Handle(Event) (batch *Batch, cmdErr error)`。`Batch` は `BatchID`（通し番号）、`Purpose`（目的）、作った時点の `SceneEpoch` と `ConnEpoch`、Action の列を持つ
+- `Machine.Approve(batchID int, action Action, overrideMs *int, at time.Time) ApproveResult`。実行役が Action を送る直前に呼ぶ（9章）。結果は `Proceed{ReqID}`（送る。`SetScene` なら期待を登録して ReqID を返す）、`Skip`（送らずに成功とみなす）、`Reject`（バッチの残りを捨てる）のどれか
+- `SceneEpoch` は手動とみなした `SceneChanged` のたびに、`ConnEpoch` は `OBSDisconnected` のたびに1つ進む
 
 `cmdErr` は `Command` を受け付けられないときだけ返し、型で2種類に分ける: `ErrNotConnected`（OBS に未接続）と `ErrInvalidState`（今の状態では受け付けられない。理由の文を持つ）。web はこの型から 503 と 409 を決め、自分では状態を判定しない。
 
-### 世代番号
+### 目的と有効条件（実行直前の承認）
 
-switcher は世代番号 `Gen` を持ち、次のときに1つ進める: `LinkChanged`、手動とみなした `SceneChanged`、`StreamStateChanged`、`OBSConnected`、`OBSDisconnected`、手動保持に入ったときと解けたとき、Command を受け付けたとき。期待どおりの（本体の）`SceneChanged` と `Tick` では進めない。
+決めた時点では正しかったが、実行するまでに状況が変わったバッチを実行しないため、各バッチは目的（Purpose）を持ち、`Approve` のたびにその目的の有効条件を**その時点の状態で**確かめる。共通の条件として、OBS に接続していて、`ConnEpoch` がバッチを作った時点と同じであること。シーンを切り替えるバッチは、さらに `SceneEpoch` が同じであること（作ったあとに人がシーンを切り替えていたら、人の操作を優先する）。
 
-新しいバッチは、その時点の `Gen` を持つ。`Approve` で `Gen` が今の値と違えば却下し、実行役はそのバッチの残りを捨てる。これで「決めた時点では正しかったが、実行するまでに状況が変わった」バッチが実行されない（例: 復帰のバッチの RESTART の待ち時間中に回線が再び切れた、人が Pause に切り替えた、OBS が切断した）。
+| Purpose | 出すバッチ | 有効条件（共通の条件に加えて） | 条件を満たさないとき |
+|---|---|---|---|
+| AutoFail | `[SetScene(fail)]` | 配信中、役割が Live、受信状態が LOW / DOWN、手動保持でない | 却下 |
+| AutoRecover | `[RestartMedia, SetScene(live)]` | 配信中、役割が Fail、受信状態が OK、手動保持でない | 却下 |
+| GoLive / PauseOffLive | `[RestartMedia, SetScene(live)]` | 配信中、役割が Intro（GoLive）または Pause（PauseOffLive）、受信状態が OK | 受信状態だけが悪くなったなら、その時点で `[SetScene(fail)]` の新しいバッチに決め直す（1回だけ）。それ以外は却下 |
+| GoFail / PauseOffFail | `[SetScene(fail)]` | 配信中、役割が Intro または Pause | 却下 |
+| PauseOffIntro | `[SetScene(intro)]` | 配信中、役割が Pause | 却下 |
+| PauseOn | `[SetScene(pause)]` | 配信中、役割が Intro / Live / Fail | 却下 |
+| StartIntro | `[SetScene(intro)]` | 配信中でない、この StreamStart の「配信開始の待ち」が残っている | 却下（待ちも消す） |
+| StartStream | `[StartStream]` | 配信中でない、役割が Intro、この StreamStart の待ちが残っている | 却下（待ちも消す） |
+| StopStream | `[StopStream]` | 配信中（`SceneEpoch` は見ない） | 却下 |
+
+- 受信状態は AutoFail、AutoRecover、GoLive / PauseOffLive の条件にだけ入る。配信停止や Pause は、回線の状態が変わっても捨てない
+- `SetScene` の承認で、現在の役割がすでに目的の役割なら `Skip`（送らず、期待も登録しない）
+- `BatchDone{Rejected}` または `{Failed}` が Command 由来のバッチ（Auto 以外）なら、`last_error` に記録する。API はすでに 200 を返しているので、ここで利用者に見えるようにする
+- 実行待ちか実行中のバッチは、`BatchDone` が来るまで「未完了」として switcher が持つ。同じ Purpose の未完了のバッチがある間は、同じ Purpose の新しいバッチを出さない（イベント起点の判定にも再送にも掛かる）
 
 ### 自動切替
 
@@ -260,10 +278,13 @@ switcher は世代番号 `Gen` を持ち、次のときに1つ進める: `LinkCh
 
 OBS のシーンは、本体のほかに OBS の画面や IRL Link などの外部ツールからも切り替えられる。obs-websocket のシーン変更イベントには、誰が切り替えたかが含まれない。そこで次のように扱う。
 
-- **期待シーン:** 期待は、`SetScene` を決めた時点ではなく、実行役が実際に送る直前の `Approve` を承認した時点で登録する。期待は列で持ち、送った `SetScene` ごとに1つ足す。現在のシーンがすでに目的のシーンなら、イベントが来ないことがあるので期待を登録しない
-- **期限:** 承認した時刻 + トランジションの長さ + 3秒。OBS はトランジションが終わった時点で `CurrentProgramSceneChanged` を出すため、トランジションの長さを含める。長さが取れない（固定長のトランジション）ときは、承認した時刻 + 10秒とする
-- **本体の切替と外部の切替の見分け方:** `SceneChanged` が、列の先頭から見て最初に一致する期待のシーンと同じなら、本体の切替とみなしてその期待を消す。どの期待とも一致しない `SceneChanged` は、すべて手動（外部）の切替とみなし、期待を全部消す。期限を過ぎた期待と、`ActionFailed` になった `SetScene` の期待は消す。obs-websocket の応答とイベントのどちらが先に届いても、期待は送る前に登録してあるので判定は変わらない
-- **手動保持:** 手動で役割が Live か Fail に切り替えられたら、手動保持に入る。保持中は、そのシーンを自動切替で打ち消さない。待っていた再送もすべて取り消す（世代番号が進むので、実行待ちのバッチも失効する）
+- **期待シーン:** 期待は、`SetScene` を決めた時点ではなく、実行役が実際に送る直前の `Approve` が `Proceed` を返した時点で登録する。期待は列で持ち、送った `SetScene` ごとに1つ足す。各期待は `ReqID` を持ち、`SceneRequestDone` と1対1で対応する
+- **期限:** 応答を待っている間は期限切れにしない。期限は `SceneRequestDone` を受けた時点から数え始め、「その時点 + 実際に使われるトランジションの長さ + 3秒」とする。OBS はトランジションが終わった時点で `CurrentProgramSceneChanged` を出すため、トランジションの長さを含める
+  - 実際に使われる長さ: 切替先のシーンにトランジションの上書き（Transition Override）があれば、実行役が `Approve` の直前に読んだ上書きの長さ、なければ全体の長さ
+  - 上書きがあるとき（固定長かどうかが応答からわからない）と、全体の長さが取れない（固定長のトランジション）ときは、「上書きの長さ + 3秒」と「10秒」の長いほう
+  - `Result: Timeout` でも期限まで残す（タイムアウトは OBS が適用しなかったことを意味しない。要求を取り消す手段はない）。`Result: Error`（シーンが存在しない、など OBS がエラーを返した）なら、その期待をすぐ消す
+- **本体の切替と外部の切替の見分け方:** `SceneChanged` が、列の先頭から見て最初に一致する期待のシーンと同じなら、本体の切替とみなし、その期待と、それより前にある期待をすべて消す（後から送った要求が前の要求を上書きしたとみなす。OBS は進行中のトランジションを打ち切って次を始めることがある）。どの期待とも一致しない `SceneChanged` は、すべて手動（外部）の切替とみなし、期待を全部消す。期限を過ぎた期待は消す。obs-websocket の応答とイベントのどちらが先に届いても、期待は送る前に登録してあるので判定は変わらない
+- **手動保持:** 配信中に、手動で役割が Live か Fail に切り替えられたら、手動保持に入る。配信していない間の手動切替（配信前に OBS の画面で Live を確かめる、など）では入らない。保持中は、そのシーンを自動切替で打ち消さない。待っていた再送も取り消す。実行待ちの Auto のバッチは、`SceneEpoch` が進むので承認で却下される
 - **保持の解除:** 受信状態が OK と不良（LOW / DOWN）の間で変わったら解除する。LOW と DOWN の間の変化では解除しない。解除したら、その時点の受信状態で通常どおり判定する。例: 回線が悪いときに手動で Live にした場合は、回線がいったん OK に戻り、再び悪くなった時点で Fail に切り替える
 - 手動保持は、次のときにも解除する:
   - 手動で役割が Live / Fail 以外（Intro、Pause、Other）に切り替えられたとき。この場合は自動切替の対象外なので、もともと何もしない
@@ -275,9 +296,9 @@ OBS のシーンは、本体のほかに OBS の画面や IRL Link などの外�
 
 ### 再送の歯止め
 
-自動切替の Action を出したあと、OBS のシーンが期待どおりに変わらない（失敗した、またはイベントが来ない）まま条件が続く場合は、`Tick` で再送する。再送するのは次をすべて満たすときだけ:
-- 同じ切替の前回の送出から5秒以上たった
-- 同じ目的のバッチが実行待ちでも実行中でもなく、そのシーンへの期待も残っていない
+自動切替の Action を出したあと、OBS のシーンが期待どおりに変わらない（失敗した、またはイベントが来ない）まま条件が続く場合は、`Tick` で再送する。自動切替のバッチを出すのは（イベント起点の判定でも `Tick` の再送でも）次をすべて満たすときだけ:
+- 同じ Purpose の未完了のバッチがなく、そのシーンへの期待も残っていない
+- `Tick` の再送なら、同じ Purpose の前回の送出から5秒以上たった
 - 手動保持中でない
 
 ### バッチ内の失敗
@@ -290,39 +311,45 @@ OBS のシーンは、本体のほかに OBS の画面や IRL Link などの外�
 
 | Command | 受け付ける条件 | Action |
 |---|---|---|
-| StreamStart | 配信中でない、配信開始の待ちがない | 役割がすでに Intro なら `[StartStream]`。そうでなければ `[SetScene(intro)]` を出して「配信開始の待ち」に入り、Intro への期待どおりの `SceneChanged` が来たら `[StartStream]` を出す。期待が期限切れか `ActionFailed` になったら待ちを消して `last_error` に記録し、配信は始めない（Live のカメラ映像のまま配信が始まるのを防ぐ） |
-| StreamStop | 配信中 | `[StopStream]` |
-| GoLive | 配信中、役割が Intro | 受信状態が OK なら `[RestartMedia, SetScene(live)]`、そうでなければ `[SetScene(fail)]` |
-| PauseOn | 配信中、役割が Intro / Live / Fail | `[SetScene(pause)]` |
+| StreamStart | 配信中でない、配信開始の待ちがない | 「配信開始の待ち」（StreamStart ごとの通し番号を持つ）に入る。役割がすでに Intro なら StartStream のバッチを出す。そうでなければ StartIntro のバッチを出し、Intro への期待どおりの `SceneChanged` が来たら、StartStream のバッチを出す。Live のカメラ映像のまま配信が始まるのを防ぐため、Intro になったことを確かめるまで配信を始めない |
+| StreamStop | 配信中 | StopStream のバッチ |
+| GoLive | 配信中、役割が Intro | 受信状態が OK なら GoLive、そうでなければ GoFail のバッチ |
+| PauseOn | 配信中、役割が Intro / Live / Fail | PauseOn のバッチ |
 | PauseOff | 配信中、役割が Pause | 下記 |
 
-条件を満たさない Command は `ErrInvalidState` を返し、web は 409 を返す。配信開始の待ちは、手動の `SceneChanged`、`OBSDisconnected` でも消す。
+条件を満たさない Command は `ErrInvalidState` を返し、web は 409 を返す。
+
+**配信開始の待ちを消すとき:** StartStream のバッチの `BatchDone`（結果を問わない）、StartIntro か StartStream のバッチの却下か失敗、Intro への期待の期限切れか `Result: Error`、手動の `SceneChanged`、`OBSDisconnected`、`StreamStateChanged{Streaming: true}`。成功以外で消したときは `last_error` に記録し、配信は始めない。
 
 PauseOn は旧版と違い、Intro からも受け付ける（開始前の待機中に一時的に Pause を出せるようにするため）。
 
 **Pause の直前の役割:** 役割が Pause に変わるたびに、必ず上書きする。直前の役割が Intro / Live / Fail ならその役割、それ以外（Other から来た、など）なら「不明」。OBS 側で手動で Pause にした場合も、`SceneChanged` から同じように扱う。次のときは「不明」に戻す: Pause から出たとき、`OBSConnected`（接続した時点で Pause だった場合を含む）、`StreamStateChanged{Streaming: false}`。
 
 **PauseOff の戻り先:**
-- 直前が Intro → `[SetScene(intro)]`
-- 直前が Live か Fail、または不明 → その時点の受信状態が OK なら `[RestartMedia, SetScene(live)]`、そうでなければ `[SetScene(fail)]`
+- 直前が Intro → PauseOffIntro（`[SetScene(intro)]`）
+- 直前が Live か Fail、または不明 → その時点の受信状態が OK なら PauseOffLive（`[RestartMedia, SetScene(live)]`）、そうでなければ PauseOffFail（`[SetScene(fail)]`）
 
 旧版は受信状態に関係なく直前のシーンへ戻していた。新版では、回線が悪いまま Live に戻ってすぐ Fail へ飛ぶのを避ける。
 
 ### OBS 未接続の間
 
-`OBSDisconnected` から `OBSConnected` までは Action を出さず、`Approve` もすべて却下する。`OBSDisconnected` で期待をすべて消す（世代番号も進むので、切断前のバッチは再接続後に実行されない）。`OBSConnected` で配信状態と現在のシーンを取り直してから判定を再開する。
+`OBSDisconnected` から `OBSConnected` までは Action を出さず、`Approve` もすべて却下する。`OBSDisconnected` で期待をすべて消す。`ConnEpoch` が進むので、切断前のバッチは再接続後に実行されない。`OBSConnected` で配信状態と現在のシーンを取り直してから判定を再開する。
 
 ## 7. OBS 接続（obs）
 
 ```go
 type Client interface {
     Events() <-chan switcher.Event          // OBSConnected / OBSDisconnected / SceneChanged / TransitionChanged / StreamStateChanged
-    SetScene(name string) error             // SetCurrentProgramScene
+    SceneTransitionOverride(scene string) (ms *int, has bool, err error) // GetSceneSceneTransitionOverride
+    SetScene(name string) error             // SetCurrentProgramScene。タイムアウトは ErrTimeout で区別して返す
     RestartMedia(input string) error
     StartStream() error
     StopStream() error
 }
 ```
+
+- **配信状態の写像:** obs-websocket の `StreamStateChanged` は、`outputState` で次のように扱う。`STARTED` で `Streaming: true`、`STOPPED` で `Streaming: false` を流す。`STARTING`、`STOPPING`、`RECONNECTING`、`RECONNECTED` では何も流さない（OBS から配信サイトへの出力の再接続を、配信の停止として扱わないため。`outputActive` は再接続中に false になる）。`OBSConnected` の `Streaming` は `GetStreamStatus` の `outputActive || outputReconnecting` とする
+- **トランジションの上書き:** 実行役は `SetScene` の `Approve` の直前に、切替先シーンの `SceneTransitionOverride` を読み、`Approve` に渡す（期待の期限に使う。6章）。読み取りに失敗したら「上書きあり・長さ不明」として扱う。上書きの変更を知らせるイベントはないので、毎回読む
 
 - `Run(ctx)` で接続を保つ。切れたら待ち時間を 1→2→4…秒と延ばし、上限5秒で再接続を続ける
 - 接続したら、配信状態、program の現在のシーン、現在のトランジションとその長さを取得して `OBSConnected` を流す。あわせてシーン一覧と入力一覧を取得し、config のシーン名と `media_source` が存在しなければ警告を status に出す
@@ -360,7 +387,7 @@ OBS メディアソース用 URL は spike ① の結果で決める。どれを
 - 落ちている間、Poller の API 呼び出しは失敗するので受信状態は `DOWN` になる。status では `mediamtx: "down"` として区別する
 - 本体の終了時（Ctrl+C、SIGTERM）は MediaMTX を止めてから終了する
 - 本体が強制終了されても子プロセスを残さない:
-  - **Windows:** 本体の起動時に Job Object（`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`）を作り、本体自身をその Job に入れる。子は生成された時点で Job を継承するので、`Start` から Job への割り当てまでの間に本体が落ちて子が残る、という窓がない。Job のハンドルは子に継承させない
+  - **Windows:** 本体の起動時に Job Object（`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`、breakaway は許可しない）を作り、本体自身をその Job に入れる。子は生成された時点で Job を継承するので、`Start` から Job への割り当てまでの間に本体が落ちて子が残る、という窓がない。Job のハンドルは子に継承させず、プロセスの終了まで閉じない（本体自身が Job に入っているので、閉じると本体も終了する）。本体がすでに入れ子にできない Job の中にいて（UI 制限付きの Job など）割り当てに失敗したときは、警告をログに出し、子を `Start` した直後に Job へ割り当てる方式に切り替えて起動を続ける（この場合は割り当てまでの短い窓が残る）。本体が起動する子はすべてこの Job に入る（第2段階以降で子プロセスを足すときは、本体と一緒に終了してよいものに限る）
   - **Linux:** `SysProcAttr.Pdeathsig = SIGKILL`。Go の Pdeathsig は、子を fork した OS スレッドが終わった時点で発火する（プロセスの終了より前のことがある。go.dev/issue/27505）。そのため、子の起動から `Wait` が返るまでを、`runtime.LockOSThread()` した専用の goroutine 1本で行い、子が生きている間はその goroutine を終わらせない
   - **macOS:** 相当する仕組みがないため、正常終了時の停止だけとする（既知の制約）
 
@@ -372,8 +399,14 @@ goroutine 1本が switcher の状態を持ち、次を `select` で受ける: in
 
 - `Sample` は Judge に通し、受信状態が変わったら `LinkChanged` を switcher に渡す
 - switcher が返したバッチは obs で実行する。中核ループを止めないよう、実行は専用の実行役 goroutine 1本に渡す。実行役はバッチ内の Action を返された順に1つずつ実行し、バッチを1つずつ処理するので、バッチ同士は重ならない（`[RestartMedia, SetScene(live)]` の順序が保証される）
-- **実行直前の承認:** 実行役は各 Action を送る直前に、`Approve{Gen, Action}` を中核ループに送って応答を待つ。中核ループは switcher に渡し、承認か却下を返す。却下なら、そのバッチの残りを捨てる。`SetScene` の期待は、この承認の時点で登録される（6章）。`RestartMedia.Wait` の待ちは RESTART の送出後に実行役が行い、続く `SetScene` の承認はその待ちのあとに取る
-- 失敗は `ActionFailed{Gen, Action, Err}` として中核ループに戻す
+- **実行直前の承認:** 実行役は各 Action を送る直前に、承認要求を中核ループに送って応答を待つ。中核ループは `Machine.Approve` を呼び、`Proceed` / `Skip` / `Reject` を返す。`Reject` なら、そのバッチの残りを捨てる。`SetScene` の期待は、この承認の時点で登録される（6章）。`RestartMedia.Wait` の待ちは RESTART の送出後に実行役が行い、続く `SetScene` の承認はその待ちのあとに取る
+- `SetScene` を送ったら、応答（成功、タイムアウト、エラー）を `SceneRequestDone{ReqID, Result}` として中核ループに戻す。バッチが終わったら（最後まで実行した、失敗で残りを捨てた、承認で却下された）、`BatchDone{BatchID, Result, Err}` を1回だけ戻す
+
+**中核ループと実行役のチャネルの決まり**（デッドロックを防ぐため）:
+- 中核ループは、どのチャネルへの送信でも止まらない。実行待ちのバッチは中核ループが列で持ち、`select` の送信 case として先頭の1つだけを実行役に差し出す（列が空のときはその case を `nil` チャネルにして無効にする）。実行役が承認待ちや応答待ちで詰まっていても、中核ループは他の入力を受け続ける
+- 中核ループの `select` が受けるのは、`Sample`、obs の `Events()`、web の Command、`Tick`、実行役からの承認要求、`SceneRequestDone`、`BatchDone`、終了の `ctx.Done()`
+- 承認要求と Command は、容量1の応答用チャネルを持つ。中核ループはそこへ1回だけ送り、止まらない
+- 実行役から中核ループへの送信と、応答の受信と、`RestartMedia.Wait` の待ちは、必ず `ctx.Done()` と一緒に `select` する。終了時はどちらの側も待ちを解いて抜ける
 - Command は応答用のチャネルを持ち、switcher の `cmdErr` を web に返す（Action の実行結果は待たない）
 - 状態が変わるたびに `Snapshot` を作り、`atomic.Pointer` で公開する。web はこれを読むだけ
 
@@ -414,7 +447,8 @@ goroutine 1本が switcher の状態を持ち、次を `select` で受ける: in
 | MediaMTX が起動直後に落ち続ける | ログの bind などのエラー行を `last_error` に出し、8章の待ち時間で再起動を続ける |
 | API の失敗・タイムアウト | その回は受信0。DOWN は `down_sec` 続いたときだけなので、1回では切り替わらない。差分の基準は変えない |
 | 再接続（publisher が変わった、`inboundBytes` が減った） | その回は0として扱い、差分の基準を取り直す |
-| 実行待ちのバッチが古くなった | 実行直前の承認で却下され、残りを捨てる |
+| 実行待ちのバッチが古くなった | 実行直前の承認で、目的の有効条件をその時点の状態で確かめ、満たさなければ却下して残りを捨てる。Command 由来なら `last_error` に記録する |
+| OBS から配信サイトへの出力が再接続した | 配信の停止として扱わない（7章の写像） |
 | OBS と切断した | 自動切替を止め、手動操作は 503。再接続後に状態を取り直して再開 |
 | OBS の操作が失敗した | ログと `last_error` に記録。条件が続く間、最短5秒あけて再送 |
 | シーン名やメディアソース名が OBS にない | 接続時に照合し、status の `warnings` に出す |
@@ -432,7 +466,7 @@ goroutine 1本が switcher の状態を持ち、次を `select` で受ける: in
 
 ### 単体テスト（`go test -race ./...`）
 
-- **switcher:** 整合は状態機械の中心（`Handle`）だけで守り、入口ごとに確認を足さない。テストは「入口 × 状態」の表1つにまとめる。入口は各 Event と各 Command、状態は役割（Intro / Live / Fail / Pause / Other）× 受信状態（OK / LOW / DOWN）× 配信中か × OBS 接続 × 手動保持の有無 × 期待の有無 × Pause の直前の役割（Intro / Live / Fail / 不明）× 配信開始の待ちの有無。表の各行で、出るバッチ、`cmdErr` の型、世代番号が進むかを確かめる。時間に依存する状態（期待の期限、再送の5秒）は表に入れず、下の Event の列のテストで確かめる。時刻は Event の `At` で注入する。表とは別に、Event の列で確かめる必須のケース:
+- **switcher:** 整合は状態機械の中心（`Handle`）だけで守り、入口ごとに確認を足さない。テストは「入口 × 状態」の表1つにまとめる。入口は各 Event、各 Command、`Approve`（Purpose ごと）。状態の軸は、役割（Intro / Live / Fail / Pause / Other）、受信状態（OK / LOW / DOWN）、配信中か、OBS 接続、手動保持の有無、期待の有無、Pause の直前の役割（Intro / Live / Fail / 不明）、配信開始の待ちの有無、同じ Purpose の未完了のバッチの有無。全軸の掛け算にはしない: ありえない組み合わせ（OBS 未接続で期待あり、Pause 以外で直前の役割あり、配信中で配信開始の待ちあり、など）は除き、入口ごとに結果に関係する軸だけを展開する（例: Command は役割 × 配信中 × 接続 × 待ち、`LinkChanged` は役割 × 配信中 × 接続 × 保持 × 未完了のバッチ、`Approve` は 6章「目的と有効条件」の表の各行の条件の成否）。表の各行で、出るバッチ、`cmdErr` の型、`Approve` の結果を確かめる。時間に依存する状態（期待の期限、再送の5秒）は表に入れず、下の Event の列のテストで確かめる。時刻は Event の `At` で注入する。表とは別に、Event の列で確かめる必須のケース:
   - 自動切替は、配信中かつ Live / Fail のときだけ。Intro、Pause、Other、配信停止中、OBS 未接続では何も出さない
   - Fail → Live で `RestartMedia` が `SetScene(live)` より先に出る
   - PauseOff の戻り先（直前が Intro、Live、Fail、不明 × 受信状態）
@@ -440,15 +474,19 @@ goroutine 1本が switcher の状態を持ち、次を `select` で受ける: in
   - 再送が5秒以上あく
   - 各 Command の 409 になる条件
   - 手動保持: 期待どおりの `SceneChanged` は本体の切替とみなし、期限切れや別のシーンへの変化は手動とみなす。手動の Live / Fail で保持に入り、再送を取り消す。OK と不良の間の変化で解除し、LOW と DOWN の間の変化では解除しない。Command、配信の停止、シーンか配信状態が変わっていた `OBSConnected` で解除し、何も変わっていない `OBSConnected` では解除しない
-  - 期待: 承認の時点で登録される。期限はトランジションの長さ + 3秒（取れなければ10秒）。トランジションが長く、期限の直前に届いた本体の `SceneChanged` を手動とみなさない。一致しない `SceneChanged` で全部消える。`ActionFailed` で対応する期待が消える
-  - 世代番号: 復帰のバッチ `[RestartMedia, SetScene(live)]` の待ち時間中に、受信状態の悪化、手動の Pause、配信の停止、OBS の切断のどれかが起きたら、`SetScene(live)` の `Approve` が却下される
-  - 配信開始: Intro への切替が失敗または期限切れなら `StartStream` を出さない
+  - 期待: 承認の時点で登録され、応答を待つ間は期限切れにならない。期限は応答の時点 + 実際に使われるトランジションの長さ（上書きを含む）+ 3秒、上書きありか長さ不明なら10秒以上。タイムアウトの応答でも期限まで残り、エラーの応答ではすぐ消える。応答が5秒でタイムアウトしたあとに届いた本体の `SceneChanged` を手動とみなさない。一致した期待より前の期待も消える（Fail を送った直後に Pause を送り、Pause のイベントだけが届く列）。一致しない `SceneChanged` で全部消える
+  - 有効条件: 復帰のバッチ `[RestartMedia, SetScene(live)]` の待ち時間中に、受信状態の悪化、手動の Pause、配信の停止、OBS の切断のどれかが起きたら、`SetScene(live)` の `Approve` が却下される。一方、StopStream と PauseOn のバッチは、承認の前に受信状態が LOW と DOWN の間で何度変わっても却下されない。GoLive の待ち時間中に回線が悪化したら、Fail への切替に決め直される
+  - 承認の `Skip`: 現在の役割がすでに目的の役割なら送らない
+  - 重複の歯止め: Live で LOW → DOWN と続いても、AutoFail のバッチは1本だけ出る
+  - 配信開始: Intro への切替が失敗、却下、期限切れなら `StartStream` を出さず、待ちが消え、次の StreamStart を受け付ける。待ちを抜けたあとに届いた遅い Intro の `SceneChanged` から `StartStream` を出さない
+  - 配信状態: `RECONNECTING` → `RECONNECTED` の列では、手動保持、Pause の直前の役割、未完了のバッチがどれも変わらない
+  - 手動保持: 配信していない間の手動の Live では保持に入らない
   - バッチ内の失敗: `RestartMedia` の失敗では続け、それ以外の失敗では残りを捨てる
 - **ingest.Judge:** 時刻は `Sample.At` と `Interval` で注入する。5章「実時刻の例」の表の全行を、そのままテストにする。あわせて、閾値ちょうどの値（`fail_kbps`、`recover_kbps` と等しい kbps）を確かめる
 - **ingest.Poller:** `httptest` のサーバーで、spike ③ で録った MediaMTX v1.21.4 の JSON を返す。5章の Poller の例（P1〜P4）の全行、タイムアウト、SRT の統計の取り出しと、その読み取りだけの失敗。JSON の形を手書きで再現しない。録った実物と違う形への fallback（別のフィールド名も読む、など）も足さない。偽の形でテストが通り続ける穴になるため
 - **config:** 既定値の生成、読み込み、4章の検証すべて
 - **supervisor:** mediamtx.yml の生成をゴールデンファイルと比べる（全プロトコルのスイッチが明示されていること、RTSP が TCP だけであること、MoQ が無効であること、read に資格情報が要ることを含む）。再起動の待ち時間は、偽の子プロセス（Go のヘルパープロセスの手法）で確かめる。ポートの事前確認
-- **core:** obs.Client の偽物を使い、Sample → 切替 → 承認 → Action の実行 → 失敗時の `ActionFailed` までを通しで確かめる。偽物の応答を遅らせ、承認の却下でバッチが捨てられることを確かめる
+- **core:** obs.Client の偽物を使い、Sample → 切替 → 承認 → Action の実行 → `SceneRequestDone` と `BatchDone` までを通しで確かめる。偽物の応答を遅らせ、承認の却下でバッチが捨てられること、実行役が応答待ちで詰まっている間も中核ループが Sample と Command を受け続ける（デッドロックしない）ことを確かめる。偽物は、途中のシーン変更のイベントを省略する列（打ち切られたトランジション）も流せるようにする
 - **web:** `httptest` で認証、独自ヘッダーがない POST の 403、`cmdErr` の型と 503 / 409 の対応、status の JSON の形
 
 goobs のラッパーは実際の OBS を相手に手動で確かめる。自動テストにはしない。
@@ -463,9 +501,10 @@ goobs のラッパーは実際の OBS を相手に手動で確かめる。自動
 6. OBS を再起動して、再接続し、判定が再開する
 7. Pause の ON/OFF と、回線が悪いときの PauseOff の戻り先
 8. 外部ツール（OBS の画面、IRL Link）から、回線が悪いときに Live、良いときに Fail へ切り替えて、打ち消されないこと。そのあと回線の状態を変えると、自動切替が再開すること
-9. 長いトランジション（例: 5秒のフェード、スティンガー）で自動切替しても、手動保持に入らないこと
-10. 本体を強制終了して、MediaMTX が残らない（Windows と Linux）
-11. OBS 用 URL から read の資格情報を外すと読み出せないこと
+9. 長いトランジション（例: 5秒のフェード、スティンガー）と、シーンごとのトランジションの上書きで自動切替しても、手動保持に入らないこと。上書きのある Intro で StreamStart が成功すること
+10. 配信中に OBS から配信サイトへの出力を切って再接続させても（上り回線を一時的に切る）、手動保持と Pause が保たれること
+11. 本体を強制終了して、MediaMTX が残らない（Windows と Linux）
+12. OBS 用 URL から read の資格情報を外すと読み出せないこと
 
 ## 12. 最初の spike（実装の前に行う。コードは捨てる前提）
 
@@ -491,4 +530,5 @@ goobs のラッパーは実際の OBS を相手に手動で確かめる。自動
 |---|---|---|---|---|
 | 2026-11-18 | v1.0 | 初版。設計セクション1〜5と、外部ツールからの手動切替を尊重する手動保持（6章） | brainstorming での承認。手動保持は IRL Link との競合についてのユーザーの指摘 | 764e12a |
 | 2026-11-18 | v1.1 | 管理 API の待ち受けの既定を `127.0.0.1` にし、LAN 公開時の警告を追加（2章、4章、13章）。Judge に実時刻の例の表を追加（5章）。switcher のテストを「入口 × 状態」の表にし、テスト用 JSON に fallback を足さないことを明記（11章）。変更履歴の表を追加 | agentic-fx での裁定と教訓（既定は安全側、整合は状態機械の中心で守る、時刻の契約は実時刻の例で固定する、フィクスチャは実物から作る）を、ユーザーが選んで取り込んだ | 39c8ea4 |
-| 2026-11-18 | v1.2 | 読み出しにも認証を必須にした（4章、8章）。実行待ちのバッチを世代番号で失効させ、実行直前に承認を取る（6章、9章）。期待シーンを送信時に登録し、期限をトランジション時間から決め、列で持つ（6章）。配信開始は Intro になってから始める。バッチは失敗した時点で残りを捨てる（6章、7章）。手動保持を再接続で解除しない条件、配信停止で消すこと、Pause の直前の役割の寿命を定義（6章）。Judge の評価順、Kbps の分母、新しい publisher の検出を定義（5章）。MediaMTX の全プロトコルのスイッチを明示し、RTSP を TCP だけにした（8章）。Pdeathsig のスレッド固定、Job Object を本体自身に掛ける方式に変更、ポートの事前確認を補助の診断にした（8章）。名前とパスワードの使える文字を制限（4章）。`cmdErr` の型で 503 と 409 を分け、POST に独自ヘッダーを必須にした（9章）。テスト表の状態の軸を追加（11章）。13章の2項目が変更履歴の後ろにずれていたのを戻した | 設計レビュー1周目（Fable: Critical 1 / Important 8 / Minor 8、codex sol: Critical 1 / Important 10 / Minor 2）。読み出しの認証はユーザーの裁定 | この版の commit |
+| 2026-11-18 | v1.2 | 読み出しにも認証を必須にした（4章、8章）。実行待ちのバッチを世代番号で失効させ、実行直前に承認を取る（6章、9章）。期待シーンを送信時に登録し、期限をトランジション時間から決め、列で持つ（6章）。配信開始は Intro になってから始める。バッチは失敗した時点で残りを捨てる（6章、7章）。手動保持を再接続で解除しない条件、配信停止で消すこと、Pause の直前の役割の寿命を定義（6章）。Judge の評価順、Kbps の分母、新しい publisher の検出を定義（5章）。MediaMTX の全プロトコルのスイッチを明示し、RTSP を TCP だけにした（8章）。Pdeathsig のスレッド固定、Job Object を本体自身に掛ける方式に変更、ポートの事前確認を補助の診断にした（8章）。名前とパスワードの使える文字を制限（4章）。`cmdErr` の型で 503 と 409 を分け、POST に独自ヘッダーを必須にした（9章）。テスト表の状態の軸を追加（11章）。13章の2項目が変更履歴の後ろにずれていたのを戻した | 設計レビュー1周目（Fable: Critical 1 / Important 8 / Minor 8、codex sol: Critical 1 / Important 10 / Minor 2）。読み出しの認証はユーザーの裁定 | 1a0378c |
+| 2026-11-19 | v1.3 | 世代番号を廃止し、バッチの目的（Purpose）ごとの有効条件を承認の時点で確かめる方式に変えた。配信停止や Pause は受信状態の変化で捨てない。GoLive / PauseOff は回線の悪化で Fail へ決め直す（6章）。`Approve` を `Machine.Approve` に分け、`Proceed` / `Skip` / `Reject` を返す。`SceneRequestDone` と `BatchDone` を追加し、同じ Purpose の未完了のバッチがある間は重ねて出さない（6章、9章）。期待の期限を応答の時点から数え、タイムアウトでは消さず、Transition Override の長さを使う。一致した期待より前の期待も消す（6章、7章）。中核ループと実行役のチャネルの決まりを追加（9章）。配信状態の写像を定義し、出力の再接続を停止として扱わない（7章）。手動保持は配信中だけ入る（6章）。配信開始の待ちを消す条件を列挙（6章）。Poller の残りの未定義を決めた（5章）。Windows の Job の割当失敗時とハンドルの扱い（8章）。テスト表の展開の仕方（11章） | 設計レビュー2周目（Fable: Critical 0 / Important 5 / Minor 6、codex sol: Critical 0 / Important 7 / Minor 1） | この版の commit |
