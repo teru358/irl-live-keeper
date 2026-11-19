@@ -1,15 +1,22 @@
 # irl-live-keeper 設計 — 全体構成と第1段階（コア）
 
 - 作成日: 2026-11-18
-- 版: v1.7（変更は末尾の変更履歴を参照）
-- 状態: ユーザー承認済みの設計（セクション1〜5）を文書化したもの
+- 版: v2.0（変更は末尾の変更履歴を参照）
+- 状態: ユーザー承認済みの設計（セクション1〜5）を文書化したもの。v2.0 でシーンのモデルを 2026-11-19 のユーザーの裁定に合わせて書き直した（6章の末尾に「実装前に決めたこと」がある）
 - 対象バージョン: MediaMTX v1.21.4（2026-11-15 リリース）、obs-websocket v5
 
 ## 1. 目的
 
-屋外配信（IRL）で回線が不安定になったら、OBS を待機画面のシーンへ自動で切り替え、回復したら自動で復帰させる。リレーサーバー、OBS への取り込み、管理ページ、OBS 用オーバーレイを1つのシステムにまとめ、Windows を主に全 OS で「zip を展開して実行するだけ」で導入できる状態を最終形とする。
+屋外配信（IRL）で回線が不安定になったら、OBS を待機シーンへ自動で切り替え、回復したら元のシーンへ自動で復帰させる。リレーサーバー、OBS への取り込み、管理ページ、OBS 用オーバーレイを1つのシステムにまとめ、Windows を主に全 OS で「zip を展開して実行するだけ」で導入できる状態を最終形とする。
 
 旧版 `rtmp-monitor`（Python + nginx-rtmp）はこのリポジトリと別に旧版として残す。コードは引き継がず、挙動だけを引き継いで明文化する。
+
+### 位置づけ
+
+- 普段のシーン操作（カメラの切替、トークのシーンへの切替など）は、IRL Link などの外部ツールで行う。本ツールは、IRL Link にない「回線不安定時の自動切替」を補う
+- 本ツールが知るシーンは、待機シーン（1つ）と、監視対象のシーン（カメラ映像＝メディアソースを使うシーン。複数）だけ。監視対象のシーンで回線が悪くなったら、そのシーンを戻り先として覚えて待機シーンへ切り替え、回復したら戻り先へ戻す。それ以外のシーンには触らない
+- 配信 PC に常駐する。管理ページを屋外から見ることは想定しない
+- 本ツールの手動操作（配信の開始・停止、手動の待機 ON / OFF）は、ツールと配信のテスト用の位置づけである
 
 ### 前提
 
@@ -19,7 +26,7 @@
 
 ### 入れないもの（YAGNI）
 
-Discord / Twitch 連携、OBS シーンの自動作成、待機素材のアップロードと管理、複数の path（複数配信の同時受信）、SRT の RTT やロスを使った切替判定（表示だけに使う）。
+Discord / Twitch 連携、手動の待機 ON / OFF 以外のシーンを切り替える操作（外部ツールで行う）、OBS シーンの自動作成、待機素材のアップロードと管理、複数の path（複数配信の同時受信）、SRT の RTT やロスを使った切替判定（表示だけに使う）。
 
 ## 2. 全体構成
 
@@ -32,7 +39,7 @@ Discord / Twitch 連携、OBS シーンの自動作成、待機素材のアッ�
 [irl-live-keeper]（Go の単一実行ファイル）
  ├ supervisor : mediamtx.yml を生成・起動し、落ちたら再起動する
  ├ ingest     : 1秒ごとに API を読み、受信バイト数の差分からビットレートを出す（SRT は RTT・ロスも）
- ├ switcher   : 状態機械（Live と待機のどちらにするかを判定する）
+ ├ switcher   : 状態機械（監視対象のシーンと待機シーンの切替を判定する）
  ├ obs        : obs-websocket v5 へ常に1本つなぐ（自動再接続）
  ├ web        : API / 管理ページ / オーバーレイ / SSE 配信
  └ config     : config.yaml が唯一の設定元
@@ -48,8 +55,8 @@ Discord / Twitch 連携、OBS シーンの自動作成、待機素材のアッ�
 | 段階 | 内容 | spec |
 |---|---|---|
 | 1. コア | supervisor、ingest、switcher、obs、最小の JSON API、config.yaml。旧 rtmp-monitor を置き換えられる | **この文書** |
-| 2. 管理ページ | 状態表示、グラフ、操作、設定編集、送信用 URL と OBS 用 URL の表示、認証画面 | 後で別に書く |
-| 3. オーバーレイ | 通信状況とビットレートを OBS のブラウザソースで表示 | 後で別に書く |
+| 2. 管理ページ | 状態表示、グラフ、操作、設定編集（OBS のシーン一覧を `GetSceneList` で取得し、待機シーン、監視対象のシーン、開始時のシーンを選ばせる）、送信用 URL と OBS 用 URL の表示、認証画面 | 後で別に書く |
+| 3. オーバーレイ | OBS のテキストソースを書き換えて、通信状況を配信に乗せる方向。表示する項目の候補: 受信ビットレート、回線の状態、プロトコル、SRT の RTT・ロス、接続時間、再接続の回数、待機中の経過時間、配信時間、送信ビットレート、ドロップしたフレーム。雛形の文字列で設定する案。ブラウザソースと排他にするかは第3段階で決める | 後で別に書く |
 | 4. 配布 | 各 OS 向けクロスビルド、MediaMTX 同梱の zip、GitHub Actions でのリリース | 後で別に書く |
 
 以下は第1段階（コア）の詳細設計である。
@@ -96,13 +103,16 @@ obs:
   port: 4455
   password: ""               # 空なら認証なしで接続する（OBS 側で認証を無効にしている場合）
   media_source: IRL          # MediaMTX を読むメディアソースの入力名
-  scenes:                    # 役割 → 実際の OBS シーン名
-    intro: Intro
-    live: Live
-    fail: Fail
-    pause: Pause
+  standby_scene: Standby     # 待機シーン（1つ）。回線が悪い間に出す OBS のシーン名。既定値は Standby
+  monitored_scenes:          # 監視対象のシーン（1つ以上）。カメラ映像（メディアソース）を使うシーン。既定値は Camera の1つ
+    - Camera
+
+on_stream_start:             # 配信開始時の切替（安全機能）
+  enabled: false             # true にすると、配信が始まったときに scene へ切り替える
+  scene: ""
 
 switch:
+  auto_enabled: true         # 自動切替。あえて乱れた映像を出したいときに false にする
   fail_kbps: 800             # これ未満が low_sec 続いたら LOW
   low_sec: 5
   recover_kbps: 1500         # これ以上が recover_sec 続いたら OK
@@ -121,8 +131,12 @@ log:
 - `stream.name`、`publish_user`、`publish_pass`、`read_user`、`read_pass` は空でなく、`[A-Za-z0-9_-]` の文字だけからなる（URL の区切り文字 `:`、`&`、`#` などで送信用 URL が壊れ、ログの置き換えも効かなくなるため）。生成する値もこの範囲で作る
 - `publish_pass` と `read_pass` は8文字以上
 - `publish_user` と `read_user` は `any` でない（MediaMTX は `any` を資格情報の照合なしで通すため）。また互いに異なる
-- `obs.scenes` の4つは空でなく、互いに異なる
+- `obs.standby_scene` は空でなく、`obs.monitored_scenes` に含まれない
+- `obs.monitored_scenes` は1つ以上で、どの名前も空でなく、互いに異なる
+- `on_stream_start.enabled` が true のとき、`on_stream_start.scene` は空でなく、`obs.standby_scene` と異なる（待機シーンで配信が始まると、持ち主が `none` の待機になり自動で戻らないため）
 - `admin.password` は空でない
+
+シーンの設定（`obs.standby_scene`、`obs.monitored_scenes`、`switch.auto_enabled`、`on_stream_start`）は、第2段階の管理ページで OBS のシーン一覧（`GetSceneList`）を取得して選べるようにする。そのため switcher は、これらを config から直接読まず、差し替えられる入力（Event `ScenesConfigured`。6章）として受け取る。第1段階では起動時に config から1回だけ渡す。初回生成の既定値は `standby_scene: Standby`、`monitored_scenes: [Camera]` とする。OBS にその名前のシーンがなければ、接続時に status の `warnings` に出る（6章末「実装前に決めたこと」の 4）。
 
 `admin.listen` が loopback 以外（`0.0.0.0` や LAN のアドレス）のときは、起動するたびに警告をログに出す: 管理 API を LAN に公開していること、通信は平文で LAN 内では盗聴されうること、ルーターで転送しないこと。値を省略したときに LAN 公開と解釈することはない（省略時は既定の `127.0.0.1:8787`）。
 
@@ -212,9 +226,19 @@ Poller の例（Judge ではなく Poller のテストで確かめる。1秒ご�
 
 ## 6. シーンの状態機械（switcher）
 
-### 役割
+### シーンの設定と分類
 
-OBS の現在のシーン名を、config の割り当てで役割に変換する: `Intro` / `Live` / `Fail` / `Pause` / `Other`（管理外）。
+switcher は、シーンの設定を Event `ScenesConfigured` で受け取り、差し替えられる入力として持つ（config を直接読まない）。第1段階では、config.yaml から作った `ScenesConfigured` を、中核ループを始める前に最初の Event として `Handle` に1回渡す。第2段階では、管理ページで設定を編集するたびに送る（送る前に 4章と同じ検証を通す。switcher は検証しない）。
+
+OBS の現在のシーン名を、その時点の設定で3つに分類する。
+
+| 分類 | 条件 |
+|---|---|
+| Monitored（監視対象） | シーン名が `Monitored` の列にある |
+| Standby（待機シーン） | シーン名が `Standby` と同じ |
+| Other（管理外） | 上のどちらでもない |
+
+OBS に未接続などで現在のシーンがわからない間は、分類を「不明」とし、どの条件にも当てはまらないものとして扱う（status では `unknown`）。
 
 ### 入力（Event）と出力（Action）
 
@@ -226,85 +250,115 @@ OBSDisconnected{}
 SceneChanged{Scene string}           // program のシーンの変更（CurrentProgramSceneChanged）だけ。Studio Mode の preview は扱わない
 TransitionChanged{TransitionMs *int} // 全体のトランジションまたはその長さが変わった
 StreamStateChanged{Streaming bool}   // 写像は 7章。出力の再接続では流れない
-Command{Kind: StreamStart | StreamStop | GoLive | PauseOn | PauseOff}
+ScenesConfigured{Standby string, Monitored []string, AutoEnabled bool, StartScene *string} // シーンの設定。StartScene は配信開始時の切替が無効なら nil
+Command{Kind: StreamStart | StreamStop | StandbyOn | StandbyOff}
 SceneRequestDone{ReqID int, Result: OK | Timeout | Error} // 送った SetScene の応答（期待の期限の起点）
 BatchDone{BatchID int, Result: Completed | Failed | Rejected, Err error} // バッチの終わり（成功、失敗、承認の却下のどれでも1回）
 Tick{}        // 1秒ごと。再送と期待の期限の判定に使う
 
 // Action
-SetScene{Role}
+SetScene{Scene string}           // OBS のシーン名そのもの
 RestartMedia{Wait time.Duration} // RESTART を送ったあと、次の Action までの待ち時間（spike ② で決める定数）
 StartStream{}
 StopStream{}
 ```
 
-- `Machine.Handle(Event) (batch *Batch, cmdErr error)`。`Batch` は `BatchID`（通し番号）、`Purpose`（目的）、作った時点の `SceneEpoch`、`ConnEpoch`、`StreamEpoch`、Action の列を持つ
+- `Machine.Handle(Event) (batch *Batch, cmdErr error)`。`Batch` は `BatchID`（通し番号）、`Purpose`（目的）、作った時点の `SceneEpoch`、`ConnEpoch`、`StreamEpoch`、`ConfigEpoch`、Action の列を持つ。待機シーンへ切り替えるバッチ（AutoFail、StandbyOn）は、さらに戻り先のシーン名（`ReturnScene`。作った時点の現在のシーン名）を持つ
 - `Machine.Approve(batchID int, action Action, override Override, at time.Time) ApproveResult`。実行役が Action を送る直前に呼ぶ（9章）。`Override` はトランジションの上書きの状態で、`None`（上書きなし）、`Known{Ms}`（上書きあり・長さがわかる）、`Unknown`（上書きあり・長さ不明、または読み取りに失敗した）の3つを区別する。`SetScene` 以外では `None` を渡す。結果は次のどれか:
   - `Proceed{ReqID}`: 送る。`SetScene` なら期待を登録して ReqID を返す
   - `Skip`: 送らずに成功とみなす
   - `Reject`: バッチの残りを捨てる
-  - `Replace{Batch}`: このバッチの残りを捨て、代わりの新しいバッチを実行する（GoLive / PauseOffLive の決め直し）。中核ループは代わりのバッチを列の先頭に入れる。実行役は元のバッチの `BatchDone{Rejected}` を送るが、switcher は置き換えたバッチの却下を `last_error` に記録しない
-- `SceneEpoch` は手動とみなした `SceneChanged` のたびに、`ConnEpoch` は `OBSDisconnected` のたびに、`StreamEpoch` は配信状態が変わるたび（`StreamStateChanged` と、`OBSConnected` で配信状態が切断前と違っていたとき）に1つ進む
+  - `Replace{Batch}`: このバッチの残りを捨て、決め直した扱いに置き換える。`Batch` が nil でなければ、中核ループは代わりのバッチを列の先頭に入れる。`Batch` が nil なら、代わりに実行するものはない（switcher が `Approve` の中で自分の状態を変えて済ませた）。実行役は元のバッチの `BatchDone{Rejected}` を送るが、switcher は置き換えたバッチの却下を `last_error` に記録しない。v2.0 でこれを使うのは StandbyOffMonitored だけで、`Batch` は常に nil（下の「手動操作」を参照）
+- `SceneEpoch` は手動とみなした `SceneChanged` のたびに、`ConnEpoch` は `OBSDisconnected` のたびに、`StreamEpoch` は配信状態が変わるたび（`StreamStateChanged` と、`OBSConnected` で配信状態が切断前と違っていたとき）に1つ進む。`ConfigEpoch`（設定の世代）は、シーンの設定を変える `ScenesConfigured`（内容が今の設定と違うもの。`AutoEnabled` と `StartScene` の変更を含む）のたびに1つ進む
+- シーンの比較（期待との照合、`Skip` の判定、分類）は、すべてシーン名の文字列の一致で行う
 
 `cmdErr` は `Command` を受け付けられないときだけ返し、型で2種類に分ける: `ErrNotConnected`（OBS に未接続）と `ErrInvalidState`（今の状態では受け付けられない。理由の文を持つ）。web はこの型から 503 と 409 を決め、自分では状態を判定しない。
 
+### 待機の持ち主と戻り先
+
+switcher は、待機シーンに「誰が入れたか」と「どこへ戻すか」を持つ。
+
+| 状態 | 値 | 意味 |
+|---|---|---|
+| 待機の持ち主（`StandbyOwner`） | `none` | 本体は待機に入れていない（人が手動で待機シーンを選んだ場合を含む） |
+| | `auto` | 自動切替で待機シーンに入れた。受信状態が回復したら戻り先へ戻す |
+| | `manual` | 手動の待機（StandbyOn）で入れた。StandbyOff まで自動では戻さない |
+| 戻り先（`ReturnScene`） | シーン名、またはなし | 待機シーンに入る直前のシーン。持ち主が `none` のときはなし |
+
+- 持ち主と戻り先を入れるのは、待機シーンへの**期待どおりの `SceneChanged` が届いた時点**だけ（AutoFail なら `auto`、StandbyOn なら `manual`。戻り先はそのバッチが持つ `ReturnScene`）。バッチの却下、失敗、期待の期限切れでは何も入れない。このため、期待は `ReqID` のほかに、バッチの Purpose と `ReturnScene` を持つ
+- 持ち主と戻り先を消す（`none`、なし）のは次のとき:
+  - 戻り先への期待どおりの `SceneChanged` が届いたとき（AutoRecover、StandbyOffMonitored、StandbyOffOther）。戻すバッチが却下、失敗、期限切れになったときは消さない（`auto` なら条件が続く間 `Tick` で再送する。`manual` なら `last_error` に残り、もう一度 StandbyOff を受け付ける）
+  - 手動（期待にない）の `SceneChanged` が届いたとき（「外部からの手動切替」）
+  - `StreamStateChanged{Streaming: false}`（配信の停止）を受けたとき
+  - `OBSConnected` で、シーンか配信状態が切断の直前と違っていたとき（どちらも同じなら保つ。websocket の瞬断だけで戻り先を忘れないため。配信状態が違っていたら配信の区切りとみなす）
+  - `ScenesConfigured` で、待機シーンの名前が変わったとき、または持ち主が `auto` で戻り先が新しい設定の Monitored でなくなったとき（今いるシーンはそのまま。どちらでもなければ保つ）
+  - 持ち主が `auto` の間に `auto_enabled` が false になったとき（待機シーンに残り、戻り先を忘れる）
+- したがって、OBS に接続している間、持ち主が `none` 以外なら現在のシーンは待機シーンである
+
 ### 目的と有効条件（実行直前の承認）
 
-決めた時点では正しかったが、実行するまでに状況が変わったバッチを実行しないため、各バッチは目的（Purpose）を持ち、`Approve` のたびにその目的の有効条件を**その時点の状態で**確かめる。共通の条件として、OBS に接続していて、`ConnEpoch` と `StreamEpoch` がバッチを作った時点と同じであること（前の配信のために作ったバッチが、停止と再開のあとの次の配信で実行されないようにする。例: 受け付けた StreamStop が実行待ちの間に、OBS の画面で配信を止めて始め直した）。シーンを切り替えるバッチは、さらに `SceneEpoch` が同じであること（作ったあとに人がシーンを切り替えていたら、人の操作を優先する）。
+決めた時点では正しかったが、実行するまでに状況が変わったバッチを実行しないため、各バッチは目的（Purpose）を持ち、`Approve` のたびにその目的の有効条件を**その時点の状態で**確かめる。共通の条件として、OBS に接続していて、`ConnEpoch` と `StreamEpoch` がバッチを作った時点と同じであること（前の配信のために作ったバッチが、停止と再開のあとの次の配信で実行されないようにする。例: 受け付けた StreamStop が実行待ちの間に、OBS の画面で配信を止めて始め直した）。シーンを切り替えるバッチは、さらに `SceneEpoch` が同じであること（作ったあとに人がシーンを切り替えていたら、人の操作を優先する）と、`ConfigEpoch` が同じであること（作ったあとにシーンの設定が変わっていたら、古い設定で決めた切替を実行しない）。
 
 | Purpose | 出すバッチ | 有効条件（共通の条件に加えて） | 条件を満たさないとき |
 |---|---|---|---|
-| AutoFail | `[SetScene(fail)]` | 配信中、役割が Live、受信状態が LOW / DOWN、手動保持でない | 却下 |
-| AutoRecover | `[RestartMedia, SetScene(live)]` | 配信中、役割が Fail、受信状態が OK、手動保持でない | 却下 |
-| GoLive / PauseOffLive | `[RestartMedia, SetScene(live)]` | 配信中、役割が Intro（GoLive）または Pause（PauseOffLive）、受信状態が OK | 受信状態だけが悪くなったなら、`Replace` で GoFail / PauseOffFail のバッチに置き換える。置き換えたバッチはさらに置き換えない（GoFail / PauseOffFail は受信状態を条件に持たない）。それ以外は却下 |
-| GoFail / PauseOffFail | `[SetScene(fail)]` | 配信中、役割が Intro または Pause | 却下 |
-| PauseOffIntro | `[SetScene(intro)]` | 配信中、役割が Pause | 却下 |
-| PauseOn | `[SetScene(pause)]` | 配信中、役割が Intro / Live / Fail | 却下 |
-| StartIntro | `[SetScene(intro)]` | 配信中でない、この StreamStart の「配信開始の待ち」が残っている | 却下（待ちも消す） |
-| StartStream | `[StartStream]` | 配信中でない、役割が Intro、この StreamStart の待ちが残っている | 却下（待ちも消す） |
+| AutoFail | `[SetScene(待機シーン)]` | 配信中、`auto_enabled`、現在のシーンが Monitored、受信状態が LOW / DOWN、持ち主が `none`、切替中の抑止（下記）に当たらない | 却下 |
+| AutoRecover | `[RestartMedia, SetScene(戻り先)]` | 配信中、`auto_enabled`、持ち主が `auto`、現在のシーンが待機シーン、受信状態が OK、切替中の抑止に当たらない | 却下 |
+| StandbyOn | `[SetScene(待機シーン)]` | 配信中、持ち主が `none`、現在のシーンが待機シーンでない | 却下（`Skip` にはしない。承認の前に AutoFail が先に待機シーンへ届いた場合もここで却下し、`last_error` に記録する） |
+| StandbyOffMonitored | `[RestartMedia, SetScene(戻り先)]` | 配信中、持ち主が `manual`、現在のシーンが待機シーン、`auto_enabled` が true なら受信状態が OK（false なら受信状態を見ない） | `auto_enabled` が true で受信状態だけが悪くなったなら、`Replace`（代わりのバッチなし）を返し、その場で持ち主を `auto` にする（シーンは変えない。回復したら AutoRecover で戻る）。それ以外は却下 |
+| StandbyOffOther | `[SetScene(戻り先)]` | 配信中、持ち主が `manual`、現在のシーンが待機シーン | 却下 |
+| StartScene | `[SetScene(開始時のシーン)]` | 配信中 | 却下（再送しない。`last_error` に記録する。手動の切替による却下は記録しない） |
+| StartStream | `[StartStream]` | 配信中でない | 却下 |
 | StopStream | `[StopStream]` | 配信中（`SceneEpoch` は見ない） | 却下 |
 
-- 受信状態は AutoFail、AutoRecover、GoLive / PauseOffLive の条件にだけ入る。配信停止や Pause は、回線の状態が変わっても捨てない
-- `SetScene` の承認で、現在の役割がすでに目的の役割なら `Skip`（送らず、期待も登録しない）
-- `BatchDone{Rejected}` または `{Failed}` が Command 由来のバッチ（Auto 以外）なら、`last_error` に記録する。API はすでに 200 を返しているので、ここで利用者に見えるようにする
+- バッチの `SetScene` の切替先は、バッチを作った時点のシーン名（待機シーン、戻り先、開始時のシーン）で固定する
+- 受信状態は AutoFail、AutoRecover、StandbyOffMonitored（`auto_enabled` が true のとき）の条件にだけ入る。配信の開始・停止、手動の待機 ON、開始時の切替は、回線の状態が変わっても捨てない
+- `SetScene` の承認で、現在のシーンがすでに切替先のシーンなら `Skip`（送らず、期待も登録しない）
+- `BatchDone{Rejected}` または `{Failed}` が Command 由来のバッチ（StandbyOn、StandbyOff の2つ、StartStream、StopStream）か StartScene のバッチなら、`last_error` に記録する。API はすでに 200 を返しているので、ここで利用者に見えるようにする
 - 実行待ちか実行中のバッチは、`BatchDone` が来るまで「未完了」として switcher が持つ。同じ Purpose の未完了のバッチがある間は、同じ Purpose の新しいバッチを出さない（イベント起点の判定にも再送にも掛かる）
 
 ### 自動切替
 
-自動切替は、**OBS に接続していて、配信中で、現在の役割が Live か Fail のときだけ**行う。Intro、Pause、Other には触らない。現在のシーンは OBS のイベントで追うので、OBS 側での手動切替を尊重する。
+自動切替は、**OBS に接続していて、配信中で、`auto_enabled` が true のときだけ**行う。現在のシーンは OBS のイベントで追う。
 
-- Live のとき、受信状態が `LOW` か `DOWN` → `[SetScene(fail)]`
-- Fail のとき、受信状態が `OK` → `[RestartMedia, SetScene(live)]`
+- **AutoFail:** 現在のシーンが Monitored、受信状態が `LOW` か `DOWN`、持ち主が `none` → `[SetScene(待機シーン)]`。バッチは戻り先として、その時点の現在のシーン名を持つ。戻り先と持ち主（`auto`）が入るのは、待機シーンへの期待どおりの `SceneChanged` が届いた時点
+- **AutoRecover:** 持ち主が `auto`、現在のシーンが待機シーン、受信状態が `OK` → `[RestartMedia, SetScene(戻り先)]`
   - `RestartMedia` は `TriggerMediaInputAction`（`OBS_WEBSOCKET_MEDIA_INPUT_ACTION_RESTART`）を `obs.media_source` に送る
   - RESTART と切替の順序、間に置く待ち時間（`RestartMedia.Wait`）は spike ②（12章）で決め、定数として実装する
-- 受信状態が `LinkChanged` で変わったときだけでなく、`SceneChanged`（本体の切替によるもの）、`StreamStateChanged`、`OBSConnected` のあとにも同じ判定をする。ただし手動保持中は判定しない（次節）
+- Other のシーンには触らない。持ち主が `none` の待機シーン（人が手動で選んだ）と、持ち主が `manual` の待機シーンからは、自動では戻さない
+- `ScenesConfigured` を受けたら、新しい設定に差し替え、持ち主と戻り先を上の規則で確かめ（「待機の持ち主と戻り先」）、`ConfigEpoch` を進める。未完了のシーン切替のバッチは承認で却下される。期待はそのまま残す（そのあと届いた `SceneChanged` を手動と誤認しないため）。そのあと通常の判定をする
+- 受信状態が `LinkChanged` で変わったときだけでなく、`SceneChanged`（本体の切替でも手動の切替でも）、`StreamStateChanged`、`OBSConnected`、`ScenesConfigured`、`Tick` のあとにも同じ判定をする
+- **切替中の抑止:** StartScene、StandbyOn、StandbyOffMonitored、StandbyOffOther のどれかのバッチが未完了か、その期待が残っている間は、自動切替の判定をしない。Auto のバッチの承認も、この間は却下する。手動の待機を押した直後や配信開始時の切替の途中で回線が変わっても、その切替が自動切替で上書きされないようにするため。切替が届いたあと（または却下、失敗、期限切れのあと）は通常の判定に戻る
+- **`auto_enabled` が false のとき:** Auto のバッチを出さない。実行待ちの Auto のバッチは承認で却下する。持ち主が `auto` なら `none` にし、戻り先を消す（待機シーンに残る）。あえて乱れた映像を出したいときのための設定で、配信の開始・停止と手動の待機（StandbyOn / StandbyOff）は使える。このときの StandbyOff は受信状態を見ずに戻り先へ戻す（「手動操作」。自動切替を切った利用者は、乱れた映像が出ることを承知している）
 
-### 外部からの手動切替（手動保持）
+### 外部からの手動切替
 
-OBS のシーンは、本体のほかに OBS の画面や IRL Link などの外部ツールからも切り替えられる。obs-websocket のシーン変更イベントには、誰が切り替えたかが含まれない。そこで次のように扱う。
+普段のシーン操作は、OBS の画面や IRL Link などの外部ツールで行う。obs-websocket のシーン変更イベントには、誰が切り替えたかが含まれない。そこで次のように扱う。
 
-- **期待シーン:** 期待は、`SetScene` を決めた時点ではなく、実行役が実際に送る直前の `Approve` が `Proceed` を返した時点で登録する。期待は列で持ち、送った `SetScene` ごとに1つ足す。各期待は `ReqID` を持ち、`SceneRequestDone` と1対1で対応する
+- **期待シーン:** 期待は、`SetScene` を決めた時点ではなく、実行役が実際に送る直前の `Approve` が `Proceed` を返した時点で登録する。期待は列で持ち、送った `SetScene` ごとに1つ足す。各期待は `ReqID`、切替先のシーン名、バッチの Purpose と `ReturnScene` を持ち、`SceneRequestDone` と1対1で対応する
 - **期限:** 応答を待っている間は期限切れにしない。期限は `SceneRequestDone` を受けた時点から数え始め、「その時点 + 実際に使われるトランジションの長さ + 3秒」とする。OBS はトランジションが終わった時点で `CurrentProgramSceneChanged` を出すため、トランジションの長さを含める
   - 実際に使われる長さ: `Approve` に渡された `Override` が `None` なら全体の長さ、`Known{Ms}` なら上書きの長さ
   - 次のときは「長さ + 3秒」と「10秒」の長いほう（長さがなければ10秒）: `Override` が `Known`（固定長かどうかが応答からわからない）、`Override` が `Unknown`、`None` で全体の長さが取れない（固定長のトランジション）
   - `Result: Timeout` でも期限まで残す（タイムアウトは OBS が適用しなかったことを意味しない。要求を取り消す手段はない）。`Result: Error`（シーンが存在しない、など OBS がエラーを返した）なら、その期待をすぐ消す
-- **本体の切替と外部の切替の見分け方:** `SceneChanged` が、列の先頭から見て最初に一致する期待のシーンと同じなら、本体の切替とみなし、その期待と、それより前にある期待をすべて消す（後から送った要求が前の要求を上書きしたとみなす。OBS は進行中のトランジションを打ち切って次を始めることがある）。どの期待とも一致しない `SceneChanged` は、すべて手動（外部）の切替とみなし、期待を全部消す。期限を過ぎた期待は消す。obs-websocket の応答とイベントのどちらが先に届いても、期待は送る前に登録してあるので判定は変わらない
-- **手動保持:** 配信中に、手動で役割が Live か Fail に切り替えられたら、手動保持に入る。配信していない間の手動切替（配信前に OBS の画面で Live を確かめる、など）では入らない。保持中は、そのシーンを自動切替で打ち消さない。待っていた再送も取り消す。実行待ちの Auto のバッチは、`SceneEpoch` が進むので承認で却下される
-- **保持の解除:** 受信状態が OK と不良（LOW / DOWN）の間で変わったら解除する。LOW と DOWN の間の変化では解除しない。解除したら、その時点の受信状態で通常どおり判定する。例: 回線が悪いときに手動で Live にした場合は、回線がいったん OK に戻り、再び悪くなった時点で Fail に切り替える
-- 手動保持は、次のときにも解除する:
-  - 手動で役割が Live / Fail 以外（Intro、Pause、Other）に切り替えられたとき。この場合は自動切替の対象外なので、もともと何もしない
-  - 本体の Command（GoLive、PauseOff など）を受け付けたとき
-  - `OBSConnected` で、シーンか配信状態が切断の直前と違っていたとき。どちらも同じなら保持を続ける（websocket の瞬断だけで人の選択を打ち消さないため）
-  - `StreamStateChanged{Streaming: false}`（配信の停止）を受けたとき。あわせて期待と再送待ちも消す
-- Intro、Pause、Other への手動切替は、これまでどおり自動切替の対象外とする。Pause への手動切替では直前の役割を覚える（下の「手動操作」を参照）
-- 手動保持中かどうかと、いつから保持しているかを status に出す
+- **本体の切替と外部の切替の見分け方:** `SceneChanged` が、列の先頭から見て最初に一致する期待のシーン名と同じなら、本体の切替とみなし、その期待と、それより前にある期待をすべて消す（後から送った要求が前の要求を上書きしたとみなす。OBS は進行中のトランジションを打ち切って次を始めることがある）。一致した期待の Purpose に応じて、持ち主と戻り先を入れるか消す（「待機の持ち主と戻り先」）。前にあって一緒に消した期待は、持ち主と戻り先に作用しない。どの期待とも一致しない `SceneChanged` は、すべて手動（外部）の切替とみなす。期限を過ぎた期待は消す。obs-websocket の応答とイベントのどちらが先に届いても、期待は送る前に登録してあるので判定は変わらない
+- **手動の切替を受けたとき:** `SceneEpoch` を1つ進め、期待を全部消し、持ち主を `none` に、戻り先をなしにする。実行待ちのシーン切替のバッチは、`SceneEpoch` が進むので承認で却下される。そのうえで、新しいシーンについて通常の自動切替の判定をする。結果は切り替えた先の分類で決まる:
+
+| 人が切り替えた先 | 受信状態 | 結果 |
+|---|---|---|
+| Monitored | OK | 何もしない |
+| Monitored | LOW / DOWN | AutoFail が出る。**そのシーンが新しい戻り先になる**（待機シーンから入った場合も、トークのシーンなど Other から入った場合も同じ） |
+| 待機シーン | どちらでも | 何もしない。持ち主は `none` で、回復しても自動では戻さない |
+| Other | どちらでも | 何もしない |
+
+- 回線が悪い間に人が監視対象のシーンを選ぶと、すぐ待機シーンへ戻される。これは意図した動きである（カメラ映像のシーンは、回線が悪い間は出さない。人が選んだシーンは戻り先として覚え、回復したらそこへ戻す）。あえて出したいときは `auto_enabled` を切る
+- 配信していない間は、持ち主と戻り先を持たない。配信前に OBS の画面でシーンを確かめる操作では、何も起きない
+- 待機の持ち主と戻り先を status に出す
 
 ### 再送の歯止め
 
 自動切替の Action を出したあと、OBS のシーンが期待どおりに変わらない（失敗した、またはイベントが来ない）まま条件が続く場合は、`Tick` で再送する。自動切替のバッチを出すのは（イベント起点の判定でも `Tick` の再送でも）次をすべて満たすときだけ:
 - 同じ Purpose の未完了のバッチがなく、そのシーンへの期待も残っていない
 - `Tick` の再送なら、同じ Purpose の前回の送出から5秒以上たった
-- 手動保持中でない
+- 切替中の抑止に当たらない
 
 ### バッチ内の失敗
 
@@ -312,70 +366,95 @@ OBS のシーンは、本体のほかに OBS の画面や IRL Link などの外�
 
 ### 手動操作
 
-すべて OBS に接続している必要がある（未接続なら `ErrNotConnected`、web は 503）。
+本体の手動操作は、配信の開始・停止と、手動の待機 ON / OFF の4つだけで、ツールと配信のテスト用の位置づけである（普段のシーン操作は外部ツールで行う）。すべて OBS に接続している必要がある（未接続なら `ErrNotConnected`、web は 503）。
 
 | Command | 受け付ける条件 | Action |
 |---|---|---|
-| StreamStart | 配信中でない、配信開始の待ちがない | 「配信開始の待ち」（StreamStart ごとの通し番号を持つ）に入る。役割がすでに Intro なら StartStream のバッチを出す。そうでなければ StartIntro のバッチを出し、Intro への期待どおりの `SceneChanged` が来たら、StartStream のバッチを出す。Live のカメラ映像のまま配信が始まるのを防ぐため、Intro になったことを確かめるまで配信を始めない |
-| StreamStop | 配信中 | StopStream のバッチ |
-| GoLive | 配信中、役割が Intro | 受信状態が OK なら GoLive、そうでなければ GoFail のバッチ |
-| PauseOn | 配信中、役割が Intro / Live / Fail | PauseOn のバッチ |
-| PauseOff | 配信中、役割が Pause | 下記 |
+| StreamStart | 配信中でない | StartStream のバッチ。配信を始めるだけで、シーンは変えない |
+| StreamStop | 配信中 | StopStream のバッチ。配信を止めるだけで、シーンは変えない |
+| StandbyOn | 配信中、持ち主が `none`、現在のシーンが待機シーンでない、StartScene / AutoFail / AutoRecover のバッチが未完了でない | StandbyOn のバッチ（`[SetScene(待機シーン)]`）。バッチは戻り先として、その時点の現在のシーン名を持つ（分類を問わない） |
+| StandbyOff | 配信中、持ち主が `manual` | 下記 |
 
-条件を満たさない Command は `ErrInvalidState` を返し、web は 409 を返す。
+条件を満たさない Command は `ErrInvalidState` を返し、web は 409 を返す。受け付ける条件を満たしていても、同じ操作のバッチが未完了なら同じく `ErrInvalidState`（理由: 同じ操作が実行待ち）を返す。
 
-**配信開始の待ちの段階:** 待ちは「Intro の確認待ち」と「Intro 確認済み」の2段階を持つ。Intro への期待どおりの `SceneChanged` が来た時点で「Intro 確認済み」に進み、StartStream のバッチを出す（役割がすでに Intro だった場合は、最初から「Intro 確認済み」）。
+**手動の待機 ON:** 待機シーンへの期待どおりの `SceneChanged` が届いた時点で、持ち主を `manual` に、戻り先をバッチが持つシーン名にする。持ち主が `manual` の間は、自動切替をしない（回線が回復しても戻さない）。次のときは StandbyOn を受け付けず、`ErrInvalidState` を返す: 現在のシーンがすでに待機シーン（持ち主が `auto` の自動の待機中も、人が手動で待機シーンを選んだ持ち主 `none` のときも。理由: すでに待機シーン）、StartScene、AutoFail、AutoRecover のどれかのバッチが未完了（理由: 切替の実行中）。受け付けたあと、承認の前に待機シーンへ切り替わっていた場合は、承認で却下して `last_error` に記録する。
 
-**配信開始の待ちを消すとき:**
-- どちらの段階でも: StartStream のバッチの `BatchDone`（結果を問わない）、手動の `SceneChanged`、`OBSDisconnected`、`StreamStateChanged{Streaming: true}`
-- 「Intro の確認待ち」の段階だけ: StartIntro のバッチの却下か失敗、Intro への期待の期限切れか `Result: Error`。「Intro 確認済み」のあとに StartIntro の応答がタイムアウトしても、待ちは消さない（OBS は Intro に切り替わっている）
+**手動の待機 OFF の戻り方:** 受け付けた時点の戻り先の分類と受信状態で決める。`auto_enabled` が false のときは受信状態を見ず、OK の行と同じに扱う（戻り先が Monitored なら `[RestartMedia, SetScene(戻り先)]`、そうでなければ `[SetScene(戻り先)]`）。下の表は `auto_enabled` が true のとき。
 
-成功以外で消したときは `last_error` に記録し、配信は始めない。
+| 戻り先 | 受信状態 | 動き |
+|---|---|---|
+| Monitored | OK | StandbyOffMonitored のバッチ（`[RestartMedia, SetScene(戻り先)]`） |
+| Monitored | LOW / DOWN | シーンを変えず、持ち主を `auto` にする（バッチは出さない。`cmdErr` は nil で、web は 200 を返す）。回復したら AutoRecover で戻り先へ戻る |
+| Monitored でない | どちらでも | StandbyOffOther のバッチ（`[SetScene(戻り先)]`） |
 
-PauseOn は旧版と違い、Intro からも受け付ける（開始前の待機中に一時的に Pause を出せるようにするため）。
+- `auto_enabled` が true のとき、StandbyOffMonitored のバッチが承認を待つ間（`RestartMedia.Wait` の待ちを含む）に受信状態が悪くなったら、`Approve` は `Replace`（代わりのバッチなし）を返し、その場で持ち主を `auto` にする。上の表の2行目と同じ結果になる。置き換えは `last_error` に記録しない
+- 戻り先への期待どおりの `SceneChanged` が届いた時点で、持ち主を `none` に、戻り先をなしにする
+- 回線が悪いままカメラ映像のシーンへ戻ってすぐ待機シーンへ飛ぶのを避けるため、戻り先が Monitored のときだけ受信状態を見る
 
-**Pause の直前の役割:** 役割が Pause に変わるたびに、必ず上書きする。直前の役割が Intro / Live / Fail ならその役割、それ以外（Other から来た、など）なら「不明」。OBS 側で手動で Pause にした場合も、`SceneChanged` から同じように扱う。次のときは「不明」に戻す: Pause から出たとき、`OBSConnected`（接続した時点で Pause だった場合を含む）、`StreamStateChanged{Streaming: false}`。
+### 配信開始時の切替（安全機能）
 
-**PauseOff の戻り先:**
-- 直前が Intro → PauseOffIntro（`[SetScene(intro)]`）
-- 直前が Live か Fail、または不明 → その時点の受信状態が OK なら PauseOffLive（`[RestartMedia, SetScene(live)]`）、そうでなければ PauseOffFail（`[SetScene(fail)]`）
+`on_stream_start.enabled` が true のとき（既定は false）、配信が始まったら指定のシーンへ切り替える。前回の配信のシーンのまま始まるのを防ぐための機能で、誰が配信を始めたか（本体の StreamStart、OBS の画面、外部ツール）を問わない。
 
-旧版は受信状態に関係なく直前のシーンへ戻していた。新版では、回線が悪いまま Live に戻ってすぐ Fail へ飛ぶのを避ける。
+- `StreamStateChanged{Streaming: true}` を受けたとき、StartScene のバッチ（`[SetScene(開始時のシーン)]`）を出す。受信状態は見ない（開始時のシーンを優先する）
+- StartScene のバッチが未完了か、その期待が残っている間は、自動切替の判定をしない（「切替中の抑止」）
+- 開始時のシーンに切り替わったあとは、通常の規則に従う。開始時のシーンが Monitored で受信状態が不良なら、続けて AutoFail が出て、開始時のシーンが戻り先になる
+- 切替の前に人がシーンを切り替えたら、`SceneEpoch` が進むので StartScene は承認で却下される（人の操作を優先する）
+- StartScene は再送しない。バッチの失敗、却下、期待の期限切れは `last_error` に記録する。ただし、手動の切替で `SceneEpoch` が進んだための却下は記録しない（人が自分でシーンを選んだ結果で、エラーではない）
+- 出すのは `StreamStateChanged{Streaming: true}` のときだけ。`OBSConnected` で、切断中に配信が始まっていたとわかった場合は出さない（開始の瞬間はすでに過ぎていて、配信の途中で予期しない切替になるため）
+- 開始時のシーンに待機シーンは指定できない（4章の検証）
+- **既知の制約:** 配信の開始は `STARTED` で検知する（7章の写像）。そのため、配信の最初のわずかな間は切替前のシーンが配信に出る。`STARTING` の時点で切り替えられるかは spike（12章）で確かめる
 
 ### OBS 未接続の間
 
-`OBSDisconnected` から `OBSConnected` までは Action を出さず、`Approve` もすべて却下する。`OBSDisconnected` で期待をすべて消す。`ConnEpoch` が進むので、切断前のバッチは再接続後に実行されない。`OBSConnected` で配信状態と現在のシーンを取り直してから判定を再開する。
+`OBSDisconnected` から `OBSConnected` までは Action を出さず、`Approve` もすべて却下する。`OBSDisconnected` で期待をすべて消す。`ConnEpoch` が進むので、切断前のバッチは再接続後に実行されない。`OBSConnected` で配信状態と現在のシーンを取り直してから判定を再開する。シーンか配信状態が切断の直前と違っていたら、持ち主を `none` に、戻り先をなしにする（配信状態が違っていたら配信の区切りとみなす）。どちらも同じなら保つ。配信状態が停止から配信中に変わっていても、配信開始時の切替は出さない。
 
-### 細部の規則（入口 × 状態の表を作る中で決めたこと）
+### 配信の停止
 
-表 `docs/superpowers/plans/2026-11-19-switcher-table.md` の 4章（U-01〜U-23）で挙がった不明点を、次のとおり決める。番号は表の文書の不明点の番号。
+`StreamStateChanged{Streaming: false}` を受けたら、持ち主を `none` に、戻り先をなしにし、期待と、各 Purpose の前回の送出時刻（再送待ち）を消す。`StreamEpoch` が進むので、実行待ちのバッチは承認で却下される。
 
-- **承認の順序（U-01）:** 共通の条件（接続、3つの Epoch）→ `SetScene` で現在の役割がすでに目的の役割なら `Skip` → Purpose の有効条件、の順に確かめる。`Skip` は目的を達しているので `last_error` に残さない。`RestartMedia` には `Skip` がなく、役割がすでに Live なら有効条件で却下する
-- **配信開始の待ち（U-02、U-03、U-17）:**
-  - StartIntro の `BatchDone{Completed}` を受けた時点で、待ちが「Intro の確認待ち」で役割が Intro なら、「Intro 確認済み」に進めて StartStream のバッチを出す（`Skip` されて `SceneChanged` が来ない場合）
-  - 前の StreamStart が登録した Intro への期待に一致する `SceneChanged` でも、今の待ちを「Intro 確認済み」に進める。一方、バッチの却下と `BatchDone` は、自分と同じ番号の待ちにだけ作用する
-  - Intro への期待は、それを登録した StreamStart の番号を持つ。期待の期限切れと `Result: Error` で待ちを消すのは、その番号が今の待ちと同じときだけ
-  - `StreamStateChanged{Streaming: true}` で待ちを消すのは成功とみなし、記録しない。「Intro 確認済み」のあとの StartIntro の失敗も記録しない
-- **実行中の操作の重複（U-04）:** 受け付ける条件を満たす Command でも、同じ操作のバッチが未完了なら `ErrInvalidState`（理由: 同じ操作が実行待ち）を返し、状態を変えない。同じ操作として扱う Purpose は、GoLive なら GoLive / GoFail、PauseOff なら PauseOffLive / PauseOffFail / PauseOffIntro、StreamStart なら StartIntro / StartStream
-- **`last_error`（U-05、U-18）:** `BatchDone{Failed}` は Auto でも記録する。`Rejected` は Command 由来だけ記録する。`RestartMedia` だけが失敗して続く `SetScene` が成功したバッチは `Result: Completed` で `Err` に RESTART のエラーを入れ、`Err` があれば記録する。switcher は `last_error` を消さず、新しい記録で上書きする
-- **GoFail / PauseOffFail の役割（U-06）:** GoFail は役割が Intro のときだけ、PauseOffFail は Pause のときだけ有効
+### 細部の規則
+
+v1.x で「入口 × 状態」の表を作る中で決めた規則（U-01〜U-23。番号は v1.x の表の文書の不明点の番号）を、新しいシーンのモデルで確かめ直した。今も成り立つものを残し、言い直したものは言い直した。Intro、Pause、手動保持、配信開始の待ちについての規則（U-02、U-03、U-06、U-08、U-13、U-17、U-20）は、対象がなくなったので削除した。
+
+- **承認の順序（U-01）:** 共通の条件（接続、4つの Epoch）→ `SetScene` で現在のシーンがすでに切替先のシーンなら `Skip` → Purpose の有効条件、の順に確かめる。ただし StandbyOn は `Skip` にせず、有効条件（現在のシーンが待機シーンでない）で却下する。`Skip` は目的を達しているので `last_error` に残さない。`RestartMedia` には `Skip` がなく、Purpose の有効条件で決める（現在のシーンが待機シーンでなければ却下）
+- **実行中の操作の重複（U-04）:** 受け付ける条件を満たす Command でも、同じ操作のバッチが未完了なら `ErrInvalidState`（理由: 同じ操作が実行待ち）を返し、状態を変えない。同じ操作として扱う Purpose は、StreamStart なら StartStream、StreamStop なら StopStream、StandbyOn なら StandbyOn、StandbyOff なら StandbyOffMonitored / StandbyOffOther。StandbyOn は、このほかに StartScene、AutoFail、AutoRecover が未完了の間も受け付けない（理由: 切替の実行中）
+- **`last_error`（U-05、U-18）:** `BatchDone{Failed}` は Auto と StartScene でも記録する。`Rejected` は Command 由来と StartScene だけ記録する（`Replace` で置き換えたバッチは記録しない）。StartScene の期待の期限切れも記録する。`RestartMedia` だけが失敗して続く `SetScene` が成功したバッチは `Result: Completed` で `Err` に RESTART のエラーを入れ、`Err` があれば記録する。switcher は `last_error` を消さず、新しい記録で上書きする
 - **`Tick`（U-07）:** `Tick` のたびに、イベント起点と同じ自動切替の判定を行い、再送の5秒の条件だけを足す。5秒の起点は、`Handle` がそのバッチを返した Event の `At`。その Purpose を一度も出していなければ、5秒の条件は満たしたものとする
-- **切替中の自動判定（U-12）:** Live / Fail 以外の役割（Pause、Intro）への期待が残っている間は、自動切替をしない。Auto の承認もこの間は却下する。Pause を押した直後に回線が悪化しても、Pause が Fail で上書きされないようにするため
+- **切替中の自動判定（U-12）:** 「自動切替」の「切替中の抑止」のとおり。v1.x の「Live / Fail 以外の役割への期待が残っている間」を、Purpose（StartScene、StandbyOn、StandbyOffMonitored、StandbyOffOther）で言い直した
 - **期限（U-09、U-10、U-11）:**
   - `Override` が `Unknown` のときは、全体の長さがあれば「全体の長さ + 3秒」と「10秒」の長いほう、なければ10秒
   - 期限に使う全体の長さと `Override` は、`Approve` の時点の値を期待に写す
   - `At > 期限` で期限切れとする（ちょうどは残る）。期限切れの期待は、`Tick` に限らず、すべての `Handle` と `Approve` の入口でその時刻を使って消す
-  - 期限切れそのものは手動の切替として扱わない（`SceneEpoch` を進めず、保持にも入らない）
-- **未接続の間の保持（U-13）:** 切断中でも、受信状態が OK と不良の間で変わったら保持を解く
-- **同じ値の Event（U-14）:** 今と同じ値の `StreamStateChanged` と `LinkChanged` では何もしない（Epoch も進めない）
-- **初期値（U-15）:** 受信状態は DOWN、切断前の配信状態は false、切断前のシーンは空、3つの Epoch は 0
+  - 期限切れそのものは手動の切替として扱わない（`SceneEpoch` を進めず、持ち主と戻り先も変えない）
+- **同じ値の Event（U-14）:** 今と同じ値の `StreamStateChanged` と `LinkChanged`、今と同じ内容の `ScenesConfigured` では何もしない（Epoch も進めない）
+- **初期値（U-15）:** 受信状態は DOWN、切断前の配信状態は false、切断前のシーンは空、4つの Epoch は 0、持ち主は `none`、戻り先はなし。シーンの設定は初期値を持たず、最初の Event として `ScenesConfigured` を必ず受ける
 - **配信停止で消す再送待ち（U-16）:** 各 Purpose の前回の送出時刻を消す
-- **保持を解く Command（U-08）:** 受け付けた Command（`cmdErr` が nil）はどれでも保持を解く。その `Handle` では Command のバッチだけを返し、自動判定は次の Event か `Tick` で行う
-- **保持中の手動の Live ↔ Fail（U-20）:** 保持に入った時刻（`since`）は更新しない
+- **Command と自動判定:** Command を受け付けた `Handle` では、Command のバッチだけを返す。自動切替の判定は次の Event か `Tick` で行う（1回の `Handle` が返すバッチは多くても1つ）
 - **`ReqID`（U-21）:** `SetScene` 以外の `Proceed` の `ReqID` は 0
 - **未知の番号（U-22）:** 未完了の一覧にない `BatchID` の `Approve` は `Reject`、`BatchDone` は無視。期待にない `ReqID` の `SceneRequestDone` は無視（期待が先に `SceneChanged` で消える通常の列で起きる）
-- **再接続でシーンが変わっていたとき（U-23）:** 手動の切替としては扱わない（`SceneEpoch` を進めず、保持に入らない。保持は解くだけ）
+- **再接続でシーンか配信状態が変わっていたとき（U-23）:** 手動の切替としては扱わない（`SceneEpoch` を進めない）。持ち主を `none` に、戻り先をなしにするだけで、そのあと通常の判定をする（配信開始時の切替は出さない）
 - **テストの置き場所（U-18、U-19）:** バッチ内の失敗の続行と打ち切りは実行役の規則なので core（T9）で確かめる。配信状態の写像は obs（T7）の変換関数で確かめる
+
+### 検討事項（後で決める）
+
+回線が悪い間に人が監視対象のシーンへ切り替えると、本体はすぐ待機シーンへ戻す。屋外の配信者は OBS の画面を見ていないので、切り替えたのに待機シーンになっていることに気づけない場合がある。配信者に知らせる方法の候補を挙げる。どれを入れるかは後で決める。
+
+| 案 | 内容 | 備考 |
+|---|---|---|
+| A | 待機シーンの名前で IRL Link に見せる（待機シーンに、回線不良とわかる名前を付ける。IRL Link は現在のシーン名を表示する） | 設定だけで済み、本体の変更は要らない。**最初に採る。** README で案内する |
+| B | OBS のテキストソースを書き換える | 視聴者にも見える。第3段階のオーバーレイと同じ仕組みを使える |
+| C | 時間の上限つきの抑止など（人が切り替えた直後の一定時間は待機シーンへ戻さない、など） | A で足りなければ検討する |
+| D | オーバーレイで知らせる | 第3段階で検討する |
+
+### 実装前に決めたこと（v2.0 の書き直しで残った7点）
+
+1. **配信中の `ScenesConfigured`:** 新しい設定に差し替えたうえで、次を確かめる。待機シーンの名前が変わった、または戻り先が新しい設定で使えなくなった（持ち主が `auto` で戻り先が Monitored でなくなった）ときは、持ち主を `none`、戻り先を空にする（今いるシーンはそのまま）。どちらでもなければ持ち主と戻り先を保つ。どの場合も、未完了のシーン切替のバッチは承認で却下する（設定の世代 `ConfigEpoch` を進め、シーンを切り替えるバッチの共通の条件に加える）。期待はそのまま残す（届いた `SceneChanged` を手動と誤認しないため）。そのあと通常の判定を行う
+2. **StandbyOn の受け付け:** 現在のシーンがすでに待機シーンのとき（持ち主が `none` でも）は `ErrInvalidState`（理由: すでに待機シーン）。StartScene、AutoFail、AutoRecover のどれかが未完了の間も `ErrInvalidState`（理由: 切替の実行中）。StandbyOn の有効条件に「持ち主が `none`、現在のシーンが待機シーンでない」を入れ、承認の前に AutoFail が先に届いた場合は却下して `last_error` に記録する（`Skip` にはしない）
+3. **`OBSConnected` で配信状態が違っていたとき:** 配信の区切りとみなし、持ち主を `none`、戻り先を空にする。切断中に配信が始まっていた場合でも、配信開始時の切替は出さない（開始の瞬間はすでに過ぎていて、配信の途中で予期しない切替になるため）
+4. **初回生成の既定値:** `obs.standby_scene: Standby`、`obs.monitored_scenes: [Camera]`。OBS に存在しなければ、接続時に status の `warnings` に出る。利用者は第2段階の管理ページで、OBS のシーン一覧から選び直す
+5. **`auto_enabled` が false のときの StandbyOff:** 受信状態を見ない。戻り先が Monitored なら `[RestartMedia, SetScene(戻り先)]`、そうでなければ `[SetScene(戻り先)]`。自動切替を切った利用者は、乱れた映像が出ることを承知している
+6. **StartScene の再送:** しない。失敗、却下、期限切れは `last_error` に記録する。ただし、手動の切替で `SceneEpoch` が進んだための却下は記録しない（人が自分でシーンを選んだ結果で、エラーではない）
+7. **開始時のシーンと待機シーンが同じ設定:** 許さない。4章の検証に「`on_stream_start.scene` は `obs.standby_scene` と異なる」を加える
 
 ## 7. OBS 接続（obs）
 
@@ -441,8 +520,9 @@ OBS メディアソース用 URL は spike ① の結果で決める。どれを
 goroutine 1本が switcher の状態を持ち、次を `select` で受ける: ingest の `Sample`、obs の `Events()`、web からの Command、1秒ごとの `Tick`。
 
 - `Sample` は Judge に通し、受信状態が変わったら `LinkChanged` を switcher に渡す
-- switcher が返したバッチは obs で実行する。中核ループを止めないよう、実行は専用の実行役 goroutine 1本に渡す。実行役はバッチ内の Action を返された順に1つずつ実行し、バッチを1つずつ処理するので、バッチ同士は重ならない（`[RestartMedia, SetScene(live)]` の順序が保証される）
-- **実行直前の承認:** 実行役は各 Action を送る直前に、承認要求を中核ループに送って応答を待つ。中核ループは `Machine.Approve` を呼び、`Proceed` / `Skip` / `Reject` / `Replace` を返す。`Reject` と `Replace` なら、実行役はそのバッチの残りを捨てる。`Replace` の代わりのバッチは、中核ループが自分の列の先頭に入れる（実行役には渡さない。実行役は次のバッチとして受け取る）。実行役は、1つのバッチの `BatchDone` を送り終えるまで次のバッチを受け取らない。1つのバッチの中では、最後の `SceneRequestDone` を送ってから `BatchDone` を送る。`SetScene` の期待は、この承認の時点で登録される（6章）。`RestartMedia.Wait` の待ちは RESTART の送出後に実行役が行い、続く `SetScene` の承認はその待ちのあとに取る
+- シーンの設定は、ループを始める前に config から `ScenesConfigured` を作って `Machine.Handle` に1回渡す（チャネルは通さない）。第2段階で管理ページから送る経路は、第2段階の spec で決める
+- switcher が返したバッチは obs で実行する。中核ループを止めないよう、実行は専用の実行役 goroutine 1本に渡す。実行役はバッチ内の Action を返された順に1つずつ実行し、バッチを1つずつ処理するので、バッチ同士は重ならない（`[RestartMedia, SetScene(戻り先)]` の順序が保証される）
+- **実行直前の承認:** 実行役は各 Action を送る直前に、承認要求を中核ループに送って応答を待つ。中核ループは `Machine.Approve` を呼び、`Proceed` / `Skip` / `Reject` / `Replace` を返す。`Reject` と `Replace` なら、実行役はそのバッチの残りを捨てる。`Replace` の代わりのバッチは、中核ループが自分の列の先頭に入れる（実行役には渡さない。実行役は次のバッチとして受け取る。代わりのバッチが nil なら何も入れない）。実行役は、1つのバッチの `BatchDone` を送り終えるまで次のバッチを受け取らない。1つのバッチの中では、最後の `SceneRequestDone` を送ってから `BatchDone` を送る。`SetScene` の期待は、この承認の時点で登録される（6章）。`RestartMedia.Wait` の待ちは RESTART の送出後に実行役が行い、続く `SetScene` の承認はその待ちのあとに取る
 - `SetScene` を送ったら、応答（成功、タイムアウト、エラー）を `SceneRequestDone{ReqID, Result}` として中核ループに戻す。バッチが終わったら（最後まで実行した、失敗で残りを捨てた、承認で却下された）、`BatchDone{BatchID, Result, Err}` を1回だけ戻す
 
 **中核ループと実行役のチャネルの決まり**（デッドロックを防ぐため）:
@@ -463,8 +543,9 @@ goroutine 1本が switcher の状態を持ち、次を `select` で受ける: in
 {
   "link":    {"state": "OK", "kbps": 4200.5, "online": true, "protocol": "srt",
               "srt": {"rtt_ms": 85.2, "loss_rate": 0.01, "recv_mbps": 4.2}},
-  "obs":     {"connected": true, "streaming": true, "scene": "Live", "role": "live",
-              "manual_hold": {"active": false, "since": null},
+  "obs":     {"connected": true, "streaming": true, "scene": "Camera", "scene_class": "monitored",
+              "standby": {"owner": "none", "return_scene": null},
+              "auto_enabled": true,
               "warnings": []},
   "mediamtx": "running",
   "urls":    {"publish_srt": "srt://…", "publish_rtmp": "rtmp://…", "obs_read": "rtsp://obs:…@…"},
@@ -472,7 +553,11 @@ goroutine 1本が switcher の状態を持ち、次を `select` で受ける: in
 }
 ```
 
-- `POST /api/stream/start`、`/api/stream/stop`、`/api/scene/live`、`/api/pause/on`、`/api/pause/off`
+  - `scene_class`: 現在のシーンの分類。`monitored` / `standby` / `other` / `unknown`（OBS に未接続などで現在のシーンがわからない）
+  - `standby.owner`: 待機の持ち主。`none` / `auto` / `manual`。`standby.return_scene`: 戻り先のシーン名。なければ `null`
+  - `auto_enabled`: 自動切替が有効か
+
+- `POST /api/stream/start`、`/api/stream/stop`、`/api/standby/on`、`/api/standby/off`
   - 200: 受け付けた（Action の完了は待たない）
   - 401: 認証失敗
   - 403: 独自ヘッダーがない
@@ -485,7 +570,7 @@ goroutine 1本が switcher の状態を持ち、次を `select` で受ける: in
 
 | 事象 | 対応 |
 |---|---|
-| MediaMTX が落ちた | 8章のとおり再起動。受信状態は DOWN になり、配信中なら Fail へ |
+| MediaMTX が落ちた | 8章のとおり再起動。受信状態は DOWN になり、配信中で監視対象のシーンなら待機シーンへ |
 | 起動時にポートが使用中 | どのポートかと、前回の mediamtx の残りを疑うよう示して起動を止める |
 | MediaMTX が起動直後に落ち続ける | ログの bind などのエラー行を `last_error` に出し、8章の待ち時間で再起動を続ける |
 | API の失敗・タイムアウト | その回は受信0。DOWN は `down_sec` 続いたときだけなので、1回では切り替わらない。差分の基準は変えない |
@@ -493,7 +578,7 @@ goroutine 1本が switcher の状態を持ち、次を `select` で受ける: in
 | 実行待ちのバッチが古くなった | 実行直前の承認で、目的の有効条件をその時点の状態で確かめ、満たさなければ却下して残りを捨てる。Command 由来なら `last_error` に記録する |
 | OBS から配信サイトへの出力が再接続した | 配信の停止として扱わない（7章の写像） |
 | OBS と切断した | 自動切替を止め、手動操作は 503。再接続後に状態を取り直して再開 |
-| OBS の操作が失敗した | ログと `last_error` に記録。条件が続く間、最短5秒あけて再送 |
+| OBS の操作が失敗した | ログと `last_error` に記録。自動切替は、条件が続く間、最短5秒あけて再送 |
 | シーン名やメディアソース名が OBS にない | 接続時に照合し、status の `warnings` に出す |
 | config.yaml がない | 既定値で生成し（`*` はランダム）、送信用 URL と管理 API のパスワードを表示して起動を続ける。`obs.password` が空のままでは、OBS 側で認証が有効なら接続に失敗し、status に認証失敗として出る |
 | config.yaml が不正 | 項目名と理由を表示して起動を止める |
@@ -502,31 +587,43 @@ goroutine 1本が switcher の状態を持ち、次を `select` で受ける: in
 
 - `log/slog` のテキスト形式で、標準出力と `<log.dir>/irl-live-keeper-YYYY-MM-DD.log` の両方に書く。日付が変わったら新しいファイルに切り替える
 - 起動時に `keep_days` を過ぎたログファイルを消す。依存は増やさない
-- 自動切替のたびに理由を残す。例: `msg="scene switch" from=live to=fail reason=low kbps=620 for=5s`
+- 自動切替のたびに理由を残す。例: `msg="scene switch" purpose=auto_fail from="Camera" to="Standby" reason=low kbps=620 for=5s`
 - パスワードと、パスワードを含む URL（送信用、OBS 用）はログファイルに書かない。起動時に標準出力にだけ1回表示する（config.yaml を生成したときは、生成した管理 API のパスワードもあわせて表示する）
 
 ## 11. テスト方針
 
 ### 単体テスト（`go test -race ./...`）
 
-- **switcher:** 整合は状態機械の中心（`Handle`）だけで守り、入口ごとに確認を足さない。テストは「入口 × 状態」の表1つにまとめる。入口は各 Event、各 Command、`Approve`（Purpose ごと）。状態の軸は、役割（Intro / Live / Fail / Pause / Other）、受信状態（OK / LOW / DOWN）、配信中か、OBS 接続、手動保持の有無、期待の有無、Pause の直前の役割（Intro / Live / Fail / 不明）、配信開始の待ちの有無、同じ Purpose の未完了のバッチの有無。全軸の掛け算にはしない: ありえない組み合わせ（OBS 未接続で期待あり、Pause 以外で直前の役割あり、配信中で配信開始の待ちあり、など）は除き、入口ごとに結果に関係する軸だけを展開する（例: Command は役割 × 配信中 × 接続 × 待ち、`LinkChanged` は役割 × 配信中 × 接続 × 保持 × 未完了のバッチ、`Approve` は 6章「目的と有効条件」の表の各行の条件の成否）。表の各行で、出るバッチ、`cmdErr` の型、`Approve` の結果を確かめる。時間に依存する状態（期待の期限、再送の5秒）は表に入れず、下の Event の列のテストで確かめる。時刻は Event の `At` で注入する。表とは別に、Event の列で確かめる必須のケース:
-  - 自動切替は、配信中かつ Live / Fail のときだけ。Intro、Pause、Other、配信停止中、OBS 未接続では何も出さない
-  - Fail → Live で `RestartMedia` が `SetScene(live)` より先に出る
-  - PauseOff の戻り先（直前が Intro、Live、Fail、不明 × 受信状態）
-  - OBS 側の手動の Pause でも直前の役割を覚える
+- **switcher:** 整合は状態機械の中心（`Handle`）だけで守り、入口ごとに確認を足さない。テストは「入口 × 状態」の表1つにまとめる。v1.x の表の文書 `docs/superpowers/plans/2026-11-19-switcher-table.md` は v2.0 で古くなったので、v2.0 のモデルで作り直す（作り直すまで、古い表を実装とテストの根拠にしない）。入口は各 Event、各 Command、`Approve`（Purpose ごと）。状態の軸は、現在のシーンの分類（Monitored / 待機シーン / Other）、受信状態（OK / LOW / DOWN）、配信中か、OBS 接続、`auto_enabled`、待機の持ち主（none / auto / manual）、戻り先の分類（Monitored / それ以外）、期待の有無と Purpose、未完了のバッチの有無と Purpose、配信開始時の切替の有効・無効、設定の世代（バッチを作ったあとに `ConfigEpoch` が進んだか）。全軸の掛け算にはしない: ありえない組み合わせ（OBS 未接続で期待あり、持ち主が none 以外で現在のシーンが待機シーンでない、配信中でないのに持ち主がある、など）は除き、入口ごとに結果に関係する軸だけを展開する（例: Command は配信中 × 接続 × 持ち主 × 戻り先の分類 × 受信状態 × 未完了のバッチ、`LinkChanged` は分類 × 配信中 × 接続 × `auto_enabled` × 持ち主 × 未完了のバッチ、`Approve` は 6章「目的と有効条件」の表の各行の条件の成否）。表の各行で、出るバッチ、`cmdErr` の型、`Approve` の結果、持ち主と戻り先を確かめる。時間に依存する状態（期待の期限、再送の5秒）は表に入れず、下の Event の列のテストで確かめる。時刻は Event の `At` で注入する。6章末「実装前に決めたこと」の7点も表とテストに入れる。表とは別に、Event の列で確かめる必須のケース:
+  - AutoFail は、配信中、`auto_enabled`、現在のシーンが Monitored、持ち主が none のときだけ出る。Other、待機シーン、配信停止中、OBS 未接続では何も出さない
+  - 戻り先の確定: AutoFail のバッチを出しただけでは持ち主も戻り先も入らず、待機シーンへの期待どおりの `SceneChanged` が届いた時点で持ち主が auto、戻り先が切替前のシーン名になる。バッチの却下、失敗、期待の期限切れでは何も入らない
+  - AutoRecover で `RestartMedia` が `SetScene(戻り先)` より先に出る。戻り先への期待どおりの `SceneChanged` で持ち主と戻り先が消える。戻すバッチが失敗したら持ち主は auto のままで、5秒あけて再送される
+  - 手動で Monitored へ: 自動の待機中に、受信状態が不良のまま人が別の Monitored のシーンへ切り替えると、持ち主と戻り先が消えたうえで AutoFail が出て、そのシーンが新しい戻り先になる。Other のシーン（トークなど）から不良のまま Monitored へ入った場合も同じ。受信状態が OK なら何も出ない
+  - 手動で Other / 待機シーンへ: 自動の待機中に人が Other へ切り替えると、持ち主と戻り先が消え、回復しても何も出ない。人が手動で待機シーンを選んだ場合は持ち主が none のままで、回復しても戻さない
+  - StandbyOn: 期待どおりの `SceneChanged` で持ち主が manual、戻り先が切替前のシーン（Monitored でも Other でも）になる。持ち主が manual の間は、受信状態が変わっても何も出ない
+  - StandbyOff: 戻り先が Monitored で OK なら `[RestartMedia, SetScene(戻り先)]`。戻り先が Monitored で不良ならバッチを出さず持ち主が auto になり、回復したら AutoRecover が出る。戻り先が Monitored でなければ、受信状態によらず `[SetScene(戻り先)]`
+  - 置き換え: StandbyOffMonitored の待ち時間中に回線が悪化すると、`Approve` が `Replace`（代わりのバッチなし）を返し、持ち主が auto になり、`last_error` は記録されない
+  - 配信開始時の切替: 有効なら `StreamStateChanged{true}` で、受信状態が不良でも StartScene が出る（AutoFail より先）。StartScene が未完了か期待が残っている間は、受信状態が変わっても Auto のバッチが出ず、Auto の承認も却下される。開始時のシーンが Monitored で不良なら、届いたあとに AutoFail が出る。無効なら StartScene は出ず、通常の判定だけをする。切替の前に人がシーンを切り替えたら、StartScene は却下される
+  - 切替中の抑止: StandbyOn を受け付けた直後に回線が悪化しても、AutoFail が出ない
+  - `auto_enabled` を false にする `ScenesConfigured`: 以後 Auto のバッチが出ない。実行待ちの Auto のバッチは承認で却下される。持ち主が auto なら none になり戻り先が消える（シーンはそのまま）。StandbyOn は受け付ける。true に戻すと判定が再開する
+  - `auto_enabled` が false のときの StandbyOff（6章末「実装前に決めたこと」の 5）: 受信状態が不良でも、戻り先が Monitored なら `[RestartMedia, SetScene(戻り先)]`、そうでなければ `[SetScene(戻り先)]` が出る。持ち主は auto にならず、承認の前に受信状態が変わっても `Replace` にも却下にもならない
+  - 配信の停止: `StreamStateChanged{false}` で持ち主、戻り先、期待、再送待ちが消える
+  - 配信中の `ScenesConfigured` による設定の差し替え: 監視対象の列を差し替えると、以後の分類と判定が新しい設定で行われる（例: 持ち主が none で、未完了のバッチも期待もないときに、Other だった現在のシーンを監視対象に足すと、不良なら AutoFail が出る。監視対象から外すと、不良でも出なくなる）。
+  - 配信中の `ScenesConfigured` と持ち主（6章末「実装前に決めたこと」の 1）: 待機シーンの名前が変わると、持ち主（auto でも manual でも）と戻り先が消え、今いるシーンはそのまま。持ち主が auto で戻り先が監視対象から外れると消える。持ち主が manual で戻り先が監視対象から外れても保たれ、StandbyOff は `[SetScene(戻り先)]` になる。どちらでもない変更（別の監視対象の追加など）では保たれる。どの場合も `ConfigEpoch` が進み、未完了のシーン切替のバッチ（AutoFail、AutoRecover、StandbyOn、StandbyOff、StartScene）は承認で却下され、StopStream と StartStream は却下されない。期待は残り、そのあと届いた期待どおりの `SceneChanged` は手動とみなされない。今と同じ内容の `ScenesConfigured` では `ConfigEpoch` が進まない
+  - StreamStart / StreamStop: StartStream と StopStream のバッチだけが出て、`SetScene` は出ない
   - 再送が5秒以上あく
-  - 各 Command の 409 になる条件
-  - 手動保持: 期待どおりの `SceneChanged` は本体の切替とみなし、期限切れや別のシーンへの変化は手動とみなす。手動の Live / Fail で保持に入り、再送を取り消す。OK と不良の間の変化で解除し、LOW と DOWN の間の変化では解除しない。Command、配信の停止、シーンか配信状態が変わっていた `OBSConnected` で解除し、何も変わっていない `OBSConnected` では解除しない
-  - 期待: 承認の時点で登録され、応答を待つ間は期限切れにならない。期限は応答の時点 + 実際に使われるトランジションの長さ（上書きを含む）+ 3秒、上書きありか長さ不明なら10秒以上。タイムアウトの応答でも期限まで残り、エラーの応答ではすぐ消える。応答が5秒でタイムアウトしたあとに届いた本体の `SceneChanged` を手動とみなさない。一致した期待より前の期待も消える（Fail を送った直後に Pause を送り、Pause のイベントだけが届く列）。一致しない `SceneChanged` で全部消える
-  - 有効条件: 復帰のバッチ `[RestartMedia, SetScene(live)]` の待ち時間中に、受信状態の悪化、手動の Pause、配信の停止、OBS の切断のどれかが起きたら、`SetScene(live)` の `Approve` が却下される。一方、StopStream と PauseOn のバッチは、承認の前に受信状態が LOW と DOWN の間で何度変わっても却下されない。GoLive の待ち時間中に回線が悪化したら、Fail への切替に決め直される
-  - 承認の `Skip`: 現在の役割がすでに目的の役割なら送らない
-  - 重複の歯止め: Live で LOW → DOWN と続いても、AutoFail のバッチは1本だけ出る
-  - 配信開始: Intro への切替が失敗、却下、期限切れなら `StartStream` を出さず、待ちが消え、次の StreamStart を受け付ける。待ちを抜けたあとに届いた遅い Intro の `SceneChanged` から `StartStream` を出さない。`SceneChanged(Intro)` が StartIntro の応答より先に届き、その応答がタイムアウトしても、配信は始まる
-  - 置き換え: GoLive の待ち時間中に回線が悪化すると `Approve` が `Replace{GoFail}` を返し、`last_error` は記録されず、GoFail は置き換えられない
+  - 各 Command の 409 になる条件（同じ操作の未完了のバッチを含む。持ち主が manual でないときの StandbyOff）
+  - StandbyOn の受け付け（6章末「実装前に決めたこと」の 2）: 現在のシーンが待機シーンなら、持ち主が auto でも none（人が手動で選んだ）でも `ErrInvalidState`。StartScene、AutoFail、AutoRecover のどれかが未完了の間も `ErrInvalidState`。受け付けたあと、承認の前に待機シーンへ切り替わっていたら、`Skip` ではなく却下になり、`last_error` に記録される
+  - StartScene の再送（6章末「実装前に決めたこと」の 6）: StartScene のバッチが失敗、却下、期限切れになっても、`Tick` を何回送っても StartScene は再び出ない。3つとも `last_error` に記録される。ただし、人が先にシーンを切り替えたための却下は記録されない
+  - 期待: 承認の時点で登録され、応答を待つ間は期限切れにならない。期限は応答の時点 + 実際に使われるトランジションの長さ（上書きを含む）+ 3秒、上書きありか長さ不明なら10秒以上。タイムアウトの応答でも期限まで残り、エラーの応答ではすぐ消える。応答が5秒でタイムアウトしたあとに届いた本体の `SceneChanged` を手動とみなさない。一致した期待より前の期待も消える（前の期待は持ち主と戻り先に作用しない）。一致しない `SceneChanged` で全部消える。期限切れは手動として扱わない
+  - 有効条件: 復帰のバッチ `[RestartMedia, SetScene(戻り先)]` の待ち時間中に、受信状態の悪化、手動のシーン切替、配信の停止、OBS の切断のどれかが起きたら、`SetScene(戻り先)` の `Approve` が却下される。一方、StopStream と StandbyOn のバッチは、承認の前に受信状態が何度変わっても却下されない
+  - 承認の `Skip`: 現在のシーンがすでに切替先のシーンなら送らない（比較はシーン名）
+  - 重複の歯止め: Monitored のシーンで LOW → DOWN と続いても、AutoFail のバッチは1本だけ出る
   - 上書きの状態: `Override` が `None` / `Known` / `Unknown` のそれぞれで期限が 6章の式どおりになる
   - 配信の区切り: StopStream のバッチが実行待ちの間に配信が止まって始め直されたら（`StreamEpoch` が進む）、その StopStream は却下される
-  - 配信状態: `RECONNECTING` → `RECONNECTED` の列では、手動保持、Pause の直前の役割、未完了のバッチがどれも変わらない
-  - 手動保持: 配信していない間の手動の Live では保持に入らない
+  - 配信状態: `RECONNECTING` → `RECONNECTED` の列では、持ち主、戻り先、未完了のバッチがどれも変わらない
+  - 再接続: `OBSConnected` でシーンも配信状態も切断の直前と同じなら持ち主と戻り先が保たれ、シーンが違っていたら消える（`SceneEpoch` は進まない）。シーンが同じで配信状態だけが違っていた場合も消える（6章末「実装前に決めたこと」の 3）。切断前は停止で再接続したら配信中だった場合、配信開始時の切替が有効でも StartScene は出ない
+  - 配信していない間の手動のシーン切替では、何も出ず、持ち主も戻り先も入らない
   - バッチ内の失敗: `RestartMedia` の失敗では続け、それ以外の失敗では残りを捨てる
 - **ingest.Judge:** 時刻は `Sample.At` と `Interval` で注入する。5章「実時刻の例」の表の全行を、そのままテストにする。あわせて、閾値ちょうどの値（`fail_kbps`、`recover_kbps` と等しい kbps）を確かめる
 - **ingest.Poller:** `httptest` のサーバーで、spike ③ で録った MediaMTX v1.21.4 の JSON を返す。5章の Poller の例（P1〜P4）の全行、タイムアウト、SRT の統計の取り出しと、その読み取りだけの失敗。JSON の形を手書きで再現しない。録った実物と違う形への fallback（別のフィールド名も読む、など）も足さない。偽の形でテストが通り続ける穴になるため
@@ -540,33 +637,40 @@ goobs のラッパーは実際の OBS を相手に手動で確かめる。自動
 ### 手動の結合テスト（チェックリスト）
 
 1. ffmpeg で RTMP と SRT のそれぞれへ送り、status の kbps と protocol を確かめる
-2. 送信を止めて、約2秒で Fail に切り替わる
-3. 低いビットレート（例: 500kbps）で送って、約5秒で Fail に切り替わる
-4. 送信を戻して、約10秒で Live に戻り、映像が出る
-5. MediaMTX を kill して、再起動される（配信中なら Fail を経て Live に戻る）
+2. 監視対象のシーンで送信を止めて、約2秒で待機シーンに切り替わる。status の `standby` が `auto` と切替前のシーン名になる
+3. 低いビットレート（例: 500kbps）で送って、約5秒で待機シーンに切り替わる
+4. 送信を戻して、約10秒で戻り先のシーンに戻り、映像が出る
+5. MediaMTX を kill して、再起動される（配信中で監視対象のシーンなら、待機シーンを経て戻り先に戻る）
 6. OBS を再起動して、再接続し、判定が再開する
-7. Pause の ON/OFF と、回線が悪いときの PauseOff の戻り先
-8. 外部ツール（OBS の画面、IRL Link）から、回線が悪いときに Live、良いときに Fail へ切り替えて、打ち消されないこと。そのあと回線の状態を変えると、自動切替が再開すること
-9. 長いトランジション（例: 5秒のフェード、スティンガー）と、シーンごとのトランジションの上書きで自動切替しても、手動保持に入らないこと。上書きのある Intro で StreamStart が成功すること
-10. 配信中に OBS から配信サイトへの出力を切って再接続させても（上り回線を一時的に切る）、手動保持と Pause が保たれること
-11. 本体を強制終了して、MediaMTX が残らない（Windows と Linux）
-12. OBS 用 URL から read の資格情報を外すと読み出せないこと
+7. 手動の待機 ON / OFF。回線が悪いときの OFF（待機シーンのまま持ち主が auto になり、回復したら戻る）と、監視対象でないシーンから ON にしたときの OFF（受信状態によらず戻る）
+8. IRL Link（または OBS の画面）から、回線が悪いときにカメラのシーン（監視対象）へ切り替えると、待機シーンへ戻される。別のカメラのシーンを選んだ場合、回復すると IRL Link で最後に選んだカメラのシーンへ戻る
+9. IRL Link から監視対象でないシーン（トークなど）へ切り替えると、回線の状態が変わっても何も起きない。自動の待機中に切り替えた場合は、回復しても戻されない。回線が悪いまま、そこからカメラのシーンへ切り替えると待機シーンへ切り替わる
+10. 回線が良いときに IRL Link から待機シーンを選ぶと、そのまま残る（自動では戻らない）
+11. 長いトランジション（例: 5秒のフェード、スティンガー）と、シーンごとのトランジションの上書きで自動切替しても、本体の切替が手動の切替として扱われないこと（待機の持ち主が auto になり、回復で戻る）
+12. 配信中に OBS から配信サイトへの出力を切って再接続させても（上り回線を一時的に切る）、待機の持ち主と戻り先が保たれること
+13. `on_stream_start` を有効にして、別のシーンのまま配信を始めると、開始時のシーンへ切り替わる（OBS の画面から始めた場合と、API から始めた場合）。回線が悪いときも開始時のシーンへ切り替わり、それが監視対象なら続けて待機シーンへ切り替わる。無効なら、シーンは変わらない。切替に失敗したとき（開始時のシーンを OBS から消しておく）は、再送されず status の `last_error` に出る
+14. `switch.auto_enabled` を false にすると、回線が悪くても切り替わらない。手動の待機 ON / OFF は使える。回線が悪いままカメラのシーンから ON にして OFF にすると、待機シーンに残らず、すぐカメラのシーンへ戻る（受信状態を見ない）
+15. 本体を強制終了して、MediaMTX が残らない（Windows と Linux）
+16. OBS 用 URL から read の資格情報を外すと読み出せないこと
 
 ## 12. 最初の spike（実装の前に行う。コードは捨てる前提）
 
-① と ② には Windows の OBS 実機が必要で、ユーザーに操作してもらいながら進める。
+① と ② と ④ には Windows の OBS 実機が必要で、ユーザーに操作してもらいながら進める。
 
 1. **OBS からの読み出し:** rtsp / rtmp / srt のうち、遅延が小さく再接続が確実な URL と、メディアソースの設定（`reconnect_delay_sec`、バッファリング、ネットワークバッファ）を決める。決まった URL を 8章の OBS 用 URL とする
 2. **Fail → Live の復帰:** 待機シーン中はメディアソースが非表示になる。`restart_on_activate`（既定 ON）だと、非表示中に再接続しても表示されるまで再生を始めない。この挙動のもとで、切替の前に `RESTART` を送ると映像がすぐ出るか、RESTART と切替の順序と待ち時間をどうするかを決める。結果は 6章の定数に反映する
 3. **（済）テスト用の JSON:** 実際の API の応答（`/v3/paths/get/{name}`、`/v3/rtmp/conns/list`、`/v3/srt/conns/list`）を、RTMP と SRT それぞれ送信中・未送信の状態で録り、`internal/ingest/testdata/` に置く。TCP 接続が残ったままバイトが止まる状況を再現できれば、それも録る。あわせて、MediaMTX のログに publish の資格情報が出るかを確かめる（8章の置き換えが効いているかの確認）
+4. **配信開始時の切替（①② とあわせて行う）:** 配信開始時の切替（6章）を、obs-websocket の `StreamStateChanged` の `STARTING` の時点で送れるか、送ったシーンで配信が始まるか（`STARTED` で送る場合に、切替前のシーンが配信に出る長さも測る）を確かめる。結果で 6章と 7章の写像を見直す
 
 ## 13. 既知の制約
 
 - macOS では、本体が強制終了されると MediaMTX が残ることがある
-- 本体と外部ツールがほぼ同時にシーンを切り替えると、最後に届いた切替が残る。本体は SetScene を送る直前に承認を取る（9章）ので、人の操作が先に届いていればバッチは失効する。残る窓は「承認から OBS が要求を受け取るまで」の間だけ。その間に人が切り替えた場合は、人の選択が上書きされることがある。もう一度切り替えれば手動保持に入って定着する
+- 本体と外部ツールがほぼ同時にシーンを切り替えると、最後に届いた切替が残る。本体は SetScene を送る直前に承認を取る（9章）ので、人の操作が先に届いていればバッチは失効する。残る窓は「承認から OBS が要求を受け取るまで」の間だけ。その間に人が切り替えた場合は、人の選択が上書きされることがある。その場合はもう一度切り替える
 - 外部ツール（IRL Link など）にもビットレートによる自動切替の機能があり、それを有効にすると二重に切り替わる。自動切替はどちらか一方だけで使う
 - 管理 API を LAN に公開した場合、通信は平文の HTTP と Basic 認証なので、LAN 内で盗聴されるとパスワードと操作を奪われうる。操作はシーンの切替と配信の開始・停止に限られるため、第1段階では TLS を入れず、利用者の判断で LAN 公開を選ぶ形にする
-- 本体が要求したのと同じシーンを、人がほぼ同時に選んだ場合は、本体の切替と区別できない（obs-websocket のイベントに発信者が含まれないため）。その場合は手動保持に入らない
+- 本体が要求したのと同じシーンを、人がほぼ同時に選んだ場合は、本体の切替と区別できない（obs-websocket のイベントに発信者が含まれないため）。その場合は本体の切替として扱う（例: 自動切替と同時に人が待機シーンを選ぶと、待機の持ち主は `auto` になり、回復したら戻る）
+- 回線が悪い間に人が監視対象のシーンへ切り替えると、すぐ待機シーンへ戻される。屋外の配信者がそれに気づく手段は、当面は待機シーンの名前だけ（6章「検討事項」の案 A）
+- 配信開始時の切替は `STARTED` で検知するので、配信の最初のわずかな間は切替前のシーンが配信に出る（6章、12章の spike ④）
 - SRT の streamid と RTMP のクエリに含めた資格情報は暗号化されない（SRT のパスフレーズは第1段階では使わない）
 - MediaMTX の受信サーバーの設定（ポートなど）や path の認証設定を変えると、配信が切れる。第2段階の設定編集では「配信中に変えると切れる」設定として扱う
 
@@ -581,4 +685,5 @@ goobs のラッパーは実際の OBS を相手に手動で確かめる。自動
 | 2026-11-19 | v1.4 | 配信開始の待ちに「Intro 確認済み」の段階を足し、確認後の StartIntro のタイムアウトで開始を取り消さない。`Approve` に `Replace{Batch}` を足して GoLive / PauseOffLive の決め直しを受け渡す。トランジションの上書きを `Override`（`None` / `Known` / `Unknown`）で渡す。`StreamEpoch` を足し、前の配信のバッチを次の配信で実行しない。実行役が次のバッチを受け取る順序と、`SceneRequestDone` と `BatchDone` の順序を明記（6章、7章、9章、11章） | 設計レビュー3周目（codex sol、新しい方式に絞った周: Critical 0 / Important 4 / Minor 0）。Critical 0 が続いたので、この版で設計レビューを終える | 26ed572 |
 | 2026-11-19 | v1.5 | 6章に「細部の規則」を追加（承認の順序、配信開始の待ちの細部、実行中の操作の重複、`last_error`、`Tick` の判定、切替中の自動判定の停止、期限の境界、初期値など23項目） | switcher の「入口 × 状態」の表を作る中で見つかった不明点（U-01〜U-23）。技術で決まるものとして、表の案どおりに決めた | 9f3fbb8 |
 | 2026-11-19 | v1.6 | publisher の識別子を `source.id` に決めた。path の応答、送信が止まったときと再開したときの挙動を 5章に記録。8章に見本の設定ファイルの場所と、API の応答をログに書かない注意を追加。spike ③ を済みにした | spike ③（MediaMTX v1.21.4 を実際に動かして応答を録った。設定の項目名はすべて正しかった） | 1510eea |
-| 2026-11-19 | v1.7 | api の資格情報は本体の起動のたびに作り、MediaMTX の再起動では変えないと明記（8章） | T9 の準備中に、supervisor（再起動のたびに作り直す）と Poller（作成時に1回だけ受け取る）の食い違いを見つけた | この版の commit |
+| 2026-11-19 | v1.7 | api の資格情報は本体の起動のたびに作り、MediaMTX の再起動では変えないと明記（8章） | T9 の準備中に、supervisor（再起動のたびに作り直す）と Poller（作成時に1回だけ受け取る）の食い違いを見つけた | 5c448f9 |
+| 2026-11-19 | v2.0 | シーンのモデルを作り直した。固定の4役割（Intro / Live / Fail / Pause）、`obs.scenes`、GoLive、PauseOn / PauseOff、配信開始の待ち（Intro の確認）、手動保持を廃止した。代わりに、待機シーン（1つ）と監視対象のシーン（複数）を設定し、待機の持ち主（none / auto / manual）と戻り先のシーンを持つ。シーンの設定は Event `ScenesConfigured` で差し替えられる入力にし、Action はシーン名を持つ。手動操作は配信の開始・停止と手動の待機 ON / OFF だけにした。`switch.auto_enabled` と、配信開始時の切替（`on_stream_start`）を追加。手動で監視対象のシーンへ入ったときは、手動保持ではなく通常の判定をする（回線が悪ければ待機シーンへ切り替え、そのシーンを戻り先にする）。`Replace` は代わりのバッチなしの形を足した。status と API を合わせて変更。位置づけ、通知の検討事項、書き直しで残った7点の決定（6章末「実装前に決めたこと」。設定の世代 `ConfigEpoch`、StandbyOn を受け付けない条件、再接続で配信状態が違っていたときの扱い、初回生成の既定値、`auto_enabled` が false のときの StandbyOff、StartScene を再送しないこと、開始時のシーンに待機シーンを指定できないこと）、第3段階のオーバーレイの方向、spike ④ を追加（1章、2章、4章、6章、9章、10章、11章、12章、13章）。v1.x の「入口 × 状態」の表は作り直す | 2026-11-19 のユーザーの裁定。旧版の4役割はツール内蔵の手動切替のためのもので、普段のシーン操作を IRL Link などの外部ツールで行う今は要らない | この版の commit |
