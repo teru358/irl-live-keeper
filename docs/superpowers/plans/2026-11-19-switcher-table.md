@@ -22,7 +22,8 @@
 2. `Role == Live` かつ `Link` が不良 → Purpose は AutoFail、`[SetScene(fail)]`。`Role == Fail` かつ `Link == OK` → AutoRecover、`[RestartMedia{W}, SetScene(live)]`。どちらでもなければ出さない
 3. `Pending` に同じ Purpose のバッチがない
 4. `Expectations` に切替先の役割（AutoFail なら Fail、AutoRecover なら Live）への期待がない
-5. `Tick` のときだけ: `At - LastAutoSent[Purpose] >= 5秒`（起点と、送出の記録がないときの扱いは U-07）
+5. `Expectations` に Live / Fail 以外の役割（Pause、Intro）への期待がない（U-12）
+6. `Tick` のときだけ: `At - LastAutoSent[Purpose] >= 5秒`（起点と、送出の記録がないときの扱いは U-07）
 
 ### バッチを出したときの共通の変化 B
 
@@ -168,7 +169,7 @@ Purpose の一覧: `AutoFail`、`AutoRecover`、`GoLive`、`GoFail`、`PauseOffL
 | SCE-3 | T5 | 期待 [Live]、Fail → Live、配信中、その間に不良になっていた | `AutoFail[SetScene(fail)]` | B |
 | SCE-4 | T5 | 期待 [Live]、Fail → Live、配信中、OK | — | — |
 | SCE-5 | T5 | 期待 [Fail, Pause]、Live で `SceneChanged(Pause)` | — | 期待は両方消える。`PausePrev=RoleLive`（Event の直前の役割） |
-| SCE-6 | T5 | 期待 [Fail, Pause]、Live で `SceneChanged(Fail)` | J（Fail で不良なら出ない。OK に戻っていたら、Pause への期待が残ったまま AutoRecover が出る。U-12） | Fail だけ消え、Pause は残る |
+| SCE-6 | T5 | 期待 [Fail, Pause]、Live で `SceneChanged(Fail)` | —（Pause への期待が残っているので J の 5 を満たさない。U-12） | Fail だけ消え、Pause は残る |
 | SCE-7 | T5 | 期待 [Pause, Fail]、Live で `SceneChanged(Pause)` | — | Pause だけ消え、後ろの Fail は残る。`PausePrev=RoleLive` |
 | SCE-8 | T5 | 期待 [Pause]、直前の役割が Intro / Live / Fail | — | `PausePrev` はその役割 |
 | SCE-9 | T6 | 配信中でない、期待 [Intro]、`StartWait` が `StageWaitIntro` で、期待はその StreamStart の StartIntro が登録したもの | `StartStream[StartStream]` | `Stage=StageIntroConfirmed`。B（`StartID` は待ちの `ID`） |
@@ -270,7 +271,7 @@ Purpose の一覧: `AutoFail`、`AutoRecover`、`GoLive`、`GoFail`、`PauseOffL
 | BD-R-3 | T6 | `Rejected`。`Replaced` の GoLive / PauseOffLive | —（`LastError` は記録しない） |
 | BD-R-4 | T6 | `Rejected`。StartIntro / StartStream | `StartWait=nil`（承認の時点で消えている）、`LastError` を記録 |
 | BD-X-1 | T5 | 未知の `BatchID` | U-22（提案: 何もしない） |
-| BD-X-2 | T6 | StartIntro / StartStream で、`StartWait` の `ID` がバッチの `StartID` と違う | U-03（提案: 待ちには触らない） |
+| BD-X-2 | T6 | StartIntro / StartStream で、`StartWait` の `ID` がバッチの `StartID` と違う | 到達しない。前の StartIntro / StartStream が未完了の間は次の StreamStart を受け付けない（U-04）ので、番号の違う待ちとバッチは同時に存在しない。テストは書かず、CMD-START-6 で確かめる |
 
 ### 2.10 Tick{}
 
@@ -374,6 +375,7 @@ Purpose の一覧: `AutoFail`、`AutoRecover`、`GoLive`、`GoFail`、`PauseOffL
 | AP-AUTOFAIL-3 | T6 | `SetScene(fail)` | Live、OK に戻った | `Reject` | — |
 | AP-AUTOFAIL-4 | T6 | `SetScene(fail)` | 本体の切替で Pause / Intro になった（`SceneEpoch` は同じ）、不良 | `Reject` | — |
 | AP-AUTOFAIL-5 | T6 | `SetScene(fail)` | 本体の切替ですでに Fail | U-01（提案: `Skip`） | — |
+| AP-AUTOFAIL-6 | T6 | `SetScene(fail)` | Live、不良、Pause か Intro への期待が残っている | `Reject`（U-12） | — |
 
 **AutoRecover** `[RestartMedia{W}, SetScene(live)]`
 
@@ -385,6 +387,7 @@ Purpose の一覧: `AutoFail`、`AutoRecover`、`GoLive`、`GoFail`、`PauseOffL
 | AP-AUTOREC-4 | T6 | どちらでも | 本体の切替で Pause になった（PauseOn が先に通った）、OK | `Reject` | — |
 | AP-AUTOREC-5 | T6 | `SetScene(live)` | 本体の切替ですでに Live | U-01（提案: `Skip`） | — |
 | AP-AUTOREC-6 | T6 | `RestartMedia` | 本体の切替ですでに Live | `Reject`（`Skip` は `SetScene` だけ） | — |
+| AP-AUTOREC-7 | T6 | どちらでも | Fail、OK、Pause か Intro への期待が残っている | `Reject`（U-12） | — |
 
 **GoLive** `[RestartMedia{W}, SetScene(live)]`
 
@@ -447,8 +450,8 @@ Purpose の一覧: `AutoFail`、`AutoRecover`、`GoLive`、`GoFail`、`PauseOffL
 | # | T | Action | 前提 | 結果 | 状態の変化 |
 |---|---|---|---|---|---|
 | AP-STARTINTRO-1 | T6 | `SetScene(intro)` | 配信中でない、`StartWait` がこのバッチの `StartID`、役割は Intro 以外 | `Proceed{ReqID}` | 期待を登録（Intro） |
-| AP-STARTINTRO-2 | T6 | `SetScene(intro)` | `StartWait` がない（手動の `SceneChanged`、切断、`StreamStateChanged{true}` で消えた。このとき共通の条件も崩れている） | `Reject` | —（`LastError` は待ちを消した時点と `BatchDone{Rejected}` で記録） |
-| AP-STARTINTRO-3 | T6 | `SetScene(intro)` | `StartWait` はあるが `ID` が違う（次の StreamStart の待ち） | `Reject` | U-03（提案: 新しい待ちには触らない） |
+| AP-STARTINTRO-2 | T6 | `SetScene(intro)` | `StartWait` がない（手動の `SceneChanged`、切断、`StreamStateChanged{true}` で消えた。このとき共通の条件も崩れている） | `Reject` | —（`StreamStateChanged{true}` で消えた場合は、待ちを消した時点では記録しない（U-17）。手動の `SceneChanged` と切断で消えた場合は、待ちを消した時点で記録する。どの場合も、残ったバッチの `BatchDone{Rejected}` は Command 由来なので記録する） |
+| AP-STARTINTRO-3 | T6 | `SetScene(intro)` | `StartWait` はあるが `ID` が違う（次の StreamStart の待ち） | 到達しない（BD-X-2 と同じ理由。U-04） | テストは書かない |
 | AP-STARTINTRO-4 | T6 | `SetScene(intro)` | 待ちあり、前の StreamStart の期待で役割がすでに Intro | `Skip`（期待を登録しない） | 待ちの段階は U-02 / U-03 |
 
 「却下（待ちも消す）」について: 待ちを残したまま StartIntro / StartStream が却下される列は、AP-STARTINTRO-3 を除いて作れない（共通の条件を崩す Event は、どれも先に待ちを消す）。実装は却下のときに自分の `StartID` の待ちを消すが、表の行としては AP-STARTINTRO-3 だけになる。
@@ -716,8 +719,11 @@ SQ-14 の t=1.15 までと同じ（期待 [Fail r1, Pause r2]）。t=1.30 に `S
 | 1.0 | `Command{StreamStop}` | `StopStream#1` | — |
 | 1.1 | `Command{PauseOn}` | `PauseOn#2` | — |
 | 1.2〜1.6 | `LinkChanged{LOW}`、`{DOWN}`、`{LOW}`、`{DOWN}`、`{LOW}` | — | — |
-| 2.0 | `Approve(2, SetScene(pause), None)` | `Proceed{r1}` | 期待 [Pause r1] |
-| 2.1 | `Approve(1, StopStream, None)` | `Proceed` | — |
+| 2.0 | `Approve(1, StopStream, None)` | `Proceed` | — |
+| 2.1 | `BatchDone{1, Completed}` | — | StopStream#1 が未完了の一覧から消える（STOPPED はまだ届いていないので配信中のまま） |
+| 2.2 | `Approve(2, SetScene(pause), None)` | `Proceed{r1}` | 期待 [Pause r1] |
+
+実行役は `BatchDone` を送るまで次のバッチを受け取らない（9章）ので、承認は #1、#2 の順に来る。
 
 ### SQ-18 GoLive の決め直し（Replace）（T6）
 
