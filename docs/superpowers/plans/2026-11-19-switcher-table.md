@@ -96,7 +96,7 @@
 | `ReturnScene` | `string` | 戻り先のシーン名。なしは空。持ち主が `none` の間は必ず空 |
 | `Expectations` | `[]Expectation` | 期待の列。登録順（先頭が古い） |
 | `Pending` | `map[int]PendingBatch` | 未完了のバッチ。`BatchDone` が来るまで持つ |
-| `LastAutoSent` | `map[Purpose]time.Time` | AutoFail / AutoRecover のバッチを最後に出した時刻。再送の5秒の起点（U-07）。配信の停止で消す（U-16） |
+| `LastAutoSent` | `map[Purpose]time.Time` | AutoFail / AutoRecover のバッチを最後に出した時刻。再送の5秒の起点（U-07）。配信の停止（U-16）と手動の切替（V-06）で消す |
 | `SceneEpoch` | `int` | 手動とみなした `SceneChanged` のたびに1つ進む |
 | `ConnEpoch` | `int` | `OBSDisconnected` のたびに1つ進む |
 | `StreamEpoch` | `int` | 配信状態が変わるたびに1つ進む（`StreamStateChanged` と、`OBSConnected` で切断前と違ったとき） |
@@ -247,7 +247,7 @@ Purpose の一覧: `AutoFail`、`AutoRecover`、`StandbyOn`、`StandbyOffMonitor
 
 ### 2.6 SceneChanged{Scene}（手動 = どの期待とも一致しない）
 
-前提: 接続。すべての行で `Scene` を更新し、`SceneEpoch+1`、`Expectations` を空に、C。`Pending` は変えない（シーン切替のバッチは承認で却下される。AP-COM-5）。そのあと J。特記がなければ: 配信中、`auto_enabled` は true、未完了なし。
+前提: 接続。すべての行で `Scene` を更新し、`SceneEpoch+1`、`Expectations` を空に、`LastAutoSent` を空に（V-06）、C。`Pending` は変えない（シーン切替のバッチは承認で却下される。AP-COM-5）。そのあと J。特記がなければ: 配信中、`auto_enabled` は true、未完了なし。
 
 | # | T | 前提（直前の状態 → 新しいシーン、受信状態） | 出力 | 状態の変化（上の共通に加えて） |
 |---|---|---|---|---|
@@ -1127,7 +1127,7 @@ a と b は、準備 P("Camera", 配信中, OK)、t=1.0 `LC{LOW}` → `AutoFail#
 | a | `LC{LOW}` | `Reject` | `BD{2, Rejected}` → `LastError` は記録されない。持ち主 `auto`、戻り先 `"Camera"` を保つ。t=3.0 `LC{OK}` → `AutoRecover#3` |
 | b | `SC{"Talk"}`（手動） | `Reject` | 持ち主 `none`、戻り先なし |
 | c | `SSC{false}` | `Reject` | 持ち主 `none`、戻り先なし |
-| d | `OBSDisconnected` | `Reject`（未接続） | 持ち主 `auto`、戻り先 `"Camera"` を保つ（下の d1、d2） |
+| d | `OBSDisconnected` | `Reject`（未接続。d1 だけ。d2 では t=1.5 の承認はなく、再接続のあとの t=1.7 が最初の承認） | 持ち主 `auto`、戻り先 `"Camera"` を保つ（下の d1、d2） |
 
 d1: t=1.5 `BD{2, Rejected}`。t=1.6 `OBSConnected{true, "Standby", 300}` → `AutoRecover#3`（シーンも配信状態も同じなので持ち主を保つ。イベント起点）。
 
