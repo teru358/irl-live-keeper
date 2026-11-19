@@ -13,7 +13,7 @@ type Snapshot struct {
 	OBS       OBSStatus  `json:"obs"`
 	MediaMTX  string     `json:"mediamtx"`
 	URLs      URLs       `json:"urls"`
-	LastError *string    `json:"last_error"`
+	LastError *LastError `json:"last_error"`
 }
 
 // LinkStatus は受信状態と最後の Sample の値。
@@ -34,19 +34,33 @@ type SRTStatus struct {
 
 // OBSStatus は OBS の接続と、switcher が追っている状態。
 type OBSStatus struct {
-	Connected  bool       `json:"connected"`
-	Streaming  bool       `json:"streaming"`
-	Scene      string     `json:"scene"`
-	Role       string     `json:"role"`
-	ManualHold ManualHold `json:"manual_hold"`
-	Warnings   []string   `json:"warnings"` // 空でも [] にする
+	Connected   bool          `json:"connected"`
+	Streaming   bool          `json:"streaming"`
+	Scene       string        `json:"scene"`
+	SceneClass  string        `json:"scene_class"` // monitored / standby / other / unknown
+	Standby     StandbyStatus `json:"standby"`
+	AutoEnabled bool          `json:"auto_enabled"`
+	Warnings    []string      `json:"warnings"` // 空でも [] にする
 }
 
-// ManualHold は手動保持の状態。Since は保持中だけ値を持つ。
-type ManualHold struct {
-	Active bool       `json:"active"`
-	Since  *time.Time `json:"since"`
+// StandbyStatus は待機の持ち主と戻り先。戻り先がなければ ReturnScene は null。
+type StandbyStatus struct {
+	Owner       string  `json:"owner"` // none / auto / manual
+	ReturnScene *string `json:"return_scene"`
 }
+
+// LastError は最後に記録したエラー。Source は switcher か mediamtx。
+type LastError struct {
+	At      time.Time `json:"at"`
+	Source  string    `json:"source"`
+	Message string    `json:"message"`
+}
+
+// last_error の出どころ。
+const (
+	SourceSwitcher = "switcher"
+	SourceMediaMTX = "mediamtx"
+)
 
 // URLs は status に出す固定の URL。
 type URLs struct {
@@ -66,23 +80,21 @@ func (c *Core) publish() {
 			Protocol: c.sample.Protocol,
 		},
 		OBS: OBSStatus{
-			Connected: ms.Connected,
-			Streaming: ms.Streaming,
-			Scene:     ms.Scene,
-			Role:      ms.Role.String(),
-			ManualHold: ManualHold{
-				Active: ms.Hold.Active,
-			},
-			Warnings: []string{},
+			Connected:   ms.Connected,
+			Streaming:   ms.Streaming,
+			Scene:       ms.Scene,
+			SceneClass:  ms.Class.String(),
+			Standby:     StandbyStatus{Owner: ms.Standby.Owner.String()},
+			AutoEnabled: ms.AutoEnabled,
+			Warnings:    []string{},
 		},
 		URLs: c.urls,
 	}
+	if r := ms.Standby.ReturnScene; r != "" {
+		s.OBS.Standby.ReturnScene = &r
+	}
 	if st := c.sample.SRT; st != nil {
 		s.Link.SRT = &SRTStatus{RTTMs: st.RTTMs, LossRate: st.LossRate, RecvMbps: st.RecvMbps}
-	}
-	if ms.Hold.Active {
-		since := ms.Hold.Since
-		s.OBS.ManualHold.Since = &since
 	}
 	if c.warnings != nil {
 		if w := c.warnings(); len(w) > 0 {
@@ -103,7 +115,8 @@ func (c *Core) publish() {
 }
 
 // last_error は switcher と MediaMTX の2か所から来る。どちらも消えずに上書きされるだけなので、
-// 前回から変わった方を新しい記録とみなし、最後に変わったものを出す。
+// 前回から変わった方を新しい記録とみなし、時刻の新しい方を出す。switcher の記録は自分の時刻を持ち、
+// MediaMTX の記録は変わったことに気づいた時刻を付ける。時刻が同じなら、後から気づいた方を出す。
 
 func (c *Core) noteSwitcherError(e *switcher.ErrorInfo) {
 	if e == nil {
@@ -114,17 +127,22 @@ func (c *Core) noteSwitcherError(e *switcher.ErrorInfo) {
 	}
 	v := *e
 	c.prevSwErr = &v
-	msg := e.Msg
-	c.lastErr = &msg
+	c.offerError(LastError{At: e.At, Source: SourceSwitcher, Message: e.Msg})
 }
 
+// noteMediaMTXError は supervisor の LastError を見る。空になっても前の記録は消さない。
 func (c *Core) noteMediaMTXError(msg string) {
 	if msg == c.prevMtxErr {
 		return
 	}
 	c.prevMtxErr = msg
 	if msg != "" {
-		m := msg
-		c.lastErr = &m
+		c.offerError(LastError{At: c.now(), Source: SourceMediaMTX, Message: msg})
+	}
+}
+
+func (c *Core) offerError(e LastError) {
+	if c.lastErr == nil || !e.At.Before(c.lastErr.At) {
+		c.lastErr = &e
 	}
 }

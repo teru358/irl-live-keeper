@@ -6,35 +6,52 @@ import (
 	"github.com/teru358/irl-live-keeper/internal/ingest"
 )
 
-// Role はシーンの役割。OBS のシーン名を config の割り当てで変換したもの。
-type Role int
+// SceneClass は現在のシーンを、その時点のシーンの設定で分けたもの。
+type SceneClass int
 
 const (
-	// RoleUnknown は Pause の直前の役割が「不明」であることを表す。
-	// シーンの役割としては使わない。
-	RoleUnknown Role = iota
-	RoleIntro
-	RoleLive
-	RoleFail
-	RolePause
-	// RoleOther は管理外のシーン。
-	RoleOther
+	// ClassUnknown は OBS に未接続などで現在のシーンがわからないこと。どの条件にも当てはまらない。
+	ClassUnknown SceneClass = iota
+	// ClassMonitored は監視対象のシーン。
+	ClassMonitored
+	// ClassStandby は待機シーン。
+	ClassStandby
+	// ClassOther は管理外のシーン。
+	ClassOther
 )
 
-func (r Role) String() string {
-	switch r {
-	case RoleIntro:
-		return "intro"
-	case RoleLive:
-		return "live"
-	case RoleFail:
-		return "fail"
-	case RolePause:
-		return "pause"
-	case RoleOther:
+func (c SceneClass) String() string {
+	switch c {
+	case ClassMonitored:
+		return "monitored"
+	case ClassStandby:
+		return "standby"
+	case ClassOther:
 		return "other"
 	}
 	return "unknown"
+}
+
+// Owner は待機の持ち主。誰が待機シーンに入れたか。
+type Owner int
+
+const (
+	// OwnerNone は本体が待機に入れていないこと（人が手動で待機シーンを選んだ場合を含む）。
+	OwnerNone Owner = iota
+	// OwnerAuto は自動切替で待機シーンに入れたこと。回復したら戻り先へ戻す。
+	OwnerAuto
+	// OwnerManual は手動の待機（StandbyOn）で入れたこと。StandbyOff まで自動では戻さない。
+	OwnerManual
+)
+
+func (o Owner) String() string {
+	switch o {
+	case OwnerAuto:
+		return "auto"
+	case OwnerManual:
+		return "manual"
+	}
+	return "none"
 }
 
 // Purpose はバッチの目的。承認のたびにこの目的の有効条件を確かめる。
@@ -43,13 +60,10 @@ type Purpose int
 const (
 	PurposeAutoFail Purpose = iota + 1
 	PurposeAutoRecover
-	PurposeGoLive
-	PurposeGoFail
-	PurposePauseOffLive
-	PurposePauseOffFail
-	PurposePauseOffIntro
-	PurposePauseOn
-	PurposeStartIntro
+	PurposeStandbyOn
+	PurposeStandbyOffMonitored
+	PurposeStandbyOffOther
+	PurposeStartScene
 	PurposeStartStream
 	PurposeStopStream
 )
@@ -60,20 +74,14 @@ func (p Purpose) String() string {
 		return "AutoFail"
 	case PurposeAutoRecover:
 		return "AutoRecover"
-	case PurposeGoLive:
-		return "GoLive"
-	case PurposeGoFail:
-		return "GoFail"
-	case PurposePauseOffLive:
-		return "PauseOffLive"
-	case PurposePauseOffFail:
-		return "PauseOffFail"
-	case PurposePauseOffIntro:
-		return "PauseOffIntro"
-	case PurposePauseOn:
-		return "PauseOn"
-	case PurposeStartIntro:
-		return "StartIntro"
+	case PurposeStandbyOn:
+		return "StandbyOn"
+	case PurposeStandbyOffMonitored:
+		return "StandbyOffMonitored"
+	case PurposeStandbyOffOther:
+		return "StandbyOffOther"
+	case PurposeStartScene:
+		return "StartScene"
 	case PurposeStartStream:
 		return "StartStream"
 	case PurposeStopStream:
@@ -83,14 +91,31 @@ func (p Purpose) String() string {
 }
 
 // IsAuto は自動切替のバッチ（AutoFail / AutoRecover）かを返す。
-// それ以外はすべて Command 由来である。
 func (p Purpose) IsAuto() bool {
 	return p == PurposeAutoFail || p == PurposeAutoRecover
 }
 
-// switchesScene はシーンを切り替えるバッチか（承認で SceneEpoch を見るか）を返す。
+// FromCommand は Command 由来のバッチかを返す。
+func (p Purpose) FromCommand() bool {
+	switch p {
+	case PurposeStandbyOn, PurposeStandbyOffMonitored, PurposeStandbyOffOther, PurposeStartStream, PurposeStopStream:
+		return true
+	}
+	return false
+}
+
+// switchesScene はシーンを切り替えるバッチか（承認で SceneEpoch と ConfigEpoch を見るか）を返す。
 func (p Purpose) switchesScene() bool {
 	return p != PurposeStartStream && p != PurposeStopStream
+}
+
+// suppresses は、このバッチが未完了か、その期待が残っている間、自動切替を止めるかを返す。
+func (p Purpose) suppresses() bool {
+	switch p {
+	case PurposeStartScene, PurposeStandbyOn, PurposeStandbyOffMonitored, PurposeStandbyOffOther:
+		return true
+	}
+	return false
 }
 
 // ---- Event ----
@@ -138,16 +163,39 @@ type StreamStateChanged struct {
 	Streaming bool
 }
 
+// ScenesConfigured はシーンの設定。StartScene は配信開始時の切替が無効なら nil。
+// 検証は送る側が済ませる。
+type ScenesConfigured struct {
+	At          time.Time
+	Standby     string
+	Monitored   []string
+	AutoEnabled bool
+	StartScene  *string
+}
+
 // CommandKind は手動操作の種類。
 type CommandKind int
 
 const (
 	CmdStreamStart CommandKind = iota + 1
 	CmdStreamStop
-	CmdGoLive
-	CmdPauseOn
-	CmdPauseOff
+	CmdStandbyOn
+	CmdStandbyOff
 )
+
+func (k CommandKind) String() string {
+	switch k {
+	case CmdStreamStart:
+		return "StreamStart"
+	case CmdStreamStop:
+		return "StreamStop"
+	case CmdStandbyOn:
+		return "StandbyOn"
+	case CmdStandbyOff:
+		return "StandbyOff"
+	}
+	return "Command?"
+}
 
 // Command は手動操作。
 type Command struct {
@@ -199,6 +247,7 @@ func (e OBSDisconnected) eventAt() time.Time    { return e.At }
 func (e SceneChanged) eventAt() time.Time       { return e.At }
 func (e TransitionChanged) eventAt() time.Time  { return e.At }
 func (e StreamStateChanged) eventAt() time.Time { return e.At }
+func (e ScenesConfigured) eventAt() time.Time   { return e.At }
 func (e Command) eventAt() time.Time            { return e.At }
 func (e SceneRequestDone) eventAt() time.Time   { return e.At }
 func (e BatchDone) eventAt() time.Time          { return e.At }
@@ -211,9 +260,9 @@ type Action interface {
 	isAction()
 }
 
-// SetScene は program のシーンを役割のシーンに切り替える。
+// SetScene は program のシーンを切り替える。Scene は OBS のシーン名そのもの。
 type SetScene struct {
-	Role Role
+	Scene string
 }
 
 // RestartMedia はメディアソースに RESTART を送り、Wait だけ待ってから次の Action に進む。
@@ -232,13 +281,16 @@ func (RestartMedia) isAction() {}
 func (StartStream) isAction()  {}
 func (StopStream) isAction()   {}
 
-// Batch は Handle や Approve が返す Action の列。作った時点の3つの Epoch を持つ。
+// Batch は Handle が返す Action の列。作った時点の4つの Epoch を持つ。
+// 待機シーンへ切り替えるバッチ（AutoFail、StandbyOn）は、戻り先のシーン名 ReturnScene も持つ。
 type Batch struct {
 	BatchID     int
 	Purpose     Purpose
 	SceneEpoch  int
 	ConnEpoch   int
 	StreamEpoch int
+	ConfigEpoch int
+	ReturnScene string
 	Actions     []Action
 }
 
@@ -277,13 +329,14 @@ type Proceed struct {
 	ReqID int
 }
 
-// Skip は送らずに成功とみなすこと（すでに目的の役割になっている）。
+// Skip は送らずに成功とみなすこと（現在のシーンがすでに切替先のシーン）。
 type Skip struct{}
 
 // Reject はバッチの残りを捨てること。
 type Reject struct{}
 
-// Replace はバッチの残りを捨て、代わりの Batch を実行すること。
+// Replace はバッチの残りを捨て、決め直した扱いに置き換えること。Batch が nil なら、
+// 代わりに実行するものはない（Machine が Approve の中で自分の状態を変えて済ませた）。
 type Replace struct {
 	Batch *Batch
 }
@@ -307,6 +360,16 @@ type ErrInvalidState struct {
 
 func (e ErrInvalidState) Error() string { return "受け付けられない: " + e.Reason }
 
+// Command を受け付けない理由の文。
+const (
+	ReasonStreaming       = "配信中"
+	ReasonNotStreaming    = "配信中でない"
+	ReasonAlreadyStandby  = "すでに待機シーン"
+	ReasonNotManual       = "手動の待機中でない"
+	ReasonSamePending     = "同じ操作が実行待ち"
+	ReasonSwitchInProcess = "切替の実行中"
+)
+
 // ErrorInfo は記録したエラー（時刻と文）。status の last_error になる。
 type ErrorInfo struct {
 	At  time.Time
@@ -315,10 +378,13 @@ type ErrorInfo struct {
 
 // ---- 内部状態 ----
 
-// Expectation は送った SetScene の期待シーン。
+// Expectation は送った SetScene の期待。
 type Expectation struct {
 	ReqID        int
-	Role         Role
+	Scene        string
+	Purpose      Purpose
+	ReturnScene  string // AutoFail、StandbyOn だけ。ほかは空
+	ConfigEpoch  int
 	RegisteredAt time.Time
 	Override     Override
 	TransitionMs *int // Approve の時点の全体の長さ
@@ -326,50 +392,39 @@ type Expectation struct {
 	RespondedAt  time.Time
 	Result       RequestResult // OK か Timeout。Error の期待は消すので残らない
 	Deadline     time.Time     // Responded のときだけ有効
-	StartID      int           // StartIntro が登録した期待なら、その配信開始の待ちの番号。ほかは 0
-}
-
-// StartStage は配信開始の待ちの段階。
-type StartStage int
-
-const (
-	// StageWaitIntro は Intro の確認待ち。
-	StageWaitIntro StartStage = iota + 1
-	// StageIntroConfirmed は Intro 確認済み。
-	StageIntroConfirmed
-)
-
-// StartWait は配信開始の待ち。ID は StreamStart ごとの通し番号。
-type StartWait struct {
-	ID    int
-	Stage StartStage
 }
 
 // PendingBatch は BatchDone が来るまで持つ未完了のバッチ。
 type PendingBatch struct {
-	BatchID     int
-	Purpose     Purpose
-	SceneEpoch  int
-	ConnEpoch   int
-	StreamEpoch int
-	StartID     int  // StartIntro / StartStream だけ。どの待ちのためのバッチか
-	Replaced    bool // Replace で置き換えた元のバッチ。却下を記録しない
+	BatchID        int
+	Purpose        Purpose
+	SceneEpoch     int
+	ConnEpoch      int
+	StreamEpoch    int
+	ConfigEpoch    int
+	ReturnScene    string
+	Replaced       bool // Replace で置き換えた元のバッチ。却下を記録しない
+	ManualRejected bool // StartScene を手動の切替のために却下した。却下を記録しない
 }
 
-// state は Machine の状態。
+// state は Machine の状態。シーンの設定（Standby から ConfigEpoch まで）も含む。
+// ConfigEpoch が 0 の間は、シーンの設定をまだ受けていない。
 type state struct {
+	Standby     string
+	Monitored   []string
+	AutoEnabled bool
+	StartScene  *string
+	ConfigEpoch int
+
 	Connected         bool
 	Streaming         bool
 	Scene             string
-	Role              Role
 	PrevConnScene     string
 	PrevConnStreaming bool
 	Link              ingest.LinkState
-	Hold              bool
-	HoldSince         time.Time
+	StandbyOwner      Owner
+	ReturnScene       string
 	Expectations      []Expectation
-	PausePrev         Role
-	StartWait         *StartWait
 	Pending           map[int]PendingBatch
 	LastAutoSent      map[Purpose]time.Time
 	SceneEpoch        int
@@ -379,22 +434,22 @@ type state struct {
 	LastError         *ErrorInfo
 	NextBatchID       int
 	NextReqID         int
-	NextStartID       int
 }
 
 // Snapshot は status に出す読み取り専用の状態。
 type Snapshot struct {
-	Connected bool
-	Streaming bool
-	Scene     string
-	Role      Role
-	Link      ingest.LinkState
-	Hold      HoldStatus
-	LastError *ErrorInfo
+	Connected   bool
+	Streaming   bool
+	Scene       string
+	Class       SceneClass
+	Standby     StandbyStatus
+	AutoEnabled bool
+	Link        ingest.LinkState
+	LastError   *ErrorInfo
 }
 
-// HoldStatus は手動保持の状態。Since は Active のときだけ有効。
-type HoldStatus struct {
-	Active bool
-	Since  time.Time
+// StandbyStatus は待機の持ち主と戻り先。戻り先がなければ ReturnScene は空。
+type StandbyStatus struct {
+	Owner       Owner
+	ReturnScene string
 }

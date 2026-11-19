@@ -1,22 +1,20 @@
 package switcher
 
 import (
+	"slices"
 	"time"
 
 	"github.com/teru358/irl-live-keeper/internal/ingest"
 )
 
-// Config は Machine の設定。
+// Config は Machine の生成時の設定。
 type Config struct {
-	// Scenes は役割から OBS のシーン名への対応（Intro / Live / Fail / Pause）。
-	Scenes map[Role]string
 	// RestartWait は RestartMedia.Wait に入れる待ち時間。
 	RestartWait time.Duration
 }
 
 // settings は生成時に決まり、変わらない値。
 type settings struct {
-	Scenes        map[Role]string
 	RestartWait   time.Duration
 	ExpectMargin  time.Duration // 期待の期限の余裕
 	ExpectFloor   time.Duration // 上書きあり・長さ不明などのときの下限
@@ -25,6 +23,7 @@ type settings struct {
 
 // Machine はシーンを切り替える状態機械。I/O を持たず、時計も読まない。
 // 時刻は Event.At と Approve の at だけから得る。
+// シーンの設定は初期値を持たないので、最初の Event として ScenesConfigured を渡す。
 type Machine struct {
 	cfg settings
 	st  state
@@ -32,13 +31,8 @@ type Machine struct {
 
 // New は未接続の初期状態の Machine を返す。
 func New(cfg Config) *Machine {
-	scenes := make(map[Role]string, len(cfg.Scenes))
-	for r, s := range cfg.Scenes {
-		scenes[r] = s
-	}
 	return &Machine{
 		cfg: settings{
-			Scenes:        scenes,
 			RestartWait:   cfg.RestartWait,
 			ExpectMargin:  3 * time.Second,
 			ExpectFloor:   10 * time.Second,
@@ -46,12 +40,10 @@ func New(cfg Config) *Machine {
 		},
 		st: state{
 			Link:         ingest.LinkDown,
-			PausePrev:    RoleUnknown,
 			Pending:      map[int]PendingBatch{},
 			LastAutoSent: map[Purpose]time.Time{},
 			NextBatchID:  1,
 			NextReqID:    1,
-			NextStartID:  1,
 		},
 	}
 }
@@ -60,12 +52,13 @@ func New(cfg Config) *Machine {
 func (m *Machine) Snapshot() Snapshot {
 	s := &m.st
 	snap := Snapshot{
-		Connected: s.Connected,
-		Streaming: s.Streaming,
-		Scene:     s.Scene,
-		Role:      s.Role,
-		Link:      s.Link,
-		Hold:      HoldStatus{Active: s.Hold, Since: s.HoldSince},
+		Connected:   s.Connected,
+		Streaming:   s.Streaming,
+		Scene:       s.Scene,
+		Class:       m.class(),
+		Standby:     StandbyStatus{Owner: s.StandbyOwner, ReturnScene: s.ReturnScene},
+		AutoEnabled: s.AutoEnabled,
+		Link:        s.Link,
 	}
 	if s.LastError != nil {
 		e := *s.LastError
@@ -74,15 +67,21 @@ func (m *Machine) Snapshot() Snapshot {
 	return snap
 }
 
-// roleOf はシーン名を役割に変換する。どれにも当たらなければ RoleOther。
-func (m *Machine) roleOf(scene string) Role {
-	for _, r := range []Role{RoleIntro, RoleLive, RoleFail, RolePause} {
-		if name, ok := m.cfg.Scenes[r]; ok && name == scene {
-			return r
-		}
+// class は現在のシーンを今の設定で分ける。未接続なら不明。
+func (m *Machine) class() SceneClass {
+	s := &m.st
+	switch {
+	case !s.Connected:
+		return ClassUnknown
+	case m.isMonitored(s.Scene):
+		return ClassMonitored
+	case s.Scene == s.Standby:
+		return ClassStandby
 	}
-	return RoleOther
+	return ClassOther
 }
+
+func (m *Machine) isMonitored(scene string) bool { return slices.Contains(m.st.Monitored, scene) }
 
 func bad(l ingest.LinkState) bool { return l == ingest.LinkLow || l == ingest.LinkDown }
 
@@ -92,12 +91,14 @@ func (m *Machine) Handle(ev Event) (*Batch, error) {
 	at := ev.eventAt()
 	m.expire(at)
 	switch e := ev.(type) {
+	case ScenesConfigured:
+		return m.onConfigured(e), nil
 	case LinkChanged:
 		return m.onLinkChanged(e), nil
 	case OBSConnected:
 		return m.onConnected(e), nil
 	case OBSDisconnected:
-		m.onDisconnected(e)
+		m.onDisconnected()
 	case SceneChanged:
 		return m.onSceneChanged(e), nil
 	case TransitionChanged:
@@ -107,7 +108,7 @@ func (m *Machine) Handle(ev Event) (*Batch, error) {
 	case SceneRequestDone:
 		m.onRequestDone(e)
 	case BatchDone:
-		return m.onBatchDone(e), nil
+		m.onBatchDone(e)
 	case Tick:
 		return m.judge(at, true), nil
 	case Command:
@@ -124,20 +125,79 @@ func copyInt(p *int) *int {
 	return &v
 }
 
-func (m *Machine) onLinkChanged(e LinkChanged) *Batch {
-	s := &m.st
-	if e.State == s.Link {
+func copyString(p *string) *string {
+	if p == nil {
 		return nil
 	}
-	old := s.Link
-	s.Link = e.State
-	// 保持は OK と不良の間の変化で解く。接続の有無は見ない。
-	if s.Hold && bad(old) != bad(e.State) {
-		m.releaseHold()
+	v := *p
+	return &v
+}
+
+// clearOwner は持ち主と戻り先を消す。今いるシーンは変えない。
+func (m *Machine) clearOwner() {
+	m.st.StandbyOwner = OwnerNone
+	m.st.ReturnScene = ""
+}
+
+func (m *Machine) recordError(at time.Time, msg string) {
+	m.st.LastError = &ErrorInfo{At: at, Msg: msg}
+}
+
+// sameConfig は e が今の設定と同じ内容かを返す。監視対象は集合として比べる。
+func (m *Machine) sameConfig(e ScenesConfigured) bool {
+	s := &m.st
+	if s.ConfigEpoch == 0 || e.Standby != s.Standby || e.AutoEnabled != s.AutoEnabled {
+		return false
+	}
+	if (e.StartScene == nil) != (s.StartScene == nil) || (e.StartScene != nil && *e.StartScene != *s.StartScene) {
+		return false
+	}
+	for _, name := range e.Monitored {
+		if !slices.Contains(s.Monitored, name) {
+			return false
+		}
+	}
+	for _, name := range s.Monitored {
+		if !slices.Contains(e.Monitored, name) {
+			return false
+		}
+	}
+	return true
+}
+
+// onConfigured はシーンの設定を差し替える。期待と未完了のバッチはそのまま残す
+// （未完了のシーン切替のバッチは、設定の世代が進むので承認で却下される）。
+func (m *Machine) onConfigured(e ScenesConfigured) *Batch {
+	s := &m.st
+	if m.sameConfig(e) {
+		return nil
+	}
+	renamed := e.Standby != s.Standby
+	s.Standby = e.Standby
+	s.Monitored = slices.Clone(e.Monitored)
+	s.AutoEnabled = e.AutoEnabled
+	s.StartScene = copyString(e.StartScene)
+	s.ConfigEpoch++
+	switch {
+	case s.StandbyOwner == OwnerNone:
+	case renamed:
+		m.clearOwner()
+	case s.StandbyOwner == OwnerAuto && (!m.isMonitored(s.ReturnScene) || !s.AutoEnabled):
+		m.clearOwner()
 	}
 	return m.judge(e.At, false)
 }
 
+func (m *Machine) onLinkChanged(e LinkChanged) *Batch {
+	if e.State == m.st.Link {
+		return nil
+	}
+	m.st.Link = e.State
+	return m.judge(e.At, false)
+}
+
+// onConnected は状態を取り直す。シーンか配信状態が切断の直前と違っていたら持ち主と戻り先を消す。
+// 手動の切替としては扱わず、配信開始時の切替も出さない。
 func (m *Machine) onConnected(e OBSConnected) *Batch {
 	s := &m.st
 	sceneDiffers := e.Scene != s.PrevConnScene
@@ -145,82 +205,63 @@ func (m *Machine) onConnected(e OBSConnected) *Batch {
 	s.Connected = true
 	s.Streaming = e.Streaming
 	s.Scene = e.Scene
-	s.Role = m.roleOf(e.Scene)
 	s.TransitionMs = copyInt(e.TransitionMs)
-	s.PausePrev = RoleUnknown
 	if streamDiffers {
 		s.StreamEpoch++
 	}
-	// 切断中にシーンが変わっていても手動の切替とはみなさない。保持は解くだけ。
-	if s.Hold && (sceneDiffers || streamDiffers) {
-		m.releaseHold()
+	if sceneDiffers || streamDiffers {
+		m.clearOwner()
 	}
 	return m.judge(e.At, false)
 }
 
-func (m *Machine) onDisconnected(e OBSDisconnected) {
+// onDisconnected は期待をすべて消す。持ち主と戻り先は再接続まで保つ。
+func (m *Machine) onDisconnected() {
 	s := &m.st
 	s.Connected = false
 	s.ConnEpoch++
 	s.Expectations = nil
 	s.PrevConnScene = s.Scene
 	s.PrevConnStreaming = s.Streaming
-	m.dropStartWait(e.At, "OBS との接続が切れたため配信を始めなかった")
 }
 
+// onSceneChanged は期待と照らし、本体の切替か手動の切替かを見分ける。
 func (m *Machine) onSceneChanged(e SceneChanged) *Batch {
 	s := &m.st
-	prev := s.Role
-	newRole := m.roleOf(e.Scene)
-	matched := -1
-	for i, x := range s.Expectations {
-		if x.Role == newRole {
-			matched = i
-			break
-		}
-	}
 	s.Scene = e.Scene
-	s.Role = newRole
-	m.updatePausePrev(prev, newRole)
-
-	if matched >= 0 {
-		// 本体の切替。一致した期待とそれより前の期待を消す。
-		s.Expectations = append([]Expectation(nil), s.Expectations[matched+1:]...)
-		if newRole == RoleIntro && s.StartWait != nil && s.StartWait.Stage == StageWaitIntro {
-			s.StartWait.Stage = StageIntroConfirmed
-			return m.emit(PurposeStartStream, e.At, s.StartWait.ID)
-		}
+	i := slices.IndexFunc(s.Expectations, func(x Expectation) bool { return x.Scene == e.Scene })
+	if i < 0 {
+		// 手動（外部）の切替。人がシーンを変えたので、再送の時刻も数え直す。
+		s.SceneEpoch++
+		s.Expectations = nil
+		s.LastAutoSent = map[Purpose]time.Time{}
+		m.clearOwner()
 		return m.judge(e.At, false)
 	}
-
-	// 手動（外部）の切替。
-	s.SceneEpoch++
-	s.Expectations = nil
-	if s.Streaming && (newRole == RoleLive || newRole == RoleFail) {
-		if !s.Hold {
-			s.Hold = true
-			s.HoldSince = e.At
+	// 本体の切替。一致した期待とそれより前の期待、同じシーン名の期待を消す。
+	hit := s.Expectations[i]
+	var kept []Expectation
+	for _, x := range s.Expectations[i+1:] {
+		if x.Scene != e.Scene {
+			kept = append(kept, x)
 		}
-	} else if s.Hold {
-		m.releaseHold()
 	}
-	m.dropStartWait(e.At, "配信開始の待ちの間にシーンが手動で切り替えられたため配信を始めなかった")
-	return nil
-}
-
-// updatePausePrev は役割の変化に合わせて Pause の直前の役割を決める。
-func (m *Machine) updatePausePrev(prev, next Role) {
-	s := &m.st
-	switch {
-	case next != RolePause:
-		s.PausePrev = RoleUnknown
-	case prev == RolePause:
-		// Pause のまま。変えない。
-	case prev == RoleIntro || prev == RoleLive || prev == RoleFail:
-		s.PausePrev = prev
-	default:
-		s.PausePrev = RoleUnknown
+	s.Expectations = kept
+	switch hit.Purpose {
+	case PurposeAutoFail, PurposeStandbyOn:
+		// 設定が変わる前の期待では、持ち主と戻り先を入れない。
+		if hit.ConfigEpoch == s.ConfigEpoch {
+			s.StandbyOwner = OwnerAuto
+			if hit.Purpose == PurposeStandbyOn {
+				s.StandbyOwner = OwnerManual
+			}
+			s.ReturnScene = hit.ReturnScene
+		}
+	case PurposeAutoRecover, PurposeStandbyOffMonitored, PurposeStandbyOffOther:
+		// 戻り先へ届いたので、設定の世代によらず消す。
+		m.clearOwner()
 	}
+	return m.judge(e.At, false)
 }
 
 func (m *Machine) onStreamState(e StreamStateChanged) *Batch {
@@ -230,39 +271,38 @@ func (m *Machine) onStreamState(e StreamStateChanged) *Batch {
 	}
 	s.Streaming = e.Streaming
 	s.StreamEpoch++
-	if e.Streaming {
-		// 配信が始まったので待ちは成功として消す。記録しない。
-		s.StartWait = nil
+	if !e.Streaming {
+		m.clearOwner()
+		s.Expectations = nil
+		s.LastAutoSent = map[Purpose]time.Time{}
+		return nil
+	}
+	if s.StartScene == nil {
 		return m.judge(e.At, false)
 	}
-	s.Expectations = nil
-	s.LastAutoSent = map[Purpose]time.Time{}
-	s.PausePrev = RoleUnknown
-	if s.Hold {
-		m.releaseHold()
+	// 配信開始時の切替。受信状態は見ない。前の配信の StartScene が残っていれば重ねない。
+	if m.hasPending(PurposeStartScene) {
+		return nil
 	}
-	return nil
+	return m.emit(PurposeStartScene, e.At, []Action{SetScene{Scene: *s.StartScene}}, "")
 }
 
 func (m *Machine) onRequestDone(e SceneRequestDone) {
 	s := &m.st
-	for i := range s.Expectations {
-		x := &s.Expectations[i]
-		if x.ReqID != e.ReqID {
-			continue
-		}
-		if e.Result == RequestError {
-			failed := *x
-			s.Expectations = append(s.Expectations[:i:i], s.Expectations[i+1:]...)
-			m.dropWaitingIntro(failed, e.At, "Intro への切替が失敗したため配信を始めなかった")
-			return
-		}
-		x.Responded = true
-		x.RespondedAt = e.At
-		x.Result = e.Result
-		x.Deadline = e.At.Add(m.expectWindow(*x))
+	i := slices.IndexFunc(s.Expectations, func(x Expectation) bool { return x.ReqID == e.ReqID })
+	if i < 0 {
 		return
 	}
+	if e.Result == RequestError {
+		// 記録は、続いて届く BatchDone{Failed} で行う。
+		s.Expectations = slices.Delete(s.Expectations, i, i+1)
+		return
+	}
+	x := &s.Expectations[i]
+	x.Responded = true
+	x.RespondedAt = e.At
+	x.Result = e.Result
+	x.Deadline = e.At.Add(m.expectWindow(*x))
 }
 
 // expectWindow は応答の時刻から期限までの長さを返す。
@@ -285,210 +325,137 @@ func (m *Machine) expectWindow(x Expectation) time.Duration {
 	}
 }
 
-// expire は期限を過ぎた期待を消す。期限ちょうどは残す。
-// 期限切れそのものは手動の切替として扱わない。
+// expire は期限を過ぎた期待を消す。期限ちょうどは残す。期限切れそのものは手動の切替として
+// 扱わない。StartScene と Command 由来の切替の期限切れは記録する（Auto は Tick で再送する）。
 func (m *Machine) expire(at time.Time) {
 	s := &m.st
-	kept := s.Expectations[:0:0]
-	var expired []Expectation
+	var kept []Expectation
 	for _, x := range s.Expectations {
-		if x.Responded && at.After(x.Deadline) {
-			expired = append(expired, x)
+		if !x.Responded || !at.After(x.Deadline) {
+			kept = append(kept, x)
 			continue
 		}
-		kept = append(kept, x)
-	}
-	if len(expired) == 0 {
-		return
+		if x.Purpose == PurposeStartScene || x.Purpose.FromCommand() {
+			m.recordError(at, x.Purpose.String()+" の切替（"+x.Scene+"）を確かめられなかった")
+		}
 	}
 	s.Expectations = kept
-	for _, x := range expired {
-		m.dropWaitingIntro(x, at, "Intro への切替を確かめられなかったため配信を始めなかった")
-	}
 }
 
-func (m *Machine) releaseHold() {
-	m.st.Hold = false
-	m.st.HoldSince = time.Time{}
-}
-
-func (m *Machine) recordError(at time.Time, msg string) {
-	m.st.LastError = &ErrorInfo{At: at, Msg: msg}
-}
-
-// dropStartWait は配信開始の待ちを成功以外で消し、記録する。待ちがなければ何もしない。
-func (m *Machine) dropStartWait(at time.Time, msg string) {
-	if m.st.StartWait == nil {
+func (m *Machine) onBatchDone(e BatchDone) {
+	s := &m.st
+	pb, ok := s.Pending[e.BatchID]
+	if !ok {
 		return
 	}
-	m.st.StartWait = nil
-	m.recordError(at, msg)
-}
-
-// dropWaitingIntro は、Intro への期待 x が期限切れか失敗になったときに、x を登録した
-// StreamStart の待ちが「Intro の確認待ち」の段階なら消す。前の StreamStart の期待では、
-// 今の待ちを消さない。
-func (m *Machine) dropWaitingIntro(x Expectation, at time.Time, msg string) {
-	w := m.st.StartWait
-	if x.Role != RoleIntro || w == nil || w.Stage != StageWaitIntro || x.StartID != w.ID {
-		return
+	delete(s.Pending, e.BatchID)
+	switch e.Result {
+	case BatchCompleted:
+		if e.Err != nil {
+			m.recordError(e.At, pb.Purpose.String()+" の一部が失敗した: "+e.Err.Error())
+		}
+	case BatchFailed:
+		msg := pb.Purpose.String() + " が失敗した"
+		if e.Err != nil {
+			msg += ": " + e.Err.Error()
+		}
+		m.recordError(e.At, msg)
+	case BatchRejected:
+		if (pb.Purpose.FromCommand() || pb.Purpose == PurposeStartScene) && !pb.Replaced && !pb.ManualRejected {
+			m.recordError(e.At, pb.Purpose.String()+" は実行の直前に状況が変わったため取りやめた")
+		}
 	}
-	m.dropStartWait(at, msg)
 }
 
-// judge は自動切替の判定。すべての条件を満たすときだけ AutoFail か AutoRecover の
-// バッチを返す。isTick なら再送の間隔の条件を足す。
+// ---- 自動切替 ----
+
+// suppressed は切替中の抑止に当たるかを返す。抑止の Purpose のバッチが未完了か、
+// その期待（設定の世代が古いものも含む）が残っている間。
+func (m *Machine) suppressed() bool {
+	for _, pb := range m.st.Pending {
+		if pb.Purpose.suppresses() {
+			return true
+		}
+	}
+	for _, x := range m.st.Expectations {
+		if x.Purpose.suppresses() {
+			return true
+		}
+	}
+	return false
+}
+
+// autoNeed は今の状態で自動切替が要るかを決める。要るなら Purpose と切替先を返し、要らなければ 0。
+// Handle の判定と、Auto のバッチの承認の両方がこの1か所を使う。
+func (m *Machine) autoNeed() (Purpose, string) {
+	s := &m.st
+	if !s.Connected || !s.Streaming || !s.AutoEnabled || m.suppressed() {
+		return 0, ""
+	}
+	switch c := m.class(); {
+	case c == ClassMonitored && bad(s.Link) && s.StandbyOwner == OwnerNone:
+		return PurposeAutoFail, s.Standby
+	case c == ClassStandby && s.StandbyOwner == OwnerAuto && s.Link == ingest.LinkOK:
+		return PurposeAutoRecover, s.ReturnScene
+	}
+	return 0, ""
+}
+
+// judge は自動切替の判定。要るときで、同じ Purpose の未完了のバッチも切替先への期待もなく、
+// Tick なら前回の送出から再送の間隔がたっているときだけ、バッチを返す。
 func (m *Machine) judge(at time.Time, isTick bool) *Batch {
 	s := &m.st
-	if !s.Connected || !s.Streaming || s.Hold {
-		return nil
-	}
-	var p Purpose
-	var target Role
-	switch {
-	case s.Role == RoleLive && bad(s.Link):
-		p, target = PurposeAutoFail, RoleFail
-	case s.Role == RoleFail && s.Link == ingest.LinkOK:
-		p, target = PurposeAutoRecover, RoleLive
-	default:
-		return nil
-	}
-	if m.hasPending(p) || m.expecting(target) || m.expectingOutsideAuto() {
+	p, target := m.autoNeed()
+	if p == 0 || m.hasPending(p) || m.expecting(target) {
 		return nil
 	}
 	if last, ok := s.LastAutoSent[p]; isTick && ok && at.Sub(last) < m.cfg.RetryInterval {
 		return nil
 	}
-	return m.emit(p, at, 0)
+	if p == PurposeAutoFail {
+		return m.emit(p, at, []Action{SetScene{Scene: target}}, s.Scene)
+	}
+	return m.emit(p, at, []Action{RestartMedia{Wait: m.cfg.RestartWait}, SetScene{Scene: target}}, "")
 }
 
 func (m *Machine) hasPending(ps ...Purpose) bool {
 	for _, pb := range m.st.Pending {
-		for _, p := range ps {
-			if pb.Purpose == p {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func (m *Machine) expecting(r Role) bool {
-	for _, x := range m.st.Expectations {
-		if x.Role == r {
+		if slices.Contains(ps, pb.Purpose) {
 			return true
 		}
 	}
 	return false
 }
 
-// expectingOutsideAuto は Live / Fail 以外の役割（Pause、Intro）への期待が残っているかを返す。
-// 残っている間は、切替の途中なので自動切替をしない。
-func (m *Machine) expectingOutsideAuto() bool {
-	for _, x := range m.st.Expectations {
-		if x.Role != RoleLive && x.Role != RoleFail {
-			return true
-		}
-	}
-	return false
+// expecting はシーン名 scene への期待が残っているかを返す（登録した Purpose は問わない）。
+func (m *Machine) expecting(scene string) bool {
+	return slices.ContainsFunc(m.st.Expectations, func(x Expectation) bool { return x.Scene == scene })
 }
 
-// actionsFor は Purpose ごとの Action の列を返す。
-func (m *Machine) actionsFor(p Purpose) []Action {
-	restart := RestartMedia{Wait: m.cfg.RestartWait}
-	switch p {
-	case PurposeAutoFail, PurposeGoFail, PurposePauseOffFail:
-		return []Action{SetScene{Role: RoleFail}}
-	case PurposeAutoRecover, PurposeGoLive, PurposePauseOffLive:
-		return []Action{restart, SetScene{Role: RoleLive}}
-	case PurposePauseOffIntro, PurposeStartIntro:
-		return []Action{SetScene{Role: RoleIntro}}
-	case PurposePauseOn:
-		return []Action{SetScene{Role: RolePause}}
-	case PurposeStartStream:
-		return []Action{StartStream{}}
-	case PurposeStopStream:
-		return []Action{StopStream{}}
-	}
-	return nil
-}
-
-// emit はバッチを1本作り、未完了として持つ。startID は StartIntro / StartStream の待ちの番号。
-func (m *Machine) emit(p Purpose, at time.Time, startID int) *Batch {
+// emit はバッチを1本作り、未完了として持つ。ret はバッチが持つ戻り先。
+func (m *Machine) emit(p Purpose, at time.Time, actions []Action, ret string) *Batch {
 	s := &m.st
 	id := s.NextBatchID
 	s.NextBatchID++
 	s.Pending[id] = PendingBatch{
 		BatchID: id, Purpose: p,
-		SceneEpoch: s.SceneEpoch, ConnEpoch: s.ConnEpoch, StreamEpoch: s.StreamEpoch,
-		StartID: startID,
+		SceneEpoch: s.SceneEpoch, ConnEpoch: s.ConnEpoch, StreamEpoch: s.StreamEpoch, ConfigEpoch: s.ConfigEpoch,
+		ReturnScene: ret,
 	}
 	if p.IsAuto() {
 		s.LastAutoSent[p] = at
 	}
 	return &Batch{
 		BatchID: id, Purpose: p,
-		SceneEpoch: s.SceneEpoch, ConnEpoch: s.ConnEpoch, StreamEpoch: s.StreamEpoch,
-		Actions: m.actionsFor(p),
+		SceneEpoch: s.SceneEpoch, ConnEpoch: s.ConnEpoch, StreamEpoch: s.StreamEpoch, ConfigEpoch: s.ConfigEpoch,
+		ReturnScene: ret, Actions: actions,
 	}
 }
 
-func (m *Machine) onBatchDone(e BatchDone) *Batch {
-	s := &m.st
-	pb, ok := s.Pending[e.BatchID]
-	if !ok {
-		return nil
-	}
-	delete(s.Pending, e.BatchID)
-	// 配信開始の待ちには、同じ番号のバッチだけが作用する。
-	var own *StartWait
-	if w := s.StartWait; w != nil && pb.StartID != 0 && w.ID == pb.StartID {
-		own = w
-	}
-	switch e.Result {
-	case BatchCompleted:
-		if e.Err != nil {
-			m.recordError(e.At, pb.Purpose.String()+" の一部が失敗した: "+e.Err.Error())
-		}
-		switch {
-		case own == nil:
-		case pb.Purpose == PurposeStartStream:
-			s.StartWait = nil
-		case pb.Purpose == PurposeStartIntro && own.Stage == StageWaitIntro && s.Role == RoleIntro:
-			// SetScene が Skip されたので、期待どおりの SceneChanged は来ない。ここで確かめたことにする。
-			own.Stage = StageIntroConfirmed
-			return m.emit(PurposeStartStream, e.At, own.ID)
-		}
-	case BatchFailed:
-		if own != nil && pb.Purpose == PurposeStartIntro && own.Stage == StageIntroConfirmed {
-			// Intro にはなっているので、StartIntro の目的は達している。
-			return nil
-		}
-		if own != nil {
-			s.StartWait = nil
-		}
-		m.recordError(e.At, failMsg(pb.Purpose, e.Err))
-	case BatchRejected:
-		if own != nil {
-			s.StartWait = nil
-		}
-		if !pb.Purpose.IsAuto() && !pb.Replaced {
-			m.recordError(e.At, pb.Purpose.String()+" は実行の直前に状況が変わったため取りやめた")
-		}
-	}
-	return nil
-}
+// ---- 手動操作 ----
 
-func failMsg(p Purpose, err error) string {
-	msg := p.String() + " が失敗した"
-	if err != nil {
-		msg += ": " + err.Error()
-	}
-	return msg
-}
-
-// onCommand は手動操作を受け付ける。受け付けたら保持を解き、Command のバッチだけを返す。
-// 受け付けないときは cmdErr を返し、状態を変えない。
+// onCommand は手動操作を受け付ける。受け付けたら Command のバッチだけを返す（自動切替の判定は
+// 次の Event で行う）。受け付けないときは cmdErr を返し、状態を変えない。
 func (m *Machine) onCommand(e Command) (*Batch, error) {
 	s := &m.st
 	if !s.Connected {
@@ -497,87 +464,71 @@ func (m *Machine) onCommand(e Command) (*Batch, error) {
 	if reason := m.commandRefusal(e.Kind); reason != "" {
 		return nil, ErrInvalidState{Reason: reason}
 	}
-	m.releaseHold()
 	switch e.Kind {
 	case CmdStreamStart:
-		id := s.NextStartID
-		s.NextStartID++
-		if s.Role == RoleIntro {
-			s.StartWait = &StartWait{ID: id, Stage: StageIntroConfirmed}
-			return m.emit(PurposeStartStream, e.At, id), nil
-		}
-		s.StartWait = &StartWait{ID: id, Stage: StageWaitIntro}
-		return m.emit(PurposeStartIntro, e.At, id), nil
+		return m.emit(PurposeStartStream, e.At, []Action{StartStream{}}, ""), nil
 	case CmdStreamStop:
-		return m.emit(PurposeStopStream, e.At, 0), nil
-	case CmdGoLive:
-		if s.Link == ingest.LinkOK {
-			return m.emit(PurposeGoLive, e.At, 0), nil
+		return m.emit(PurposeStopStream, e.At, []Action{StopStream{}}, ""), nil
+	case CmdStandbyOn:
+		return m.emit(PurposeStandbyOn, e.At, []Action{SetScene{Scene: s.Standby}}, s.Scene), nil
+	case CmdStandbyOff:
+		ret := s.ReturnScene
+		if !m.isMonitored(ret) {
+			return m.emit(PurposeStandbyOffOther, e.At, []Action{SetScene{Scene: ret}}, ""), nil
 		}
-		return m.emit(PurposeGoFail, e.At, 0), nil
-	case CmdPauseOn:
-		return m.emit(PurposePauseOn, e.At, 0), nil
-	case CmdPauseOff:
-		switch {
-		case s.PausePrev == RoleIntro:
-			return m.emit(PurposePauseOffIntro, e.At, 0), nil
-		case s.Link == ingest.LinkOK:
-			return m.emit(PurposePauseOffLive, e.At, 0), nil
-		default:
-			return m.emit(PurposePauseOffFail, e.At, 0), nil
+		if s.AutoEnabled && bad(s.Link) {
+			// 回線が悪いままカメラ映像へ戻さない。回復したら AutoRecover で戻る。
+			s.StandbyOwner = OwnerAuto
+			return nil, nil
 		}
+		return m.emit(PurposeStandbyOffMonitored, e.At,
+			[]Action{RestartMedia{Wait: m.cfg.RestartWait}, SetScene{Scene: ret}}, ""), nil
 	}
 	return nil, ErrInvalidState{Reason: "未知の操作"}
 }
 
 // commandRefusal は Command を受け付けない理由を返す。受け付けるなら空文字列。
-// 同じ操作のバッチが未完了の間も受け付けない。
+// 確かめる順は、配信の条件、シーンと持ち主の条件、同じ操作の実行待ち、切替の実行中。
 func (m *Machine) commandRefusal(k CommandKind) string {
 	s := &m.st
-	var same []Purpose
 	switch k {
 	case CmdStreamStart:
-		if s.Streaming {
-			return "配信中"
+		switch {
+		case s.Streaming:
+			return ReasonStreaming
+		case m.hasPending(PurposeStartStream):
+			return ReasonSamePending
 		}
-		if s.StartWait != nil {
-			return "配信開始の待ちがある"
-		}
-		same = []Purpose{PurposeStartIntro, PurposeStartStream}
 	case CmdStreamStop:
-		if !s.Streaming {
-			return "配信中でない"
+		switch {
+		case !s.Streaming:
+			return ReasonNotStreaming
+		case m.hasPending(PurposeStopStream):
+			return ReasonSamePending
 		}
-		same = []Purpose{PurposeStopStream}
-	case CmdGoLive:
-		if !s.Streaming {
-			return "配信中でない"
+	case CmdStandbyOn:
+		switch {
+		case !s.Streaming:
+			return ReasonNotStreaming
+		case s.Scene == s.Standby || s.StandbyOwner != OwnerNone:
+			return ReasonAlreadyStandby
+		case m.hasPending(PurposeStandbyOn):
+			return ReasonSamePending
+		case m.hasPending(PurposeStartScene, PurposeAutoFail, PurposeAutoRecover) || len(s.Expectations) > 0:
+			// タイムアウトのあとも、期待が残る間は OBS が後から切り替えうる。
+			return ReasonSwitchInProcess
 		}
-		if s.Role != RoleIntro {
-			return "役割が Intro でない"
+	case CmdStandbyOff:
+		switch {
+		case !s.Streaming:
+			return ReasonNotStreaming
+		case s.StandbyOwner != OwnerManual:
+			return ReasonNotManual
+		case m.hasPending(PurposeStandbyOffMonitored, PurposeStandbyOffOther):
+			return ReasonSamePending
 		}
-		same = []Purpose{PurposeGoLive, PurposeGoFail}
-	case CmdPauseOn:
-		if !s.Streaming {
-			return "配信中でない"
-		}
-		if s.Role != RoleIntro && s.Role != RoleLive && s.Role != RoleFail {
-			return "役割が Intro / Live / Fail でない"
-		}
-		same = []Purpose{PurposePauseOn}
-	case CmdPauseOff:
-		if !s.Streaming {
-			return "配信中でない"
-		}
-		if s.Role != RolePause {
-			return "役割が Pause でない"
-		}
-		same = []Purpose{PurposePauseOffLive, PurposePauseOffFail, PurposePauseOffIntro}
 	default:
 		return "未知の操作"
-	}
-	if m.hasPending(same...) {
-		return "同じ操作が実行待ち"
 	}
 	return ""
 }

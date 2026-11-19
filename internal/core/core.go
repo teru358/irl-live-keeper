@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -20,12 +21,16 @@ var ErrStopped = errors.New("中核ループが止まっている")
 
 // Deps は Core が使う部品と設定。
 type Deps struct {
-	// Machine と Judge は Run の goroutine だけが触る。Run の間はほかから呼ばない。
+	// Machine と Judge は New と Run の goroutine だけが触る。Run の間はほかから呼ばない。
 	Machine *switcher.Machine
 	Judge   *ingest.Judge
 	OBS     obs.Client
-	// Scenes は役割から OBS のシーン名への対応。SetScene の送り先と上書きの読み取りに使う。
-	Scenes map[switcher.Role]string
+	// StandbyScene、MonitoredScenes、AutoEnabled、StartScene はシーンの設定。New がループを始める前に
+	// ScenesConfigured として Machine に1回渡す。StartScene は配信開始時の切替が無効なら nil。
+	StandbyScene    string
+	MonitoredScenes []string
+	AutoEnabled     bool
+	StartScene      *string
 	// MediaSource は RestartMedia を送るメディアソースの入力名。
 	MediaSource string
 	// Samples は Poller の出力。
@@ -48,7 +53,6 @@ type Core struct {
 	m           *switcher.Machine
 	judge       *ingest.Judge
 	obs         obs.Client
-	scenes      map[switcher.Role]string
 	mediaSource string
 	samples     <-chan ingest.Sample
 	mediamtx    func() supervisor.Status
@@ -70,7 +74,7 @@ type Core struct {
 	// ここから下は中核ループの goroutine だけが触る。
 	queue      []*switcher.Batch // 実行待ちのバッチ
 	sample     ingest.Sample     // 最後の Sample
-	lastErr    *string
+	lastErr    *LastError
 	prevSwErr  *switcher.ErrorInfo
 	prevMtxErr string
 
@@ -100,7 +104,7 @@ type approval struct {
 	Result  switcher.ApproveResult
 }
 
-// New は Core を作る。最初の Snapshot もここで公開する。
+// New は Core を作り、シーンの設定を Machine に渡す。最初の Snapshot もここで公開する。
 func New(d Deps) *Core {
 	if d.Log == nil {
 		d.Log = slog.Default()
@@ -108,13 +112,8 @@ func New(d Deps) *Core {
 	if d.Now == nil {
 		d.Now = time.Now
 	}
-	scenes := make(map[switcher.Role]string, len(d.Scenes))
-	for r, s := range d.Scenes {
-		scenes[r] = s
-	}
 	c := &Core{
-		m: d.Machine, judge: d.Judge, obs: d.OBS,
-		scenes: scenes, mediaSource: d.MediaSource,
+		m: d.Machine, judge: d.Judge, obs: d.OBS, mediaSource: d.MediaSource,
 		samples: d.Samples, mediamtx: d.MediaMTX, warnings: d.Warnings,
 		urls: d.URLs, log: d.Log, tick: d.Tick, now: d.Now,
 		batches:   make(chan *switcher.Batch),
@@ -123,6 +122,19 @@ func New(d Deps) *Core {
 		cmds:      make(chan cmdReq),
 		stopped:   make(chan struct{}),
 	}
+	var start *string
+	if d.StartScene != nil {
+		v := *d.StartScene
+		start = &v
+	}
+	// ループを始める前の最初の Event。チャネルは通さない。
+	c.handle(switcher.ScenesConfigured{
+		At:          c.now(),
+		Standby:     d.StandbyScene,
+		Monitored:   slices.Clone(d.MonitoredScenes),
+		AutoEnabled: d.AutoEnabled,
+		StartScene:  start,
+	})
 	c.publish()
 	return c
 }
@@ -238,13 +250,13 @@ func (c *Core) handle(ev switcher.Event) error {
 
 // approve は承認要求に答える。Replace の代わりのバッチは列の先頭に入れる。
 func (c *Core) approve(req approveReq) switcher.ApproveResult {
-	from := c.m.Snapshot().Role
+	from := c.m.Snapshot().Scene
 	res := c.m.Approve(req.batchID, req.action, req.override, c.now())
 	switch r := res.(type) {
 	case switcher.Proceed:
 		if set, ok := req.action.(switcher.SetScene); ok {
 			c.log.Info("scene switch",
-				"from", from.String(), "to", set.Role.String(),
+				"from", from, "to", set.Scene,
 				"reason", c.reason(req.purpose), "kbps", c.sample.Kbps, "purpose", req.purpose.String())
 		}
 	case switcher.Replace:
@@ -262,10 +274,14 @@ func (c *Core) approve(req approveReq) switcher.ApproveResult {
 	return res
 }
 
-// reason は切替の理由。自動切替は受信状態（low / down / ok）、それ以外は command。
+// reason は切替の理由。自動切替は受信状態（low / down / ok）、配信開始時の切替は stream_start、
+// それ以外は command。
 func (c *Core) reason(p switcher.Purpose) string {
-	if p.IsAuto() {
+	switch {
+	case p.IsAuto():
 		return strings.ToLower(c.judge.State().String())
+	case p == switcher.PurposeStartScene:
+		return "stream_start"
 	}
 	return "command"
 }

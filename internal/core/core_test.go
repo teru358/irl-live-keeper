@@ -9,30 +9,36 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/teru358/irl-live-keeper/internal/ingest"
 	"github.com/teru358/irl-live-keeper/internal/obs"
+	"github.com/teru358/irl-live-keeper/internal/supervisor"
 	"github.com/teru358/irl-live-keeper/internal/switcher"
 )
 
-// 配信中の Live で受信が0に落ちると、Fail への切替を送り、理由をログに残す。
+// 配信中の監視対象のシーンで受信が0に落ちると、待機シーンへの切替を送り、理由をログに残す。
+// 待機シーンへ届いたら、持ち主が auto、戻り先が切替前のシーンになる。
 func TestEndToEndAutoFail(t *testing.T) {
 	h := newHarness(t)
 	h.start()
 
 	h.samplesN(5, goodKbps)
 	h.waitSnap("OK", linkIs("OK"))
-	h.connect(true, "Live")
-	h.waitSnap("live", roleIs("live"))
+	h.connect(true, camera)
+	h.waitSnap("camera", sceneIs(camera))
 
 	h.samplesN(3, 0) // 0 が3秒続いて LOW
-	h.waitCall("scene:Fail")
+	h.waitCall("scene:" + standby)
 	h.waitSeen("BatchDone{Completed}", isBatchDone(switcher.BatchCompleted))
-	h.waitSnap("fail", roleIs("fail"))
+	s := h.waitSnap("自動の待機", both(sceneIs(standby), standbyIs("auto", camera)))
+	if s.OBS.SceneClass != "standby" {
+		t.Errorf("scene_class = %q, want standby", s.OBS.SceneClass)
+	}
 
-	want := `msg="scene switch" from=live to=fail reason=low kbps=0`
+	want := `msg="scene switch" from=Camera to=Standby reason=low kbps=0`
 	if out := h.log.String(); !strings.Contains(out, want) {
 		t.Errorf("ログに %q がない:\n%s", want, out)
 	}
@@ -41,21 +47,19 @@ func TestEndToEndAutoFail(t *testing.T) {
 	}
 }
 
-// Fail のまま受信が戻ると、RestartMedia のあとに SetScene(Live) を送る。
-// 最後の SceneRequestDone は BatchDone より先に届く。
-func TestRecoveryRestartsMediaThenLive(t *testing.T) {
+// 自動の待機のまま受信が戻ると、RestartMedia のあとに SetScene(戻り先) を送る。
+// 最後の SceneRequestDone は BatchDone より先に届く。戻り先へ届いたら持ち主と戻り先が消える。
+func TestRecoveryRestartsMediaThenReturnScene(t *testing.T) {
 	h := newHarness(t)
 	h.start()
+	n := h.autoStandby(camera)
 
-	h.connect(true, "Fail")
-	h.waitSnap("fail", roleIs("fail"))
 	h.samplesN(5, goodKbps) // 回復の窓を満たして OK
-
 	seen := h.waitSeen("BatchDone{Completed}", isBatchDone(switcher.BatchCompleted))
-	h.waitSnap("live", roleIs("live"))
+	h.waitSnap("戻り先", both(sceneIs(camera), standbyIs("none", "")))
 
-	want := []string{"restart:IRL", "override:Live", "scene:Live"}
-	if got := h.obs.Calls(); !reflect.DeepEqual(got, want) {
+	want := []string{"restart:IRL", "override:Camera", "scene:Camera"}
+	if got := callsSince(h.obs, n); !reflect.DeepEqual(got, want) {
 		t.Errorf("calls = %v, want %v", got, want)
 	}
 	reqDone := slices.IndexFunc(seen, func(v any) bool {
@@ -65,20 +69,79 @@ func TestRecoveryRestartsMediaThenLive(t *testing.T) {
 	if reqDone < 0 || reqDone >= len(seen)-1 {
 		t.Errorf("SceneRequestDone{OK} が BatchDone より前にない: %#v", seen)
 	}
-	if !strings.Contains(h.log.String(), `msg="scene switch" from=fail to=live reason=ok`) {
+	if !strings.Contains(h.log.String(), `msg="scene switch" from=Standby to=Camera reason=ok`) {
 		t.Errorf("復帰の切替のログがない:\n%s", h.log.String())
 	}
 }
 
-// RestartMedia の待ちの間に受信が悪化したら、SetScene(Live) の承認が却下され、送らない。
+// IRL Link で、回線が悪いまま別の監視対象のシーンを選ぶと、すぐ待機シーンへ戻され、
+// 回復したら最後に選んだシーンへ戻る。
+func TestExternalSceneChoiceBecomesReturnScene(t *testing.T) {
+	h := newHarness(t)
+	h.start()
+	h.autoStandby(camera)
+
+	h.obsEvent(switcher.SceneChanged{At: h.clk.Now(), Scene: camera2})
+	h.waitSeen("2本目の AutoFail の BatchDone", isBatchDone(switcher.BatchCompleted))
+	h.waitSnap("Camera2 を戻り先にした待機", both(sceneIs(standby), standbyIs("auto", camera2)))
+	n := len(h.obs.Calls())
+
+	h.samplesN(5, goodKbps)
+	h.waitSeen("AutoRecover の BatchDone", isBatchDone(switcher.BatchCompleted))
+	h.waitSnap("Camera2", both(sceneIs(camera2), standbyIs("none", "")))
+	want := []string{"restart:IRL", "override:Camera2", "scene:Camera2"}
+	if got := callsSince(h.obs, n); !reflect.DeepEqual(got, want) {
+		t.Errorf("calls = %v, want %v", got, want)
+	}
+}
+
+// 回線が悪い間に、管理外のシーンから監視対象のシーンへ人が切り替えると、待機シーンへ切り替え、
+// そのシーンが戻り先になる。
+func TestManualEntryIntoMonitoredWhileBad(t *testing.T) {
+	h := newHarness(t)
+	h.start()
+
+	h.connect(true, talk) // 受信は初期値の DOWN
+	h.waitSnap("talk", sceneIs(talk))
+	if n := len(h.obs.Calls()); n != 0 {
+		t.Fatalf("管理外のシーンで操作した: %v", h.obs.Calls())
+	}
+	h.obsEvent(switcher.SceneChanged{At: h.clk.Now(), Scene: camera})
+	h.waitCall("scene:" + standby)
+	h.waitSeen("BatchDone{Completed}", isBatchDone(switcher.BatchCompleted))
+	h.waitSnap("Camera を戻り先にした待機", both(sceneIs(standby), standbyIs("auto", camera)))
+}
+
+// 配信開始時の切替が有効なら、配信が始まったときに受信状態によらず開始時のシーンへ切り替える。
+func TestOnStreamStartSwitchesToStartScene(t *testing.T) {
+	h := newHarness(t, withStartScene(opening))
+	h.start()
+
+	h.connect(false, camera) // 受信は初期値の DOWN
+	h.waitSnap("camera", sceneIs(camera))
+	h.obsEvent(switcher.StreamStateChanged{At: h.clk.Now(), Streaming: true})
+	h.waitSeen("StartScene の BatchDone", isBatchDone(switcher.BatchCompleted))
+	s := h.waitSnap("opening", sceneIs(opening))
+	if s.OBS.SceneClass != "other" || !s.OBS.Streaming {
+		t.Errorf("Snapshot = %+v", s.OBS)
+	}
+	want := []string{"override:Opening", "scene:Opening"}
+	if got := h.obs.Calls(); !reflect.DeepEqual(got, want) {
+		t.Errorf("calls = %v, want %v", got, want)
+	}
+	if !strings.Contains(h.log.String(), `msg="scene switch" from=Camera to=Opening reason=stream_start`) {
+		t.Errorf("開始時の切替のログがない:\n%s", h.log.String())
+	}
+}
+
+// RestartMedia の待ちの間に受信が悪化したら、SetScene(戻り先) の承認が却下され、送らない。
 func TestApproveRejectsWhenLinkDropsDuringRestart(t *testing.T) {
 	h := newHarness(t)
 	release := make(chan struct{})
-	h.obs.onRestart = func(string) error { h.obs.gate(release); return nil }
+	h.obs.onRestart = func(string) error { h.obs.gate(release); return nil } // 復帰で初めて呼ばれる
 	h.start()
+	n := h.autoStandby(camera)
 
-	h.connect(true, "Fail")
-	h.waitSnap("fail", roleIs("fail"))
 	h.samplesN(5, goodKbps)
 	h.waitCall("restart:IRL") // 実行役は RestartMedia の中で止まっている
 
@@ -87,37 +150,33 @@ func TestApproveRejectsWhenLinkDropsDuringRestart(t *testing.T) {
 	close(release)
 
 	seen := h.waitSeen("BatchDone{Rejected}", isBatchDone(switcher.BatchRejected))
-	approved := slices.ContainsFunc(seen, func(v any) bool {
+	rejected := slices.ContainsFunc(seen, func(v any) bool {
 		a, ok := v.(approval)
-		_, rejected := a.Result.(switcher.Reject)
-		return ok && rejected && a.Action == switcher.SetScene{Role: switcher.RoleLive}
+		_, rej := a.Result.(switcher.Reject)
+		return ok && rej && a.Action == switcher.SetScene{Scene: camera}
 	})
-	if !approved {
-		t.Errorf("SetScene(Live) の承認が却下されていない: %#v", seen)
+	if !rejected {
+		t.Errorf("SetScene(Camera) の承認が却下されていない: %#v", seen)
 	}
-	if n := countPrefix(h.obs.Calls(), "scene:"); n != 0 {
+	if n := countPrefix(callsSince(h.obs, n), "scene:"); n != 0 {
 		t.Errorf("SetScene が送られた: %v", h.obs.Calls())
 	}
-	if s := h.core.Snapshot(); s.OBS.Role != "fail" || s.LastError != nil {
+	if s := h.core.Snapshot(); s.OBS.Scene != standby || s.OBS.Standby.Owner != "auto" || s.LastError != nil {
 		t.Errorf("Snapshot = %+v（Auto の却下は last_error に残さない）", s)
 	}
 }
 
-// GoLive の待ちの間に受信が悪化したら Replace{GoFail} になり、代わりのバッチは
-// 先に並んでいた StopStream より前に実行される。
-func TestReplaceGoesToHeadOfQueue(t *testing.T) {
+// 手動の待機を戻す StandbyOffMonitored の待ちの間に受信が悪化したら、Replace（代わりのバッチなし）
+// になり、持ち主が auto になる。列に入るバッチはなく、先に並んでいた StopStream がそのまま次に実行される。
+func TestReplaceWithoutBatch(t *testing.T) {
 	h := newHarness(t)
 	release := make(chan struct{})
-	h.obs.onRestart = func(string) error { h.obs.gate(release); return nil }
+	h.obs.onRestart = func(string) error { h.obs.gate(release); return nil } // StandbyOff で初めて呼ばれる
 	h.start()
+	n := h.manualStandby(camera)
 
-	h.connect(true, "Intro")
-	h.waitSnap("intro", roleIs("intro"))
-	h.samplesN(5, goodKbps)
-	h.waitSnap("OK", linkIs("OK"))
-
-	if err, _ := h.command(switcher.CmdGoLive); err != nil {
-		t.Fatalf("GoLive: %v", err)
+	if err, _ := h.command(switcher.CmdStandbyOff); err != nil {
+		t.Fatalf("StandbyOff: %v", err)
 	}
 	h.waitCall("restart:IRL")
 	if err, _ := h.command(switcher.CmdStreamStop); err != nil {
@@ -127,17 +186,26 @@ func TestReplaceGoesToHeadOfQueue(t *testing.T) {
 	h.waitSnap("LOW", linkIs("LOW"))
 	close(release)
 
-	h.waitCall("stop")
-	h.waitSeen("StopStream の BatchDone", func(v any) bool {
+	seen := h.waitSeen("StopStream の BatchDone", func(v any) bool {
 		bd, ok := v.(switcher.BatchDone)
-		return ok && bd.BatchID == 2 // GoLive=1、StopStream=2、GoFail=3。GoFail が先に入るので最後は StopStream
+		return ok && bd.BatchID == 3 // StandbyOn=1、StandbyOff=2、StopStream=3
 	})
-	want := []string{"restart:IRL", "override:Live", "override:Fail", "scene:Fail", "stop"}
-	if got := h.obs.Calls(); !reflect.DeepEqual(got, want) {
+	if !slices.ContainsFunc(seen, func(v any) bool {
+		a, ok := v.(approval)
+		return ok && reflect.DeepEqual(a.Result, switcher.Replace{})
+	}) {
+		t.Errorf("Replace{nil} の承認がない: %#v", seen)
+	}
+	want := []string{"restart:IRL", "override:Camera", "stop"}
+	if got := callsSince(h.obs, n); !reflect.DeepEqual(got, want) {
 		t.Errorf("calls = %v, want %v", got, want)
 	}
-	if s := h.core.Snapshot(); s.LastError != nil {
-		t.Errorf("置き換えた却下を last_error に残した: %q", *s.LastError)
+	s := h.core.Snapshot()
+	if s.LastError != nil {
+		t.Errorf("置き換えた却下を last_error に残した: %+v", *s.LastError)
+	}
+	if !standbyIs("auto", camera)(s) || s.OBS.Scene != standby {
+		t.Errorf("Snapshot = %+v", s.OBS)
 	}
 }
 
@@ -155,18 +223,18 @@ func TestNoDeadlockWhileExecutorBlocked(t *testing.T) {
 	}
 	h.start()
 
-	h.connect(true, "Live") // 受信は初期値の DOWN なので、すぐ AutoFail
-	h.waitCall("scene:Fail")
+	h.connect(true, camera) // 受信は初期値の DOWN なので、すぐ AutoFail
+	h.waitCall("scene:" + standby)
 
 	commands := []struct {
 		kind    switcher.CommandKind
 		invalid bool
 	}{
-		{switcher.CmdPauseOn, false},
-		{switcher.CmdPauseOn, true}, // 同じ操作が実行待ち
-		{switcher.CmdGoLive, true},  // 役割が Intro でない
+		{switcher.CmdStandbyOn, true}, // 切替の実行中
 		{switcher.CmdStreamStop, false},
+		{switcher.CmdStreamStop, true},  // 同じ操作が実行待ち
 		{switcher.CmdStreamStart, true}, // 配信中
+		{switcher.CmdStandbyOff, true},  // 手動の待機中でない
 	}
 	for i := range 50 {
 		h.sample(float64(100 * (i + 1)))
@@ -189,46 +257,52 @@ func TestNoDeadlockWhileExecutorBlocked(t *testing.T) {
 	}
 	close(release)
 	// 詰まりが解けたら、並んでいたバッチに進む。
-	h.waitCall("scene:Pause")
+	h.waitCall("stop")
 }
 
-// 打ち切られたトランジション: Fail を送った直後に Pause を送り、Pause のイベントだけが届く。
-// Fail への期待も消えているので、そのあとの人による Fail への切替は手動とみなす。
-func TestTruncatedTransition(t *testing.T) {
+// 送った切替のシーン変更のイベントが来ない（打ち切られたトランジションなど）。期待が残る間は
+// 再送せず、期限を過ぎたら Tick で再送する。再送の切替が届けば自動の待機になる。
+func TestMissingSceneEventResendsAfterDeadline(t *testing.T) {
 	h := newHarness(t)
+	var first atomic.Bool
+	first.Store(true)
 	h.obs.onScene = func(name string) error {
-		if name == "Pause" {
+		if !first.Swap(false) {
 			h.obs.emit(switcher.SceneChanged{At: h.clk.Now(), Scene: name})
 		}
-		return nil // Fail のイベントは流さない
+		return nil
 	}
 	h.start()
 
-	h.connect(true, "Live")
-	h.waitCall("scene:Fail")
-	h.waitSeen("AutoFail の BatchDone", isBatchDone(switcher.BatchCompleted))
-	if err, _ := h.command(switcher.CmdPauseOn); err != nil {
-		t.Fatalf("PauseOn: %v", err)
+	h.connect(true, camera) // 受信は初期値の DOWN なので、すぐ AutoFail
+	h.waitCall("scene:" + standby)
+	h.waitSeen("1本目の BatchDone", isBatchDone(switcher.BatchCompleted))
+	if s := h.core.Snapshot(); s.OBS.Scene != camera || s.OBS.Standby.Owner != "none" {
+		t.Fatalf("イベントが来ていないのに状態が変わった: %+v", s.OBS)
 	}
-	h.waitSnap("pause", roleIs("pause"))
-	h.waitSeen("PauseOn の BatchDone", isBatchDone(switcher.BatchCompleted))
 
-	h.tick(h.clk.Advance(30 * time.Second)) // どの期待も期限を過ぎる
-	h.obsEvent(switcher.SceneChanged{At: h.clk.Advance(time.Second), Scene: "Fail"})
-	s := h.waitSnap("fail", roleIs("fail"))
-	if !s.OBS.ManualHold.Active || s.OBS.ManualHold.Since == nil {
-		t.Errorf("人による Fail への切替が手動とみなされていない: %+v", s.OBS.ManualHold)
+	// 長さ不明のトランジションなので期限は応答から10秒。5秒の間隔は過ぎたが、期待が残る。
+	h.tick(h.clk.Advance(6 * time.Second))
+	h.waitSeen("Tick", func(v any) bool { _, ok := v.(switcher.Tick); return ok })
+	if n := countPrefix(h.obs.Calls(), "scene:"); n != 1 {
+		t.Fatalf("期待が残る間に再送した: %v", h.obs.Calls())
+	}
+
+	h.tick(h.clk.Advance(6 * time.Second))
+	h.waitSeen("2本目の BatchDone", isBatchDone(switcher.BatchCompleted))
+	h.waitSnap("自動の待機", both(sceneIs(standby), standbyIs("auto", camera)))
+	if n := countPrefix(h.obs.Calls(), "scene:"); n != 2 {
+		t.Errorf("SetScene の回数 = %d, want 2。calls=%v", n, h.obs.Calls())
 	}
 }
 
-// RestartMedia が失敗しても SetScene(Live) は送り、バッチは Completed で Err を持つ。
+// RestartMedia が失敗しても SetScene(戻り先) は送り、バッチは Completed で Err を持つ。
 func TestRestartFailureContinuesToSetScene(t *testing.T) {
 	h := newHarness(t)
 	h.obs.onRestart = func(string) error { return errors.New("input not found") }
 	h.start()
+	n := h.autoStandby(camera)
 
-	h.connect(true, "Fail")
-	h.waitSnap("fail", roleIs("fail"))
 	h.samplesN(5, goodKbps)
 
 	seen := h.waitSeen("BatchDone", func(v any) bool { _, ok := v.(switcher.BatchDone); return ok })
@@ -236,13 +310,13 @@ func TestRestartFailureContinuesToSetScene(t *testing.T) {
 	if bd.Result != switcher.BatchCompleted || bd.Err == nil || !strings.Contains(bd.Err.Error(), "input not found") {
 		t.Errorf("BatchDone = %+v", bd)
 	}
-	want := []string{"restart:IRL", "override:Live", "scene:Live"}
-	if got := h.obs.Calls(); !reflect.DeepEqual(got, want) {
+	want := []string{"restart:IRL", "override:Camera", "scene:Camera"}
+	if got := callsSince(h.obs, n); !reflect.DeepEqual(got, want) {
 		t.Errorf("calls = %v, want %v", got, want)
 	}
-	s := h.waitSnap("live", roleIs("live"))
-	if s.LastError == nil || !strings.Contains(*s.LastError, "input not found") {
-		t.Errorf("last_error = %v", s.LastError)
+	s := h.waitSnap("camera", sceneIs(camera))
+	if e := s.LastError; e == nil || e.Source != SourceSwitcher || !strings.Contains(e.Message, "input not found") {
+		t.Errorf("last_error = %+v", e)
 	}
 }
 
@@ -252,7 +326,7 @@ func TestSetSceneFailureEndToEnd(t *testing.T) {
 	h.obs.onScene = func(string) error { return errors.New("scene not found") }
 	h.start()
 
-	h.connect(true, "Live")
+	h.connect(true, camera)
 	seen := h.waitSeen("BatchDone{Failed}", isBatchDone(switcher.BatchFailed))
 	if !slices.ContainsFunc(seen, func(v any) bool {
 		d, ok := v.(switcher.SceneRequestDone)
@@ -261,8 +335,8 @@ func TestSetSceneFailureEndToEnd(t *testing.T) {
 		t.Errorf("SceneRequestDone{Error} がない: %#v", seen)
 	}
 	s := h.waitSnap("last_error", func(s Snapshot) bool { return s.LastError != nil })
-	if !strings.Contains(*s.LastError, "scene not found") {
-		t.Errorf("last_error = %q", *s.LastError)
+	if e := s.LastError; e.Source != SourceSwitcher || !strings.Contains(e.Message, "scene not found") || !e.At.Equal(h.clk.Now()) {
+		t.Errorf("last_error = %+v", e)
 	}
 }
 
@@ -270,7 +344,7 @@ func TestSetSceneFailureEndToEnd(t *testing.T) {
 func TestExecutorBatchRules(t *testing.T) {
 	boom := errors.New("boom")
 	timeout := fmt.Errorf("%w: deadline", obs.ErrTimeout)
-	setFail := switcher.SetScene{Role: switcher.RoleFail}
+	setFail := switcher.SetScene{Scene: standby}
 	restart := switcher.RestartMedia{Wait: time.Millisecond}
 	cases := []struct {
 		name      string
@@ -287,14 +361,14 @@ func TestExecutorBatchRules(t *testing.T) {
 			name:     "SetScene の失敗で残りを捨てる",
 			actions:  []switcher.Action{setFail, switcher.StopStream{}},
 			approve:  []switcher.ApproveResult{switcher.Proceed{ReqID: 3}},
-			sceneErr: boom, wantCalls: []string{"override:Fail", "scene:Fail"},
+			sceneErr: boom, wantCalls: []string{"override:Standby", "scene:Standby"},
 			wantReq: []switcher.RequestResult{switcher.RequestError}, wantRes: switcher.BatchFailed, wantErr: boom,
 		},
 		{
 			name:     "SetScene のタイムアウトは Timeout で、残りを捨てる",
 			actions:  []switcher.Action{setFail, switcher.StopStream{}},
 			approve:  []switcher.ApproveResult{switcher.Proceed{ReqID: 3}},
-			sceneErr: timeout, wantCalls: []string{"override:Fail", "scene:Fail"},
+			sceneErr: timeout, wantCalls: []string{"override:Standby", "scene:Standby"},
 			wantReq: []switcher.RequestResult{switcher.RequestTimeout}, wantRes: switcher.BatchFailed, wantErr: obs.ErrTimeout,
 		},
 		{
@@ -308,26 +382,26 @@ func TestExecutorBatchRules(t *testing.T) {
 			name:    "RestartMedia の失敗では続け、Completed で Err を持つ",
 			actions: []switcher.Action{restart, setFail},
 			approve: []switcher.ApproveResult{switcher.Proceed{}, switcher.Proceed{ReqID: 9}},
-			restErr: boom, wantCalls: []string{"restart:IRL", "override:Fail", "scene:Fail"},
+			restErr: boom, wantCalls: []string{"restart:IRL", "override:Standby", "scene:Standby"},
 			wantReq: []switcher.RequestResult{switcher.RequestOK}, wantRes: switcher.BatchCompleted, wantErr: boom,
 		},
 		{
 			name:      "Skip は送らずに次へ進む",
 			actions:   []switcher.Action{setFail, switcher.StopStream{}},
 			approve:   []switcher.ApproveResult{switcher.Skip{}, switcher.Proceed{}},
-			wantCalls: []string{"override:Fail", "stop"}, wantRes: switcher.BatchCompleted,
+			wantCalls: []string{"override:Standby", "stop"}, wantRes: switcher.BatchCompleted,
 		},
 		{
 			name:      "Reject で残りを捨てる",
 			actions:   []switcher.Action{restart, setFail},
 			approve:   []switcher.ApproveResult{switcher.Proceed{}, switcher.Reject{}},
-			wantCalls: []string{"restart:IRL", "override:Fail"}, wantRes: switcher.BatchRejected,
+			wantCalls: []string{"restart:IRL", "override:Standby"}, wantRes: switcher.BatchRejected,
 		},
 		{
 			name:      "Replace で残りを捨てる",
 			actions:   []switcher.Action{restart, setFail},
 			approve:   []switcher.ApproveResult{switcher.Proceed{}, switcher.Replace{Batch: &switcher.Batch{BatchID: 99}}},
-			wantCalls: []string{"restart:IRL", "override:Fail"}, wantRes: switcher.BatchRejected,
+			wantCalls: []string{"restart:IRL", "override:Standby"}, wantRes: switcher.BatchRejected,
 		},
 	}
 	for _, tc := range cases {
@@ -346,7 +420,7 @@ func TestExecutorBatchRules(t *testing.T) {
 			done := make(chan struct{})
 			go func() {
 				defer close(done)
-				h.core.execute(ctx, &switcher.Batch{BatchID: 7, Purpose: switcher.PurposeGoFail, Actions: tc.actions})
+				h.core.execute(ctx, &switcher.Batch{BatchID: 7, Purpose: switcher.PurposeStandbyOn, Actions: tc.actions})
 			}()
 
 			var reqs []switcher.RequestResult
@@ -412,7 +486,7 @@ func TestExecutorPassesOverride(t *testing.T) {
 		h := newHarness(t)
 		h.obs.onOverride = func(string) (*int, bool, error) { return tc.ms, tc.has, tc.err }
 		ctx, cancel := context.WithCancel(context.Background())
-		go h.core.execute(ctx, &switcher.Batch{BatchID: 1, Actions: []switcher.Action{switcher.SetScene{Role: switcher.RoleLive}}})
+		go h.core.execute(ctx, &switcher.Batch{BatchID: 1, Actions: []switcher.Action{switcher.SetScene{Scene: camera}}})
 		select {
 		case req := <-h.core.approvals:
 			if !reflect.DeepEqual(req.override, tc.want) {
@@ -435,8 +509,8 @@ func TestCommandReturnsCmdErr(t *testing.T) {
 	if !errors.As(err, &nc) {
 		t.Errorf("未接続の Command: err = %v", err)
 	}
-	h.connect(false, "Live")
-	h.waitSnap("connected", roleIs("live"))
+	h.connect(false, camera)
+	h.waitSnap("connected", sceneIs(camera))
 	err, _ = h.command(switcher.CmdStreamStop)
 	var inv switcher.ErrInvalidState
 	if !errors.As(err, &inv) {
@@ -455,8 +529,8 @@ func TestCancelWhileExecutorBlockedInOBS(t *testing.T) {
 	h.obs.onScene = func(string) error { h.obs.gate(release); return nil }
 	h.start()
 
-	h.connect(true, "Live")
-	h.waitCall("scene:Fail")
+	h.connect(true, camera)
+	h.waitCall("scene:" + standby)
 	h.cancel()
 	select {
 	case <-h.runDone:
@@ -465,7 +539,7 @@ func TestCancelWhileExecutorBlockedInOBS(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), wait)
 	defer cancel()
-	if err := h.core.Command(ctx, switcher.CmdPauseOn); !errors.Is(err, ErrStopped) {
+	if err := h.core.Command(ctx, switcher.CmdStandbyOn); !errors.Is(err, ErrStopped) {
 		t.Errorf("止まったあとの Command: err = %v", err)
 	}
 	close(release)
@@ -476,8 +550,7 @@ func TestCancelWhileExecutorBlockedInOBS(t *testing.T) {
 func TestCancelDuringRestartWait(t *testing.T) {
 	h := newHarness(t, withRestartWait(time.Hour))
 	h.start()
-	h.connect(true, "Fail")
-	h.waitSnap("fail", roleIs("fail"))
+	h.autoStandby(camera)
 	h.samplesN(5, goodKbps)
 	h.waitCall("restart:IRL")
 	waitInflightZero(t, h.obs)
@@ -525,8 +598,9 @@ func waitInflightZero(t *testing.T, f *fakeOBS) {
 const specStatusJSON = `{
   "link":    {"state": "OK", "kbps": 4200.5, "online": true, "protocol": "srt",
               "srt": {"rtt_ms": 85.2, "loss_rate": 0.01, "recv_mbps": 4.2}},
-  "obs":     {"connected": true, "streaming": true, "scene": "Live", "role": "live",
-              "manual_hold": {"active": false, "since": null},
+  "obs":     {"connected": true, "streaming": true, "scene": "Camera", "scene_class": "monitored",
+              "standby": {"owner": "none", "return_scene": null},
+              "auto_enabled": true,
               "warnings": []},
   "mediamtx": "running",
   "urls":    {"publish_srt": "srt://…", "publish_rtmp": "rtmp://…", "obs_read": "rtsp://obs:…@…"},
@@ -540,7 +614,8 @@ func TestSnapshotJSONShape(t *testing.T) {
 	}
 
 	h := newHarness(t)
-	// 起動前の初期値: warnings は []、since・srt・last_error は null。
+	// 起動前の初期値: warnings は []、return_scene・srt・last_error は null。OBS に一度も
+	// 接続していないので scene_class は unknown。auto_enabled は Deps のシーンの設定から入る。
 	initial := marshalMap(t, h.core.Snapshot())
 	if !reflect.DeepEqual(keyPaths(initial, ""), keyPaths(spec, "")) {
 		t.Errorf("初期値のキー = %v, want %v", keyPaths(initial, ""), keyPaths(spec, ""))
@@ -549,7 +624,14 @@ func TestSnapshotJSONShape(t *testing.T) {
 	if w, ok := obsPart["warnings"].([]any); !ok || len(w) != 0 {
 		t.Errorf("warnings = %#v, want []", obsPart["warnings"])
 	}
-	for _, v := range []any{obsPart["manual_hold"].(map[string]any)["since"], initial["last_error"], initial["link"].(map[string]any)["srt"]} {
+	wantStandby := map[string]any{"owner": "none", "return_scene": nil}
+	if !reflect.DeepEqual(obsPart["standby"], wantStandby) {
+		t.Errorf("standby = %#v, want %#v", obsPart["standby"], wantStandby)
+	}
+	if obsPart["scene_class"] != "unknown" || obsPart["auto_enabled"] != true || obsPart["connected"] != false {
+		t.Errorf("obs = %#v", obsPart)
+	}
+	for _, v := range []any{initial["last_error"], initial["link"].(map[string]any)["srt"]} {
 		if v != nil {
 			t.Errorf("null であるべき値 = %#v", v)
 		}
@@ -577,6 +659,104 @@ func TestSnapshotJSONShape(t *testing.T) {
 	if !reflect.DeepEqual(full["link"], want) {
 		t.Errorf("link = %#v, want %#v", full["link"], want)
 	}
+
+	// 接続すると分類が入る。
+	h.connect(false, talk)
+	h.waitSnap("talk", sceneIs(talk))
+	if got := marshalMap(t, h.core.Snapshot())["obs"].(map[string]any)["scene_class"]; got != "other" {
+		t.Errorf("scene_class = %#v, want other", got)
+	}
+
+	// last_error はオブジェクトになる。
+	h.setMediaMTX(supervisor.Status{State: supervisor.StateRunning, LastError: "listen tcp :1935: bind: address already in use"})
+	h.tick(h.clk.Advance(time.Second))
+	h.waitSnap("last_error", func(s Snapshot) bool { return s.LastError != nil })
+	le := marshalMap(t, h.core.Snapshot())["last_error"].(map[string]any)
+	if le["source"] != "mediamtx" || le["message"] != "listen tcp :1935: bind: address already in use" {
+		t.Errorf("last_error = %#v", le)
+	}
+	if at, err := time.Parse(time.RFC3339, le["at"].(string)); err != nil || !at.Equal(h.clk.Now()) {
+		t.Errorf("last_error.at = %#v (%v), want %s", le["at"], err, h.clk.Now())
+	}
+}
+
+// 戻り先があるときの return_scene はシーン名になる。
+func TestSnapshotReturnScene(t *testing.T) {
+	h := newHarness(t)
+	h.start()
+	h.autoStandby(camera)
+	obsPart := marshalMap(t, h.core.Snapshot())["obs"].(map[string]any)
+	want := map[string]any{"owner": "auto", "return_scene": "Camera"}
+	if !reflect.DeepEqual(obsPart["standby"], want) || obsPart["scene_class"] != "standby" {
+		t.Errorf("obs = %#v", obsPart)
+	}
+}
+
+// last_error は switcher と MediaMTX のうち時刻の新しい方を出す。時刻が同じなら後から気づいた方。
+// MediaMTX の記録が空に戻っても消さない。
+func TestLastErrorNewestWins(t *testing.T) {
+	h := newHarness(t)
+	c := h.core
+	t1 := h.clk.Now()
+	sw := func(at time.Time, msg string) { c.noteSwitcherError(&switcher.ErrorInfo{At: at, Msg: msg}) }
+	check := func(step, source, msg string, at time.Time) {
+		t.Helper()
+		e := c.lastErr
+		if e == nil || e.Source != source || e.Message != msg || !e.At.Equal(at) {
+			t.Fatalf("%s: last_error = %+v, want %s %q at %s", step, e, source, msg, at)
+		}
+	}
+
+	c.noteMediaMTXError("bind failed")
+	check("MediaMTX の最初の記録", SourceMediaMTX, "bind failed", t1)
+
+	sw(t1.Add(-time.Second), "older")
+	check("それより古い switcher の記録", SourceMediaMTX, "bind failed", t1)
+
+	t2 := h.clk.Advance(time.Second)
+	sw(t2, "newer")
+	check("新しい switcher の記録", SourceSwitcher, "newer", t2)
+
+	sw(t2, "newer")
+	check("同じ switcher の記録", SourceSwitcher, "newer", t2)
+
+	c.noteMediaMTXError("bind failed")
+	check("変わらない MediaMTX の記録", SourceSwitcher, "newer", t2)
+
+	c.noteMediaMTXError("bind failed again")
+	check("同じ時刻の MediaMTX の記録", SourceMediaMTX, "bind failed again", t2)
+
+	c.noteMediaMTXError("")
+	check("空に戻った MediaMTX", SourceMediaMTX, "bind failed again", t2)
+
+	t3 := h.clk.Advance(time.Second)
+	c.noteMediaMTXError("bind failed again")
+	check("空から同じ文に戻った MediaMTX", SourceMediaMTX, "bind failed again", t3)
+
+	sw(t3, "tie")
+	check("同じ時刻の switcher の記録", SourceSwitcher, "tie", t3)
+}
+
+// 中核ループを通しても、あとから変わった方が出る。
+func TestLastErrorThroughLoop(t *testing.T) {
+	h := newHarness(t)
+	h.obs.onScene = func(string) error { return errors.New("scene not found") }
+	h.start()
+
+	h.setMediaMTX(supervisor.Status{State: supervisor.StateRunning, LastError: "bind failed"})
+	h.tick(h.clk.Advance(time.Second))
+	h.waitSnap("mediamtx", func(s Snapshot) bool { return s.LastError != nil && s.LastError.Source == SourceMediaMTX })
+
+	h.clk.Advance(time.Second)
+	h.connect(true, camera) // 受信は初期値の DOWN なので、すぐ AutoFail。SetScene が失敗する
+	h.waitSnap("switcher", func(s Snapshot) bool { return s.LastError != nil && s.LastError.Source == SourceSwitcher })
+
+	h.setMediaMTX(supervisor.Status{State: supervisor.StateRunning, LastError: "bind failed 2"})
+	h.tick(h.clk.Advance(time.Second))
+	s := h.waitSnap("mediamtx 2", func(s Snapshot) bool { return s.LastError != nil && s.LastError.Message == "bind failed 2" })
+	if !s.LastError.At.Equal(h.clk.Now()) {
+		t.Errorf("last_error.at = %s, want %s", s.LastError.At, h.clk.Now())
+	}
 }
 
 func marshalMap(t *testing.T, s Snapshot) map[string]any {
@@ -592,8 +772,14 @@ func marshalMap(t *testing.T, s Snapshot) map[string]any {
 	return m
 }
 
-// keyPaths はオブジェクトのキーを "obs.manual_hold.since" の形で並べる。
-// 値が null の場所は、相手がオブジェクトでもキーだけを比べる（srt は null のことがある）。
+// nullObjects は null のことがあるオブジェクトの場所と、その中のキー。
+var nullObjects = map[string][]string{
+	"link.srt":   {"loss_rate", "recv_mbps", "rtt_ms"},
+	"last_error": {"at", "message", "source"},
+}
+
+// keyPaths はオブジェクトのキーを "obs.standby.owner" の形で並べる。
+// 値が null の場所は、相手がオブジェクトでもキーだけを比べる（srt と last_error は null のことがある）。
 func keyPaths(m map[string]any, prefix string) []string {
 	var out []string
 	for k, v := range m {
@@ -601,8 +787,10 @@ func keyPaths(m map[string]any, prefix string) []string {
 		out = append(out, p)
 		if sub, ok := v.(map[string]any); ok {
 			out = append(out, keyPaths(sub, p+".")...)
-		} else if v == nil && p == "link.srt" {
-			out = append(out, "link.srt.loss_rate", "link.srt.recv_mbps", "link.srt.rtt_ms")
+		} else if keys, ok := nullObjects[p]; ok && v == nil {
+			for _, key := range keys {
+				out = append(out, p+"."+key)
+			}
 		}
 	}
 	sort.Strings(out)

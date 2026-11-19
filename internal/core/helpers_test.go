@@ -62,7 +62,7 @@ func (s *syncBuf) String() string {
 
 // ---- 偽の obs.Client ----
 
-// fakeOBS は obs.Client の偽物。呼ばれた操作を "restart:IRL"、"override:Live"、"scene:Live"、
+// fakeOBS は obs.Client の偽物。呼ばれた操作を "restart:IRL"、"override:Camera"、"scene:Camera"、
 // "start"、"stop" の形で記録する。各操作の振る舞いは関数で差し替える。
 type fakeOBS struct {
 	clk    *fakeClock
@@ -170,12 +170,14 @@ func (f *fakeOBS) StopStream() error {
 
 // ---- 組み立て ----
 
-var testScenes = map[switcher.Role]string{
-	switcher.RoleIntro: "Intro",
-	switcher.RoleLive:  "Live",
-	switcher.RoleFail:  "Fail",
-	switcher.RolePause: "Pause",
-}
+// 例に使うシーン名。待機シーン、監視対象2つ、管理外2つ。
+const (
+	standby = "Standby"
+	camera  = "Camera"
+	camera2 = "Camera2"
+	talk    = "Talk"
+	opening = "Opening"
+)
 
 // 閾値。DOWN から good を5回で OK、OK から 0 を3回で LOW、5回で DOWN。
 var testThresholds = ingest.Thresholds{
@@ -198,6 +200,9 @@ type harness struct {
 	ticks   chan time.Time
 	seen    chan any // 中核ループが処理した Event と承認の記録
 
+	mtxMu sync.Mutex
+	mtx   supervisor.Status // MediaMTX の状態。setMediaMTX で変える
+
 	ctx     context.Context
 	cancel  context.CancelFunc
 	started bool
@@ -210,29 +215,40 @@ func withRestartWait(d time.Duration) option {
 	return func(c *switcher.Config, _ *Deps) { c.RestartWait = d }
 }
 
+func withStartScene(name string) option {
+	return func(_ *switcher.Config, d *Deps) { d.StartScene = &name }
+}
+
 func newHarness(t *testing.T, opts ...option) *harness {
 	t.Helper()
 	clk := newClock()
 	f := newFakeOBS(clk)
 	buf := &syncBuf{}
-	mcfg := switcher.Config{Scenes: testScenes, RestartWait: 10 * time.Millisecond}
+	mcfg := switcher.Config{RestartWait: 10 * time.Millisecond}
 	h := &harness{
 		t: t, clk: clk, obs: f, log: buf,
 		samples: make(chan ingest.Sample),
 		ticks:   make(chan time.Time),
 		seen:    make(chan any, 10000),
 		runDone: make(chan struct{}),
+		mtx:     supervisor.Status{State: supervisor.StateRunning},
 	}
 	deps := Deps{
-		OBS:         f,
-		Scenes:      testScenes,
-		MediaSource: "IRL",
-		Samples:     h.samples,
-		MediaMTX:    func() supervisor.Status { return supervisor.Status{State: supervisor.StateRunning} },
-		URLs:        URLs{PublishSRT: "srt://x", PublishRTMP: "rtmp://x", OBSRead: "rtsp://x"},
-		Log:         slog.New(slog.NewTextHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug})),
-		Tick:        h.ticks,
-		Now:         clk.Now,
+		OBS:             f,
+		StandbyScene:    standby,
+		MonitoredScenes: []string{camera, camera2},
+		AutoEnabled:     true,
+		MediaSource:     "IRL",
+		Samples:         h.samples,
+		MediaMTX: func() supervisor.Status {
+			h.mtxMu.Lock()
+			defer h.mtxMu.Unlock()
+			return h.mtx
+		},
+		URLs: URLs{PublishSRT: "srt://x", PublishRTMP: "rtmp://x", OBSRead: "rtsp://x"},
+		Log:  slog.New(slog.NewTextHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug})),
+		Tick: h.ticks,
+		Now:  clk.Now,
 	}
 	for _, o := range opts {
 		o(&mcfg, &deps)
@@ -306,6 +322,13 @@ func (h *harness) tick(at time.Time) {
 	case <-time.After(wait):
 		h.t.Fatalf("Tick を受け取らない")
 	}
+}
+
+// setMediaMTX は MediaMTX の状態を変える。中核ループは次の入力の処理のあとで気づく。
+func (h *harness) setMediaMTX(st supervisor.Status) {
+	h.mtxMu.Lock()
+	defer h.mtxMu.Unlock()
+	h.mtx = st
 }
 
 func (h *harness) connect(streaming bool, scene string) {
@@ -385,9 +408,53 @@ func linkIs(state string) func(Snapshot) bool {
 	return func(s Snapshot) bool { return s.Link.State == state }
 }
 
-func roleIs(role string) func(Snapshot) bool {
-	return func(s Snapshot) bool { return s.OBS.Connected && s.OBS.Role == role }
+func sceneIs(scene string) func(Snapshot) bool {
+	return func(s Snapshot) bool { return s.OBS.Connected && s.OBS.Scene == scene }
 }
+
+// standbyIs は待機の持ち主と戻り先（空なら null）を見る。
+func standbyIs(owner, ret string) func(Snapshot) bool {
+	return func(s Snapshot) bool {
+		r := s.OBS.Standby.ReturnScene
+		return s.OBS.Standby.Owner == owner && ((ret == "" && r == nil) || (r != nil && *r == ret))
+	}
+}
+
+func both(a, b func(Snapshot) bool) func(Snapshot) bool {
+	return func(s Snapshot) bool { return a(s) && b(s) }
+}
+
+// autoStandby は、受信を OK にして配信中の ret に接続し、受信を落として自動の待機に入れる。
+// 戻り値は、そこまでに偽の OBS が呼ばれた回数。
+func (h *harness) autoStandby(ret string) int {
+	h.t.Helper()
+	h.samplesN(5, goodKbps)
+	h.waitSnap("OK", linkIs("OK"))
+	h.connect(true, ret)
+	h.waitSnap(ret, sceneIs(ret))
+	h.samplesN(3, 0) // 0 が3秒続いて LOW
+	h.waitCall("scene:" + standby)
+	h.waitSeen("AutoFail の BatchDone", isBatchDone(switcher.BatchCompleted))
+	h.waitSnap("自動の待機", both(sceneIs(standby), standbyIs("auto", ret)))
+	return len(h.obs.Calls())
+}
+
+// manualStandby は、受信を OK にして配信中の ret に接続し、StandbyOn で手動の待機に入れる。
+func (h *harness) manualStandby(ret string) int {
+	h.t.Helper()
+	h.samplesN(5, goodKbps)
+	h.waitSnap("OK", linkIs("OK"))
+	h.connect(true, ret)
+	h.waitSnap(ret, sceneIs(ret))
+	if err, _ := h.command(switcher.CmdStandbyOn); err != nil {
+		h.t.Fatalf("StandbyOn: %v", err)
+	}
+	h.waitSeen("StandbyOn の BatchDone", isBatchDone(switcher.BatchCompleted))
+	h.waitSnap("手動の待機", both(sceneIs(standby), standbyIs("manual", ret)))
+	return len(h.obs.Calls())
+}
+
+func callsSince(f *fakeOBS, n int) []string { return f.Calls()[n:] }
 
 func countPrefix(calls []string, prefix string) int {
 	n := 0

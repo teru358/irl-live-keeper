@@ -31,7 +31,7 @@ func (c *Core) execute(ctx context.Context, b *switcher.Batch) {
 		set, isSet := a.(switcher.SetScene)
 		var override switcher.Override = switcher.OverrideNone{}
 		if isSet {
-			name := c.scenes[set.Role]
+			name := set.Scene
 			r, ok := callOBS(ctx, func() overrideResult {
 				ms, has, err := c.obs.SceneTransitionOverride(name)
 				return overrideResult{ms, has, err}
@@ -90,7 +90,7 @@ func (c *Core) execute(ctx context.Context, b *switcher.Batch) {
 func (c *Core) send(a switcher.Action) error {
 	switch a := a.(type) {
 	case switcher.SetScene:
-		return c.obs.SetScene(c.scenes[a.Role])
+		return c.obs.SetScene(a.Scene)
 	case switcher.RestartMedia:
 		return c.obs.RestartMedia(c.mediaSource)
 	case switcher.StartStream:
@@ -172,7 +172,7 @@ func requestResult(err error) switcher.RequestResult {
 func actionName(a switcher.Action) string {
 	switch a := a.(type) {
 	case switcher.SetScene:
-		return "SetScene(" + a.Role.String() + ")"
+		return "SetScene(" + a.Scene + ")"
 	case switcher.RestartMedia:
 		return "RestartMedia"
 	case switcher.StartStream:

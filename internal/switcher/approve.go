@@ -7,8 +7,9 @@ import (
 )
 
 // Approve は実行役が Action を送る直前に呼び、その時点の状態でバッチの有効条件を確かめる。
-// 確かめる順は、共通の条件（接続と3つの Epoch）、SetScene の Skip、Purpose の有効条件。
-// SetScene の Proceed では期待を登録する。未完了の一覧からは消さない（消すのは BatchDone）。
+// 確かめる順は、期限切れの期待の削除、共通の条件（接続と4つの Epoch）、SetScene の Skip、
+// Purpose の有効条件。SetScene の Proceed では期待を登録する。
+// 未完了の一覧からは消さない（消すのは BatchDone）。
 func (m *Machine) Approve(batchID int, action Action, override Override, at time.Time) ApproveResult {
 	m.expire(at)
 	s := &m.st
@@ -17,20 +18,27 @@ func (m *Machine) Approve(batchID int, action Action, override Override, at time
 		return Reject{}
 	}
 	if !m.commonValid(pb) {
-		return m.reject(pb)
+		if pb.Purpose == PurposeStartScene && pb.SceneEpoch != s.SceneEpoch {
+			// 人が先にシーンを選んでいた。ほかの条件が同時に崩れていても、この却下は記録しない。
+			pb.ManualRejected = true
+			s.Pending[batchID] = pb
+		}
+		return Reject{}
 	}
 	set, isSet := action.(SetScene)
-	if isSet && s.Role == set.Role {
+	if isSet && pb.Purpose != PurposeStandbyOn && s.Scene == set.Scene {
 		return Skip{}
 	}
-	switch m.purposeValid(pb.Purpose, pb.StartID) {
+	switch m.purposeValid(pb.Purpose) {
 	case verdictProceed:
 	case verdictReplace:
+		// 受信状態だけが悪くなった。その場で持ち主を auto にし、回復したら AutoRecover で戻す。
+		s.StandbyOwner = OwnerAuto
 		pb.Replaced = true
 		s.Pending[batchID] = pb
-		return Replace{Batch: m.emit(replacementOf(pb.Purpose), at, 0)}
+		return Replace{Batch: nil}
 	default:
-		return m.reject(pb)
+		return Reject{}
 	}
 	if !isSet {
 		return Proceed{ReqID: 0}
@@ -40,37 +48,27 @@ func (m *Machine) Approve(batchID int, action Action, override Override, at time
 	}
 	id := s.NextReqID
 	s.NextReqID++
-	x := Expectation{
+	s.Expectations = append(s.Expectations, Expectation{
 		ReqID:        id,
-		Role:         set.Role,
+		Scene:        set.Scene,
+		Purpose:      pb.Purpose,
+		ReturnScene:  pb.ReturnScene,
+		ConfigEpoch:  s.ConfigEpoch,
 		RegisteredAt: at,
 		Override:     override,
 		TransitionMs: copyInt(s.TransitionMs),
-	}
-	if pb.Purpose == PurposeStartIntro {
-		x.StartID = pb.StartID
-	}
-	s.Expectations = append(s.Expectations, x)
+	})
 	return Proceed{ReqID: id}
 }
 
-// reject は却下する。StartIntro / StartStream なら、自分と同じ番号の配信開始の待ちも消す。
-// 記録は、続いて届く BatchDone{Rejected} で行う。
-func (m *Machine) reject(pb PendingBatch) ApproveResult {
-	if w := m.st.StartWait; w != nil && pb.StartID != 0 && w.ID == pb.StartID {
-		m.st.StartWait = nil
-	}
-	return Reject{}
-}
-
 // commonValid は Purpose によらない共通の条件。接続していて、バッチを作ったあとに
-// 切断も配信状態の変化もなく、シーンを切り替えるバッチなら手動の切替もないこと。
+// 切断も配信状態の変化もなく、シーンを切り替えるバッチなら手動の切替も設定の変更もないこと。
 func (m *Machine) commonValid(pb PendingBatch) bool {
 	s := &m.st
 	if !s.Connected || pb.ConnEpoch != s.ConnEpoch || pb.StreamEpoch != s.StreamEpoch {
 		return false
 	}
-	return !pb.Purpose.switchesScene() || pb.SceneEpoch == s.SceneEpoch
+	return !pb.Purpose.switchesScene() || (pb.SceneEpoch == s.SceneEpoch && pb.ConfigEpoch == s.ConfigEpoch)
 }
 
 type verdict int
@@ -82,7 +80,7 @@ const (
 )
 
 // purposeValid は Purpose ごとの有効条件を今の状態で確かめる。
-func (m *Machine) purposeValid(p Purpose, startID int) verdict {
+func (m *Machine) purposeValid(p Purpose) verdict {
 	s := &m.st
 	ok := func(c bool) verdict {
 		if c {
@@ -90,49 +88,29 @@ func (m *Machine) purposeValid(p Purpose, startID int) verdict {
 		}
 		return verdictReject
 	}
-	linkOK := s.Link == ingest.LinkOK
-	ownWait := func(id int) bool { return s.StartWait != nil && s.StartWait.ID == id }
+	inStandby := s.Scene == s.Standby
 	switch p {
-	case PurposeAutoFail:
-		return ok(s.Streaming && s.Role == RoleLive && bad(s.Link) && !s.Hold && !m.expectingOutsideAuto())
-	case PurposeAutoRecover:
-		return ok(s.Streaming && s.Role == RoleFail && linkOK && !s.Hold && !m.expectingOutsideAuto())
-	case PurposeGoLive, PurposePauseOffLive:
-		from := RoleIntro
-		if p == PurposePauseOffLive {
-			from = RolePause
-		}
-		switch {
-		case !s.Streaming || s.Role != from:
+	case PurposeAutoFail, PurposeAutoRecover:
+		need, _ := m.autoNeed()
+		return ok(need == p)
+	case PurposeStandbyOn:
+		return ok(s.Streaming && s.StandbyOwner == OwnerNone && !inStandby)
+	case PurposeStandbyOffMonitored:
+		if !s.Streaming || s.StandbyOwner != OwnerManual || !inStandby {
 			return verdictReject
-		case !linkOK:
-			// 受信状態だけが悪くなった。Fail に戻す操作に決め直す。
+		}
+		if s.AutoEnabled && s.Link != ingest.LinkOK {
 			return verdictReplace
 		}
 		return verdictProceed
-	case PurposeGoFail:
-		return ok(s.Streaming && s.Role == RoleIntro)
-	case PurposePauseOffFail, PurposePauseOffIntro:
-		return ok(s.Streaming && s.Role == RolePause)
-	case PurposePauseOn:
-		return ok(s.Streaming && (s.Role == RoleIntro || s.Role == RoleLive || s.Role == RoleFail))
-	case PurposeStartIntro:
-		return ok(!s.Streaming && ownWait(startID))
+	case PurposeStandbyOffOther:
+		return ok(s.Streaming && s.StandbyOwner == OwnerManual && inStandby)
+	case PurposeStartScene:
+		return ok(s.Streaming)
 	case PurposeStartStream:
-		return ok(!s.Streaming && s.Role == RoleIntro && ownWait(startID))
+		return ok(!s.Streaming)
 	case PurposeStopStream:
 		return ok(s.Streaming)
 	}
 	return verdictReject
-}
-
-// replacementOf は Replace で置き換える先の Purpose。
-func replacementOf(p Purpose) Purpose {
-	switch p {
-	case PurposeGoLive:
-		return PurposeGoFail
-	case PurposePauseOffLive:
-		return PurposePauseOffFail
-	}
-	return 0
 }
