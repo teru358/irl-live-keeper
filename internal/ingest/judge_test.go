@@ -179,3 +179,13 @@ func TestJudgeFirstSampleIntervalZero(t *testing.T) {
 		t.Fatalf("good = %v, want 0", j3.good)
 	}
 }
+
+func TestJudgeZeroIsNeverGood(t *testing.T) {
+	// zero の Sample は Kbps が高くても good に数えない。good の累積は 0 に戻る。
+	g := kbps(2000, sec)
+	e := Sample{Interval: sec, Online: true, Kbps: 5000, Err: errors.New("x")}
+	steps := append(repeat(9, g, LinkLow), step{e, LinkLow})
+	steps = append(steps, repeat(9, g, LinkLow)...)
+	steps = append(steps, step{g, LinkOK})
+	run(t, defaultTh, LinkLow, steps)
+}

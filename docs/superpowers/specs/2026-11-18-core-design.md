@@ -170,7 +170,7 @@ type Sample struct {
 |---|---|
 | zero | `!Online`、`Err != nil`、または `Kbps == 0` |
 | below | `Kbps < fail_kbps`（zero を含む） |
-| good | `Kbps >= recover_kbps` |
+| good | `Kbps >= recover_kbps`（zero は含まない） |
 
 zero、below、good の各累積は、その条件を満たさない Sample が来た時点で 0 に戻る。
 
