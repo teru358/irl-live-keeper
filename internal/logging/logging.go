@@ -21,7 +21,6 @@ const (
 	dateLayout = "2006-01-02"
 )
 
-// fileNameRe は消す対象の名前の形。日付の妥当性は time.Parse で確かめる。
 const (
 	// recentMax は Recent が持つ行の上限。
 	recentMax = 2000
@@ -52,6 +51,7 @@ func parseLevel(raw string) slog.Level {
 	return lv
 }
 
+// fileNameRe は消す対象の名前の形。日付の妥当性は time.Parse で確かめる。
 var fileNameRe = regexp.MustCompile(`^irl-live-keeper-(\d{4}-\d{2}-\d{2})\.log$`)
 
 // Options は Open の設定。
