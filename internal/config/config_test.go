@@ -50,6 +50,19 @@ func TestValidate(t *testing.T) {
 		{"admin.listen ポート範囲外 落ちる", func(c *Config) { c.Admin.Listen = "127.0.0.1:70000" }, "admin.listen"},
 		{"admin.listen ポート非数値 落ちる", func(c *Config) { c.Admin.Listen = "127.0.0.1:abc" }, "admin.listen"},
 
+		{"publish_host 空 通る", func(c *Config) { c.Stream.PublishHost = "" }, ""},
+		{"publish_host IPv4 通る", func(c *Config) { c.Stream.PublishHost = "192.168.1.10" }, ""},
+		{"publish_host IPv6 通る", func(c *Config) { c.Stream.PublishHost = "::1" }, ""},
+		{"publish_host 名前 通る", func(c *Config) { c.Stream.PublishHost = "example.com" }, ""},
+		{"publish_host .local 通る", func(c *Config) { c.Stream.PublishHost = "my-host.local" }, ""},
+		{"publish_host 253 文字 通る", func(c *Config) { c.Stream.PublishHost = strings.Repeat("a", 253) }, ""},
+		{"publish_host スキーム 落ちる", func(c *Config) { c.Stream.PublishHost = "srt://x" }, "stream.publish_host"},
+		{"publish_host ポート 落ちる", func(c *Config) { c.Stream.PublishHost = "host:8890" }, "stream.publish_host"},
+		{"publish_host 角括弧 落ちる", func(c *Config) { c.Stream.PublishHost = "[::1]" }, "stream.publish_host"},
+		{"publish_host スラッシュ 落ちる", func(c *Config) { c.Stream.PublishHost = "a/b" }, "stream.publish_host"},
+		{"publish_host 空白 落ちる", func(c *Config) { c.Stream.PublishHost = "a b" }, "stream.publish_host"},
+		{"publish_host 254 文字 落ちる", func(c *Config) { c.Stream.PublishHost = strings.Repeat("a", 254) }, "stream.publish_host"},
+
 		{"stream.name 空 落ちる", func(c *Config) { c.Stream.Name = "" }, "stream.name"},
 		{"stream.name 記号 落ちる", func(c *Config) { c.Stream.Name = "a/b" }, "stream.name"},
 		{"stream.name 英数_- 通る", func(c *Config) { c.Stream.Name = "Live_1-a" }, ""},
@@ -174,6 +187,12 @@ func TestGenerateとLoad(t *testing.T) {
 	}
 	if strings.Contains(string(raw), "scenes:") && strings.Contains(string(raw), "intro:") {
 		t.Error("旧 obs.scenes が残っている")
+	}
+	if !strings.Contains(string(raw), "publish_host: \"\"") || !strings.Contains(string(raw), "# 送信用 URL の host。空なら起動時に LAN の IPv4 を自動で調べる（自動）") {
+		t.Error("publish_host の行とコメントがない")
+	}
+	if cfg.Stream.PublishHost != "" {
+		t.Errorf("publish_host の既定値が空でない: %q", cfg.Stream.PublishHost)
 	}
 	if strings.Contains(string(raw), `"*"`) {
 		t.Error("* が置き換わっていない")

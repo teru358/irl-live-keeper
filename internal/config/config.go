@@ -50,6 +50,8 @@ type Stream struct {
 	PublishPass string `yaml:"publish_pass"`
 	ReadUser    string `yaml:"read_user"`
 	ReadPass    string `yaml:"read_pass"`
+	// PublishHost は送信用 URL の host。空なら起動時に LAN の IPv4 を自動で調べる。
+	PublishHost string `yaml:"publish_host"`
 }
 
 // OBS は OBS への接続設定。
@@ -159,6 +161,7 @@ stream:
   publish_pass: "*"
   read_user: obs             # OBS が読み出すときの資格情報（OBS 用 URL に埋め込む）
   read_pass: "*"
+  publish_host: ""           # 送信用 URL の host。空なら起動時に LAN の IPv4 を自動で調べる（自動）。ポート転送やトンネル、VPN のアドレスが決まっていれば、そのホスト名か IP を書く（手動）
 
 obs:
   host: 127.0.0.1
@@ -215,6 +218,12 @@ func Generate(path string) (*Config, error) {
 }
 
 var nameRe = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+// hostNameRe は publish_host に書けるホスト名の文字。
+var hostNameRe = regexp.MustCompile(`^[A-Za-z0-9.-]+$`)
+
+// maxHostLen はホスト名の長さの上限。
+const maxHostLen = 253
 
 // Validate は設定値を検証する。違反はすべて集めて、項目名と理由を1つのエラーにまとめる。
 func (c *Config) Validate() error {
@@ -312,6 +321,11 @@ func (c *Config) Validate() error {
 	}
 	if c.Stream.PublishUser != "" && c.Stream.PublishUser == c.Stream.ReadUser {
 		add("stream.read_user", "stream.publish_user と異なる名前にしてください")
+	}
+
+	// 送信用 URL の host。IP アドレスか、スキーム・ポート・パス・角括弧を含まないホスト名
+	if h := c.Stream.PublishHost; h != "" && net.ParseIP(h) == nil && (len(h) > maxHostLen || !hostNameRe.MatchString(h)) {
+		add("stream.publish_host", "空か、ホスト名か IP アドレスにしてください（スキーム、ポート、パス、[ ] は含めず、名前は英数字・.・- の 253 文字以内）")
 	}
 
 	// シーン名
