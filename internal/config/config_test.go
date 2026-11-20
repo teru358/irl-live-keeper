@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -44,11 +45,23 @@ func TestValidate(t *testing.T) {
 		{"api_port 0 落ちる", func(c *Config) { c.MediaMTX.APIPort = 0 }, "mediamtx.api_port"},
 		{"obs.port 0 落ちる", func(c *Config) { c.OBS.Port = 0 }, "obs.port"},
 		{"mediamtx 同士の重複 落ちる", func(c *Config) { c.MediaMTX.SRTPort = c.MediaMTX.RTMPPort }, "mediamtx.srt_port"},
-		{"admin.listen と重複 落ちる", func(c *Config) { c.Admin.Listen = "127.0.0.1:9997" }, "admin.listen"},
-		{"admin.listen 重複なし 通る", func(c *Config) { c.Admin.Listen = "0.0.0.0:18787" }, ""},
-		{"admin.listen ポートなし 落ちる", func(c *Config) { c.Admin.Listen = "127.0.0.1" }, "admin.listen"},
-		{"admin.listen ポート範囲外 落ちる", func(c *Config) { c.Admin.Listen = "127.0.0.1:70000" }, "admin.listen"},
-		{"admin.listen ポート非数値 落ちる", func(c *Config) { c.Admin.Listen = "127.0.0.1:abc" }, "admin.listen"},
+		{"admin.port 1 通る", func(c *Config) { c.Admin.Port = 1 }, ""},
+		{"admin.port 65535 通る", func(c *Config) { c.Admin.Port = 65535 }, ""},
+		{"admin.port 0 落ちる", func(c *Config) { c.Admin.Port = 0 }, "admin.port"},
+		{"admin.port 65536 落ちる", func(c *Config) { c.Admin.Port = 65536 }, "admin.port"},
+		{"admin.port 負 落ちる", func(c *Config) { c.Admin.Port = -1 }, "admin.port"},
+		{"admin.port が mediamtx と重複 落ちる", func(c *Config) { c.Admin.Port = c.MediaMTX.APIPort }, "admin.port"},
+		{"admin.port が rtmp_port と重複 落ちる", func(c *Config) { c.Admin.Port = c.MediaMTX.RTMPPort }, "admin.port"},
+		{"admin.port 重複なし 通る", func(c *Config) { c.Admin.Port = 18787 }, ""},
+		{"admin.lan true 通る", func(c *Config) { c.Admin.LAN = true }, ""},
+
+		{"close_action minimize 通る", func(c *Config) { c.GUI.CloseAction = "minimize" }, ""},
+		{"close_action confirm 通る", func(c *Config) { c.GUI.CloseAction = "confirm" }, ""},
+		{"close_action quit 通る", func(c *Config) { c.GUI.CloseAction = "quit" }, ""},
+		{"close_action 空 落ちる", func(c *Config) { c.GUI.CloseAction = "" }, "gui.close_action"},
+		{"close_action Quit 落ちる", func(c *Config) { c.GUI.CloseAction = "Quit" }, "gui.close_action"},
+		{"close_action close 落ちる", func(c *Config) { c.GUI.CloseAction = "close" }, "gui.close_action"},
+		{"close_action 空白つき 落ちる", func(c *Config) { c.GUI.CloseAction = " quit" }, "gui.close_action"},
 
 		{"publish_host 空 通る", func(c *Config) { c.Stream.PublishHost = "" }, ""},
 		{"publish_host IPv4 通る", func(c *Config) { c.Stream.PublishHost = "192.168.1.10" }, ""},
@@ -141,6 +154,13 @@ func TestValidate(t *testing.T) {
 			if !strings.Contains(err.Error(), tt.field+":") {
 				t.Fatalf("エラーに項目名 %s がない: %v", tt.field, err)
 			}
+			var ve *ValidationError
+			if !errors.As(err, &ve) {
+				t.Fatalf("*ValidationError でない: %T", err)
+			}
+			if _, ok := ve.ByField()[tt.field]; !ok {
+				t.Fatalf("ByField に %s がない: %v", tt.field, ve.ByField())
+			}
 		})
 	}
 }
@@ -161,6 +181,67 @@ func TestValidateは違反をすべて集める(t *testing.T) {
 	}
 }
 
+func TestValidationErrorの形(t *testing.T) {
+	c := valid()
+	c.Admin.Port = 0
+	c.GUI.CloseAction = "x"
+	c.Switch.RecoverKbps = 1
+	err := c.Validate()
+	var ve *ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("*ValidationError でない: %T", err)
+	}
+	var fields []string
+	for _, f := range ve.Fields {
+		fields = append(fields, f.Field)
+	}
+	// 見つけた順（Validate の確かめる順）
+	if want := []string{"switch.recover_kbps", "admin.port", "gui.close_action"}; !reflect.DeepEqual(fields, want) {
+		t.Fatalf("Fields の順 = %v, want %v", fields, want)
+	}
+	if len(ve.ByField()) != 3 {
+		t.Fatalf("ByField = %v", ve.ByField())
+	}
+	lines := strings.Split(strings.TrimSpace(ve.Error()), "\n")
+	for _, f := range fields {
+		found := false
+		for _, l := range lines {
+			if strings.Contains(l, f+": ") {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("Error() に %s の行がない: %s", f, ve.Error())
+		}
+	}
+	if c := valid(); c.Validate() != nil {
+		t.Error("問題がないのに nil でない")
+	}
+}
+
+func TestByFieldは同じ項目の理由を句点でつなぐ(t *testing.T) {
+	ve := &ValidationError{Fields: []FieldError{{"a", "一つ目"}, {"b", "別"}, {"a", "二つ目"}}}
+	got := ve.ByField()
+	if got["a"] != "一つ目。二つ目" || got["b"] != "別" || len(got) != 2 {
+		t.Fatalf("%v", got)
+	}
+}
+
+func TestLoadの検証のエラーはValidationError(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "c.yaml")
+	if err := os.WriteFile(p, []byte("admin:\n  port: 0\n  password: adminpass\nstream:\n  publish_pass: publishpass\n  read_pass: readpass1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Load(p)
+	var ve *ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("errors.As できない: %v", err)
+	}
+	if _, ok := ve.ByField()["admin.port"]; !ok {
+		t.Fatalf("%v", ve.ByField())
+	}
+}
+
 func TestGenerateとLoad(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	cfg, err := Generate(path)
@@ -177,7 +258,7 @@ func TestGenerateとLoad(t *testing.T) {
 	if !reflect.DeepEqual(loaded, cfg) {
 		t.Fatalf("読み込み直した値が一致しない: %+v vs %+v", loaded, cfg)
 	}
-	if d := defaults(); loaded.MediaMTX != d.MediaMTX || loaded.Switch != d.Switch || loaded.Admin.Listen != d.Admin.Listen {
+	if d := defaults(); loaded.MediaMTX != d.MediaMTX || loaded.Switch != d.Switch || loaded.Admin.Port != d.Admin.Port || loaded.Admin.LAN != d.Admin.LAN || loaded.GUI != d.GUI {
 		t.Fatalf("既定値と異なる: %+v", loaded)
 	}
 
@@ -189,7 +270,7 @@ func TestGenerateとLoad(t *testing.T) {
 		t.Errorf("ファイルの権限が 0600 でない: %o", perm)
 	}
 	raw, _ := os.ReadFile(path)
-	if !strings.Contains(string(raw), "# 管理 API。別 PC から") {
+	if !strings.Contains(string(raw), "# 管理 API と管理ページのポート") {
 		t.Error("説明コメントが残っていない")
 	}
 	for _, want := range []string{
@@ -275,7 +356,7 @@ func TestLoad(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if cfg.Admin.Listen != "127.0.0.1:8787" || cfg.Switch.FailKbps != 800 || cfg.OBS.StandbyScene != "Standby" || len(cfg.OBS.MonitoredScenes) != 1 || cfg.OBS.MonitoredScenes[0] != "Camera" || cfg.OnStreamStart.Enabled || !cfg.Switch.AutoEnabled || cfg.Log.KeepDays != 14 {
+		if cfg.Admin.Port != 8787 || cfg.Admin.LAN || cfg.GUI.CloseAction != "confirm" || cfg.Switch.FailKbps != 800 || cfg.OBS.StandbyScene != "Standby" || len(cfg.OBS.MonitoredScenes) != 1 || cfg.OBS.MonitoredScenes[0] != "Camera" || cfg.OnStreamStart.Enabled || !cfg.Switch.AutoEnabled || cfg.Log.KeepDays != 14 {
 			t.Fatalf("既定値が入っていない: %+v", cfg)
 		}
 	})
@@ -347,30 +428,41 @@ func TestLoad(t *testing.T) {
 }
 
 func TestWarnings(t *testing.T) {
-	tests := []struct {
-		listen string
-		warn   bool
-	}{
-		{"127.0.0.1:8787", false},
-		{"127.5.6.7:8787", false},
-		{"[::1]:8787", false},
-		{"localhost:8787", false},
-		{"0.0.0.0:8787", true},
-		{"192.168.1.10:8787", true},
-		{":8787", true},
-		{"[::]:8787", true},
+	c := valid()
+	if w := c.Warnings(); len(w) != 0 {
+		t.Fatalf("lan=false で警告がある: %v", w)
 	}
-	for _, tt := range tests {
-		t.Run(tt.listen, func(t *testing.T) {
-			c := valid()
-			c.Admin.Listen = tt.listen
-			w := c.Warnings()
-			if (len(w) > 0) != tt.warn {
-				t.Fatalf("警告=%v 期待=%v", w, tt.warn)
-			}
-			if tt.warn && !strings.Contains(w[0], "平文") {
-				t.Errorf("警告文に平文の注意がない: %v", w)
-			}
-		})
+	c.Admin.LAN = true
+	w := c.Warnings()
+	if len(w) != 1 {
+		t.Fatalf("lan=true の警告 = %v", w)
+	}
+	for _, want := range []string{"LAN に公開", "平文", "盗聴", "パスワード", "設定の変更", "転送しない"} {
+		if !strings.Contains(w[0], want) {
+			t.Errorf("警告文に %q がない: %s", want, w[0])
+		}
+	}
+}
+
+func TestLoadの古いadmin_listen(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "c.yaml")
+	if err := os.WriteFile(p, []byte("admin:\n  listen: \"127.0.0.1:8787\"\n  password: adminpass\nstream:\n  publish_pass: publishpass\n  read_pass: readpass1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Load(p)
+	if err == nil {
+		t.Fatal("通ってしまった")
+	}
+	for _, want := range []string{"admin.listen は使えなくなりました", "admin.port", "admin.lan", "書き直して"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("エラーの文に %q がない: %v", want, err)
+		}
+	}
+	// ほかの知らない項目は今のまま（書き直しの案内を足さない）
+	p2 := filepath.Join(t.TempDir(), "c2.yaml")
+	os.WriteFile(p2, []byte("bogus: 1\n"), 0o600)
+	_, err = Load(p2)
+	if err == nil || strings.Contains(err.Error(), "admin.port") {
+		t.Fatalf("err=%v", err)
 	}
 }

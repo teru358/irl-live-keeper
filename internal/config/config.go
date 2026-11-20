@@ -11,7 +11,6 @@ import (
 	"net"
 	"os"
 	"regexp"
-	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -26,13 +25,30 @@ type Config struct {
 	OnStreamStart OnStreamStart `yaml:"on_stream_start"`
 	Switch        Switch        `yaml:"switch"`
 	Log           Log           `yaml:"log"`
+	GUI           GUI           `yaml:"gui"`
 }
 
 // Admin は管理 API の設定。
 type Admin struct {
-	Listen   string `yaml:"listen"`
+	// Port は管理 API と管理ページのポート。
+	Port int `yaml:"port"`
+	// LAN が false なら 127.0.0.1 だけで待ち受け、true なら すべてのインターフェースで待ち受ける。
+	LAN      bool   `yaml:"lan"`
 	Password string `yaml:"password"`
 }
+
+// GUI は小さな窓の設定。
+type GUI struct {
+	// CloseAction は窓の「×」の動き。minimize / confirm / quit。
+	CloseAction string `yaml:"close_action"`
+}
+
+// close_action に書ける値。
+const (
+	CloseMinimize = "minimize"
+	CloseConfirm  = "confirm"
+	CloseQuit     = "quit"
+)
 
 // MediaMTX は MediaMTX の設定。
 type MediaMTX struct {
@@ -96,7 +112,7 @@ type Log struct {
 // defaults は未指定の項目に使う既定値。パスワード類は既定値を持たない（空のまま検証で落ちる）。
 func defaults() *Config {
 	return &Config{
-		Admin: Admin{Listen: "127.0.0.1:8787"},
+		Admin: Admin{Port: 8787},
 		MediaMTX: MediaMTX{
 			RTMPPort: 1935, SRTPort: 8890, RTSPPort: 8554, APIPort: 9997,
 		},
@@ -107,6 +123,7 @@ func defaults() *Config {
 		},
 		Switch: Switch{AutoEnabled: true, FailKbps: 800, LowSec: 5, RecoverKbps: 1500, RecoverSec: 10, DownSec: 2},
 		Log:    Log{Dir: "logs", KeepDays: 14},
+		GUI:    GUI{CloseAction: CloseConfirm},
 	}
 }
 
@@ -124,6 +141,9 @@ func parse(data []byte) (*Config, error) {
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	if err := dec.Decode(cfg); err != nil && !errors.Is(err, io.EOF) {
+		if strings.Contains(err.Error(), "field listen not found in type config.Admin") {
+			return nil, fmt.Errorf("設定ファイルの形式が不正です: admin.listen は使えなくなりました。admin.port（ポート番号）と admin.lan（LAN に公開するなら true）に書き直してください: %w", err)
+		}
 		return nil, fmt.Errorf("設定ファイルの形式が不正です: %w", err)
 	}
 	if err := cfg.Validate(); err != nil {
@@ -150,7 +170,8 @@ func randomSecret() (string, error) {
 
 // defaultTemplate は初回生成するファイルの雛形。"*" は生成時にランダムな値へ置き換える。
 const defaultTemplate = `admin:
-  listen: "127.0.0.1:8787"   # 管理 API。別 PC から操作するときだけ LAN のアドレスに変える（ルーターで転送しない）
+  port: 8787                 # 管理 API と管理ページのポート
+  lan: false                 # false なら 127.0.0.1 だけで待ち受ける。true ならすべてのインターフェース（IPv4 と IPv6）。別 PC から操作するときと、OBS と別の PC（中継 PC）に置くときだけ true にする（通信は平文。ルーターで転送しない）
   password: "*"              # Basic 認証のパスワード（ユーザー名は admin）
 
 mediamtx:
@@ -195,6 +216,9 @@ switch:
 log:
   dir: logs
   keep_days: 14
+
+gui:
+  close_action: confirm      # 窓の「×」の動き（Windows の小さな窓だけ。第2段階）。minimize / confirm / quit。Linux と macOS では読むが使わない
 `
 
 // Generate は既定値の config.yaml を path に書き出して読み込み直す。
@@ -233,11 +257,39 @@ var hostNameRe = regexp.MustCompile(`^[A-Za-z0-9.-]+$`)
 // maxHostLen はホスト名の長さの上限。
 const maxHostLen = 253
 
-// Validate は設定値を検証する。違反はすべて集めて、項目名と理由を1つのエラーにまとめる。
+// FieldError は検証に落ちた項目1つ分。
+type FieldError struct{ Field, Reason string }
+
+// ValidationError は検証に落ちた項目すべて（見つけた順）。
+type ValidationError struct{ Fields []FieldError }
+
+// Error は1項目1行の "field: reason" をつないだ文を返す。
+func (e *ValidationError) Error() string {
+	lines := make([]string, len(e.Fields))
+	for i, f := range e.Fields {
+		lines[i] = f.Field + ": " + f.Reason
+	}
+	return "設定が不正です:\n  - " + strings.Join(lines, "\n  - ")
+}
+
+// ByField は項目名 → 理由。同じ項目に複数あれば「。」でつなぐ。
+func (e *ValidationError) ByField() map[string]string {
+	m := make(map[string]string, len(e.Fields))
+	for _, f := range e.Fields {
+		if prev, ok := m[f.Field]; ok {
+			m[f.Field] = prev + "。" + f.Reason
+		} else {
+			m[f.Field] = f.Reason
+		}
+	}
+	return m
+}
+
+// Validate は設定値を検証する。違反はすべて集めて、項目名と理由を *ValidationError にまとめる。問題がなければ nil。
 func (c *Config) Validate() error {
-	var errs []string
+	var errs []FieldError
 	add := func(field, reason string) {
-		errs = append(errs, field+": "+reason)
+		errs = append(errs, FieldError{field, reason})
 	}
 
 	// 閾値
@@ -282,12 +334,10 @@ func (c *Config) Validate() error {
 	if c.OBS.Port < 1 || c.OBS.Port > 65535 {
 		add("obs.port", fmt.Sprintf("1〜65535 の範囲にしてください（現在 %d）", c.OBS.Port))
 	}
-	if _, portStr, err := net.SplitHostPort(c.Admin.Listen); err != nil {
-		add("admin.listen", "host:port の形式にしてください（例 127.0.0.1:8787）")
-	} else if p, err := strconv.Atoi(portStr); err != nil || p < 1 || p > 65535 {
-		add("admin.listen", fmt.Sprintf("ポートは 1〜65535 の範囲にしてください（現在 %q）", portStr))
+	if c.Admin.Port < 1 || c.Admin.Port > 65535 {
+		add("admin.port", fmt.Sprintf("1〜65535 の範囲にしてください（現在 %d）", c.Admin.Port))
 	} else {
-		ports = append(ports, portEntry{"admin.listen", p})
+		ports = append(ports, portEntry{"admin.port", c.Admin.Port})
 	}
 	for i := range ports {
 		for j := i + 1; j < len(ports); j++ {
@@ -396,25 +446,23 @@ func (c *Config) Validate() error {
 		add("log.keep_days", fmt.Sprintf("0 以上にしてください（現在 %d）", c.Log.KeepDays))
 	}
 
+	// GUI
+	switch c.GUI.CloseAction {
+	case CloseMinimize, CloseConfirm, CloseQuit:
+	default:
+		add("gui.close_action", fmt.Sprintf("minimize、confirm、quit のどれかにしてください（現在 %q）", c.GUI.CloseAction))
+	}
+
 	if len(errs) == 0 {
 		return nil
 	}
-	return fmt.Errorf("設定が不正です:\n  - %s", strings.Join(errs, "\n  - "))
+	return &ValidationError{Fields: errs}
 }
 
-// Warnings は起動のたびにログへ出す警告を返す。admin.listen が loopback 以外のときだけ警告がある。
+// Warnings は起動のたびにログへ出す警告を返す。admin.lan が true のときだけ警告がある。
 func (c *Config) Warnings() []string {
-	host, _, err := net.SplitHostPort(c.Admin.Listen)
-	if err != nil {
+	if !c.Admin.LAN {
 		return nil
 	}
-	if host == "localhost" {
-		return nil
-	}
-	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
-		return nil
-	}
-	return []string{fmt.Sprintf(
-		"admin.listen が loopback 以外（%s）です。管理 API を LAN に公開しています。通信は平文のため LAN 内で盗聴されるおそれがあります。ルーターでこのポートを転送しないでください",
-		c.Admin.Listen)}
+	return []string{"admin.lan が true のため、管理 API と管理ページを LAN に公開しています。通信は平文のため、LAN 内で盗聴されるおそれがあります。パスワードを取られると、LAN の機器から、すべてのパスワードの表示と設定の変更ができます。ルーターでこのポートを転送しないでください"}
 }

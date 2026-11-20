@@ -122,9 +122,12 @@ func run(ctx context.Context, base string, stdout, stderr io.Writer) int {
 		log.Warn("LAN の IPv4 アドレスが見つからないため、送信用 URL の host を 127.0.0.1 にしました。stream.publish_host で固定できます")
 	}
 	urls := buildURLs(cfg, host)
+	// 管理 API の URL。lan が true のときは、送信用 URL の自動の決め方と同じで LAN のアドレスを調べる
+	lanHost, _, lanFound := choosePublishHost("", systemInterfaces)
+	adminURL, adminNote := adminBannerURL(cfg.Admin.Port, cfg.Admin.LAN, lanHost, lanFound)
 	info := bannerInfo{
 		PublishSRT: urls.PublishSRT, PublishRTMP: urls.PublishRTMP, OBSRead: urls.OBSRead,
-		AdminListen: cfg.Admin.Listen, AutoHost: auto, HostFound: found,
+		AdminURL: adminURL, AdminNote: adminNote, AutoHost: auto, HostFound: found,
 	}
 	if generated {
 		info.AdminPassword = cfg.Admin.Password
@@ -166,12 +169,13 @@ func run(ctx context.Context, base string, stdout, stderr io.Writer) int {
 		IdleTimeout:       60 * time.Second,
 	}
 	serveErr := make(chan error, 1)
-	ln, err := net.Listen("tcp", cfg.Admin.Listen)
+	addr := listenAddr(cfg.Admin.Port, cfg.Admin.LAN)
+	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		cancel()
 		wg.Wait()
-		log.Error("admin.listen で待ち受けできません", "listen", cfg.Admin.Listen, "error", err)
-		fmt.Fprintf(stderr, "admin.listen %s で待ち受けできません: %v\n", cfg.Admin.Listen, err)
+		log.Error("管理 API のポート（admin.port）で待ち受けできません", "listen", addr, "error", err)
+		fmt.Fprintf(stderr, "管理 API のポート（admin.port）%d で待ち受けできません（%s）: %v\n", cfg.Admin.Port, addr, err)
 		return 1
 	}
 	go func() { serveErr <- srv.Serve(ln) }()

@@ -96,7 +96,7 @@ func useGenerate(t *testing.T, binary string, tcpOverride map[string]int) func()
 			re := regexp.MustCompile(`(?m)^(\s+` + k + `:) \d+`)
 			s = re.ReplaceAllString(s, fmt.Sprintf("${1} %d", v))
 		}
-		s = strings.Replace(s, `listen: "127.0.0.1:8787"`, fmt.Sprintf(`listen: "127.0.0.1:%d"`, pick(freeTCPPort)), 1)
+		s = strings.Replace(s, "admin:\n  port: 8787", fmt.Sprintf("admin:\n  port: %d", pick(freeTCPPort)), 1)
 		s = strings.Replace(s, `binary: ""`, fmt.Sprintf(`binary: %q`, binary), 1)
 		if err := os.WriteFile(path, []byte(s), 0o600); err != nil {
 			return nil, err
@@ -396,7 +396,7 @@ func TestRunは管理APIの待ち受けに失敗したら終了コード1(t *tes
 			return nil, err
 		}
 		raw, _ := os.ReadFile(path)
-		s := regexp.MustCompile(`listen: "127.0.0.1:\d+"`).ReplaceAllString(string(raw), fmt.Sprintf(`listen: "127.0.0.1:%d"`, busy))
+		s := regexp.MustCompile(`(?m)^admin:\n  port: \d+`).ReplaceAllString(string(raw), fmt.Sprintf("admin:\n  port: %d", busy))
 		if err := os.WriteFile(path, []byte(s), 0o600); err != nil {
 			return nil, err
 		}
@@ -414,10 +414,10 @@ func TestRunは管理APIの待ち受けに失敗したら終了コード1(t *tes
 	case <-time.After(15 * time.Second):
 		t.Fatal("run が終わらない")
 	}
-	if !strings.Contains(stderr.String(), "admin.listen") {
-		t.Errorf("標準エラーに admin.listen がない:\n%s", stderr.String())
+	if !strings.Contains(stderr.String(), "admin.port") {
+		t.Errorf("標準エラーに admin.port がない:\n%s", stderr.String())
 	}
-	if got := readLogs(t, filepath.Join(base, "logs")); !strings.Contains(got, "admin.listen") {
-		t.Errorf("ログファイルに admin.listen がない:\n%s", got)
+	if got := readLogs(t, filepath.Join(base, "logs")); !strings.Contains(got, "admin.port") {
+		t.Errorf("ログファイルに admin.port がない:\n%s", got)
 	}
 }
