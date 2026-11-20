@@ -138,7 +138,7 @@ Purpose の一覧: `AutoFail`、`AutoRecover`、`StandbyOn`、`StandbyOffMonitor
 
 | # | T | 前提 | 出力 | 状態の変化（上の共通に加えて） |
 |---|---|---|---|---|
-| SCF-1 | SW | 最初の `ScenesConfigured`（未設定、未接続） | — | 設定が入る。`ConfigEpoch` は V-10（提案: 1 になる） |
+| SCF-1 | SW | 最初の `ScenesConfigured`（未設定、未接続） | — | 設定が入る。`ConfigEpoch` は 1 になる（V-10） |
 | SCF-2 | SW | 今と同じ内容 | — | 何も変えない（`ConfigEpoch` も。U-14）。`Monitored` の順序だけが違うときは V-10 |
 | SCF-3 | SW | 現在のシーンは Other。それを `Monitored` に足す。不良 | `AutoFail[SetScene(待機シーン)]`、戻り先=現在のシーン | B |
 | SCF-4 | SW | SCF-3 で OK | — | 以後 Monitored として判定する |
@@ -158,7 +158,7 @@ Purpose の一覧: `AutoFail`、`AutoRecover`、`StandbyOn`、`StandbyOffMonitor
 | SCF-18 | SW | 抑止中（StandbyOn の未完了か期待など）。現在の Other のシーンを `Monitored` に足す。不良 | —（J の 2） | — |
 | SCF-19 | SW | Monitored、不良、AutoFail は完了済みで旧待機シーンへの期待だけが残る。待機シーンの名前を変える | `AutoFail[SetScene(新しい待機シーン)]`（新しい名前への期待はない。J の 5。V-17） | B。旧待機シーンへの期待は残る（SQ-15a、SQ-20） |
 | SCF-20 | SW | SCF-19 で、変更が待機シーンの名前以外（別の監視対象の追加など） | —（今の待機シーンへの期待が残る。J の 5。V-17） | 期待は残る |
-| SCF-21 | SW | 未接続（持ち主 `auto` か `manual` を持ったまま切断中） | — | V-11（提案: 接続中と同じ規則で持ち主を確かめる。J は未接続なので出ない） |
+| SCF-21 | SW | 未接続（持ち主 `auto` か `manual` を持ったまま切断中） | — | 接続中と同じ規則で持ち主を確かめる。`ConfigEpoch` は進む。J は未接続なので出ない（V-11） |
 | SCF-22 | SW | 配信中でない。どの変更でも | — | 持ち主は `none` のまま |
 
 ### 2.2 LinkChanged{State}
@@ -201,7 +201,7 @@ Purpose の一覧: `AutoFail`、`AutoRecover`、`StandbyOn`、`StandbyOffMonitor
 | OC-4 | SW | 再接続。同じ、持ち主 `auto`（待機シーン）、OK | `AutoRecover[RestartMedia{W}, SetScene(戻り先)]` | 持ち主と戻り先を保つ。B |
 | OC-5 | SW | 再接続。同じ、持ち主 `auto` で不良 / 持ち主 `manual` / 待機シーンで持ち主 `none` / Other / Monitored で OK | — | 持ち主と戻り先を保つ |
 | OC-6 | SW | 再接続。シーンが違う、持ち主 `auto` か `manual` | J（新しいシーンが Monitored で不良なら `AutoFail`、戻り先=新しいシーン） | C。`SceneEpoch` は進まない |
-| OC-7 | SW | 再接続。配信状態が true → false（シーンは同じ）、持ち主 `auto` か `manual` | — | C。`StreamEpoch+1`。`LastAutoSent` は V-15（提案: 消さない） |
+| OC-7 | SW | 再接続。配信状態が true → false（シーンは同じ）、持ち主 `auto` か `manual` | — | C。`StreamEpoch+1`。`LastAutoSent` は消さない（V-15） |
 | OC-8 | SW | 再接続。配信状態が false → true、開始時の切替が有効 | J（StartScene は出ない） | `StreamEpoch+1` |
 | OC-9 | SW | 再接続。同じ、Monitored、不良、切断前の AutoFail がまだ `Pending` にある | —（J の 4） | — |
 | OC-10 | SW | 再接続。同じ、Monitored、不良、切断前の StandbyOn がまだ `Pending` にある | —（J の 2） | — |
@@ -216,7 +216,7 @@ Purpose の一覧: `AutoFail`、`AutoRecover`、`StandbyOn`、`StandbyOffMonitor
 |---|---|---|---|---|
 | OD-1 | SW | 期待あり、未完了あり | — | 期待は全部消える。`Pending` は残る（承認で却下。AP-COM-2 / AP-COM-3） |
 | OD-2 | SW | 持ち主 `auto` か `manual` | — | 持ち主と戻り先を保つ（`OBSConnected` で確かめる） |
-| OD-3 | SW | StartScene の期待あり | — | 期待は消える。`LastError` は V-14（提案: 記録しない） |
+| OD-3 | SW | StartScene の期待あり | — | 期待は消える。`LastError` は記録しない（V-14） |
 
 ### 2.5 SceneChanged{Scene}（期待どおり = 本体の切替）
 
@@ -237,10 +237,10 @@ Purpose の一覧: `AutoFail`、`AutoRecover`、`StandbyOn`、`StandbyOffMonitor
 | SCE-11 | SW | 開始時のシーン（Monitored）への StartScene の期待、不良、StartScene の `BatchDone` は受け取り済み | `AutoFail[…]`、戻り先=開始時のシーン | B |
 | SCE-12 | SW | SCE-11 で、`BatchDone` が未着 | —（J の 2。`BatchDone` のあとの `Tick` で出る） | — |
 | SCE-13 | SW | 期待の `ConfigEpoch` が今と違う。AutoFail か StandbyOn の期待 | J | 本体の切替とみなす（`SceneEpoch` は同じ）。持ち主と戻り先は入れない（`none` のまま）。設定の変更が消す条件に当たらなかった場合の結果は V-07 |
-| SCE-14 | SW | 期待の `ConfigEpoch` が今と違う。AutoRecover / StandbyOffMonitored / StandbyOffOther の期待で、持ち主は設定の変更のあとも保たれている | V-01 | V-01（文面どおりなら持ち主と戻り先が残り、現在のシーンは待機シーンでなくなる。提案: C） |
+| SCE-14 | SW | 期待の `ConfigEpoch` が今と違う。AutoRecover / StandbyOffMonitored / StandbyOffOther の期待で、持ち主は設定の変更のあとも保たれている | V-01 | C（古い世代の期待でも、消す方向には作用する。持ち主 `none`、戻り先なし。V-01） |
 | SCE-15 | SW | 期待 [A, B]（別のシーン）で `SceneChanged(B)` | J | 両方消える。持ち主と戻り先は B の期待だけで決まる |
 | SCE-16 | SW | 期待 [A, B] で `SceneChanged(A)` | J | A だけ消え、後ろの B は残る |
-| SCE-17 | SW | 期待 [X, X]（同じシーン名が2つ） | J | 持ち主と戻り先は先頭の期待で決まる。後ろの期待は V-02（6章の文面なら残る。11章と提案は「消える」） |
+| SCE-17 | SW | 期待 [X, X]（同じシーン名が2つ） | J | 持ち主と戻り先は先頭の期待で決まる。後ろの同じシーン名の期待も消える（V-02） |
 | SCE-18 | SW | `auto_enabled` が false（StandbyOn、StandbyOff の期待） | —（J の 1） | 持ち主と戻り先は SCE-3 / SCE-6 / SCE-9 と同じ |
 
 配信中でない間に期待が残ることはない（配信の停止で全部消える）ので、その行はない。
@@ -264,8 +264,8 @@ Purpose の一覧: `AutoFail`、`AutoRecover`、`StandbyOn`、`StandbyOffMonitor
 | SCM-11 | SW | 配信中でない。どのシーンへでも | — | 持ち主は `none` のまま |
 | SCM-12 | SW | 待機シーンへの期待が残る間に、別のシーンが届いた | J（新しいシーンで） | 期待は全部消える |
 | SCM-13 | SW | 期待が期限切れで消えたあとに、その期待のシーンが届いた | J | 手動として扱う |
-| SCM-14 | SW | 現在のシーンと同じ名前が届いた（期待なし） | V-09 | V-09（提案: 手動として扱う） |
-| SCM-15 | SW | StartScene の期待が残る間の手動の切替 | J | 期待は消える。`LastError` は V-14（提案: 記録しない） |
+| SCM-14 | SW | 現在のシーンと同じ名前が届いた（期待なし） | V-09 | 手動として扱う（V-09） |
+| SCM-15 | SW | StartScene の期待が残る間の手動の切替 | J | 期待は消える。`LastError` は記録しない（V-14） |
 | SCM-16 | SW | 本体が送った `SetScene` の `SceneChanged` が、手動の切替で期待が消えたあとに届いた | J | 手動として扱う（V-08。待機シーンなら持ち主 `none` で残る） |
 
 ### 2.7 TransitionChanged{TransitionMs}
@@ -288,13 +288,13 @@ J は行わない。
 | SST-2 | SW | `true`。無効。Monitored で OK / Other / 待機シーン | — | — |
 | SST-3 | SW | `true`。有効。現在のシーンは開始時のシーンでない（分類と受信状態は何でも。Monitored で不良でも） | `StartScene[SetScene(開始時のシーン)]`（AutoFail は出ない） | B（`ReturnScene` なし、`LastAutoSent` は変えない） |
 | SST-4 | SW | `true`。有効。`auto_enabled` が false | `StartScene[…]` | B |
-| SST-5 | SW | `true`。有効。現在のシーンがすでに開始時のシーン | V-04（提案: `StartScene[…]` を出し、承認で `Skip`） | V-04 |
-| SST-6 | SW | `true`。有効。前の配信の StartScene がまだ `Pending` にある | V-03（提案: 出さない。J も抑止で出ない） | V-03 |
+| SST-5 | SW | `true`。有効。現在のシーンがすでに開始時のシーン | `StartScene[…]` を出し、承認で `Skip`（V-04） | — |
+| SST-6 | SW | `true`。有効。前の配信の StartScene がまだ `Pending` にある | 新しい StartScene は出さない。J も抑止で出ない（V-03） | — |
 | SST-7 | SW | `true`。無効。`auto_enabled` が false、Monitored、不良 | — | — |
 | SST-8 | SW | `true`。すでに配信中 | — | 何も変えない（`StreamEpoch` も。U-14） |
 | SSF-1 | SW | `false`。配信中、期待あり、持ち主 `auto` か `manual` | — | `Streaming=false`、`StreamEpoch+1`、C、`Expectations` を空に、`LastAutoSent` を空に（U-16） |
 | SSF-2 | SW | `false`。配信中、未完了あり | — | SSF-1 に加えて、`Pending` は残る（承認で却下。AP-COM-4） |
-| SSF-3 | SW | `false`。配信中、StartScene の期待あり | — | 期待は消える。`LastError` は V-14（提案: 記録しない） |
+| SSF-3 | SW | `false`。配信中、StartScene の期待あり | — | 期待は消える。`LastError` は記録しない（V-14） |
 | SSF-4 | SW | `false`。すでに配信中でない | — | 何も変えない（U-14） |
 
 ### 2.9 SceneRequestDone{ReqID, Result}
@@ -336,7 +336,7 @@ BD-X-1 を除くすべての行で `Pending` からその `BatchID` を消す。
 | BD-R-3 | SW | `Rejected`。`Replaced` の StandbyOffMonitored | —（`LastError` は記録しない） |
 | BD-R-4 | SW | `Rejected`。StartScene、手動の切替（`SceneEpoch`）による却下 | —（`LastError` は記録しない。見分け方は V-05） |
 | BD-R-5 | SW | `Rejected`。StartScene、それ以外の却下（配信の停止、切断、設定の変更） | `LastError` を記録。再送しない |
-| BD-R-6 | SW | `Rejected`。StartScene、手動の切替と、ほかの条件（配信の停止など）の両方が起きていた | V-05（提案: 記録しない） |
+| BD-R-6 | SW | `Rejected`。StartScene、手動の切替と、ほかの条件（配信の停止など）の両方が起きていた | `LastError` は記録しない（V-05） |
 | BD-J-1 | SW | 抑止の Purpose のバッチの `BatchDone` で抑止が解け、Monitored で不良、持ち主 `none` | 出力なし（次の Event か `Tick` で `AutoFail` が出る。TK-5） |
 | BD-X-1 | SW | 未知の `BatchID` | 何もしない（U-22） |
 
@@ -360,7 +360,7 @@ BD-X-1 を除くすべての行で `Pending` からその `BatchID` を消す。
 | TK-12 | SW | 応答待ち（`Responded=false`）の期待。登録からどれだけたっていても | — | 期待は残る |
 | TK-13 | SW | 期限を過ぎた StartScene の期待 | J（抑止が解けた状態で。StartScene は出ない） | 期待を消す。`LastError` を記録 |
 | TK-14 | SW | StartScene が失敗、却下、期限切れで終わったあと（配信中） | StartScene は出ない（J だけ） | — |
-| TK-15 | SW | 期限を過ぎた StandbyOn / StandbyOffMonitored / StandbyOffOther の期待（応答は `OK` で、バッチは `Completed` で終わっている） | J（抑止が解けた状態で） | 期待を消す。持ち主と戻り先は変えない（`manual` なら、もう一度 StandbyOff を受け付ける）。`LastError` は V-18（提案: 記録する） |
+| TK-15 | SW | 期限を過ぎた StandbyOn / StandbyOffMonitored / StandbyOffOther の期待（応答は `OK` で、バッチは `Completed` で終わっている） | J（抑止が解けた状態で） | 期待を消す。持ち主と戻り先は変えない（`manual` なら、もう一度 StandbyOff を受け付ける）。`LastError` を記録する（V-18） |
 
 ### 2.12 Command
 
@@ -523,7 +523,7 @@ BD-X-1 を除くすべての行で `Pending` からその `BatchID` を消す。
 - **準備 PM(R, 受信状態):** 手動の待機。P(R, 配信中, OK) のあと、t=0.1 `Command{StandbyOn}` → `StandbyOn#1`、`Approve(1, SetScene("Standby"), None)` → `Proceed{r1}`、`SRD{r1, OK}`、`BD{1, Completed}`、t=0.5 `SC{"Standby"}`、受信状態が OK でなければ t=0.6 `LC{受信状態}`（何も出ない）。結果: 持ち主 `manual`、戻り先 R。次の番号は `#2`、`r2`
 - `#n` は `BatchID`、`r1` は `ReqID=1`。「本体」は本体の切替とみなしたこと（`SceneEpoch` は進まない）、「手動」は手動とみなしたこと（`SceneEpoch+1`、期待を全部消す、C）
 - 実行役の動き（`Approve`、`SceneRequestDone`、`BatchDone` の順）は、テストが実行役の代わりに呼ぶ。1つのバッチでは `SceneRequestDone` のあとに `BatchDone` を送る（9章）
-- `V-xx` を引いた行は、4章の裁定が出るまで期待値が決まらない。「文面」は spec の文面どおりの値、「提案」は 4章の提案の値
+- `V-xx` を引いた行の期待値は、4章の決定（spec v2.2 の 6章「細部の規則」）の値。`V-xx` は決定の根拠として引いている
 
 ### 必須ケースとの対応（spec 11章 switcher の箇条書き）
 
@@ -551,7 +551,7 @@ BD-X-1 を除くすべての行で `Pending` からその `BatchID` を消す。
 | 期待の設定の世代 | SQ-15 |
 | AutoFail の期待だけが残っている間の StandbyOn | SQ-18d |
 | AutoRecover の最後の承認のあとの回線の悪化 | SQ-19 |
-| 同じ待機シーンへの期待が複数ある | SQ-20（V-02。書かれた例のままでは作れない） |
+| 同じシーンへの期待が複数ある | SQ-20（V-02。例は StandbyOff の押し直しで作る） |
 | 配信を止めて始め直したあとの遅れた `SceneChanged` | SQ-16b、SQ-16c |
 | StartScene の再送 | SQ-11 |
 | 期待（登録、応答待ち、期限、タイムアウト、エラー、前の期待、一致しない変化、期限切れ） | SQ-21、SQ-20 |
@@ -677,8 +677,8 @@ BD-X-1 を除くすべての行で `Pending` からその `BatchID` を消す。
 | 1.0 | `LC{LOW}` | `AutoFail#1`、戻り先=`"Camera"`（実行役が詰まっていて、承認はまだ） | `LastAutoSent[AutoFail]=1.0` |
 | 2.0 | `SC{"Camera2"}`（人） | —（AutoFail が未完了。J の 4） | 手動。`SceneEpoch+1` |
 | 2.5 | `Approve(1, SetScene("Standby"), None)`、`BD{1, Rejected}` | `Reject`（`SceneEpoch`）。`BatchDone` では何も出ない | `Pending` が空。`LastError` は記録されない |
-| 3.0 | `Tick` | V-06。文面: —（#1 の送出から 2.0秒）。提案: `AutoFail#2`、戻り先=`"Camera2"` | V-06 |
-| 6.0 | `Tick` | V-06。文面: `AutoFail#2`、戻り先=`"Camera2"`（5.0秒）。提案: —（#2 が t=3.0 に出ている） | V-06 |
+| 3.0 | `Tick` | `AutoFail#2`、戻り先=`"Camera2"`（手動の切替で前回の送出時刻が消えているので、5秒を待たない。V-06） | `LastAutoSent[AutoFail]=3.0` |
+| 6.0 | `Tick` | —（#2 が t=3.0 に出ている。V-06） | — |
 
 ### SQ-06 手動で Other / 待機シーンへ（SW）
 
@@ -758,7 +758,7 @@ BD-X-1 を除くすべての行で `Pending` からその `BatchID` を消す。
 | 1.5 | `Approve(2, SetScene("Camera"), None)` | `Proceed{r2}` | 期待 [Camera r2] |
 | 1.7 | `SRD{r2, OK}`、`BD{2, Completed}` | — | 期限 = 5.0。`LastError` はまだない |
 | 5.0 | `Tick` | — | 期待は残る（`At == 期限`） |
-| 6.0 | `Tick` | — | 期待が消える。持ち主 `manual`、戻り先 `"Camera"` のまま。`SceneEpoch` は同じ。`LastError` は V-18（提案: 記録する） |
+| 6.0 | `Tick` | — | 期待が消える。持ち主 `manual`、戻り先 `"Camera"` のまま。`SceneEpoch` は同じ。`LastError` を記録する（V-18） |
 | 6.5 | `Command{StandbyOff}` | nil、`StandbyOffMonitored#3[RestartMedia{W}, SetScene("Camera")]`（もう一度受け付ける） | — |
 
 ### SQ-09 置き換え（SW）
@@ -920,7 +920,7 @@ a〜d は、準備 P("Camera", 配信中, OK)、t=1.0 `LC{LOW}` → `AutoFail#1`
 
 **c. 戻り先を監視対象から外す。** t=1.2 `ScenesConfigured{CFG(Monitored=["Camera2"])}` → 出力なし（`"Camera"` は Other）。t=1.4 `SC{"Standby"}` → 本体、持ち主 `none`、戻り先なしのまま。
 
-**d. 消す条件に当たらない変更（V-07）。** t=1.2 `ScenesConfigured{CFG(Monitored=["Camera","Camera2","Camera3"])}` → 出力なし（今の待機シーンへの期待が残る。SCF-20）。t=1.4 `SC{"Standby"}` → 本体。持ち主と戻り先は V-07（文面と提案: `none`、なし。待機シーンに持ち主 `none` で残る）。t=2.0 `LC{OK}` → V-07（文面と提案: 出力なし。自動では戻らない）。
+**d. 消す条件に当たらない変更（V-07）。** t=1.2 `ScenesConfigured{CFG(Monitored=["Camera","Camera2","Camera3"])}` → 出力なし（今の待機シーンへの期待が残る。SCF-20）。t=1.4 `SC{"Standby"}` → 本体。持ち主 `none`、戻り先なし（V-07。待機シーンに持ち主 `none` で残る）。t=2.0 `LC{OK}` → 出力なし（V-07。自動では戻らない）。
 
 **e. 戻す切替の期待が古い（V-01）。** 準備 PA("Camera")。
 
@@ -930,8 +930,8 @@ a〜d は、準備 P("Camera", 配信中, OK)、t=1.0 `LC{LOW}` → `AutoFail#1`
 | 1.5 | `Approve(2, SetScene("Camera"), None)` | `Proceed{r2}` | 期待 [Camera r2（AutoRecover）] |
 | 1.6 | `SRD{r2, OK}`、`BD{2, Completed}` | — | — |
 | 1.7 | `ScenesConfigured{CFG(Monitored=["Camera","Camera2","Camera3"])}` | —（戻り先への期待が残る） | `ConfigEpoch+1`。持ち主 `auto`、戻り先 `"Camera"` を保つ |
-| 1.9 | `SC{"Camera"}` | — | 本体。V-01。文面: 持ち主 `auto`、戻り先 `"Camera"` のまま（現在のシーンは `"Camera"`）。提案: 持ち主 `none`、戻り先なし |
-| 3.0 | `LC{LOW}` | V-01。文面: —（持ち主が `none` でないので AutoFail が出ない）。提案: `AutoFail#3`、戻り先=`"Camera"` | V-01 |
+| 1.9 | `SC{"Camera"}` | — | 本体。持ち主 `none`、戻り先なし（V-01。古い世代の期待でも、消す方向には作用する） |
+| 3.0 | `LC{LOW}` | `AutoFail#3`、戻り先=`"Camera"`（持ち主が `none` なので出る。V-01） | — |
 
 ### SQ-16 配信の停止と、始め直したあとの遅れた SceneChanged（SW）
 
@@ -1055,7 +1055,7 @@ a と b は、準備 P("Camera", 配信中, OK)、t=1.0 `LC{LOW}` → `AutoFail#
 
 **b. 先頭の期待に一致すると、後ろは残る。** t=1.6 `SC{"Standby"}` → 本体、出力なし（`"Standby"` は Other）。期待 [Standby2 r2] が残る。持ち主 `none`（r1 は古い世代なので入れない）。t=1.9 `SC{"Standby2"}` → 本体。持ち主 `auto`、戻り先 `"Camera"`。
 
-**c. 同じシーンへの期待が2つ（V-02）。** 準備 PM("Talk", OK)。11章の例（AutoFail の再送）は列では作れないので、StandbyOff の押し直しで作る。
+**c. 同じシーンへの期待が2つ（V-02）。** 準備 PM("Talk", OK)。11章の例も、StandbyOff の押し直しで作る（V-02 の決定で、11章をこの例に書き換えた）。
 
 | t | 入力 | 期待する出力 | 期待する状態 |
 |---|---|---|---|
@@ -1063,8 +1063,8 @@ a と b は、準備 P("Camera", 配信中, OK)、t=1.0 `LC{LOW}` → `AutoFail#
 | 6.0 | `SRD{r2, Timeout}`、`BD{2, Failed}` | — | 期限 = 9.3。`LastError` を記録。持ち主 `manual` のまま |
 | 6.5 | `Command{StandbyOff}`、`Approve(3, SetScene("Talk"), None)` | `StandbyOffOther#3`、`Proceed{r3}` | 期待 [Talk r2, Talk r3] |
 | 6.6 | `SRD{r3, OK}`、`BD{3, Completed}` | — | r3 の期限 = 9.9 |
-| 7.0 | `SC{"Talk"}`（1つだけ届く） | — | 本体。持ち主 `none`、戻り先なし（先頭の r2 による）。r3 は V-02。6章の文面: 残る。11章と提案: 消える |
-| 7.1 | `Command{StandbyOn}` | V-02。6章の文面: `ErrInvalidState`（期待が残る）。提案: nil、`StandbyOn#4`、戻り先=`"Talk"` | V-02 |
+| 7.0 | `SC{"Talk"}`（1つだけ届く） | — | 本体。持ち主 `none`、戻り先なし（先頭の r2 による）。期待が空になる（r2 と、同じシーン名の r3 が消える。V-02） |
+| 7.1 | `Command{StandbyOn}` | nil、`StandbyOn#4`、戻り先=`"Talk"`（期待が残っていない。V-02） | — |
 
 ### SQ-21 期待の寿命（SW）
 
@@ -1139,7 +1139,7 @@ d2: `BatchDone` が再接続のあとになる。t=1.6 `OBSConnected{true, "Stan
 
 ### SQ-24 承認の Skip（SW）
 
-**a. StartScene: すでに開始時のシーン（V-04）。** 設定 `CFG(start="Opening")`。準備 P("Opening", 配信中でない, OK)。t=1.0 `SSC{true}` → V-04（提案: `StartScene#1[SetScene("Opening")]`）。提案の場合、t=1.1 `Approve(1, SetScene("Opening"), None)` → `Skip`、期待は登録されない。`BD{1, Completed}` → `LastError` は記録されない。
+**a. StartScene: すでに開始時のシーン（V-04）。** 設定 `CFG(start="Opening")`。準備 P("Opening", 配信中でない, OK)。t=1.0 `SSC{true}` → `StartScene#1[SetScene("Opening")]`（V-04。出す）。t=1.1 `Approve(1, SetScene("Opening"), None)` → `Skip`、期待は登録されない。`BD{1, Completed}` → `LastError` は記録されない。
 
 **b. StandbyOffOther: 前の StandbyOff の切替が遅れて届いた。** 準備 PM("Talk", OK)。
 
@@ -1231,7 +1231,7 @@ switcher が確かめるのは、実行役が送る `BatchDone` の受け取り�
 | 1.0 | `LC{LOW}`、`Approve(1, SetScene("Standby"), None)` | `AutoFail#1`、`Proceed{r1}` | 期待 [Standby r1] |
 | 1.1 | `SRD{r1, OK}`、`BD{1, Completed}` | — | — |
 | 1.2 | `SC{"Camera2"}`（人の切替が、OBS で本体の要求より先に処理された） | `AutoFail#2`、戻り先=`"Camera2"` | 手動。期待が空 |
-| 1.3 | `SC{"Standby"}`（#1 の切替が遅れて届いた。#2 は未承認） | — | V-08。文面と提案: 手動（`SceneEpoch+1`）。待機シーン、持ち主 `none` |
+| 1.3 | `SC{"Standby"}`（#1 の切替が遅れて届いた。#2 は未承認） | — | 手動（`SceneEpoch+1`）。待機シーン、持ち主 `none`（V-08） |
 | 1.4 | `Approve(2, SetScene("Standby"), None)`、`BD{2, Rejected}` | `Reject`（`SceneEpoch`） | — |
 | 2.0 | `LC{OK}` | —（持ち主 `none`。自動では戻らない） | V-08 |
 
@@ -1268,7 +1268,7 @@ switcher が確かめるのは、実行役が送る `BatchDone` の受け取り�
 
 ## 4. spec の不明点
 
-spec（v2.1）が期待値を1つに決めていない箇所と、2つの規則がぶつかる箇所。表と Event の列では、ここの番号を引くだけにして、どれかを選んだ値を黙って書いていない。**提案** は裁定の案で、決まったら spec を直して変更履歴に足し、この文書の該当行から `V-xx` を外す。番号は v1.x の `U-xx`（spec 6章「細部の規則」が引いている）と重ならないよう `V-xx` にした。
+spec（v2.1。決定は v2.2 で spec 6章に反映）が期待値を1つに決めていない箇所と、2つの規則がぶつかる箇所。表と Event の列には、ここの決定の値を書き、`V-xx` は根拠として引く。各項目の「決定」は、spec v2.2 の 6章「細部の規則」に入った値。番号は v1.x の `U-xx`（spec 6章「細部の規則」が引いている）と重ならないよう `V-xx` にした。
 
 ### 結果が大きく変わるもの
 
