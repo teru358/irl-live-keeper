@@ -41,3 +41,4 @@
 |---|---|---|---|---|
 | 2026-11-19 | v1.0 | 初版 | spec v1.4 の確定 | この版の commit |
 | 2026-11-19 | v1.1 | 進捗: T1〜T9 は main に取り込み済み（T5・T6 は spec v2 のシーンのモデルで作り直し、d467760）。残りは T10（web）、T11（logging と main）、T12（手動の結合テスト）と、spike ①②④（Windows の OBS 実機） | 進捗の記録 | この版の commit |
+| 2026-11-20 | v1.2 | 進捗: T10（web）と T11（logging、main の配線）を main に取り込んだ（spec v2.4）。秘密の置き換えは `internal/redact` に共有し、logging と supervisor が使う。T10〜T11 のまとめのレビューはまだ。残りは T12（手動の結合テスト）と spike ①②④（Windows の OBS 実機）。`restartWait` は spike ② まで仮の1秒、OBS 用 URL は spike ① まで仮に RTSP | 進捗の記録 | この版の commit |
