@@ -446,6 +446,9 @@ type Snapshot struct {
 	AutoEnabled bool
 	Link        ingest.LinkState
 	LastError   *ErrorInfo
+	// SceneEpoch は人の切替（本体の期待に当たらないシーンの変化）とみなした回数。
+	// 増えたことで、core は人の切替があったと知る。
+	SceneEpoch int
 }
 
 // StandbyStatus は待機の持ち主と戻り先。戻り先がなければ ReturnScene は空。

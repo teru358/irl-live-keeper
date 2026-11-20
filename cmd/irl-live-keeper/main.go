@@ -77,6 +77,13 @@ func run(ctx context.Context, base string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	// 生成したパスワードを知る手段が config.yaml を開くことだけにならないよう、起動の表示より前に
+	// 失敗して終わるときは、終わる前に標準出力へ出す（ログには書かない）。
+	showGeneratedPassword := func() {
+		if generated {
+			fmt.Fprint(stdout, adminPasswordLine(cfg.Admin.Password))
+		}
+	}
 	logDir := resolvePath(base, cfg.Log.Dir)
 	binPath := mediaMTXBinary(base, cfg.MediaMTX.Binary, runtime.GOOS)
 
@@ -89,6 +96,7 @@ func run(ctx context.Context, base string, stdout, stderr io.Writer) int {
 	})
 	if err != nil {
 		fmt.Fprintln(stderr, "ログを開けません:", err)
+		showGeneratedPassword()
 		return 1
 	}
 	defer logger.Close()
@@ -104,6 +112,7 @@ func run(ctx context.Context, base string, stdout, stderr io.Writer) int {
 	if err := supervisor.CheckPorts(cfg); err != nil {
 		log.Error("ポートの事前確認に失敗しました", "error", err)
 		fmt.Fprintln(stderr, err)
+		showGeneratedPassword()
 		return 1
 	}
 

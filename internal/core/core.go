@@ -77,6 +77,7 @@ type Core struct {
 	lastErr    *LastError
 	prevSwErr  *switcher.ErrorInfo
 	prevMtxErr string
+	prevSw     *switcher.Snapshot // 前回の Snapshot を作ったときの switcher の状態。最初は nil
 
 	// observe はテスト用。中核ループが処理した Event と承認（approval）ごとに、中核ループの goroutine で呼ぶ。
 	observe func(any)

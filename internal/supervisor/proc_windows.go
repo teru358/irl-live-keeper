@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"sync"
+	"syscall"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -52,7 +53,11 @@ func InitJob() error {
 	return nil
 }
 
-func prepare(cmd *exec.Cmd) {}
+// prepare は子を別のプロセスグループで起動する。コンソールの Ctrl+C が子に直接届かないようにし、
+// 子を止めるのは本体だけにする（Job Object の扱いは変えない）。
+func prepare(cmd *exec.Cmd) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NEW_PROCESS_GROUP}
+}
 
 // afterStart は、本体を Job に入れられなかったときだけ、起動した子を Job に割り当てる。
 func afterStart(cmd *exec.Cmd) {

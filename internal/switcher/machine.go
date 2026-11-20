@@ -59,6 +59,7 @@ func (m *Machine) Snapshot() Snapshot {
 		Standby:     StandbyStatus{Owner: s.StandbyOwner, ReturnScene: s.ReturnScene},
 		AutoEnabled: s.AutoEnabled,
 		Link:        s.Link,
+		SceneEpoch:  s.SceneEpoch,
 	}
 	if s.LastError != nil {
 		e := *s.LastError

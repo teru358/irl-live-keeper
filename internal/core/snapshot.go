@@ -72,6 +72,7 @@ type URLs struct {
 // publish は今の状態から Snapshot を作って公開する。New と、中核ループが入力を1つ処理するたびに呼ぶ。
 func (c *Core) publish() {
 	ms := c.m.Snapshot()
+	c.logStateChanges(ms)
 	s := Snapshot{
 		Link: LinkStatus{
 			State:    c.judge.State().String(),
@@ -144,5 +145,24 @@ func (c *Core) noteMediaMTXError(msg string) {
 func (c *Core) offerError(e LastError) {
 	if c.lastErr == nil || !e.At.Before(c.lastErr.At) {
 		c.lastErr = &e
+	}
+}
+
+// logStateChanges は前回の状態と比べ、変わったものを1行ずつログに書く。最初の Snapshot では書かない。
+// 人の切替は switcher の SceneEpoch（人の切替とみなした回数）が増えたことで知る。
+func (c *Core) logStateChanges(ms switcher.Snapshot) {
+	prev := c.prevSw
+	c.prevSw = &ms
+	if prev == nil {
+		return
+	}
+	if ms.Streaming != prev.Streaming {
+		c.log.Info("stream state", "streaming", ms.Streaming)
+	}
+	if ms.SceneEpoch != prev.SceneEpoch {
+		c.log.Info("scene changed by user", "from", prev.Scene, "to", ms.Scene)
+	}
+	if ms.Standby != prev.Standby {
+		c.log.Info("standby changed", "owner", ms.Standby.Owner.String(), "return_scene", ms.Standby.ReturnScene)
 	}
 }

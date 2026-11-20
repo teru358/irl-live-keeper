@@ -36,7 +36,12 @@ func startupBanner(b bannerInfo) string {
 	s.WriteString("管理 API\n")
 	fmt.Fprintf(&s, "  http://%s （ユーザー名 admin）\n", b.AdminListen)
 	if b.AdminPassword != "" {
-		fmt.Fprintf(&s, "  管理 API のパスワード（config.yaml を生成しました）: %s\n", b.AdminPassword)
+		s.WriteString(adminPasswordLine(b.AdminPassword))
 	}
 	return s.String()
+}
+
+// adminPasswordLine は、config.yaml を生成したときに出す管理 API のパスワードの行。
+func adminPasswordLine(password string) string {
+	return fmt.Sprintf("  管理 API のパスワード（config.yaml を生成しました）: %s\n", password)
 }

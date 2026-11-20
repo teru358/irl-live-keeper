@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -276,10 +277,34 @@ type lineWriter struct {
 	log    *slog.Logger
 	masker *redact.Masker
 
+	now func() time.Time // テストで差し替える。nil なら time.Now
+
 	mu      sync.Mutex
 	buf     bytes.Buffer
 	lastErr string
+	held    []heldLine // 書くのを待っている OBS の読み直しの opened の行（古い順）
 }
+
+// heldLine は、読み直しかもしれないので、すぐには書かずに持っている opened の行。
+type heldLine struct {
+	addr string // 接続元（127.0.0.1:<port>）
+	line string // 秘密の置き換えのあと
+	at   time.Time
+}
+
+// holdFor を過ぎても次が来なければ、持っている行は書く（次に何か行が来たときに書き出す）。
+const holdFor = 2 * time.Second
+
+const noStreamClosed = "closed: no stream is available on path"
+
+var (
+	// MediaMTX の行は「日時 水準 本文」。日時がなければ先頭の語を水準とみなす。
+	levelRe = regexp.MustCompile(`^(?:\d{4}/\d\d/\d\d \d\d:\d\d:\d\d )?([A-Z]{3}) (.*)$`)
+	// OBS のメディアソースの読み直しで出る、loopback からの接続の opened。
+	openedRe = regexp.MustCompile(`^\[RTSP\] \[conn (127\.0\.0\.1:\d+)\] opened$`)
+	// 読み出しの session の作成。接続元を持つ。
+	createdRe = regexp.MustCompile(`^\[RTSP\] \[session \w+\] created by (127\.0\.0\.1:\d+)`)
+)
 
 var _ io.Writer = (*lineWriter)(nil)
 
@@ -310,6 +335,25 @@ func (w *lineWriter) flush() {
 		w.emit(w.buf.String())
 		w.buf.Reset()
 	}
+	for _, h := range w.held {
+		w.write(h.line)
+	}
+	w.held = nil
+}
+
+func (w *lineWriter) clock() time.Time {
+	if w.now != nil {
+		return w.now()
+	}
+	return time.Now()
+}
+
+// parseLine は行を水準の語と本文に分ける。水準がなければ水準は空。
+func parseLine(line string) (level, rest string) {
+	if m := levelRe.FindStringSubmatch(line); m != nil {
+		return m[1], m[2]
+	}
+	return "", line
 }
 
 func (w *lineWriter) emit(line string) {
@@ -317,10 +361,70 @@ func (w *lineWriter) emit(line string) {
 	if line == "" {
 		return
 	}
-	if strings.Contains(line, "ERR") {
-		w.lastErr = line
+	now := w.clock()
+	// 古くなった行は先に書く。
+	for len(w.held) > 0 && now.Sub(w.held[0].at) >= holdFor {
+		w.write(w.held[0].line)
+		w.held = w.held[1:]
 	}
-	w.log.Info(line)
+	_, rest := parseLine(line)
+	if m := openedRe.FindStringSubmatch(rest); m != nil {
+		w.release(m[1]) // 同じ接続の古い行が残っていれば先に書く
+		w.held = append(w.held, heldLine{addr: m[1], line: line, at: now})
+		return
+	}
+	for _, h := range w.held {
+		prefix := "[RTSP] [conn " + h.addr + "] "
+		if strings.HasPrefix(rest, prefix) {
+			if strings.HasPrefix(rest[len(prefix):], noStreamClosed) {
+				w.drop(h.addr) // 読み直し。opened とこの行を書かない
+				return
+			}
+			w.release(h.addr)
+			break
+		}
+		if m := createdRe.FindStringSubmatch(rest); m != nil && m[1] == h.addr {
+			w.release(h.addr) // 読み出しが始まった。opened を先に書く
+			break
+		}
+	}
+	w.write(line)
+}
+
+// release は addr の持っている行を書き、持つのをやめる。
+func (w *lineWriter) release(addr string) {
+	for i, h := range w.held {
+		if h.addr == addr {
+			w.write(h.line)
+			w.held = append(w.held[:i], w.held[i+1:]...)
+			return
+		}
+	}
+}
+
+// drop は addr の持っている行を書かずに捨てる。
+func (w *lineWriter) drop(addr string) {
+	for i, h := range w.held {
+		if h.addr == addr {
+			w.held = append(w.held[:i], w.held[i+1:]...)
+			return
+		}
+	}
+}
+
+// write は水準（ERR は Error、WAR は Warn、それ以外は Info）に合わせて書く。
+// ERR の行は last_error に使う。
+func (w *lineWriter) write(line string) {
+	level, _ := parseLine(line)
+	switch level {
+	case "ERR":
+		w.lastErr = line
+		w.log.Error(line)
+	case "WAR":
+		w.log.Warn(line)
+	default:
+		w.log.Info(line)
+	}
 }
 
 // lastErrorLine は最後の ERR の行を返す。ERR の行がなければ空文字列を返す
