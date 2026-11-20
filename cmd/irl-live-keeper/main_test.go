@@ -231,6 +231,89 @@ func TestRunは生成した設定の秘密をログファイルに書かない(t
 	}
 }
 
+func TestRunはOBSのパスワードをログファイルにも標準出力のログの行にも書かない(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("シェルスクリプトの偽の MediaMTX を使うため")
+	}
+	base := t.TempDir()
+	bin := filepath.Join(base, "fake-mediamtx.sh")
+	useGenerate(t, bin, nil)
+	// 実機の OBS に届かないよう、閉じたポートにつなぐ
+	obsPort := freeTCPPort(t)
+
+	// 英数字だけの固定の文字列にする（YAML や slog の引用で形が変わらないように）
+	const obsPass = "obsSecret8f2c1d4e"
+	inner := generate
+	generate = func(path string) (*config.Config, error) {
+		if _, err := inner(path); err != nil {
+			return nil, err
+		}
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		// 雛形で空の password は obs.password の1箇所だけ
+		s := string(raw)
+		if strings.Count(s, `password: ""`) != 1 {
+			return nil, fmt.Errorf("config.yaml の空の password が1つではない")
+		}
+		s = strings.Replace(s, `password: ""`, fmt.Sprintf("password: %q", obsPass), 1)
+		s = regexp.MustCompile(`(?m)^(\s+port: )4455`).ReplaceAllString(s, fmt.Sprintf("${1}%d", obsPort))
+		if err := os.WriteFile(path, []byte(s), 0o600); err != nil {
+			return nil, err
+		}
+		cfg, err := config.Load(path)
+		if err != nil {
+			return nil, err
+		}
+		if cfg.OBS.Password != obsPass {
+			return nil, fmt.Errorf("obs.password が書き換わっていない")
+		}
+		// 偽の MediaMTX は、OBS のパスワードを標準出力に書く
+		script := fmt.Sprintf("#!/bin/sh\necho 'obs pass=%s'\nexec sleep 30\n", obsPass)
+		if err := os.WriteFile(bin, []byte(script), 0o700); err != nil {
+			return nil, err
+		}
+		return cfg, nil
+	}
+
+	var stdout, stderr syncBuffer
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := runInBackground(ctx, base, &stdout, &stderr)
+
+	logDir := filepath.Join(base, "logs")
+	// 偽の MediaMTX の行が届くまで待つ。置き換えの有無はここでは問わない（外れていれば下で落ちる）
+	waitFor(t, "偽の MediaMTX の出力がログに載る", func() bool {
+		return strings.Contains(readLogs2(logDir), "obs pass=")
+	})
+	cancel()
+	select {
+	case code := <-done:
+		if code != 0 {
+			t.Fatalf("終了コード = %d, want 0\nstderr: %s", code, stderr.String())
+		}
+	case <-time.After(15 * time.Second):
+		t.Fatal("run が終わらない")
+	}
+
+	logs := readLogs(t, logDir)
+	// 置き換えられて *** として出ていること。出ていなければ、確かめられていない
+	if !strings.Contains(logs, "obs pass=***") {
+		t.Error("ログファイルに obs pass=*** がない")
+	}
+	if !strings.Contains(stdout.String(), "obs pass=***") {
+		t.Error("標準出力に obs pass=*** がない")
+	}
+	if strings.Contains(logs, obsPass) {
+		t.Error("ログファイルに obs.password が出ている")
+	}
+	// 起動の表示には OBS のパスワードは出ない。標準出力の全体で確かめる
+	if strings.Contains(stdout.String(), obsPass) {
+		t.Error("標準出力に obs.password が出ている")
+	}
+}
+
 // readLogs2 は失敗しても空を返す readLogs（待ちの途中で使う）。
 func readLogs2(dir string) string {
 	entries, err := os.ReadDir(dir)
