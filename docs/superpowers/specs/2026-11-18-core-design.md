@@ -1,7 +1,7 @@
 # irl-live-keeper 設計 — 全体構成と第1段階（コア）
 
 - 作成日: 2026-11-18
-- 版: v2.12（変更は末尾の変更履歴を参照）
+- 版: v2.13（変更は末尾の変更履歴を参照）
 - 状態: ユーザー承認済みの設計（セクション1〜5）を文書化したもの。v2.0 でシーンのモデルを 2026-11-19 のユーザーの裁定に合わせて書き直した（6章の末尾に「実装前に決めたこと」がある）
 - 対象バージョン: MediaMTX v1.21.4（2026-11-15 リリース）、obs-websocket v5
 
@@ -22,7 +22,7 @@
 
 - 配置（v2.9 で整理した。2026-11-20 のユーザーの方針）:
   - **配信 PC**（OBS と同じ PC）: 基本の置き方
-  - **LAN の中の中継 PC**（本ツールと MediaMTX を LAN の別の PC に置き、OBS は配信 PC）: 対応する。`obs.host` に配信 PC のアドレスを、`stream.obs_read_host` に中継 PC の LAN のアドレスを書く（4章、8章）
+  - **LAN の中の中継 PC**（本ツールと MediaMTX を LAN の別の PC に置き、OBS は配信 PC）: 対応する。`obs.host` に配信 PC のアドレスを、`stream.obs_read_host` に中継 PC の LAN のアドレスを書く（4章、8章）。第2段階では、OBS のブラウザソースが中継 PC のソースのページを読むので、`admin.lan` も true にする（第2段階の spec 6章）
   - **外部のサーバー**（VPS など）: 技術的には可能だが、正式には対応しない。中継 PC と同じ設定を VPN（Tailscale など）越しに行う。obs-websocket と RTSP の読み出しは暗号化されないので、インターネットへ直接は通さない（13章）
 - 配信 PC は Windows を想定。Linux と macOS でも動くこと
 - 入力: RTMP と SRT の両方（送信側は Larix / IRL Pro / Moblin / OBS など）
@@ -48,7 +48,7 @@ Discord / Twitch 連携、手動の待機 ON / OFF 以外のシーンを切り�
  └ config     : config.yaml が唯一の設定元
 ```
 
-- 管理ページと API はパスワードで保護する。待ち受けの既定は `127.0.0.1`（OBS と同じ PC から操作する）。別 PC から操作するときは、利用者が config で LAN のアドレスを明示し、起動時に警告を出す。ルーターで転送しない
+- 管理ページと API はパスワードで保護する。待ち受けの既定は `127.0.0.1`（OBS と同じ PC から操作する）。別 PC から操作するときは、利用者が config の `admin.lan` を true にし（すべてのインターフェースで待ち受ける）、起動時に警告を出す。ルーターで転送しない
 - 配布物: zip に `irl-live-keeper(.exe)`、`mediamtx(.exe)`、ライセンス表記（MediaMTX は MIT）を入れる。`config.yaml` は初回起動時に生成する
 - 生成物（`config.yaml`、`mediamtx.yml`、`logs/`）は実行ファイルと同じディレクトリに置く
 - Go の依存: obs-websocket は `github.com/andreykaipov/goobs`、HTTP は標準の `net/http`、設定は YAML（`gopkg.in/yaml.v3`）、ログは `log/slog`、Windows の Job Object は `golang.org/x/sys/windows`。管理ページは素の HTML と JS を `go:embed` で埋め込み、ビルド工程は持たない
@@ -85,7 +85,8 @@ internal/redact               … ログの行の中のパスワードを *** �
 
 ```yaml
 admin:
-  listen: "127.0.0.1:8787"   # 管理 API。別 PC から操作するときだけ LAN のアドレスに変える（ルーターで転送しない）
+  port: 8787                 # 管理 API と管理ページのポート
+  lan: false                 # false なら 127.0.0.1 だけで待ち受ける。true ならすべてのインターフェース（IPv4 と IPv6）。別 PC から操作するときと、OBS と別の PC（中継 PC）に置くときだけ true にする（通信は平文。ルーターで転送しない）
   password: "*"              # Basic 認証のパスワード（ユーザー名は admin）
 
 mediamtx:
@@ -138,7 +139,7 @@ gui:
 検証（1つでも満たさなければ、項目名と理由を表示して起動を止める）:
 - `recover_kbps > fail_kbps`
 - 各秒数は 1 以上、`down_sec <= low_sec`
-- ポートは 1〜65535 で、互いに重複しない（`admin.listen` のポートも含む）
+- ポートは 1〜65535 で、互いに重複しない（`admin.port` も含む）
 - `stream.name`、`publish_user`、`publish_pass`、`read_user`、`read_pass` は空でなく、`[A-Za-z0-9_-]` の文字だけからなる（URL の区切り文字 `:`、`&`、`#` などで送信用 URL が壊れ、ログの置き換えも効かなくなるため）。生成する値もこの範囲で作る
 - `publish_pass` と `read_pass` は8文字以上
 - `publish_user` と `read_user` は `any` でない（MediaMTX は `any` を資格情報の照合なしで通すため）。また互いに異なる
@@ -156,7 +157,11 @@ gui:
 
 シーンの設定（`obs.standby_scene`、`obs.monitored_scenes`、`switch.auto_enabled`、`on_stream_start`）は、第2段階の管理ページで OBS のシーン一覧（`GetSceneList`）を取得して選べるようにする。そのため switcher は、これらを config から直接読まず、差し替えられる入力（Event `ScenesConfigured`。6章）として受け取る。第1段階では起動時に config から1回だけ渡す。初回生成の既定値は `standby_scene: Standby`、`monitored_scenes: [Camera]` とする。OBS にその名前のシーンがなければ、接続時に status の `warnings` に出る（6章末「実装前に決めたこと」の 4）。
 
-`admin.listen` が loopback 以外（`0.0.0.0` や LAN のアドレス）のときは、起動するたびに警告をログに出す: 管理 API を LAN に公開していること、通信は平文で LAN 内では盗聴されうること、ルーターで転送しないこと。値を省略したときに LAN 公開と解釈することはない（省略時は既定の `127.0.0.1:8787`）。
+管理 API の待ち受けは、`admin.lan` が false なら `127.0.0.1:<admin.port>`、true なら `:<admin.port>`（すべてのインターフェース。IPv4 と IPv6）とする（v2.13。2026-11-20 のユーザーの裁定。それまでの `admin.listen`〔host:port〕は、第2段階の設計レビューで、本体が案内する URL と待ち受けが食い違う形〔`[::1]:8787` など〕を許すとわかったため、2つに分けた）。
+
+`admin.lan` が true のときは、起動するたびに警告をログに出す（`config.Warnings()`）: 管理 API と管理ページを LAN に公開していること、通信は平文で LAN 内では盗聴されうること、パスワードを取られると、LAN の機器から、すべてのパスワードの表示と設定の変更（第2段階）ができること、ルーターで転送しないこと。値を省略したときに LAN 公開と解釈することはない（省略時は既定の `false` と `8787`）。
+
+第1段階のコードの `admin.listen` は、第2段階の実装で `admin.port` と `admin.lan` に置き換える。まだ配布していないので、古い形は読まない。`admin.listen` が残った config.yaml は、知らない項目として不正にし（今の読み込みは知らない項目をエラーにする）、理由に「`admin.port` と `admin.lan` に書き直す」を添える。
 
 ## 5. 受信状態の判定（ingest）
 
@@ -553,7 +558,7 @@ OBS メディアソース用 URL は RTSP（`rtsp://<read_user>:<read_pass>@<obs
 
 ### 中核ループ
 
-goroutine 1本が switcher の状態を持ち、次を `select` で受ける: ingest の `Sample`、obs の `Events()`、web からの Command、1秒ごとの `Tick`。
+goroutine 1本が switcher の状態を持ち、次を `select` で受ける: ingest の `Sample`、obs の `Events()`、web からの Command、1秒ごとの `Tick`（第2段階では、設定の差し替えの要求も。下の「チャネルの決まり」）。
 
 - `Sample` は Judge に通し、受信状態が変わったら `LinkChanged` を switcher に渡す
 - シーンの設定は、ループを始める前に config から `ScenesConfigured` を作って `Machine.Handle` に1回渡す（チャネルは通さない）。第2段階で管理ページから送る経路は、第2段階の spec 7章「すぐ反映の届け方」で決めた（Command と同じく、応答用のチャネルを持つ要求として中核ループに渡す）
@@ -563,8 +568,8 @@ goroutine 1本が switcher の状態を持ち、次を `select` で受ける: in
 
 **中核ループと実行役のチャネルの決まり**（デッドロックを防ぐため）:
 - 中核ループは、どのチャネルへの送信でも止まらない。実行待ちのバッチは中核ループが列で持ち、`select` の送信 case として先頭の1つだけを実行役に差し出す（列が空のときはその case を `nil` チャネルにして無効にする）。実行役が承認待ちや応答待ちで詰まっていても、中核ループは他の入力を受け続ける
-- 中核ループの `select` が受けるのは、`Sample`、obs の `Events()`、web の Command、`Tick`、実行役からの承認要求、`SceneRequestDone`、`BatchDone`、終了の `ctx.Done()`
-- 承認要求と Command は、容量1の応答用チャネルを持つ。中核ループはそこへ1回だけ送り、止まらない
+- 中核ループの `select` が受けるのは、`Sample`、obs の `Events()`、web の Command、`Tick`、実行役からの承認要求、`SceneRequestDone`、`BatchDone`、設定の差し替えの要求（v2.13。第2段階。第2段階の spec 7章「すぐ反映の届け方」）、終了の `ctx.Done()`
+- 承認要求と Command と設定の差し替えの要求は、容量1の応答用チャネルを持つ。中核ループはそこへ1回だけ送り、止まらない
 - 実行役から中核ループへの送信と、応答の受信と、`RestartMedia.Wait` の待ちは、必ず `ctx.Done()` と一緒に `select` する。終了時はどちらの側も待ちを解いて抜ける
 - Command は応答用のチャネルを持ち、switcher の `cmdErr` を web に返す（Action の実行結果は待たない）
 - 状態が変わるたびに `Snapshot` を作り、`atomic.Pointer` で公開する。web はこれを読むだけ。第2段階では、公開の知らせと、記録のためのできごと（型のある値）を、受け手ごとに登録したチャネルへ止まらずに送る形を足す（第2段階の spec 2章、8章）
@@ -603,14 +608,14 @@ goroutine 1本が switcher の状態を持ち、次を `select` で受ける: in
   - 503: `ErrNotConnected`（OBS に未接続）。中核ループが止まっている、または5秒以内に Command を受け取らなかったときも 503
 
 **API の細部（v2.4 で決めたこと）:**
-- 確かめる順序は、パス（未知なら 404）→ 認証 → メソッド → 独自ヘッダー。認証に失敗したら、ヘッダーの有無によらず 401 とする。`WWW-Authenticate: Basic realm="irl-live-keeper"` は、要求に `Authorization` ヘッダーがあったときだけ付ける（v2.12。第2段階の管理ページの fetch や EventSource が 401 を受けたときに、ブラウザの Basic 認証のダイアログを出さないため。第2段階の spec 6章）。CSRF で問題になるのは、認証は通るがヘッダーのない要求なので、それが 403 になる。401 と 403 では Command を渡さない
+- 確かめる順序は、パス（未知なら 404）→ 認証 → メソッド → 独自ヘッダー（第2段階では、パスワードを照合する要求について、404 と 401 の間に総当たり対策の 429 を入れる。`POST /api/login` は独自ヘッダーを照合より先に確かめる。第2段階の spec 6章）。認証に失敗したら、ヘッダーの有無によらず 401 とする。`WWW-Authenticate: Basic realm="irl-live-keeper"` は、要求に `Authorization` ヘッダーがあったときだけ付ける（v2.12。第2段階の管理ページの fetch や EventSource が 401 を受けたときに、ブラウザの Basic 認証のダイアログを出さないため。第2段階の spec 6章）。CSRF で問題になるのは、認証は通るがヘッダーのない要求なので、それが 403 になる。401 と 403 では Command を渡さない
 - `GET /api/status` も認証が要る（`urls` に資格情報を含む URL があるため）。401 の本文に状態は出さない
 - 独自ヘッダーは値がちょうど `1` のときだけ通す。ない、空、ほかの値は 403
 - メソッドが違うときは 405 とし、`Allow` を付ける（status は GET、操作は POST）
 - パスワードの比較は、両方を SHA-256 にしてから `subtle.ConstantTimeCompare` で行う（長さの違いで比較の時間が変わらないように）
 - 本文はすべて JSON（`Content-Type: application/json; charset=utf-8`）。status 以外は、200 が `{"ok": true}`、エラーが `{"error": "<理由>"}`
 - 想定外のエラーは 500
-- web は要求、`Authorization`、status の中身をログに書かない（10章）。待ち受けのアドレスと `http.Server` の設定は main で行う
+- web は要求、`Authorization`、status の中身をログに書かない（10章）。待ち受けのアドレス（`admin.lan` が false なら `127.0.0.1:<admin.port>`、true なら `:<admin.port>`。4章）と `http.Server` の設定は main で行う（第2段階では app。第2段階の spec 6章「待ち受け」）
 
 ## 10. エラー処理とログ
 
@@ -633,11 +638,11 @@ goroutine 1本が switcher の状態を持ち、次を `select` で受ける: in
 
 ### 起動と終了の手順（main）
 
-1. 実行ファイルと同じディレクトリの `config.yaml` を読む。なければ生成する（生成したあとで起動に失敗して終わるときは、終わる前に、生成した管理 API のパスワードを標準出力に表示する。表示しないと、初回の失敗で知る手段が config.yaml を開くことだけになる）。不正なら項目名と理由を標準エラーに出して終了する（終了コード 1）。`log.dir` と `mediamtx.binary` が相対パスなら、実行ファイルのディレクトリを基準にする（第2段階の `--dir` を付けたときは、そのフォルダ。第2段階の spec 3章）
+1. 実行ファイルと同じディレクトリの `config.yaml` を読む。なければ生成する（生成したあとで起動に失敗して終わるときは、終わる前に、生成した管理 API のパスワードを標準出力に表示する。表示しないと、初回の失敗で知る手段が config.yaml を開くことだけになる）。不正なら項目名と理由を標準エラーに出して終了する（終了コード 1）。`log.dir` と `mediamtx.binary` が相対パスなら、実行ファイルのディレクトリを基準にする（第2段階の `--dir` を付けたときは、そのフォルダ。`mediamtx.binary` が空のときは、`--dir` によらず実行ファイルのディレクトリの `mediamtx(.exe)`。第2段階の spec 3章）
 2. ログを開く（下の「ログ」）。`config.Warnings()` の警告をログに出す
-3. Windows では `supervisor.InitJob()` を1回呼ぶ（失敗は警告にして続ける。8章）
+3. Windows では `supervisor.InitJob()` を1回呼ぶ（失敗は警告にして続ける。8章）。第2段階では、プロセスの寿命のものとして、小さな窓を作る前に1回だけ呼ぶ（世代を作るたびには呼ばない。第2段階の spec 3章）
 4. ポートの事前確認（8章）。使用中なら理由を出して終了する（終了コード 1）
-5. 起動時の表示を標準出力に1回だけ書く（slog を通さない）: 送信用 URL（SRT、RTMP）、OBS 用 URL、管理 API のアドレス、config.yaml を生成したときは管理 API のパスワード
+5. 起動時の表示を標準出力に1回だけ書く（slog を通さない）: 送信用 URL（SRT、RTMP）、OBS 用 URL、管理 API のアドレス、config.yaml を生成したときは管理 API のパスワード。第2段階では、プロセスの最初の世代でだけ書く（中での再起動では書かない。第2段階の spec 7章）
 6. supervisor、Poller（1秒ごと）、obs、core、管理 API の HTTP サーバーを動かす。HTTP サーバーには `ReadHeaderTimeout` などの時間の上限を付ける
 7. Ctrl+C（SIGINT）か SIGTERM で終了を始める。HTTP サーバーを止め、ctx を取り消し、MediaMTX が止まるのを待ってから終了する（終了コード 0）。管理 API の待ち受けに失敗したときも、MediaMTX を止めてから終了する（終了コード 1）
 
@@ -736,7 +741,7 @@ goobs のラッパーは実際の OBS を相手に手動で確かめる。自動
 - macOS では、本体が強制終了されると MediaMTX が残ることがある
 - 本体と外部ツールがほぼ同時にシーンを切り替えると、最後に届いた切替が残る。本体は SetScene を送る直前に承認を取る（9章）ので、人の操作が先に届いていればバッチは失効する。残る窓は「承認から OBS が要求を受け取るまで」の間だけ。その間に人が切り替えた場合は、人の選択が上書きされることがある。その場合はもう一度切り替える。手動の切替で期待が消えたあとに届いた本体の切替は手動として扱うので、それが待機シーンへの切替なら、待機シーンに持ち主 `none` で残り、回復しても自動では戻らない。その場合はもう一度シーンを選ぶ
 - 外部ツール（IRL Link など）にもビットレートによる自動切替の機能があり、それを有効にすると二重に切り替わる。自動切替はどちらか一方だけで使う
-- 管理 API を LAN に公開した場合、通信は平文の HTTP と Basic 認証なので、LAN 内で盗聴されるとパスワードと操作を奪われうる。操作はシーンの切替と配信の開始・停止に限られるため、第1段階では TLS を入れず、利用者の判断で LAN 公開を選ぶ形にする
+- 管理 API を LAN に公開した場合（`admin.lan` が true）、通信は平文の HTTP と Basic 認証なので、LAN 内で盗聴されるとパスワードと操作を奪われうる。第1段階の操作はシーンの切替と配信の開始・停止に限られる。第2段階では、同じ認証（とログインのセッション）で、すべてのパスワード（`obs.password`、送信と読み出しの資格情報、`admin.password`）の表示と、設定の変更（配信を切る再起動を含む）ができるようになる。本体が起動する実行ファイル（`mediamtx.binary`）と、本体が書き込む場所（`log.dir`）の変更は、同じ PC（loopback）からの要求だけ受け付ける（LAN でパスワードを取られても、その PC で任意の実行ファイルを動かされないため。2026-11-20 のユーザーの裁定。第2段階の spec 6章、13章）。そのうえで TLS は入れず、利用者の判断で LAN 公開を選ぶ形にする（既定は `127.0.0.1` だけ）
 - 本体が要求したのと同じシーンを、人がほぼ同時に選んだ場合は、本体の切替と区別できない（obs-websocket のイベントに発信者が含まれないため）。その場合は本体の切替として扱う（例: 自動切替と同時に人が待機シーンを選ぶと、待機の持ち主は `auto` になり、回復したら戻る）
 - 回線が悪い間に人が監視対象のシーンへ切り替えると、すぐ待機シーンへ戻される。屋外の配信者がそれに気づく手段は、当面は待機シーンの名前だけ（6章「検討事項」の案 A）
 - 配信開始時の切替は `STARTED` で検知するので、配信の最初のわずかな間は切替前のシーンが配信に出る（6章、12章の spike ④）。Windows の OBS で、`STARTED` から切替の完了まで約 0.3秒（0.3秒のフェードのトランジションの長さ）で、その間はフェードの途中の絵が出る。配信の開始の瞬間なので、配信の前から待っている視聴者でなければ気づかないとして、このままとする（2026-11-20 のユーザーの裁定）
@@ -775,3 +780,4 @@ goobs のラッパーは実際の OBS を相手に手動で確かめる。自動
 | 2026-11-20 | v2.10 | ログに配信の開始と停止、人の切替、待機の持ち主と戻り先の変化を書く。MediaMTX の出力の水準を合わせ、OBS の読み直しの行を書かない。Windows で MediaMTX を別のプロセスグループで起動する。初回の起動の失敗でも、生成した管理 API のパスワードを表示する（8章、10章） | Windows の実機の試験で見つけた小さな点 | この版の commit |
 | 2026-11-20 | v2.11 | 2章の段階表を、第2段階の spec（小さな窓、管理ページ、ソース）に合わせた。第3段階のオーバーレイは第2段階の 2b に統合した | 2026-11-20 の第2段階の brainstorming | この版の commit |
 | 2026-11-20 | v2.12 | 4章に `gui.close_action` と、`Validate` が項目ごとの理由を返すことを足した。6章の V-01、V-07 の見直しの結果（そのままにする）を書いた。8章の Job Object で、ブラウザとフォルダを開く子だけ breakaway を許した。GUI の版の MediaMTX に `CREATE_NO_WINDOW` を付ける。api の資格情報と送信用の host の決め直しを、第2段階の世代と設定の反映に合わせた。9章の `WWW-Authenticate` を、`Authorization` ヘッダーがあるときだけにした。シーンの設定を送る経路と、できごとの購読を第2段階の spec に結んだ。10章で、日付が変わったときにもログを消す。10章に、第2段階の `--dir`、systemd から起動したときに起動の表示のパスワードを伏せること、動作中に変えたパスワードを置き換えの対象に足すことへの参照を足した。13章の MediaMTX の設定を「再起動して反映」にした。どれも第2段階の spec v0.2 に合わせた | Fable と codex sol の設計レビュー 1 周目（Fable: Critical 2 / Important 14 / Minor 13、sol: Critical 0 / Important 17 / Minor 2）と、2026-11-20 のユーザーの裁定 | この版の commit |
+| 2026-11-20 | v2.13 | `admin.listen` を `admin.port`（既定 8787）と `admin.lan`（既定 false。false は `127.0.0.1` だけ、true はすべてのインターフェース）に分け、ひな形、検証、`Warnings` の文、古い `admin.listen` の扱いを直した（2章、4章）。中継 PC では `admin.lan` も true にする（1章）。9章の中核ループの `select` が受けるものと、容量1の応答用チャネルに、設定の差し替えの要求を足した。API の確かめる順に、第2段階の 429 と `/api/login` の独自ヘッダーへの参照を足した。待ち受けのアドレスを `admin.port` と `admin.lan` で書いた。10章の `InitJob` はプロセスの寿命のもので窓の前に1回、起動の表示は最初の世代でだけ、`mediamtx.binary` が空のときの場所を書いた。13章の LAN 公開のリスクを、第2段階でできること（すべてのパスワードの表示、設定の変更）と、`mediamtx.binary` と `log.dir` を同じ PC からだけ変えられることに合わせて書き直した。どれも第2段階の spec v0.3 に合わせた | Fable と codex sol の設計レビュー 2 周目（Fable: Critical 0 / Important 9 / Minor 12、sol: Critical 0 / Important 8 / Minor 1）と、2026-11-20 のユーザーの裁定 | この版の commit |
