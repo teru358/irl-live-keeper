@@ -1,0 +1,2 @@
+# PowerShell のスクリプトは BOM つきの UTF-8 と CRLF のまま保つ（Windows PowerShell 5.1 は BOM がないと Shift-JIS として読む）
+*.ps1 -text
