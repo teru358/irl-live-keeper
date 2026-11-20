@@ -21,14 +21,14 @@
 
 | # | 確かめること | 見るところ | 結果 |
 |---|---|---|---|
-| W1 | ポートの事前確認。1935 / 8890 / 8554 / 9997 / 8787 がほかのソフトで使われていないか。使われていたら、表示される理由で止まるか。わざと使用中にするには、別の窓で `powershell -ExecutionPolicy Bypass -File .\occupy-ports.ps1 -Target rtmp` を動かしたまま本体を起動する（`-Target` は rtmp / srt / rtsp / api / admin。Enter で解放）。Linux では 5つとも終了コード 1 と理由が出て、MediaMTX は残らなかった | 起動の表示、終了コード（PowerShell で `$LASTEXITCODE`） | |
-| W2 | 送信用 URL の host の自動（LAN の IPv4）。Hyper-V、WSL、VPN、VirtualBox などの仮想アダプターがあると、そちらのアドレスが選ばれないか | 起動の表示の SRT / RTMP の URL。違っていたら `stream.publish_host` に書いて直るか | |
+| W1 | ポートの事前確認。1935 / 8890 / 8554 / 9997 / 8787 がほかのソフトで使われていないか。使われていたら、表示される理由で止まるか。わざと使用中にするには、別の窓で `powershell -ExecutionPolicy Bypass -File .\occupy-ports.ps1 -Target rtmp` を動かしたまま本体を起動する（`-Target` は rtmp / srt / rtsp / api / admin。Enter で解放）。Linux では 5つとも終了コード 1 と理由が出て、MediaMTX は残らなかった | 起動の表示、終了コード（PowerShell で `$LASTEXITCODE`） || 2026-11-20: 止まるが、ダブルクリックの起動では窓がすぐ閉じて理由が読めなかった → 直した（1036635。自分だけのコンソールならエラーの前に Enter を待つ。理由をログにも書く）。直した exe で再確認待ち |
+| W2 | 送信用 URL の host の自動（LAN の IPv4）。Hyper-V、WSL、VPN、VirtualBox などの仮想アダプターがあると、そちらのアドレスが選ばれないか | 起動の表示の SRT / RTMP の URL。違っていたら `stream.publish_host` に書いて直るか || 2026-11-20: 合格。WSL を動かしていても LAN の 192.168.1.16 が選ばれた |
 | W3 | `config.yaml` に日本語や絵文字のシーン名（「⚠回線待機中」など）を書いても、OBS のシーンと一致するか | status の `warnings` が空か、切替が動くか | |
-| W4 | ログの置き場所（実行ファイルと同じフォルダの `logs\`）に日付ごとのファイルができ、パスワードが出ていないか | `logs\irl-live-keeper-YYYY-MM-DD.log` を開く | |
-| W5 | Job Object: タスクマネージャーで irl-live-keeper.exe を「タスクの終了」したら、mediamtx.exe も消えるか | タスクマネージャーの詳細 | |
+| W4 | ログの置き場所（実行ファイルと同じフォルダの `logs\`）に日付ごとのファイルができ、パスワードが出ていないか | `logs\irl-live-keeper-YYYY-MM-DD.log` を開く || 2026-11-20: 合格 |
+| W5 | Job Object: タスクマネージャーの「詳細」で irl-live-keeper.exe を「タスクの終了」したら、mediamtx.exe も消えるか（「プロセス」の画面ではターミナルにまとめて表示されるので、「詳細」を使う） | `Get-Process mediamtx -ErrorAction SilentlyContinue` に何も出ないか | |
 | W6 | Job Object が使えない場合の警告（入れ子にできない Job の中から起動したとき。VS Code のターミナルなど）。警告が出ても動き、終了時に MediaMTX が残らないか | ログの WARN、タスクマネージャー | |
-| W7 | Ctrl+C で終了コード 0、MediaMTX が止まる | ターミナル、タスクマネージャー | |
-| W8 | コンソールの「×」で閉じたとき、MediaMTX が残らないか（Windows は閉じるときに数秒しか待たない。Job Object で消えるはず） | タスクマネージャー | |
+| W7 | Ctrl+C で終了コード 0、MediaMTX が止まる | ターミナル、タスクマネージャー || 2026-11-20: 合格。動作中は `Get-Process mediamtx` に1行、Ctrl+C のあとは何も出ない |
+| W8 | コンソールの「×」で閉じたとき、MediaMTX が残らないか（Windows は閉じるときに数秒しか待たない。Job Object で消えるはず） | タスクマネージャー || 2026-11-20: 合格。「×」で閉じたあと `Get-Process mediamtx` に何も出ない |
 
 ## 2. spike ① OBS の読み出し URL とメディアソースの設定
 
