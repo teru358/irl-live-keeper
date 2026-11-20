@@ -1,7 +1,7 @@
 # irl-live-keeper 設計 — 全体構成と第1段階（コア）
 
 - 作成日: 2026-11-18
-- 版: v2.13（変更は末尾の変更履歴を参照）
+- 版: v2.14（変更は末尾の変更履歴を参照）
 - 状態: ユーザー承認済みの設計（セクション1〜5）を文書化したもの。v2.0 でシーンのモデルを 2026-11-19 のユーザーの裁定に合わせて書き直した（6章の末尾に「実装前に決めたこと」がある）
 - 対象バージョン: MediaMTX v1.21.4（2026-11-15 リリース）、obs-websocket v5
 
@@ -44,13 +44,13 @@ Discord / Twitch 連携、手動の待機 ON / OFF 以外のシーンを切り�
  ├ ingest     : 1秒ごとに API を読み、受信バイト数の差分からビットレートを出す（SRT は RTT・ロスも）
  ├ switcher   : 状態機械（監視対象のシーンと待機シーンの切替を判定する）
  ├ obs        : obs-websocket v5 へ常に1本つなぐ（自動再接続）
- ├ web        : API / 管理ページ / オーバーレイ / SSE 配信
+ ├ web        : API / 管理ページ / ソースのページ（第2段階） / SSE 配信
  └ config     : config.yaml が唯一の設定元
 ```
 
 - 管理ページと API はパスワードで保護する。待ち受けの既定は `127.0.0.1`（OBS と同じ PC から操作する）。別 PC から操作するときは、利用者が config の `admin.lan` を true にし（すべてのインターフェースで待ち受ける）、起動時に警告を出す。ルーターで転送しない
 - 配布物: zip に `irl-live-keeper(.exe)`、`mediamtx(.exe)`、ライセンス表記（MediaMTX は MIT）を入れる。`config.yaml` は初回起動時に生成する
-- 生成物（`config.yaml`、`mediamtx.yml`、`logs/`）は実行ファイルと同じディレクトリに置く
+- 生成物（`config.yaml`、`mediamtx.yml`、`logs/`。第2段階では `history/` と `sources.yaml` も）は実行ファイルと同じディレクトリに置く。`--dir` を付けたときはそのフォルダに置く（第2段階の spec 3章）
 - Go の依存: obs-websocket は `github.com/andreykaipov/goobs`、HTTP は標準の `net/http`、設定は YAML（`gopkg.in/yaml.v3`）、ログは `log/slog`、Windows の Job Object は `golang.org/x/sys/windows`。管理ページは素の HTML と JS を `go:embed` で埋め込み、ビルド工程は持たない
 
 ### 段階
@@ -781,3 +781,4 @@ goobs のラッパーは実際の OBS を相手に手動で確かめる。自動
 | 2026-11-20 | v2.11 | 2章の段階表を、第2段階の spec（小さな窓、管理ページ、ソース）に合わせた。第3段階のオーバーレイは第2段階の 2b に統合した | 2026-11-20 の第2段階の brainstorming | この版の commit |
 | 2026-11-20 | v2.12 | 4章に `gui.close_action` と、`Validate` が項目ごとの理由を返すことを足した。6章の V-01、V-07 の見直しの結果（そのままにする）を書いた。8章の Job Object で、ブラウザとフォルダを開く子だけ breakaway を許した。GUI の版の MediaMTX に `CREATE_NO_WINDOW` を付ける。api の資格情報と送信用の host の決め直しを、第2段階の世代と設定の反映に合わせた。9章の `WWW-Authenticate` を、`Authorization` ヘッダーがあるときだけにした。シーンの設定を送る経路と、できごとの購読を第2段階の spec に結んだ。10章で、日付が変わったときにもログを消す。10章に、第2段階の `--dir`、systemd から起動したときに起動の表示のパスワードを伏せること、動作中に変えたパスワードを置き換えの対象に足すことへの参照を足した。13章の MediaMTX の設定を「再起動して反映」にした。どれも第2段階の spec v0.2 に合わせた | Fable と codex sol の設計レビュー 1 周目（Fable: Critical 2 / Important 14 / Minor 13、sol: Critical 0 / Important 17 / Minor 2）と、2026-11-20 のユーザーの裁定 | この版の commit |
 | 2026-11-20 | v2.13 | `admin.listen` を `admin.port`（既定 8787）と `admin.lan`（既定 false。false は `127.0.0.1` だけ、true はすべてのインターフェース）に分け、ひな形、検証、`Warnings` の文、古い `admin.listen` の扱いを直した（2章、4章）。中継 PC では `admin.lan` も true にする（1章）。9章の中核ループの `select` が受けるものと、容量1の応答用チャネルに、設定の差し替えの要求を足した。API の確かめる順に、第2段階の 429 と `/api/login` の独自ヘッダーへの参照を足した。待ち受けのアドレスを `admin.port` と `admin.lan` で書いた。10章の `InitJob` はプロセスの寿命のもので窓の前に1回、起動の表示は最初の世代でだけ、`mediamtx.binary` が空のときの場所を書いた。13章の LAN 公開のリスクを、第2段階でできること（すべてのパスワードの表示、設定の変更）と、`mediamtx.binary` と `log.dir` を同じ PC からだけ変えられることに合わせて書き直した。どれも第2段階の spec v0.3 に合わせた | Fable と codex sol の設計レビュー 2 周目（Fable: Critical 0 / Important 9 / Minor 12、sol: Critical 0 / Important 8 / Minor 1）と、2026-11-20 のユーザーの裁定 | この版の commit |
+| 2026-11-20 | v2.14 | 2章の古い文を直した（生成物の置き場所に `history/`、`sources.yaml`、`--dir` を足し、部品の図の「オーバーレイ」を「ソースのページ」に） | 第2段階の task 表を作る中で見つかった | この版の commit |
