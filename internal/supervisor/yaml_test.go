@@ -186,3 +186,43 @@ func TestCheckPorts(t *testing.T) {
 		}
 	}
 }
+
+// 全インターフェースのポートは、ほかのプロセスが IPv4 の 0.0.0.0:port を使っているときにも
+// 落ちて、そのポート名と tcp4 / udp4 がエラーに出ることを確かめる（Windows の実機で見つかった形）。
+func TestCheckPortsIPv4Wildcard(t *testing.T) {
+	cases := []struct {
+		name, network string
+		port          func(*config.Config) *int
+	}{
+		{"rtmp_port", "tcp4", func(c *config.Config) *int { return &c.MediaMTX.RTMPPort }},
+		{"srt_port", "udp4", func(c *config.Config) *int { return &c.MediaMTX.SRTPort }},
+		{"rtsp_port", "tcp4", func(c *config.Config) *int { return &c.MediaMTX.RTSPPort }},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			cfg := freePorts(t)
+			port := *c.port(cfg)
+			addr := "0.0.0.0:" + strconv.Itoa(port)
+			var closer interface{ Close() error }
+			var err error
+			if c.network == "udp4" {
+				closer, err = net.ListenPacket(c.network, addr)
+			} else {
+				closer, err = net.Listen(c.network, addr)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer closer.Close()
+			err = CheckPorts(cfg)
+			if err == nil {
+				t.Fatal("IPv4 の 0.0.0.0 で使用中なのに成功した")
+			}
+			for _, want := range []string{c.name, strconv.Itoa(port), "（" + c.network + "）", "mediamtx が残っていない"} {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("エラー文に %q がありません: %v", want, err)
+				}
+			}
+		})
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"strings"
 
 	"github.com/teru358/irl-live-keeper/internal/config"
 )
@@ -105,6 +106,8 @@ func hostPort(host string, port int) string {
 }
 
 // CheckPorts は MediaMTX と同じ形でポートを listen できるか確かめ、すぐ閉じる。
+// 全インターフェースのポートは、IPv4 の 0.0.0.0:port を先に、:port をあとに確かめる。
+// Windows では :port が IPv4 の 0.0.0.0:port の使用中も開けてしまうため。
 // 補助の診断であって、ポートの予約ではない。
 func CheckPorts(cfg *config.Config) error {
 	m := cfg.MediaMTX
@@ -112,8 +115,11 @@ func CheckPorts(cfg *config.Config) error {
 		name, network, addr string
 		port                int
 	}{
+		{"rtmp_port", "tcp4", "0.0.0.0:%d", m.RTMPPort},
 		{"rtmp_port", "tcp", ":%d", m.RTMPPort},
+		{"srt_port", "udp4", "0.0.0.0:%d", m.SRTPort},
 		{"srt_port", "udp", ":%d", m.SRTPort},
+		{"rtsp_port", "tcp4", "0.0.0.0:%d", m.RTSPPort},
 		{"rtsp_port", "tcp", ":%d", m.RTSPPort},
 		{"api_port", "tcp", "127.0.0.1:%d", m.APIPort},
 	}
@@ -121,10 +127,10 @@ func CheckPorts(cfg *config.Config) error {
 		addr := fmt.Sprintf(c.addr, c.port)
 		var closer interface{ Close() error }
 		var err error
-		if c.network == "udp" {
-			closer, err = net.ListenPacket("udp", addr)
+		if strings.HasPrefix(c.network, "udp") {
+			closer, err = net.ListenPacket(c.network, addr)
 		} else {
-			closer, err = net.Listen("tcp", addr)
+			closer, err = net.Listen(c.network, addr)
 		}
 		if err != nil {
 			return fmt.Errorf("mediamtx.%s のポート %d（%s）を使えません。前回の mediamtx が残っていないか確認してください: %w",
