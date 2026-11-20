@@ -21,7 +21,7 @@
 
 | # | 確かめること | 見るところ | 結果 |
 |---|---|---|---|
-| W1 | ポートの事前確認。1935 / 8890 / 8554 / 9997 / 8787 がほかのソフトで使われていないか。使われていたら、表示される理由で止まるか | 起動の表示、終了コード | |
+| W1 | ポートの事前確認。1935 / 8890 / 8554 / 9997 / 8787 がほかのソフトで使われていないか。使われていたら、表示される理由で止まるか。わざと使用中にするには、別の窓で `powershell -ExecutionPolicy Bypass -File .\occupy-ports.ps1 -Target rtmp` を動かしたまま本体を起動する（`-Target` は rtmp / srt / rtsp / api / admin。Enter で解放）。Linux では 5つとも終了コード 1 と理由が出て、MediaMTX は残らなかった | 起動の表示、終了コード（PowerShell で `$LASTEXITCODE`） | |
 | W2 | 送信用 URL の host の自動（LAN の IPv4）。Hyper-V、WSL、VPN、VirtualBox などの仮想アダプターがあると、そちらのアドレスが選ばれないか | 起動の表示の SRT / RTMP の URL。違っていたら `stream.publish_host` に書いて直るか | |
 | W3 | `config.yaml` に日本語や絵文字のシーン名（「⚠回線待機中」など）を書いても、OBS のシーンと一致するか | status の `warnings` が空か、切替が動くか | |
 | W4 | ログの置き場所（実行ファイルと同じフォルダの `logs\`）に日付ごとのファイルができ、パスワードが出ていないか | `logs\irl-live-keeper-YYYY-MM-DD.log` を開く | |
