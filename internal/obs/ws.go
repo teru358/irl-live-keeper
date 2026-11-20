@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/http"
 	"strconv"
 	"sync"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/andreykaipov/goobs/api/events"
 	"github.com/andreykaipov/goobs/api/requests/mediainputs"
 	"github.com/andreykaipov/goobs/api/requests/scenes"
+	"github.com/gorilla/websocket"
 
 	"github.com/teru358/irl-live-keeper/internal/switcher"
 )
@@ -55,6 +57,8 @@ type WS struct {
 	cfg    Config
 	log    *slog.Logger
 	events chan switcher.Event
+	// timeout は goobs の応答待ち。テストで短くする。
+	timeout time.Duration
 
 	mu       sync.RWMutex
 	cli      *goobs.Client
@@ -68,7 +72,7 @@ func New(cfg Config, log *slog.Logger) *WS {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &WS{cfg: cfg, log: log, events: make(chan switcher.Event, eventBuffer)}
+	return &WS{cfg: cfg, log: log, events: make(chan switcher.Event, eventBuffer), timeout: responseTimeout}
 }
 
 // Events は switcher に渡すイベントの列。
@@ -104,15 +108,12 @@ func (w *WS) Run(ctx context.Context) {
 // session は1回の接続を、切れるか ctx が終わるまで扱う。OBSConnected を流せたかを返す。
 func (w *WS) session(ctx context.Context) (connected bool) {
 	addr := net.JoinHostPort(w.cfg.Host, strconv.Itoa(w.cfg.Port))
-	opts := []goobs.Option{goobs.WithResponseTimeoutDuration(responseTimeout)}
-	if w.cfg.Password != "" {
-		opts = append(opts, goobs.WithPassword(w.cfg.Password))
-	}
-	cli, err := goobs.New(addr, opts...)
+	cli, conn, err := w.dial(ctx, addr)
 	if err != nil {
 		w.log.Warn("OBS に接続できない", "addr", addr, "err", err)
 		return false
 	}
+	defer conn.close()
 	defer cli.Disconnect()
 
 	first, err := w.fetchConnected(cli)
@@ -149,6 +150,72 @@ func (w *WS) session(ctx context.Context) (connected bool) {
 			w.handle(ctx, cli, ev)
 		}
 	}
+}
+
+// connRecorder は dial で開いた接続を記録し、あとから閉じられるようにする。
+// goobs.New は失敗しても接続を閉じないため、こちらで閉じる。何度閉じてもよい。
+type connRecorder struct {
+	mu    sync.Mutex
+	conns []net.Conn
+}
+
+func (r *connRecorder) add(c net.Conn) {
+	r.mu.Lock()
+	r.conns = append(r.conns, c)
+	r.mu.Unlock()
+}
+
+func (r *connRecorder) close() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, c := range r.conns {
+		_ = c.Close()
+	}
+}
+
+// dial は goobs.New で OBS に接続する。失敗したときと、実行中に ctx が終わったときは、
+// 開いた接続を閉じる。成功したら接続は cli.Disconnect と、返す記録で閉じる。
+func (w *WS) dial(ctx context.Context, addr string) (*goobs.Client, *connRecorder, error) {
+	rec := &connRecorder{}
+	nd := &net.Dialer{}
+	dialer := &websocket.Dialer{
+		Proxy:            http.ProxyFromEnvironment,
+		HandshakeTimeout: 45 * time.Second,
+		NetDialContext: func(_ context.Context, network, address string) (net.Conn, error) {
+			c, err := nd.DialContext(ctx, network, address)
+			if err != nil {
+				return nil, err
+			}
+			rec.add(c)
+			return c, nil
+		},
+	}
+	opts := []goobs.Option{
+		goobs.WithResponseTimeoutDuration(w.timeout),
+		goobs.WithDialer(dialer),
+	}
+	if w.cfg.Password != "" {
+		opts = append(opts, goobs.WithPassword(w.cfg.Password))
+	}
+
+	done := make(chan struct{})
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		select {
+		case <-ctx.Done():
+			rec.close()
+		case <-done:
+		}
+	}()
+	cli, err := goobs.New(addr, opts...)
+	close(done)
+	<-stopped
+	if err != nil {
+		rec.close()
+		return nil, nil, err
+	}
+	return cli, rec, nil
 }
 
 // emit は Event を流す。ctx が終わったら false。

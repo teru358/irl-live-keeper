@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
@@ -110,9 +111,16 @@ func authorized(r *http.Request, password string) bool {
 	if !ok {
 		user, pass = "", ""
 	}
-	userOK := subtle.ConstantTimeCompare([]byte(user), []byte(username))
-	passOK := subtle.ConstantTimeCompare([]byte(pass), []byte(password))
+	// 長さで比較の時間が変わらないよう、どちらも SHA-256 にしてから比べる。
+	userOK := equalHashed(user, username)
+	passOK := equalHashed(pass, password)
 	return userOK&passOK == 1
+}
+
+func equalHashed(a, b string) int {
+	ha := sha256.Sum256([]byte(a))
+	hb := sha256.Sum256([]byte(b))
+	return subtle.ConstantTimeCompare(ha[:], hb[:])
 }
 
 func writeError(w http.ResponseWriter, status int, message string) {

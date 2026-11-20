@@ -498,6 +498,7 @@ type Client interface {
 - シーンの取得・設定・監視は program だけを対象にする（`GetCurrentProgramScene`、`SetCurrentProgramScene`、`CurrentProgramSceneChanged`）。Studio Mode の preview は扱わない
 - トランジションの変更（`CurrentSceneTransitionChanged`、`CurrentSceneTransitionDurationChanged`）を `TransitionChanged` として流す
 - goobs の要求は context を受け取らず、応答待ちの既定は10秒。ラッパーは `WithResponseTimeoutDuration` で応答待ちを5秒にする。タイムアウトは失敗として返す
+- **接続の失敗で残さない:** goobs v1.11.1 の `New` は、認証の失敗やタイムアウトで失敗したとき、開いた接続を閉じずにエラーを返す（Client も返さないので `Disconnect` を呼べない）。そのままでは再接続のたびに接続と goroutine が残る。ラッパーは `WithDialer` で自前の dialer を渡し、開いた接続を手元に持つ。`New` が失敗したら、その接続を自分で閉じる。`ctx` が終わったら、接続中（dial と認証の待ち）でも接続を閉じ、`Run` を早く抜ける（認証の待ちは goobs の中にあるので、最長で応答待ちの5秒は残る）
 - バッチ内の失敗の扱いは 6章「バッチ内の失敗」のとおり（実行役が行う）
 - 中核ループは `Client` インターフェースだけに依存し、テストでは偽物に差し替える
 
@@ -592,6 +593,7 @@ goroutine 1本が switcher の状態を持ち、次を `select` で受ける: in
 - `GET /api/status` も認証が要る（`urls` に資格情報を含む URL があるため）。401 の本文に状態は出さない
 - 独自ヘッダーは値がちょうど `1` のときだけ通す。ない、空、ほかの値は 403
 - メソッドが違うときは 405 とし、`Allow` を付ける（status は GET、操作は POST）
+- パスワードの比較は、両方を SHA-256 にしてから `subtle.ConstantTimeCompare` で行う（長さの違いで比較の時間が変わらないように）
 - 本文はすべて JSON（`Content-Type: application/json; charset=utf-8`）。status 以外は、200 が `{"ok": true}`、エラーが `{"error": "<理由>"}`
 - 想定外のエラーは 500
 - web は要求、`Authorization`、status の中身をログに書かない（10章）。待ち受けのアドレスと `http.Server` の設定は main で行う
@@ -720,6 +722,7 @@ goobs のラッパーは実際の OBS を相手に手動で確かめる。自動
 - 回線が悪い間に人が監視対象のシーンへ切り替えると、すぐ待機シーンへ戻される。屋外の配信者がそれに気づく手段は、当面は待機シーンの名前だけ（6章「検討事項」の案 A）
 - 配信開始時の切替は `STARTED` で検知するので、配信の最初のわずかな間は切替前のシーンが配信に出る（6章、12章の spike ④）
 - SRT の streamid と RTMP のクエリに含めた資格情報は暗号化されない（SRT のパスフレーズは第1段階では使わない）
+- goobs v1.11.1 の制約: 認証の応答待ちがタイムアウトしたあとに OBS の Hello が届くと、goobs の中の goroutine が1本、送り先のないチャネルへの送信で止まったまま残る（接続はラッパーが閉じる。7章）。接続の失敗が続く間は、この goroutine が少しずつ増えうる。goobs を直すか更新するまでの制約とする
 - MediaMTX の受信サーバーの設定（ポートなど）や path の認証設定を変えると、配信が切れる。第2段階の設定編集では「配信中に変えると切れる」設定として扱う
 
 ## 変更履歴
@@ -738,4 +741,4 @@ goobs のラッパーは実際の OBS を相手に手動で確かめる。自動
 | 2026-11-19 | v2.1 | 期待に登録時の `ConfigEpoch` を持たせ、設定が変わったあとの期待は持ち主と戻り先に作用しないとした。期待が残る間は StandbyOn を受け付けない。開始時の切替が無効でも通常の自動切替は行うと結合テストを直した。テストのケースを5つ足した（6章、11章） | spec v2.0 の設計レビュー（codex sol: Critical 0 / Important 3 / Minor 0） | 5d87123 |
 | 2026-11-19 | v2.2 | 6章に「細部の規則（v2.1 の表を作る中で決めたこと）」を追加（V-01〜V-18）。13章に遅れて届いた本体の切替の制約を追記 | v2.1 の switcher の「入口 × 状態」の表を作る中で見つかった不明点。技術で決まるものとして、表の案どおりに決めた | 33f4d5a |
 | 2026-11-19 | v2.3 | status の `last_error` の形と、接続前の `scene_class` を定義（9章） | T9 の検収で、`last_error` の形が決まっていないことがわかった | 8a5a31f |
-| 2026-11-20 | v2.4 | API の細部を決めた: 確かめる順序（404 → 401 → 405 → 403）、`WWW-Authenticate`、独自ヘッダーの値、本文の形、中核ループが受け取らないときの 503、想定外の 500（9章）。ログの日付の切替、消すファイルの範囲、パスワードの置き換え（10章）。`log.dir` と `log.keep_days` の検証（4章）。送信用 URL の host を自動と手動で切り替える `stream.publish_host`（4章、8章）。OBS 用 URL は spike ① まで仮に RTSP（8章）。main の起動と終了の手順（10章）。`internal/redact` を足し、MediaMTX のログの置き換えも10章と同じ規則にした（3章、8章） | T10・T11 の準備で、決まっていない点が見つかった。publish_host と OBS 用 URL は 2026-11-20 のユーザーの裁定 | この版の commit |
+| 2026-11-20 | v2.4 | API の細部を決めた: 確かめる順序（404 → 401 → 405 → 403）、`WWW-Authenticate`、独自ヘッダーの値、本文の形、中核ループが受け取らないときの 503、想定外の 500（9章）。ログの日付の切替、消すファイルの範囲、パスワードの置き換え（10章）。`log.dir` と `log.keep_days` の検証（4章）。送信用 URL の host を自動と手動で切り替える `stream.publish_host`（4章、8章）。OBS 用 URL は spike ① まで仮に RTSP（8章）。main の起動と終了の手順（10章）。`internal/redact` を足し、MediaMTX のログの置き換えも10章と同じ規則にした（3章、8章）。OBS の接続に失敗したときに接続を自分で閉じる（7章、13章）。パスワードの比較を固定長にする（9章） | T10・T11 の準備で、決まっていない点が見つかった。publish_host と OBS 用 URL は 2026-11-20 のユーザーの裁定。7章・9章・13章は T10〜T11 のレビュー（codex sol: Critical 0 / Important 1 / Minor 1） | この版の commit |
