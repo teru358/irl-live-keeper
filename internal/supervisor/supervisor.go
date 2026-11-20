@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/teru358/irl-live-keeper/internal/config"
+	"github.com/teru358/irl-live-keeper/internal/redact"
 )
 
 // MediaMTX の状態。status の mediamtx に使う。
@@ -272,8 +273,8 @@ func spawn(cmd *exec.Cmd) (*child, error) {
 
 // lineWriter は MediaMTX の出力を行ごとに slog へ流す。秘密の文字列は *** に置き換える。
 type lineWriter struct {
-	log      *slog.Logger
-	replacer *strings.Replacer
+	log    *slog.Logger
+	masker *redact.Masker
 
 	mu      sync.Mutex
 	buf     bytes.Buffer
@@ -284,13 +285,7 @@ type lineWriter struct {
 var _ io.Writer = (*lineWriter)(nil)
 
 func newLineWriter(log *slog.Logger, secrets ...string) *lineWriter {
-	var pairs []string
-	for _, s := range secrets {
-		if s != "" {
-			pairs = append(pairs, s, "***")
-		}
-	}
-	return &lineWriter{log: log, replacer: strings.NewReplacer(pairs...)}
+	return &lineWriter{log: log, masker: redact.New(secrets...)}
 }
 
 func (w *lineWriter) Write(p []byte) (int, error) {
@@ -319,7 +314,7 @@ func (w *lineWriter) flush() {
 }
 
 func (w *lineWriter) emit(line string) {
-	line = w.replacer.Replace(strings.TrimRight(line, "\r\n"))
+	line = w.masker.Mask(strings.TrimRight(line, "\r\n"))
 	if line == "" {
 		return
 	}

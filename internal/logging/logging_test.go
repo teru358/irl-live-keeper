@@ -401,6 +401,7 @@ func TestOpenRejectsBadDir(t *testing.T) {
 }
 
 // 秘密は標準出力にもファイルにも出ず、*** に置き換わる。
+// 置き換えの規則の細部は internal/redact の単体テストで確かめる。ここでは、Open から書き込みまでの経路を確かめる。
 func TestSecretsAreMaskedInStdoutAndFile(t *testing.T) {
 	const pass = "SECRET123"
 	cases := []struct {
@@ -434,20 +435,6 @@ func TestSecretsAreMaskedInStdoutAndFile(t *testing.T) {
 			mustNot: []string{pass},
 		},
 		{
-			name:    "部分文字列の関係: 短い秘密を先に渡しても、長い方が *** になる",
-			secrets: []string{"abc", "abcdef"},
-			log:     func(l *slog.Logger) { l.Info("x", "v", "abcdef") },
-			must:    []string{"v=***"},
-			mustNot: []string{"def"},
-		},
-		{
-			name:    "部分文字列の関係: 長い秘密を先に渡した場合も同じ",
-			secrets: []string{"abcdef", "abc"},
-			log:     func(l *slog.Logger) { l.Info("x", "v", "abcdef") },
-			must:    []string{"v=***"},
-			mustNot: []string{"def"},
-		},
-		{
 			name:    "空の秘密は無視し、ほかの秘密は置き換える",
 			secrets: []string{"", pass},
 			log:     func(l *slog.Logger) { l.Info("起動した", "pass", pass, "port", 8787) },
@@ -460,6 +447,13 @@ func TestSecretsAreMaskedInStdoutAndFile(t *testing.T) {
 			log:     func(l *slog.Logger) { l.Info("x", "pass", `p"w\d`) },
 			must:    []string{`pass="***"`},
 			mustNot: []string{`p"w\d`, `p\"w\\d`},
+		},
+		{
+			name:    "途中で重なる2つの秘密は、どちらの文字も残さない",
+			secrets: []string{"xab", "bcd"},
+			log:     func(l *slog.Logger) { l.Info("x", "v", "xabcd", "end", "E") },
+			must:    []string{"v=*** end=E"},
+			mustNot: []string{"cd", "xab"},
 		},
 	}
 	for _, tc := range cases {
@@ -483,52 +477,6 @@ func TestSecretsAreMaskedInStdoutAndFile(t *testing.T) {
 				for _, s := range tc.mustNot {
 					if strings.Contains(out.text, s) {
 						t.Errorf("%s に %q が出た:\n%s", out.where, s, out.text)
-					}
-				}
-			}
-		})
-	}
-}
-
-// 途中で重なる秘密、隣り合う秘密、同じ秘密が1行に複数回出る場合を確かめる。
-// 重なる区間と隣り合う区間は1つにまとめるので、どの秘密の2文字以上の断片も残らない。
-func TestSecretsOverlappingSpansMerged(t *testing.T) {
-	cases := []struct {
-		name    string
-		secrets []string
-		value   string   // 属性の値として書く行
-		want    string   // 置き換えたあとの値
-		frags   []string // 残ってはいけない断片（秘密の2文字以上の部分）
-	}{
-		{"途中で重なる2つの秘密（xab と bcd）", []string{"xab", "bcd"}, "xabcd", "***", []string{"xa", "ab", "bc", "cd"}},
-		{"重なる2つの秘密を逆の順で渡しても同じ", []string{"bcd", "xab"}, "xabcd", "***", []string{"xa", "ab", "bc", "cd"}},
-		{"重なりが連鎖する3つの秘密", []string{"ab", "bc", "cd"}, "abcd", "***", []string{"ab", "bc", "cd"}},
-		{"隣り合う2つの秘密は1つの *** になる", []string{"ab", "cd"}, "abcd", "***", []string{"ab", "cd"}},
-		{"離れた2つの秘密はそれぞれ *** になる", []string{"ab", "cd"}, "abXcd", "***X***", []string{"ab", "cd"}},
-		{"同じ秘密が1行に2回出る", []string{"SECRET"}, "SECRET-SECRET", "***-***", []string{"SECRET"}},
-		{"長い秘密の中に短い秘密がある", []string{"abc", "abcdef"}, "xabcdefy", "x***y", []string{"abc", "def"}},
-		{"秘密が自分自身と重なる（aa は aaa で2回出る）", []string{"aa"}, "xaaay", "x***y", []string{"aa"}},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			dir := t.TempDir()
-			clk := &fakeClock{t: at(2026, 11, 20, 12, 0, 0)}
-			var stdout bytes.Buffer
-			lg := openLogger(t, dir, 14, tc.secrets, clk, &stdout)
-			lg.Slog().Info("x", "v", tc.value, "end", "E")
-			if err := lg.Close(); err != nil {
-				t.Fatalf("Close: %v", err)
-			}
-			file := readFile(t, filepath.Join(dir, "irl-live-keeper-2026-11-20.log"))
-
-			want := "v=" + tc.want + " end=E"
-			for _, out := range []struct{ where, text string }{{"標準出力", stdout.String()}, {"ファイル", file}} {
-				if !strings.Contains(out.text, want) {
-					t.Errorf("%s に %q がない:\n%s", out.where, want, out.text)
-				}
-				for _, f := range tc.frags {
-					if strings.Contains(out.text, f) {
-						t.Errorf("%s に秘密の断片 %q が残った:\n%s", out.where, f, out.text)
 					}
 				}
 			}

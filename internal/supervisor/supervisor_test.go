@@ -168,6 +168,35 @@ func TestLogForwardingMasksSecrets(t *testing.T) {
 	}
 }
 
+// MediaMTX の行の中で途中で重なる2つの秘密（publish_pass と read_pass）は、どちらの断片も残さない。
+// 行（slog の msg）と、最後の ERR の行（status の last_error）の両方を確かめる。
+func TestLineWriterMasksOverlappingSecrets(t *testing.T) {
+	const pub, read = "abcdefgh", "fghijklm" // 8文字以上。途中の fgh が重なる
+	buf := &syncBuf{}
+	log := slog.New(slog.NewTextHandler(buf, nil))
+	lw := newLineWriter(log, pub, read)
+
+	// 重なった文字列が1行に出る。ERR の行は last_error に使われる
+	fmt.Fprint(lw, "INF conn pass=abcdefghijklm\n")
+	fmt.Fprint(lw, "ERR auth failed for abcdefghijklm\n")
+
+	out := buf.String()
+	if !strings.Contains(out, `msg="INF conn pass=***"`) {
+		t.Errorf("行が置き換わっていない:\n%s", out)
+	}
+	if got, want := lw.lastErrorLine(), "ERR auth failed for ***"; got != want {
+		t.Errorf("lastErrorLine = %q, want %q", got, want)
+	}
+	// どちらの秘密の3文字以上の断片も、出力に残らない
+	union := "abcdefghijklm"
+	for i := 0; i+3 <= len(union); i++ {
+		frag := union[i : i+3]
+		if strings.Contains(out, frag) || strings.Contains(lw.lastErrorLine(), frag) {
+			t.Errorf("断片 %q が残った:\n出力: %s\nlast_error: %s", frag, out, lw.lastErrorLine())
+		}
+	}
+}
+
 func TestEarlyExitSetsLastError(t *testing.T) {
 	s, _ := newSup(t, "bindfail")
 	ctx, cancel := context.WithCancel(context.Background())

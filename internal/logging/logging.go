@@ -1,7 +1,6 @@
 package logging
 
 import (
-	"cmp"
 	"errors"
 	"fmt"
 	"io"
@@ -9,18 +8,15 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
+
+	"github.com/teru358/irl-live-keeper/internal/redact"
 )
 
 const (
 	// dateLayout はファイル名と、日付の比較に使う形式。
 	dateLayout = "2006-01-02"
-	// mask は秘密の代わりに書く文字列。
-	mask = "***"
 )
 
 // fileNameRe は消す対象の名前の形。日付の妥当性は time.Parse で確かめる。
@@ -38,11 +34,11 @@ type Options struct {
 // Logger は標準出力と日付ごとのログファイルへ書く。書き込みは Slog が返す slog.Logger を通して行う。
 type Logger struct {
 	// mu は file、fileDate、closed と、書き先への書き込みを守る。
-	mu       sync.Mutex
-	dir      string
-	stdout   io.Writer
-	now      func() time.Time
-	patterns []string // 置き換える秘密のパターン（newPatterns の結果）
+	mu     sync.Mutex
+	dir    string
+	stdout io.Writer
+	now    func() time.Time
+	masker *redact.Masker // 秘密を *** に置き換える
 
 	file     *os.File // 今日のファイル。Close まで開いたまま
 	fileDate string   // file の日付（YYYY-MM-DD）。file が nil のときは空
@@ -64,10 +60,10 @@ func Open(o Options) (*Logger, error) {
 		return nil, fmt.Errorf("logging: ログのディレクトリを作れない: %w", err)
 	}
 	l := &Logger{
-		dir:      o.Dir,
-		stdout:   o.Stdout,
-		now:      o.Now,
-		patterns: newPatterns(o.Secrets),
+		dir:    o.Dir,
+		stdout: o.Stdout,
+		now:    o.Now,
+		masker: redact.New(o.Secrets...),
 	}
 	if l.stdout == nil {
 		l.stdout = os.Stdout
@@ -131,7 +127,7 @@ func (l *Logger) write(p []byte) (int, error) {
 		return 0, os.ErrClosed
 	}
 
-	line := []byte(maskSecrets(string(p), l.patterns))
+	line := []byte(l.masker.Mask(string(p)))
 	var errs []error
 	if _, err := l.stdout.Write(line); err != nil {
 		errs = append(errs, err)
@@ -169,68 +165,6 @@ func (l *Logger) fileFor(date string) (*os.File, error) {
 	l.file = f
 	l.fileDate = date
 	return f, closeErr
-}
-
-// newPatterns は置き換える秘密のパターンを作る。空の秘密は無視する。
-// slog の TextHandler は、" や \ などを含む値を strconv.Quote の形で書くので、その形のパターンも加える。
-func newPatterns(secrets []string) []string {
-	var pats []string
-	for _, s := range secrets {
-		if s == "" {
-			continue
-		}
-		pats = append(pats, s)
-		if q := strconv.Quote(s); q[1:len(q)-1] != s {
-			pats = append(pats, q[1:len(q)-1])
-		}
-	}
-	return pats
-}
-
-// span は行の中の区間 [from, to)。
-type span struct{ from, to int }
-
-// maskSecrets は line の中で、いずれかのパターンに一致する箇所をすべて mask に置き換える。
-// 一致は重なるものも含めてすべて集め、重なる区間と隣り合う区間を1つにまとめてから置き換える。
-// そのため、途中で重なる2つの秘密の、どちらの文字も残らない。
-func maskSecrets(line string, patterns []string) string {
-	var spans []span
-	for _, p := range patterns {
-		// 1バイトずつずらして探し、重なる一致も漏らさない
-		for from := 0; from < len(line); {
-			i := strings.Index(line[from:], p)
-			if i < 0 {
-				break
-			}
-			start := from + i
-			spans = append(spans, span{start, start + len(p)})
-			from = start + 1
-		}
-	}
-	if len(spans) == 0 {
-		return line
-	}
-
-	slices.SortFunc(spans, func(a, b span) int { return cmp.Compare(a.from, b.from) })
-	merged := spans[:1]
-	for _, s := range spans[1:] {
-		last := &merged[len(merged)-1]
-		if s.from <= last.to { // 重なる、または隣り合う
-			last.to = max(last.to, s.to)
-		} else {
-			merged = append(merged, s)
-		}
-	}
-
-	var b strings.Builder
-	prev := 0
-	for _, s := range merged {
-		b.WriteString(line[prev:s.from])
-		b.WriteString(mask)
-		prev = s.to
-	}
-	b.WriteString(line[prev:])
-	return b.String()
 }
 
 // prune は dir の直下にある、名前が irl-live-keeper-YYYY-MM-DD.log の形の通常ファイルのうち、
