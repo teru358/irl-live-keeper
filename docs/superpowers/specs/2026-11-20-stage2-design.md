@@ -1,9 +1,9 @@
 # irl-live-keeper 設計 — 第2段階（小さな窓、管理ページ、ソース）
 
 - 作成日: 2026-11-20
-- 版: v0.1（変更は末尾の変更履歴を参照）
-- 状態: 2026-11-20 の brainstorming でユーザーが節ごとに承認した内容を文書化したもの。レビュー前
-- 前提: 第1段階の spec `docs/superpowers/specs/2026-11-18-core-design.md`（v2.10。以下「コアの spec」）。第1段階は Linux と Windows の実機で確認済み
+- 版: v0.2（変更は末尾の変更履歴を参照）
+- 状態: 2026-11-20 の brainstorming でユーザーが節ごとに承認した内容を文書化したもの。v0.2 で、設計レビュー1周目（Fable、codex sol）の指摘と、2026-11-20 のユーザーの裁定（設定の反映を2段階にする、2a から削るもの）を反映した
+- 前提: 第1段階の spec `docs/superpowers/specs/2026-11-18-core-design.md`（v2.12。以下「コアの spec」）。第1段階は Linux と Windows の実機で確認済み
 
 ## 1. 目的と範囲
 
@@ -17,8 +17,11 @@
 
 | 区分 | 中身 |
 |---|---|
-| **2a** | 小さな窓、管理ページの土台、ログインとセッション、状態とグラフ、操作、設定の編集と反映、URL と QR、ログの表示、配信の記録、Linux のサービス |
+| **2a** | 小さな窓、管理ページの土台、ログインとセッション、状態とグラフ、操作、設定の編集と反映（中での再起動を含む）、URL と QR、ログの表示、配信の記録、Linux のサービス |
 | **2b** | ソース（テンプレート、条件式、カード、装飾、`/source/<名前>`） |
+
+- 2a の task 表は、土台（app と世代、窓、認証、状態、操作、URL、ログ）→ 設定の反映 → 配信の記録 の順に切り、区切りごとに実機で確かめる
+- 2a で作らないもの（2026-11-20 のユーザーの裁定）: 配信の記録の詳しい画面で、拡大した範囲を細かく取り直すこと（`?from=&to=&points=`）。ログインの待ちを倍々に延ばすこと（一定の待ちにする。第6節）。`service install` / `uninstall` と CSV は作る
 
 コアの spec 2章の段階表の「3. オーバーレイ（OBS のテキストソースを書き換える方向）」は、この文書の 2b に置き換える。ブラウザソースで、テキストソースと同等以上の表現（フォント、縁取り、影、背景、縦書き、アニメーション）ができるので、OBS のテキストソースへの書き込みは作らない（2026-11-20 のユーザーの判断）。
 
@@ -35,11 +38,12 @@
 ```
 irl-live-keeper(.exe)
  ├ gui（新規、Windows だけ）… 小さな窓。状態の数行、ボタン、案内の欄
- ├ app（新規）     … 起動から終了までの流れ。設定の反映（部品のつなぎ直し、中での再起動）
+ ├ app（新規）     … 起動から終了までの流れ。世代（第7節）の作成と停止、設定の反映
  ├ web（拡張）     … 管理ページ（HTML/JS/CSS を go:embed）、ログインとセッション、JSON API、
  │                    SSE、/source/<名前>（2b）
  ├ history（新規） … 直近10分の記録（メモリ）、配信ごとの記録（ファイル）
- ├ settings（新規）… config.yaml の読み書き（コメントを残す）、変えた項目の反映の仕方の判定
+ ├ settings（新規）… config.yaml の読み書き（コメントと空行を残す）、変えた項目の反映の仕方
+ │                    （すぐ反映 / 再起動して反映）の判定
  ├ sources（新規、2b）… テンプレートの読み取りと計算、sources.yaml の読み書き
  └ 第1段階の部品   … core、switcher、ingest、obs、supervisor、logging、redact、config
 ```
@@ -49,34 +53,47 @@ irl-live-keeper(.exe)
 
 ### データの流れ
 
-- core は状態を作るたびに Snapshot を公開する（今の仕組み）。それに加えて、公開したことを知らせる通知（容量1のチャネルへ止まらずに送る、など）を足し、history と web が受け取る
-- history は1秒ごとに Snapshot から値を取って記録する（第8節）
-- web は SSE で、状態が変わったときと1秒ごとに、状態と直近の値をブラウザへ送る。管理ページとソースのページは同じ流れを受ける
-- 設定を保存すると、settings が config.yaml を書き換え、変わった項目に応じて app が反映する（第7節）
+- core は状態を作るたびに Snapshot を公開する（今の `atomic.Pointer`）。加えて、公開したことの知らせを、受け手ごとに登録する形で送る（受け手ごとに容量1のチャネルへ止まらずに送り、満ちていれば送らない。受け手は知らせを受けたら最新の Snapshot を読む）。途中の Snapshot は飛んでよい。表示のためのもの
+- 記録のためには、core が**できごと**を型のある値として出す（第8節「できごとの出し方」）。Snapshot の変化からは作らない（Snapshot には、人の切替の印、切替の理由、Command がなく、途中の状態も飛ぶため）
+- 1秒ごとの値は、Poller の Sample が届いたときに core が1件のできごと（`sample`。Sample の時刻つき）として出す。Snapshot を1秒ごとに読む形にしない
+- history は、できごとを受けて、直近10分と配信ごとの記録を作る（第8節）
+- web は、管理ページへ `/api/events`（認証が要る）で、状態、1秒ごとの値、ログ、ソースの文字（2b）を送る。ソースのページは別の SSE（`/source/{name}/events`、認証なし）で、組み立てた文字だけを受ける。Snapshot はソースのページへ渡さない（`urls` に資格情報があるため）
+- 設定を保存すると、settings が config.yaml を書き換え、app が反映する（第7節）
 
 ### 依存の追加
 
 - 小さな窓: Go だけで書かれた Win32 のライブラリ（C のコンパイラを要らなくし、Linux から Windows 向けにビルドできることを保つ）。候補は実装の前に比べて決める（第12節）
 - 画面の JS: グラフ（uPlot など）と QR コード（qrcode-generator など）の、それぞれ1ファイルの MIT のライブラリを同梱する。ビルドの工程は持たない
-- Go の依存はほかに増やさない（YAML のコメントを残す書き換えは yaml.v3 の Node で行う）。追加した依存は THIRD_PARTY_NOTICES.md に足す
+- Go の依存はほかに増やさない（config.yaml の書き換えは、yaml.v3 の Node で値の位置を見つけ、元の文字列のその部分を差し替える。第7節）。追加した依存は THIRD_PARTY_NOTICES.md に足す
 
 ## 3. 起動の形
 
 ### Windows
 
-- GUI のアプリとしてビルドする（`-ldflags -H=windowsgui`）。コンソールの窓は出さない
-- 起動の表示（送信用 URL、OBS 用 URL、生成したパスワード）は、コンソールではなく、小さな窓の案内の欄と管理ページで見せる。ログはファイルに残る（標準出力はない）
-- 第1段階のダブルクリックの起動のための「Enter を待つ」（コアの spec 10章）は、GUI の版では使わない（窓が残るので要らない）
+- GUI のアプリとしてビルドする（`-ldflags -H=windowsgui`）。コンソールの窓は出さない。Windows ではこの GUI の版だけを配る（コンソールの版は配らない）
+- MediaMTX は、`CREATE_NEW_PROCESS_GROUP` に加えて `CREATE_NO_WINDOW` で起動する（コンソールを持たない親がコンソールのアプリを起動すると、子のためにコンソールの窓ができるため。その窓を閉じると MediaMTX が止まる）
+- 起動の表示（送信用 URL、OBS 用 URL、生成したパスワード）は、コンソールではなく、小さな窓の案内の欄と管理ページで見せる。ログはファイルに残る
+- 標準出力と標準エラーはない。logging には捨てる書き先を渡し、ファイルにだけ書く。落ちたときの出力（panic）は、`debug.SetCrashOutput` で `<置き場所>/logs/crash-YYYYMMDD-HHMMSS.log`（起動の時刻）に向ける。設定を読む前に向けるので、`log.dir` ではなく置き場所の決まったフォルダにする。このファイルは起動のときに開き、正常に終わるときに空なら消す
+- 第1段階のダブルクリックの起動のための「Enter を待つ」（コアの spec 10章。`pause.go` など）は、GUI の版では使わない（窓が残るので要らない）。`-H=windowsgui` を付けずにビルドした開発用のコンソールの版のために残す（Linux と macOS では今どおり働かない）
 - 実行ファイルにアイコンを付ける。アイコンは Windows の実行ファイルに取り込む部品（`.syso`）としてリポジトリに置き、Go のビルドが自動で取り込む（ビルドの手順は増やさない）
-- **二重の起動**: 起動の最初に、置き場所ごとの名前つきの mutex（`Local\irl-live-keeper-<置き場所のハッシュ>`）を取る。取れなければ、すでに動いている本体の窓を前に出して終わる
+- **起動の順**: 二重の起動の確認 → 窓を作る → 設定を読み（なければ作り）、世代を作る（第7節）。設定とログより先に窓を作るので、そのあとの起動の失敗（設定の誤り、ポートが使用中、など）は窓の案内の欄に出せる。窓を作れなければ、メッセージボックスで知らせ、ログを開ければ理由を残して終わる
+- **二重の起動**: 起動の最初に、置き場所ごとの名前つきの mutex（`Local\irl-live-keeper-<置き場所のハッシュ>`）を取る。取れなければ、すでに動いている本体の窓を前に出して終わる（最小化していれば、元に戻してから前に出す）
+  - 置き場所のハッシュは、置き場所のパスをそろえてから作る（絶対パスにし、シンボリックリンクを辿り、大文字・小文字をそろえる）
+  - 窓の印（クラス名か題名）にも同じハッシュを入れ、すでに動いている窓をこの印で探す
+- **ログオフとシャットダウン**: 窓が `WM_QUERYENDSESSION` / `WM_ENDSESSION` を受けたら、世代の止め方（第7節）を通って終わる
+- **ブラウザとフォルダを開く**（「管理ページを開く」「ログを開く」）: 本体の Job Object（コアの spec 8章）の外で起動する。Job に `JOB_OBJECT_LIMIT_BREAKAWAY_OK` を立て、開く処理のプロセスだけ `CREATE_BREAKAWAY_FROM_JOB` で起動する（そうしないと、Job の中で起動したブラウザが、本体の終了で一緒に閉じる）。MediaMTX はこの印を付けずに起動するので、今どおり Job に残る。開き方は実機で確かめる（第12節）
 
 ### Linux
 
 - コンソールのまま（今の作り）。常駐は systemd に任せる（自前でデーモンにはならない）
 - サービスの定義のひな形 `irl-live-keeper.service` を同梱する（`Restart=on-failure`、止めるときは SIGTERM）
-- 登録の手助け: `irl-live-keeper service install [--user|--system]` で、実行したユーザーで動くサービスの定義を `~/.config/systemd/user/` か `/etc/systemd/system/` に書き出し、`systemctl` の手順を表示する。`service uninstall` で消す
-- 置き場所の指定: `--dir <フォルダ>` で、config.yaml、mediamtx.yml、logs、history、sources.yaml の置き場所を指定できる。省略時は今どおり実行ファイルのフォルダ
-- ログは今どおり、ファイルと標準出力（systemd の journal）の両方に出る。起動の表示（URL、生成したパスワード）は標準出力にだけ出すので、journal と管理ページで確かめる
+- 登録の手助け: `irl-live-keeper service install [--user|--system] [--run-as <ユーザー>]` で、サービスの定義を `~/.config/systemd/user/` か `/etc/systemd/system/` に書き出し、`systemctl` の手順を表示する。`service uninstall` で消す
+  - 定義の `ExecStart` には `--dir <置き場所>` を書く
+  - `--user`: 実行したユーザーで動く。ログインしていない間も動かすには `loginctl enable-linger <ユーザー>` が要る、と案内する（画面のないサーバーで使う場合）
+  - `--system`: 動かすユーザーを `--run-as <ユーザー>` で決める（定義の `User=`）。省略したら `SUDO_USER`。決まったユーザーが root なら、書き出さずにエラーにする（root では動かさない）
+- 置き場所の指定: `--dir <フォルダ>` で、config.yaml、mediamtx.yml、logs、history、sources.yaml の置き場所を指定できる。省略時は今どおり実行ファイルのフォルダ。`--dir` を付けたときは、config の相対パス（`log.dir`、`mediamtx.binary`）の基準もそのフォルダにする
+- ログは今どおり、ファイルと標準出力（systemd の journal）の両方に出る（パスワードは `***` に置き換える。コアの spec 10章）
+- 起動の表示（URL、生成したパスワード）: 標準出力が端末でないとき、または systemd から起動したとき（環境変数 `INVOCATION_ID` がある）は、URL のパスワードを `***` にし、生成したパスワードは出さない。代わりに「送信用 URL と OBS 用 URL は管理ページで、生成したパスワードは管理ページか config.yaml で確かめる」と案内する。初回の起動に失敗して終わる前の、生成した管理 API のパスワードの表示（コアの spec 10章の手順1）も同じく出さない（journal は起動のたびに保存され、`--system` なら journal を読めるユーザーみなが読めるため）。端末から起動したときは今どおり
 
 ### macOS
 
@@ -104,17 +121,18 @@ irl-live-keeper(.exe)
   - OBS: 接続は緑、未接続は赤。配信中かどうかと、今のシーン
   - 待機: なし / 自動（戻り先）/ 手動（戻り先）
   - MediaMTX: 動作中は緑、起動中は黄、停止は赤
-- **「管理ページを開く」**: 使い捨ての合言葉つきの URL（第6節）で、既定のブラウザを開く
-- **「終了」**: 確認してから終了する。配信中なら「終了すると自動切替が止まります」と添える
+- **「管理ページを開く」**: 使い捨ての合言葉つきの URL（第6節。host は第6節「URL の host」）で、既定のブラウザを開く（Job の外で開く。第3節）
+- **「終了」**: 確認してから終了する。配信中なら「終了すると自動切替が止まります」と添える。世代の止め方（第7節）を通って終わる
 - **案内の欄**: 次を出す
   - 初回の起動: 「config.yaml を作りました。送信用 URL は管理ページで確かめてください」
   - 起動の失敗（ポートが使用中、など）: 理由と、「ログを開く」のボタン（ログのフォルダを開く）
   - 動いている間のエラー: `last_error` の内容
-  - 設定の反映の失敗: 理由と、「元に戻す」のボタン（第7節）
+  - 設定の反映（第7節）: 再起動して反映の間は「設定を反映しています（再起動中）」。世代を作れなかったときは、理由と「元に戻して再起動」のボタン
 - **窓の「×」**: 設定 `gui.close_action` に従う
   - `minimize`: タスクバーへ最小化する（動き続ける）
   - `confirm`（既定）: 確認してから終了する
   - `quit`: 確認せずに終了する
+  - 終了するときは、「終了」と同じく世代の止め方を通る
 - **起動に失敗しても窓は閉じない**: 理由を案内の欄に出したまま残る
 - 作らないもの: タスクトレイ、窓の中での設定の変更、グラフ（どれも管理ページで行う）
 
@@ -125,14 +143,14 @@ irl-live-keeper(.exe)
 | 画面 | 中身 |
 |---|---|
 | ログイン | パスワードの入力。小さな窓から開いたときは出ない |
-| 状態（最初の画面） | 回線、OBS、待機、MediaMTX、`last_error`、OBS の警告。操作のボタン（配信の開始と停止、手動の待機 ON / OFF）。直近10分のグラフ（第8節） |
+| 状態（最初の画面） | 小さな窓と同じ並び（回線、OBS、待機、MediaMTX）を大きく表示する。その下に `last_error` と OBS の警告、操作のボタン（配信の開始と停止、手動の待機 ON / OFF）、直近10分のグラフ（第8節） |
 | 配信の記録 | 一覧と詳しい画面（第8節） |
 | 送信の設定 | 送信用 URL（SRT、RTMP）と OBS 用 URL を、コピーのボタンと QR コードつきで表示する。RTMP は「アドレス」（`rtmp://<host>:<port>`）と「キー」（`live?user=…&pass=…`）に分けた形も出す（送信アプリの入れ方で迷わないように）。パスワードを作り直すボタン |
-| 設定 | 区分ごとの入力の欄と、反映の仕方の印（第7節） |
-| ソース | カードの一覧と編集（2b。第9節） |
+| 設定 | config.yaml の階層（管理 API、MediaMTX、送信、OBS、配信開始時、切替、ログ、窓）ごとに分け、左に大項目を並べて、選んだ項目を右に展開する。真偽の設定はスライド式のスイッチ。真偽と内容を一緒に持つ設定（`on_stream_start.enabled` と `scene` など）は、スイッチを有効にした時点で内容の欄を展開する。項目ごとに反映の仕方の印（すぐ反映 / 再起動して反映。第7節）。細部は詳細設計で詰める |
+| ソース | カードの一覧。カードを選ぶと拡大し、取り込みの素材（OBS のブラウザソースに入れる URL、おすすめの幅と高さ、取り込みの手順）を表示する。画面の決まった場所に「回線の状況のテスト」の切り替えを置き、選んだ状況に応じてカードのプレビューが切り替わる。作成と編集の画面はライブプレビューと、同じテストの切り替えを持つ（2b。第9節） |
 | ログ | 直近のログ（500行）。水準（INFO / WARN / ERROR）で絞り込める。自動で更新する |
 
-- 本体とつながらないとき（止まった、再起動中）は、画面の上に「本体につながっていません」と出し、自動でつなぎ直す
+- 本体とつながらないとき（止まった、再起動中）は、画面の上に「本体につながっていません」と出し、自動でつなぎ直す。再起動して反映（第7節）の間は「再起動しています」と出す
 - 画面の文言は日本語だけ（多言語は作らない）
 
 ## 6. API と認証
@@ -141,32 +159,52 @@ irl-live-keeper(.exe)
 
 - **ログインの画面とセッション**: `POST /api/login`（パスワード）で、セッションの Cookie を付ける
   - Cookie: `HttpOnly`、`SameSite=Strict`、`Path=/`。有効期間は最後の利用から7日（使うたびに延びる）
-  - セッションは本体のメモリにだけ持つ（本体を再起動すると、ログインし直す）。`POST /api/logout` で消す
-- **使い捨ての合言葉**（小さな窓から開くとき）: 窓が、本体の中で 128 ビットの乱数の合言葉を作り、`http://<admin.listen>/auth/once?t=<合言葉>` をブラウザで開く。`/auth/once` は合言葉を確かめて消し（1回だけ使える）、セッションの Cookie を付けて `/` へ移る。合言葉の有効期限は60秒
-- **ログインの総当たり対策**: 失敗が5回続いたら、次の受け付けまで30秒待たせる。以後、失敗が続くたびに待ちを倍にし、上限は5分。成功したら戻す。待たせている間の要求は 429
+  - セッションは本体のメモリにだけ持つ。プロセスの寿命のもの（第7節「世代」）なので、中での再起動では消えない。本体を終了して起動し直すと、ログインし直す。`POST /api/logout` で消す
+- **使い捨ての合言葉**（小さな窓から開くとき）: 窓が、本体の中で 128 ビットの乱数の合言葉を作り、`http://<host>:<port>/auth/once?t=<合言葉>`（host と port は下の「URL の host」）をブラウザで開く。`/auth/once` は合言葉を確かめて消し（1回だけ使える）、セッションの Cookie を付けて、すぐ `/` へ移る。合言葉の有効期限は60秒
+  - 応答に `Cache-Control: no-store` と `Referrer-Policy: no-referrer` を付ける。要求のログにクエリを書かない
+  - 合言葉が無効か期限切れなら、ログインの画面へ移す
+- **総当たり対策**: パスワードを照合するすべての経路（`POST /api/login` と、`/api/*` の Basic 認証）で、接続元の IP（`RemoteAddr` の host）ごとに失敗を数える。続けて5回失敗したら、その IP からの照合を30秒（一定。倍々には延ばさない）受け付けず、429 を返す（その間はパスワードを照合しない）。成功したら数を戻す。同時に来た要求も1件ずつ数える
+  - 有効なセッションの Cookie と、使い捨ての合言葉は、待ちの対象外（待たせている IP からでも通る）
 - **CSRF**: 書き換えの要求（POST、PUT、DELETE）には、今の独自ヘッダー `X-IRL-Live-Keeper: 1` を続けて求める（Cookie の認証でも）
 - **Basic 認証**: `/api/*` では今の Basic 認証も受け付ける（curl などのスクリプトのため）。画面のページ（`/`、`/assets/*`）は Basic 認証を求めず、未ログインならログインの画面を出す
-- **ソースのページ**（`/source/*`）: 認証なし（OBS のブラウザソースはログインできないため）。テンプレートで使える値から資格情報を含むもの（送信用 URL、OBS 用 URL、パスワード）を外す（第9節）
-- **資格情報を含む値**（送信用 URL、OBS 用 URL）は、認証した要求への応答にだけ入れる
+- **401 と `WWW-Authenticate`**: 401 に `WWW-Authenticate: Basic realm="irl-live-keeper"` を付けるのは、要求に `Authorization` ヘッダーがあったときだけにする（画面の fetch や EventSource が 401 を受けたときに、ブラウザの Basic 認証のダイアログを出さないため。出ると、そこで入力された資格情報をブラウザが覚え、ログアウトしても通るようになる）。コアの spec 9章「API の細部」も同じく直した
+- **ソースのページ**（`/source/*`）: 認証なし（OBS のブラウザソースはログインできないため）。テンプレートで使える値から資格情報を含むもの（送信用 URL、OBS 用 URL、パスワード）を外す（第9節）。ページに CSP `default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; font-src 'self' data:` を付ける。インラインのスクリプトは使わない。`style-src` に `'unsafe-inline'` を許すのは、OBS の「カスタム CSS」がインラインの style として入るため（承認済みの「カスタム CSS から直せる」を保つ）。自由な CSS は別のファイル（`style.css`）で配るので、HTML に入る経路はない（第9節）
+- **資格情報を含む値**（送信用 URL、OBS 用 URL）は、認証した要求への応答にだけ入れる。認証なしで返すのは、ソースのページの HTML、CSS、JS と、`/source/{name}/events`（組み立てた文字だけ）に限る
 - パスワードの比較は、今どおり SHA-256 にしてから定数時間で比べる
+
+### URL の host
+
+本体が作って人に見せる URL の host とポートを、次のとおり決める。IPv6 のアドレスは `[ ]` で囲む。
+
+| URL | host | ポート |
+|---|---|---|
+| 窓が開く管理ページの URL（使い捨ての合言葉つき）、`service install` の案内 | `admin.listen` の host が全インターフェース（`0.0.0.0`、`::`、空）か loopback なら `127.0.0.1`、特定のアドレスならそのアドレス | `admin.listen` のポート |
+| ソースのカードに出す URL（OBS のブラウザソースに入れる） | `stream.obs_read_host` が空でなければその値（OBS から本ツールへ届くアドレス）、空なら `127.0.0.1` | `admin.listen` のポート |
 
 ### API（第1段階に足すもの）
 
 | 区分 | エンドポイント | 中身 |
 |---|---|---|
 | 認証 | `POST /api/login`、`POST /api/logout`、`GET /auth/once?t=` | 上のとおり |
-| 状態 | `GET /api/status` | 今の形（コアの spec 9章）に、`gui.close_action` などの表示用の値を足してよい |
-| リアルタイム | `GET /api/events` | SSE。`event: status`（Snapshot。変わったときと1秒ごと）、`event: sample`（1秒ごとの値）、`event: log`（ログの行。ログの画面を開いているときだけ）。15秒ごとにコメント行で生存を知らせる。つなぎ直しは EventSource の自動再接続に任せる |
+| 状態 | `GET /api/status` | 今の形（コアの spec 9章）に、反映の状態 `apply`（第7節）と、`gui.close_action` などの表示用の値を足す |
+| リアルタイム | `GET /api/events` | SSE。認証が要る。`event: status`（Snapshot と反映の状態。変わったときと1秒ごと）、`event: sample`（1秒ごとの値）、`event: log`（ログの行。ログの画面を開いているときだけ）、`event: sources`（全ソースの組み立てた文字。2b。ソースの画面を開いているときだけ）。15秒ごとにコメント行で生存を知らせる。つなぎ直しは EventSource の自動再接続に任せる |
 | 記録 | `GET /api/history/recent`、`GET /api/history/sessions`、`GET /api/history/sessions/{id}`、`GET /api/history/sessions/{id}.csv` | 第8節 |
 | 設定 | `GET /api/settings`、`POST /api/settings/preview`、`PUT /api/settings`、`POST /api/settings/revert`、`POST /api/settings/regenerate` | 第7節 |
-| OBS | `GET /api/obs/scenes`、`GET /api/obs/inputs` | `GetSceneList` と `GetInputList`。未接続なら 503 |
-| 操作 | 今の `POST /api/stream/start|stop`、`/api/standby/on|off`。`POST /api/restart` | `restart` は本体を中で起動し直す |
-| ログ | `GET /api/logs?lines=500&level=` | 直近の行（本体のメモリに持つ直近の行。ファイルは読まない） |
-| ソース（2b） | `GET/POST /api/sources`、`GET/PUT/DELETE /api/sources/{name}`、`POST /api/sources/preview`、`GET /api/source-values` | 第9節 |
-| ソースのページ（2b） | `GET /source/{name}`、`GET /source/{name}/events` | 第9節。認証なし |
+| OBS | `GET /api/obs/scenes`、`GET /api/obs/inputs` | `GetSceneList` と `GetInputList`。未接続なら 503。2秒で応答がなければ 503（下） |
+| 操作 | 今の `POST /api/stream/start|stop`、`/api/standby/on|off`。`POST /api/restart` | `restart` は本体を中で起動し直す（第7節「世代」。202 を返す） |
+| ログ | `GET /api/logs?lines=500&level=` | 直近の行（本体のメモリに持つ直近の行。パスワードを置き換えたあとの行だけを持つ。ファイルは読まない） |
+| ソース（2b） | `GET/POST /api/sources`、`GET/PUT/DELETE /api/sources/{name}`、`POST /api/sources/preview`、`GET /api/source-values` | 第9節。どれも認証が要る |
+| ソースのページ（2b） | `GET /source/{name}`、`GET /source/{name}/style.css`、`GET /source/{name}/events`、`GET /source/assets/source.js` | 第9節。認証なし |
 
 - エラーの形は今どおり `{"error": "<理由>"}`。設定の検証の失敗は 422 で `{"error": "...", "fields": {"<項目>": "<理由>"}}`
-- obs に、`GetSceneList`、`GetInputList`、`SetInputSettings`（第7節）、`GetStats` と `GetStreamStatus` の統計（第9節の値）の要求を足す
+- obs に、`GetSceneList`、`GetInputList`、`GetInputSettings`、`SetInputSettings`（第7節）の要求を足す。これらと統計の `GetStats`・`GetStreamStatus`（第9節）は、**補助の接続**（goobs の Client をもう1本。応答待ちの上限は2秒）で送る。本来の接続は、自動切替と配信の操作（コアの spec 7章の要求）だけに使う。goobs は1つの Client の要求を1本の mutex で順に送り、応答待ちの上限は Client ごとで要求ごとには変えられないので、管理ページの要求が自動切替の `SetScene` を待たせないように分ける
+- 補助の接続は、使う要求があるとき（管理ページの一覧や書き換え、統計の値を使うソースのページがつながっているとき）だけ開き、使わなくなって30秒で閉じる。2秒で応答がなければ、その要求は 503
+
+### SSE の細部
+
+- SSE の応答だけ、`http.ResponseController` で書き込みの期限を外す（HTTP サーバーの `WriteTimeout` はほかの応答のために残す）
+- web は開いている SSE を一覧で持つ。止めるときは、HTTP サーバーを止める前に SSE をすべて閉じる（第7節の止める順）
+- web は core に受け手を1つ登録し、SSE の接続ごとに容量つきの列へ配る。列があふれた接続は閉じる（EventSource がつなぎ直す）
 
 ## 7. 設定の編集と反映
 
@@ -175,79 +213,196 @@ irl-live-keeper(.exe)
 - config.yaml の区分（管理 API、MediaMTX、送信、OBS、配信開始時、切替、ログ、窓）ごとに入力の欄をまとめる
 - シーンの欄は、OBS につながっていればシーン一覧から選ぶ（待機シーンと開始時のシーンは1つ、監視対象のシーンはチェック）。メディアソースの名前は入力一覧から選ぶ。OBS につながっていないときは、名前を直接入力する
 - パスワードの欄は伏せて表示し、「表示」のボタンで見られる
-- 検証はコアの spec 4章の `Validate` をそのまま使う
+- 検証はコアの spec 4章の `Validate` を使う。`Validate` は、項目ごとの理由（項目名 → 理由）を返す形に直す（コアの spec 4章）。422 の `fields` はこれから作る
 
 ### 反映の仕方の区分
 
-| 区分 | 設定 | 反映のしかた |
-|---|---|---|
-| **すぐ反映** | `obs.standby_scene`、`obs.monitored_scenes`、`switch.auto_enabled`、`on_stream_start.*`（シーンの設定）、`switch.fail_kbps`・`low_sec`・`recover_kbps`・`recover_sec`・`down_sec`（閾値）、`stream.publish_host`・`publish_rtmp_port`・`publish_srt_port`・`obs_read_host`（URL）、`gui.close_action` | シーンの設定は core へ `ScenesConfigured` を送る。閾値は core の中の Judge の閾値を差し替える。URL は計算し直す |
-| **OBS につなぎ直す** | `obs.host`・`port`・`password`・`media_source` | obs を一度切り、新しい接続先でつなぐ（数秒、自動切替が止まる） |
-| **配信が切れる** | `mediamtx.*`（ポート、実行ファイル）、`stream.name`・`publish_user`・`publish_pass`・`read_user`・`read_pass` | MediaMTX を新しい設定で起動し直す（届いている配信が切れる） |
-| **本体の再起動** | `admin.listen`・`password`、`log.dir`・`keep_days` | 窓を開いたまま、中の部品をすべて止めて（MediaMTX も）、新しい設定で起動し直す |
+2段階だけにする（2026-11-20 のユーザーの裁定）。部品ごとの差し替え（OBS の接続先だけ替える、など）は作らない。
 
-- core に、中核ループの外から `ScenesConfigured` と閾値の差し替えを渡す入口を足す（Command と同じく、応答用のチャネルを持つ要求として中核ループに渡す。チャネルの決まりはコアの spec 9章に従う）。シーンの設定を管理ページから送る経路は、コアの spec 9章で「第2段階の spec で決める」とした部分で、この入口で決める
-- 閾値の差し替えは、Judge の受信状態を保ったまま、閾値だけを替える（積み上げた秒数は捨てる）
+| 区分 | 設定 |
+|---|---|
+| **すぐ反映** | シーンの設定（`obs.standby_scene`、`obs.monitored_scenes`、`switch.auto_enabled`、`on_stream_start.enabled`・`scene`）、閾値（`switch.fail_kbps`・`low_sec`・`recover_kbps`・`recover_sec`・`down_sec`）、URL の表示（`stream.publish_host`・`publish_rtmp_port`・`publish_srt_port`・`obs_read_host`）、`admin.password`、`log.keep_days`、`gui.close_action` |
+| **再起動して反映** | それ以外すべて: `obs.host`・`port`・`password`・`media_source`、`mediamtx.*`（`binary`、`rtmp_port`、`srt_port`、`rtsp_port`、`api_port`）、`stream.name`・`publish_user`・`publish_pass`・`read_user`・`read_pass`、`admin.listen`、`log.dir` |
+
+- **再起動して反映**: 窓を開いたまま、本体を中で起動し直す（下の「世代」）。MediaMTX も止まるので届いている配信が切れ、待機の状態（持ち主と戻り先）も消える。配信中の設定の変更はテスト配信くらいなので、これでよい（ユーザーの判断）
+- **混ざったとき**: 再起動の項目が1つでもあれば、再起動だけを行う（新しい世代はすべての設定を読むので、すぐ反映の項目も含む）。なければ、すぐ反映の項目をすべて反映する
+
+### すぐ反映の届け方
+
+| 設定 | 届け方 |
+|---|---|
+| シーンの設定 | core に足す入口（下）で `ScenesConfigured` を渡す。あわせて、obs が照合に使う名前を差し替え、OBS につながっていれば `GetSceneList` / `GetInputList` で照合し直して、status の `warnings` を更新する |
+| 閾値 | 同じ入口で渡す。中核ループが Judge の閾値を差し替える。受信状態は保ち、積み上げた秒数（zero、below、good の累積）は捨てる |
+| URL の表示 | 同じ入口で渡し、core が持つ URL を作り直す。`stream.publish_host` が空なら、送信用の host の自動の決め方（コアの spec 8章）を、このときに決め直す。OBS 用 URL が変わるときは、メディアソースの URL の書き換え（下）を選べる |
+| `admin.password` | logging の置き換えの対象に新しい値を足す（古い値も残す）。そのあと web の照合を差し替え、保存した要求のセッションだけを残して、ほかのセッションをすべて消す |
+| `log.keep_days` | logging と history の削除の日数を差し替える。次に消すとき（日付が変わったとき）から新しい日数を使う |
+| `gui.close_action` | 窓に渡す（Linux と macOS では読むが使わない） |
+
+- **core の入口**: シーンの設定、閾値、URL を1つの要求（変えない部分は空）にまとめ、Command と同じく応答用のチャネルを持つ要求として中核ループに渡す（チャネルの決まりはコアの spec 9章に従う）。中核ループは1回の処理で差し替え、Snapshot を1回作る。配信中なら、できごと `settings_applied` を出す（第8節）
+- シーンの設定を管理ページから送る経路は、コアの spec 9章で「第2段階の spec で決める」とした部分で、この入口で決める。送る前に、コアの spec 4章と同じ検証を通す（switcher は検証しない）
+- **設定の世代と持ち主（コアの spec 6章末、V-01、V-07）の見直し**: 「入れる方向は、設定の変更の内容を問わず作用しない」は、そのままにする（管理ページからシーンの設定を変えたあとも、古い `ConfigEpoch` の期待は持ち主と戻り先を入れない）
+
+### 世代（中での再起動）
+
+app は「世代」を持つ。再起動して反映するときは、今の世代を止め、新しい設定で世代を作る。
+
+| 寿命 | もの |
+|---|---|
+| プロセス | 窓、二重の起動の mutex、Job Object、セッションの記憶と使い捨ての合言葉（第6節）、反映の状態（下の `apply`）、ログの置き換えの対象の秘密、落ちたときの出力の先（第3節） |
+| 世代 | logger（直近のログの行を含む）、supervisor（MediaMTX と api の資格情報）、Poller、obs（本来の接続と補助の接続）、core（Machine を含む）、history の記録（直近10分と、記録中の配信）、HTTP サーバー（SSE を含む） |
+
+- **止める順**:
+  1. SSE をすべて閉じる
+  2. HTTP サーバーを止める（`Shutdown`）
+  3. 世代の ctx を取り消す
+  4. 部品の終了を待つ（MediaMTX が止まるのを待つ）
+  5. 記録中の配信を「中断」（`interrupted`）で閉じる（第8節）
+  6. logger を閉じる
+- **作る順**（コアの spec 10章「起動と終了の手順」の 2〜6 を、世代の中で行う）:
+  1. logger を開く。置き換えの規則は、その時点の設定の秘密で作る。このプロセスで前の世代が使った秘密も対象に残す
+  2. ポートの事前確認（コアの spec 8章）
+  3. 起動の表示（Windows は窓と管理ページ、Linux は標準出力。第3節）
+  4. supervisor、Poller、obs、core、history を動かす。core は新しく作るので Machine も新しく、config から作った `ScenesConfigured` を最初に受ける。MediaMTX の api の資格情報も新しく作り、その世代の Poller に渡す（Poller の差分の基準も取り直す）
+  5. 管理 API の待ち受けを開く
+  6. 作れたら、この世代が読んだ版の config.yaml を `config.yaml.bak` にする（下の「元に戻す」）
+- 窓の「×」と「終了」、Windows のログオフとシャットダウン（第3節）、Linux の SIGINT と SIGTERM は、どれも同じ止め方を通って終わる。`POST /api/restart` は、止めたあと同じ設定で作る
+- **セッション**: 世代をまたいで残る。管理 API の待ち受けの場所が変わっても、Cookie は host ごとなので、host が同じ（ポートだけ変わった）なら有効。host が変わったら、窓から開き直す（Linux ではログインし直す）
+- **待機の状態**: Machine を作り直すので、持ち主と戻り先は消える。自動の待機中に再起動すると、回線が戻っても自動では戻らない（第13節）
+- **goobs の制約**（コアの spec 13章。認証が終わる前の失敗で goroutine が残る）は、世代の作り直しでも引き継ぐ。止めた世代の接続が、その状態で残ることがある
 
 ### 保存の流れ
 
-1. 「保存」で `POST /api/settings/preview` を呼ぶ。本体は検証し、変わった項目と、それぞれの反映の仕方を返す（config.yaml はまだ書かない）
-2. 画面に確認を出す。反映の仕方ごとに項目を並べ、「配信が切れます」は配信中なら赤で強く示す
-3. 確認したら `PUT /api/settings`。本体は config.yaml を書き換えてから反映する。反映の仕方がいくつか混ざるときは、いちばん重いもの1つで済ませる（本体の再起動 > 配信が切れる > OBS につなぎ直す > すぐ反映）
-
-### config.yaml の書き換え
-
-- 手で書いたコメントと並びを残したまま、値だけを書き換える（yaml.v3 の Node で読み、該当の値の Node だけを差し替えて書く）。config.yaml にない項目は、区分の末尾に足す
-- 別のファイルに書いてから置き換える（途中で壊れないように）。置き換える前の版を `config.yaml.bak` に残す
-- `GET /api/settings` で、ファイルの内容のハッシュを返す。`PUT` のときにハッシュが違えば（外で手で書き換えられていた）、上書きせずに 409 を返し、読み直しを促す
+1. 「保存」で `POST /api/settings/preview` を呼ぶ。本体は検証し、変わった項目と反映の仕方（すぐ反映 / 再起動して反映）を返す（config.yaml はまだ書かない）
+2. 画面に確認を出す。再起動して反映なら「本体を再起動します」と示す。配信中なら、赤で強く「配信が切れ、待機の状態（持ち主と戻り先）も消えます」と示し、記録中の配信は「中断」で閉じて、再起動のあと配信中なら新しい件になる、と添える
+3. 確認したら `PUT /api/settings`（`GET /api/settings` で受け取ったハッシュつき）。本体は次を順に同期で行い、どれかに当たれば反映せずに返す
+   1. 反映の途中（`applying`）なら 409
+   2. ハッシュが違えば 409（外で手で書き換えられていた。読み直しを促す）
+   3. 検証に通らなければ 422（`fields`）
+   4. 新しいポートを、`CheckPorts`（コアの spec 8章の事前確認）と同じ形で確かめる。今の世代が使っているポート（MediaMTX の4つと管理 API）は除く。使えなければ 422（`fields` にその項目）
+   5. config.yaml を書き換える（下）。書けなければ 500 で、今の設定のまま動き続ける
+4. すぐ 202 を返す（`{"ok": true, "apply": "immediate" | "restart", "admin_url": …}`。`admin_url` は `admin.listen` が変わるときだけ入れ、新しい管理ページの URL にする）。反映は app が行う
+5. 反映の状態を status の `apply` に出し、SSE の `event: status` でも送る
+   ```json
+   "apply": {"state": "applied", "kind": "restart", "at": "<RFC3339 の時刻>", "error": null}
+   ```
+   `state` は `idle`（起動してから反映していない）、`applying`、`applied`、`failed`。`failed` のときは `error` に理由を入れる
+6. 再起動して反映のときは、画面は「再起動しています」と出し、SSE が切れたらつなぎ直す（`admin_url` があればそこへ移る）。つながったら `apply` を見て結果を出す
 
 ### 反映の失敗
 
-- 反映に失敗したら（新しいポートが使用中で MediaMTX が起動しない、OBS につながらない、など）、管理ページと小さな窓に理由を出し、「元に戻す」（`POST /api/settings/revert`。`config.yaml.bak` から戻して、同じ仕方で反映し直す）を選べるようにする
-- 本体の再起動のあとに管理 API の新しい待ち受けに失敗したら、管理ページは開けなくなるので、小さな窓に理由と「元に戻して再起動」のボタンを出す（Linux は journal に理由を出し、systemd の再起動に任せる。そのときは config.yaml.bak から手で戻す）
+- 失敗とするのは、世代の作成の失敗だけ: ポートの事前確認、ログを開けない、管理 API の待ち受けの失敗
+- OBS につながらない、MediaMTX が再起動を続ける、は失敗にしない。今どおり status の状態（`obs.connected`、`mediamtx`）と、`last_error`、`warnings` で示す
+- 世代の作成に失敗したら、作りかけの部品を止め（MediaMTX を起動していれば止める）、世代のない状態で待つ。`apply` はプロセスの寿命のもの（app が持つ）で、`failed` と理由を持つ。世代がない間は HTTP サーバーもないので、管理ページは開けない
+  - Windows: 窓の案内の欄に理由と「元に戻して再起動」のボタンを出す
+  - Linux: 理由を標準エラー（journal）に出し、終了コード 1 で終わる。systemd が起動し直しても同じ設定ではまた失敗するので、`config.yaml.bak` から手で戻す（理由の行に戻し方を添える）
+- **「元に戻して再起動」**（窓。世代の作成に失敗したとき）: 世代がないので、違いによらず `config.yaml.bak` を config.yaml に戻して、世代を作る
+- **`POST /api/settings/revert`**（管理ページ。世代が動いているとき）: `config.yaml.bak` を config.yaml に戻し、今の設定との違いを、保存と同じ規則で反映する（再起動の項目があれば再起動、なければすぐ反映）
+
+### 元に戻す（`config.yaml.bak`）
+
+- `config.yaml.bak` は「最後に世代を作れた版」だけを残す。世代の作成に成功したときに、その版を bak にする。失敗した版では bak を上書きしないので、何度保存し直しても、動いていた版に戻せる
+- すぐ反映だけの保存では bak は進まない。そのため「元に戻して再起動」では、最後に世代を作ったあとのすぐ反映の変更も戻る
+
+### config.yaml の書き換え
+
+- yaml.v3 の Node で読み、変える値の Node の位置（行と列）を見つけ、元の文字列のその値の部分だけを差し替える。空行、位置ぞろえ、コメント、キーの順が残る（Node で読んで書き出す方式では、空行と、行末のコメントの前の位置ぞろえが消える。レビューで確かめた）
+  - スカラー: 値の始まりは Node の行と列。終わりは、元の文字列をその位置から読んで決める（引用符つきなら閉じる引用符まで、引用符なしなら行末か ` #` の前まで）。書く値は、文字列は二重引用符の YAML の文字列、数値と真偽はそのまま
+  - シーケンス（`obs.monitored_scenes`）: その値のかたまり（最初の要素の行から最後の要素の行まで）を差し替える。字下げは元に合わせる
+  - config.yaml にない項目は、その区分の末尾に足す。区分もなければ、ファイルの末尾に足す
+  - ゴールデンファイルで確かめる（第11節）
+- 別のファイルに書いてから置き換える（途中で壊れないように）
+- `GET /api/settings` で、ファイルの内容のハッシュを返す。`PUT` のときにハッシュが違えば（外で手で書き換えられていた）、上書きせずに 409 を返し、読み直しを促す
+
+### OBS のメディアソースの URL の書き換え
+
+- OBS 用 URL が変わる保存すべて（`stream.read_user`・`read_pass`・`name`、`mediamtx.rtsp_port`、`stream.obs_read_host`、`read` のパスワードの作り直し）で、確認の画面に「OBS のメディアソースの URL も書き換える」を出す（既定で選ぶ）
+- 選んだら、`obs.media_source` の入力の設定 `input` を、`SetInputSettings` で新しい OBS 用 URL にする。入力の種類（`GetInputSettings` の `inputKind`）がメディアソース（`ffmpeg_source`）でなければ書き換えず、理由を `warnings` に出す
+- 送るのは、反映のあと、OBS につながっていればすぐ、つながっていなければ次につながったときに1回。再起動して反映なら、新しい世代が行う
+- 書き換えられなければ（OBS とつながらない、入力がない、など）、手で直すよう案内する
 
 ### パスワードの作り直し
 
-`POST /api/settings/regenerate`（対象: `admin`、`publish`、`read`）。値はコアの spec 4章の規則（`[A-Za-z0-9_-]`、24文字）で作る。
+`POST /api/settings/regenerate`（対象: `admin`、`publish`、`read`）。値はコアの spec 4章の規則（`[A-Za-z0-9_-]`、24文字）で作る。保存と同じく config.yaml を書き換えて 202 を返し、反映は上の規則に従う。
 
-- `admin`: ほかのセッションをすべて消し、今のセッションだけ残す（本体の再起動は要らない。管理 API のパスワードの照合だけ差し替える）
-- `publish`、`read`: MediaMTX を起動し直すので配信が切れる。新しい URL と QR をその場で表示する
-- `read` を変えたときは、確認の画面で「OBS のメディアソースの URL も書き換える」を選べる（既定で選ぶ）。選んだら、OBS に `SetInputSettings` で `obs.media_source` の入力の URL を新しい OBS 用 URL にする。OBS とつながっていなければ、手で直すよう案内する
-- `obs_read_host` や `rtsp_port` を変えたときも、同じく OBS のメディアソースの URL の書き換えを選べる
+- `admin`: すぐ反映（上の `admin.password` と同じ）。ほかのセッションをすべて消し、今のセッションだけ残す
+- `publish`、`read`: 再起動して反映（MediaMTX の資格情報なので）。確認の画面は保存と同じ（配信中なら赤で示す）。新しい URL と QR は、再起動のあとに表示する
+- `read` を変えたときは、OBS のメディアソースの URL の書き換え（上）を選べる
 
 ## 8. 配信の記録
 
+### できごとの出し方
+
+- core が、ログを書くのと同じ箇所で、できごとを型のある値として出す
+- 購読: 受け手ごとに容量つきのチャネルを登録する。core は止まらずに送る（コアの spec 9章のチャネルの決まり）。あふれたら捨てて、その受け手の落とした数を数え、次に送れたときに先に `dropped`（N 件を落とした）を送る
+- Snapshot の更新の知らせも、受け手ごとに登録する形にする（第2節）
+- 1秒ごとの値: Poller の Sample が届き、Judge に通したあとに、core が `sample` を1件出す（Sample の `At` の時刻つき）
+- 受け手は、history（配信ごとの記録と直近10分）と web（SSE）
+
+### できごとの一覧
+
+| 種類 | 出すとき | 値 |
+|---|---|---|
+| `sample` | Poller の Sample を受けたとき | `t`、`iv_ms`（Sample の `Interval`）、`kbps`、`state`（Judge のあとの OK / LOW / DOWN）、`online`、`protocol`、`rtt_ms`・`loss`・`mbps`（SRT のときだけ）、`err`（path の API が失敗したら true。理由の文は入れない） |
+| `stream` | 配信状態が変わったとき（ログの `stream state` と同じ箇所） | `streaming` |
+| `auto_fail` | AutoFail の切替（ログの `scene switch` と同じ箇所） | `from`、`to`、`reason`（`low` / `down`）、`kbps` |
+| `auto_recover` | AutoRecover の切替（同上） | `from`、`to`、`kbps` |
+| `start_scene` | StartScene の切替（同上） | `from`、`to` |
+| `user_scene` | 人の切替とみなしたとき（ログの `scene changed by user`） | `from`、`to` |
+| `standby` | 持ち主か戻り先が変わったとき（ログの `standby changed`） | `owner`（`none` / `auto` / `manual`）、`return_scene`（シーン名か null） |
+| `obs_disconnected` | `OBSDisconnected` を受けたとき | なし |
+| `obs_connected` | `OBSConnected` を受けたとき | `streaming`、`scene` |
+| `mediamtx` | MediaMTX の状態が変わったとき | `state`（`running` / `starting` / `down`） |
+| `command` | Command を受けたとき | `kind`（`stream_start` / `stream_stop` / `standby_on` / `standby_off`）、`result`（`accepted` / `not_connected` / `invalid_state`） |
+| `settings_applied` | すぐ反映を中核ループで差し替えたとき | `thresholds`（5つの値）、`scenes`（`standby`、`monitored`、`auto_enabled`、`start_scene`）。パスワードと URL は入れない |
+| `dropped` | 受け手のチャネルがあふれたあと | `n`（落とした件数） |
+
+- 記録とできごとには、決まった型の値（数値、真偽、決まった語、シーン名）だけを書く。自由な文字列（エラーの文、`last_error` の理由など）は書かない（秘密が混ざる道を作らないため。記録は logging の置き換えを通らない）
+
 ### 直近10分
 
-- 配信していないときも含め、1秒ごとの値を600件、メモリに持つ（受信のビットレート、受信状態、プロトコル、SRT の RTT とロス率）。できごと（第8節「できごと」）も直近10分の分を持つ
+- 配信していないときも含め、`sample` を600件、メモリに持つ（受信のビットレート、受信状態、プロトコル、SRT の RTT とロス率）。できごとも直近10分の分を持つ。世代ごとのもので、中での再起動で空に戻る
 - 状態の画面のグラフに使う: ビットレートの線、`fail_kbps` と `recover_kbps` の横線、OK / LOW / DOWN の色の帯、待機に入った・戻った時刻の縦の印。SRT のときは RTT に切り替えて見られる
 
 ### 配信ごとの記録
 
-- **1件の区切り**: OBS の配信の開始（`Streaming` が true になった）から停止（false になった）まで
-  - 配信中に OBS と切断した場合は記録を続け、できごととして残す。つなぎ直したときに配信が止まっていたら、切断した時刻でその件を閉じる
-  - 配信中に本体を再起動した場合（設定の反映を含む）は、それまでの件を「中断」として閉じる。起動し直したあと、配信中なら新しい件を始める
-- **ファイル**: 配信ごとに1つ、`history/YYYY-MM-DD_HHMMSS.jsonl`（開始の時刻、ローカル時刻）。1行に1つの JSON
+- **1件の区切り**: OBS の配信の開始から停止まで。開始は `stream`（`streaming: true`）か、記録していないときに受けた `obs_connected`（`streaming: true`）。停止は `stream`（`streaming: false`）
+  - 配信中に OBS と切断した場合は記録を続け、`obs_disconnected` を残す。つなぎ直したとき（`obs_connected`）に配信が止まっていたら、`end` の `t` を切断の時刻にして閉じる（`reason: obs_disconnected`）。切断のあとに書いた sample の行は残るが、集計は `end` の `t` までにする。配信が続いていれば、同じ件を続ける
+  - 本体の終了と中での再起動では、`interrupted` で閉じる（第7節の止める順の5）。起動し直したあと、配信中なら新しい件を始める
+- **ファイル**: 配信ごとに1つ、`history/YYYYMMDD-HHMMSS-<乱数4桁の16進>.jsonl`（開始の時刻、ローカル時刻）。`O_EXCL` で新しく作る（同じ名前があれば、乱数を替えて作り直す）。1行に1つの JSON
+  - `{id}`（API）は、ファイル名から `.jsonl` を除いたもの。`^[0-9]{8}-[0-9]{6}-[0-9a-f]{4}$` に合うことを確かめてからパスにする（合わなければ 404）
+  - 時刻の形: 行の `t` は UNIX ミリ秒の整数。meta の `started_at` は RFC3339
   - 先頭: `{"type":"meta","started_at":…,"version":…,"thresholds":{…},"scenes":{…}}`
-  - 1秒ごと: `{"type":"sample","t":…,"kbps":…,"state":"OK","online":true,"protocol":"srt","rtt_ms":…,"loss":…}`
-  - できごと: `{"type":"event","t":…,"kind":"auto_fail","from":…,"to":…,"reason":…}` など
-  - 最後: `{"type":"summary",…}`（閉じたときに書く）
-- **書き方**: 1行ずつ追記する。10秒ごとに `fsync` する（落ちても、それまでの行はほぼ残る）。summary の行がないファイル（本体が落ちた）は、一覧を作るときに中身から計算し直す
-- **保存の日数**: `log.keep_days` を過ぎたファイルを、起動のときと、日付が変わったときに消す
-- **書けないとき**（ディスクがいっぱい、など）: ログに警告を出し、記録だけ止める。自動切替は止めない
-
-### できごと
-
-`auto_fail`、`auto_recover`、`start_scene`（本体の切替。from、to、理由、kbps）、`user_scene`（人の切替）、`standby`（持ち主と戻り先の変化）、`obs_disconnected`、`obs_connected`、`mediamtx_restarted`、`command`（手動の操作）、`settings_applied`（設定の反映）。どれもコアの spec 10章のログと同じ情報源（Snapshot の変化と、switcher のバッチ）から作る
+  - 1秒ごと: `{"type":"sample","t":…,"iv_ms":…,"kbps":…,"state":"OK","online":true,"protocol":"srt","rtt_ms":…,"loss":…}`
+  - できごと: `{"type":"event","t":…,"kind":"auto_fail","from":…,"to":…,"reason":"low","kbps":…}` など（上の一覧の値）
+  - 終わり: `{"type":"end","t":…,"reason":"stopped|obs_disconnected|interrupted"}` を書いてから、`{"type":"summary",…}` を書く
+- **書き方**: 1行ずつ追記する。10秒ごとに `fsync` する（落ちても、それまでの行はほぼ残る）
+- **`end` のないファイル**（本体が落ちた）: 最後の行の `t` までを集計し、一覧では「途中で終わった」と示す
+- **一覧に出す件**: 書いている途中の件も「記録中」として出す。summary のないファイルは、一覧を作るときに中身から計算し、メモリにだけ覚える（ファイルには書き足さない）
+- **保存の日数**: ファイル名の開始の日付で、ログと同じ規則で消す（日付が「今日 − `log.keep_days` 日」より前のもの。コアの spec 10章）。書いている途中のファイルは消さない。起動のときと、日付が変わったときに消す（ログも日付が変わったときに消す。コアの spec 10章を直した）
+- **書けないとき**（ディスクがいっぱい、など）: ログに警告を出し、その件の記録を止める。自動切替は止めない。次の配信の開始で、もう一度新しいファイルを作ってみる
 
 ### まとめ
 
-配信の長さ、平均のビットレート（つながっている秒だけ）、低いほうのビットレート（つながっている秒の下位 5% の値）、LOW と DOWN の合計の時間と割合、自動の待機の回数・合計の時間・いちばん長い待機、人の切替の回数、OBS との切断の回数、MediaMTX の再起動の回数
+| 項目 | 定義 |
+|---|---|
+| 集計の範囲 | `end` の `t` まで（`end` がなければ最後の行の `t` まで）。それより後の sample は使わない |
+| 配信の長さ | `started_at` から、範囲の終わりまで |
+| つながっている秒（分母） | 範囲の sample のうち、`online` のものの `iv_ms` の合計 |
+| 平均のビットレート | `online` の sample の kbps を、`iv_ms` で重みを付けて平均したもの。`online` の sample がなければ、なし |
+| 低いほうのビットレート | `online` の sample の kbps を昇順に並べ、ceil(0.05 × 件数) 番目の値（最も近い順位の方法） |
+| LOW と DOWN の時間 | 範囲の sample のうち、`state` が LOW（DOWN）のものの `iv_ms` の合計。割合は、範囲のすべての sample の `iv_ms` の合計に対する比 |
+| 自動の待機 | `standby` で `owner` が `auto` になってから、`auto` でなくなるまで。範囲の終わりまで続いたら、範囲の終わりまで。回数、合計の時間、いちばん長い待機 |
+| 人の切替の回数 | `user_scene` の数 |
+| OBS との切断の回数 | `obs_disconnected` の数 |
+| MediaMTX の再起動の回数 | `mediamtx` で `state` が `down` になった回数 |
+| 落としたできごと | `dropped` の `n` の合計。0 でなければ、まとめに「一部の値が欠けている」と出す |
+
+- `session.low_count`（第9節）は、この自動の待機の回数と同じ（手動の待機は含めない）
 
 ### 画面
 
-- **一覧**: 日時、長さ、まとめを1行ずつ。新しい順
-- **詳しい画面**: 配信全体のビットレートのグラフ（LOW / DOWN の帯、待機の印）とできごとの一覧。グラフの印とできごとの行を行き来できる。長い配信は、本体が区間ごとに最小・平均・最大にまとめて 2000点ほどに縮めて渡す。拡大した範囲は細かく取り直す（`GET /api/history/sessions/{id}?from=&to=&points=`）
+- **一覧**: 日時、長さ、まとめを1行ずつ。新しい順。記録中と、途中で終わった件には印を付ける
+- **詳しい画面**: 配信全体のビットレートのグラフ（LOW / DOWN の帯、待機の印）とできごとの一覧。グラフの印とできごとの行を行き来できる。長い配信は、本体が区間ごとに最小・平均・最大にまとめて 2000点ほどに縮めて渡す。拡大は受け取った点の中で行う（拡大した範囲を細かく取り直すことは、2a では作らない。第1節）
 - **CSV**: 時刻（ローカル時刻）、kbps、受信状態、プロトコル、RTT（ms）、ロス率、できごと の列
 
 ## 9. ソース（2b）
@@ -256,6 +411,7 @@ irl-live-keeper(.exe)
 
 - `sources.yaml`（config.yaml の隣）に、1件ずつ並べて保存する。書き換えは config.yaml と同じく、別のファイルに書いてから置き換える
 - 1件の中身: `name`（URL に使う。`[A-Za-z0-9_-]`、1〜32文字、ほかと重ならない）、`title`（カードの表示名。日本語でよい）、`template`、`style`（下）、`css`（自由に書ける CSS）
+- **読めないとき**（手で書き換えて壊した、など）: 起動を止めない。ソースを空として扱い、管理ページのソースの画面に理由を出す。読めるようになるまで（ソースの画面を開くたびに読み直す）、管理ページからは上書きしない（保存は 409）
 
 ### テンプレートの書き方
 
@@ -264,33 +420,111 @@ irl-live-keeper(.exe)
 | `{値}` | 値を差し込む | `{link.kbps}` |
 | `{値:形}` | 形をそろえる | `{link.kbps:0}`（小数0桁）、`{stream.elapsed:hms}`（`1:23:45`）、`{now:hm}`（`19:30`） |
 | `{if 条件}…{elif 条件}…{else}…{end}` | 条件で出し分ける。入れ子にできる | `{if link.kbps < 800}回線が不安定です{end}` |
-| 条件 | 比較（`<` `<=` `>` `>=` `==` `!=`）、`and`、`or`、`not`、かっこ。右辺は数値、`"文字列"`、値 | `{if standby.owner == "auto" and link.state != "OK"}` |
+| 条件 | 比較（`<` `<=` `>` `>=` `==` `!=`）、`and`、`or`、`not`、かっこ。両辺に、値、数値、`"文字列"`、`true` / `false` を書ける | `{if standby.owner == "auto" and link.state != "OK"}` |
 | `{{` と `}}` | `{` と `}` の文字そのもの | |
 
-- 値が数値でないときの大小の比較は偽、未定義の値（SRT でないときの `srt.rtt` など）は空の文字列・条件では偽として扱う
-- 保存のときに読み取り、書き方の誤りと、知らない値の名前をエラーにする（どこが誤りかを示す）
+#### 字句
+
+- テンプレートは左から順に読む
+  - タグの外: `{{` は `{` の文字、`}}` は `}` の文字。ほかの `{` はタグの始まり。対にならない `}`（`}}` でない `}`）はエラー
+  - タグ: `{` から、文字列の外にある最初の `}` まで。タグの中の、文字列の外の `{` はエラー
+  - 例: `{a}}}` は、タグ `{a}` と文字の `}`。`{{a}}` は文字の `{a}`
+- タグの中は、空白（空白とタブ）で区切った字句の列として読む。`{` の直後と `}` の直前の空白は許す
+  - 名前: `[A-Za-z_][A-Za-z0-9_]*` を `.` でつないだもの（例: `link.kbps`）
+  - 予約語: `if` `elif` `else` `end` `and` `or` `not` `true` `false`。名前全体が予約語と同じなら、予約語として読む
+  - 数値: `-?[0-9]+(\.[0-9]+)?`
+  - 文字列: `"` で囲む。中の `\"` は `"`、`\\` は `\`。ほかの `\` と改行はエラー。`{` と `}` は文字列の中なら書ける
+  - 記号: `<` `<=` `>` `>=` `==` `!=` `(` `)` `:`
+  - 形の名前: 差し込みのタグの `:` のすぐ後ろに書く（`0`〜`6` の数字、`hms`、`ms`、`s`、`hm`）
+
+#### 文法（EBNF。タグの外の文字と、タグの中の字句の列に対して）
+
+```
+template  = { 文字 | subst | block } ;
+subst     = "{" 名前 [ ":" 形の名前 ] "}" ;
+block     = "{" "if" expr "}" template
+            { "{" "elif" expr "}" template }
+            [ "{" "else" "}" template ]
+            "{" "end" "}" ;
+expr      = and_expr { "or" and_expr } ;
+and_expr  = not_expr { "and" not_expr } ;
+not_expr  = "not" not_expr | cmp ;
+cmp       = operand [ cmp_op operand ] ;
+cmp_op    = "<" | "<=" | ">" | ">=" | "==" | "!=" ;
+operand   = 名前 | 数値 | 文字列 | "true" | "false" | "(" expr ")" ;
+```
+
+- 優先順位: `not` > 比較 > `and` > `or`。かっこで順を変えられる。比較はつなげられない（`a < b < c` はエラー）
+- `{if …}`、`{elif …}`、`{else}`、`{end}` のどれか1つだけの行（前後に空白とタブがあってもよい）は、その行の改行を出さない（その行の空白も出さない）
+
+#### 型
+
+| 型 | 例 | 条件での真偽 | 差し込むときの形 |
+|---|---|---|---|
+| 数値 | `link.kbps`、`3`、`-1.5` | 0 でなければ真 | `:N`（小数 N 桁で四捨五入。N は 0〜6。既定は値ごとに下の表で決める） |
+| 文字列 | `link.state`、`"OK"` | 空でなければ真 | そのまま（形は付けられない） |
+| 真偽 | `obs.streaming`、`true` | そのまま | `true` / `false`（形は付けられない） |
+| 秒（経過） | `stream.elapsed` | 0 でなければ真 | `:hms`（既定。`1:23:45`。時は桁をそろえず、1時間未満は `0:05:12`）、`:ms`（`83:45`。分は60以上になりうる）、`:s`（`5025`） |
+| 時刻 | `now` | 真 | `:hm`（既定。`19:30`）、`:hms`（`19:30:05`）。ローカル時刻の24時間制 |
+
+- 未定義の値（SRT でないときの `srt.rtt` など）: 差し込むと空の文字列。条件では偽
+- 型に合わない形（文字列に `:0`、数値に `:hms` など）は、保存のときのエラー
+
+#### 比較
+
+- 同じ型どうしだけ比べる。秒は、数値（秒の数）として比べる（`link.state_for > 10` と書ける）
+  - 数値: 数の大小と等しさ
+  - 文字列: `==` と `!=` は文字の一致。大小は偽
+  - 真偽: `==` と `!=`。大小は偽
+  - 時刻を含む比較は、保存のときのエラー
+- 型が違えば、`==` は偽、`!=` は真、大小は偽
+- 未定義を含む比較は、すべて偽（`!=` も偽）。この規則を、型の規則より先に当てる
+- `not` は、中の真偽を反転する（`not srt.rtt` も `not (srt.rtt != 5)` も、`srt.rtt` が未定義なら真）
+
+#### 誤りと文字の扱い
+
+- 保存のときに読み取り、書き方の誤り、知らない値の名前、型に合わない形をエラーにする。位置は「何行目の何文字目」で示す（1から数える。文字は Unicode のコードポイントで数える）
 - 差し込んだ値は HTML として解釈しない（ページでは文字として入れる）
 
 ### 使える値
 
 本ツールが知っている値をすべて使えるようにし、使う人が選ぶ。資格情報を含むもの（送信用 URL、OBS 用 URL、パスワード）は除く。管理ページに値の一覧（名前、意味、今の値）を出し、押すとテンプレートに差し込める。
 
-| 区分 | 値 |
-|---|---|
-| 回線 | `link.state`（OK / LOW / DOWN）、`link.kbps`、`link.online`、`link.protocol`、`link.state_for`（今の状態が続いている秒） |
-| SRT | `srt.rtt`（ms）、`srt.loss`（ロス率）、`srt.mbps` |
-| 待機 | `standby.owner`（none / auto / manual）、`standby.return`、`standby.for`（待機が続いている秒） |
-| OBS | `obs.connected`、`obs.streaming`、`obs.scene`、`obs.scene_class` |
-| 配信 | `stream.elapsed`（今の配信の経過の秒）、`stream.kbps`（OBS から配信サイトへの送信のビットレート）、`stream.dropped`（送信で落としたフレーム）、`stream.congestion`、`obs.fps`、`obs.render_skipped` |
-| 記録 | `session.low_count`（今の配信で待機に入った回数）、`session.standby_total`（待機の合計の秒） |
-| 時刻 | `now`（今の時刻） |
-| 本体 | `mediamtx.state` |
+| 区分 | 値 | 型（既定の形） | 情報源 |
+|---|---|---|---|
+| 回線 | `link.state`（OK / LOW / DOWN） | 文字列 | core |
+| | `link.kbps` | 数値（`:0`） | core（Sample） |
+| | `link.online` | 真偽 | core（Sample） |
+| | `link.protocol`（`rtmp` / `srt` / 空） | 文字列 | core（Sample） |
+| | `link.state_for`（今の状態が続いている秒） | 秒 | core の「いつから」（下） |
+| SRT | `srt.rtt`（ms） | 数値（`:0`） | core（Sample の SRT。SRT でなければ未定義） |
+| | `srt.loss`（ロス率） | 数値（`:2`） | 同上 |
+| | `srt.mbps` | 数値（`:1`） | 同上 |
+| 待機 | `standby.owner`（none / auto / manual） | 文字列 | core |
+| | `standby.return`（戻り先） | 文字列（なしなら未定義） | core |
+| | `standby.for`（待機が続いている秒） | 秒（持ち主が `none` なら未定義） | core の「いつから」（下） |
+| OBS | `obs.connected`、`obs.streaming` | 真偽 | core |
+| | `obs.scene`、`obs.scene_class` | 文字列（未接続なら `obs.scene` は未定義） | core |
+| 配信 | `stream.elapsed`（今の配信の経過の秒） | 秒 | OBS の統計: `GetStreamStatus` の `outputDuration` |
+| | `stream.kbps`（OBS から配信サイトへの送信のビットレート） | 数値（`:0`） | OBS の統計: `GetStreamStatus` の `outputBytes` の差（下） |
+| | `stream.dropped`（送信で落としたフレーム） | 数値（`:0`） | OBS の統計: `GetStreamStatus` の `outputSkippedFrames` |
+| | `stream.congestion` | 数値（`:2`） | OBS の統計: `GetStreamStatus` の `outputCongestion` |
+| | `obs.fps`、`obs.render_skipped` | 数値（`:1`、`:0`） | OBS の統計: `GetStats` の `activeFps`、`renderSkippedFrames` |
+| 記録 | `session.low_count`（今の配信の自動の待機の回数） | 数値（`:0`） | 今の配信の記録（第8節のまとめの定義） |
+| | `session.standby_total`（今の配信の自動の待機の合計の秒） | 秒 | 同上 |
+| 時刻 | `now`（今の時刻） | 時刻 | 本体の時計 |
+| 本体 | `mediamtx.state` | 文字列 | core |
 
-- OBS の統計（`stream.*` の送信まわりと `obs.fps` など）は、OBS につながっていて、使っているソースがあるときだけ、2秒ごとに `GetStreamStatus` と `GetStats` で読む
+- 「core」は Snapshot から読む。`link.state_for` と `standby.for` のために、core に「今の受信状態になった時刻」と「持ち主が `none` でなくなった時刻」を足す（Snapshot に入れる）
+- `stream.kbps`: `outputBytes` の差 × 8 / 1000 を、読んだ時刻の差（秒）で割る。配信の開始、補助の接続のつなぎ直し、`outputBytes` が前より減ったときに基準を取り直し、その最初の1回は未定義。読めなかった回は未定義（基準は変えない）。配信していなければ未定義
+- `stream.elapsed` は OBS の出力の時間から取る（配信の記録からは取らないので、中での再起動で0に戻らない）
+- `session.*` は今の配信の記録から取る。記録していないときは未定義。中での再起動で新しい件になるので、0 に戻る
+- `now` や秒の値を使うテンプレートは、値が変わらなくても1秒ごとに組み立て直す
+- **OBS の統計の読み方**: 別の obs-websocket の接続（goobs の Client をもう1本。補助の接続）で読む。自動切替の要求と同じ mutex を取り合わないため。統計の値を使うソースのページが1つ以上つながっている間だけ接続し、2秒ごとに `GetStreamStatus` と `GetStats` を読む。読めなければ未定義。接続先は `obs.host`・`port`・`password` で、世代ごとのもの。コアの spec 13章の goobs の制約は、この接続にも当てはまる
 
 ### 表示
 
-- 本体（Go）がテンプレートを文字に組み立てる。値が変わって文字が変わったときだけ、SSE（`/source/{name}/events`）で送る。ページの JS は受け取った文字を入れ替えるだけにする（条件式の計算を本体の1か所にまとめる）
+- 本体（Go）がテンプレートを文字に組み立てる。値が変わって文字が変わったときだけ、SSE（`/source/{name}/events`）で送る。この SSE で送るのは組み立てた文字だけで、Snapshot や値そのものは送らない。ページの JS は受け取った文字を入れ替えるだけにする（条件式の計算を本体の1か所にまとめる）
 - ページの作り（決まった class を付け、OBS の「カスタム CSS」から直せるようにする）:
   ```html
   <div class="irl-source irl-source-<name>"><span class="irl-text">…</span></div>
@@ -298,44 +532,58 @@ irl-live-keeper(.exe)
   - 文字が空になったら `irl-source` に `irl-empty` を付ける（CSS で消す、ふわっと消すなどができる）
   - テンプレートの改行は改行として表示する（`white-space: pre-wrap`）
   - 背景は透明
+  - ページは、HTML と、`<link rel="stylesheet" href="/source/{name}/style.css">` と、`<script src="/source/assets/source.js">` からなる。インラインのスクリプトと style は使わない（CSP は第6節）
 - 本体とつながらないとき: 最後の文字を表示したまま、自動でつなぎ直す
-- 装飾（管理ページで選ぶ）: フォント（名前を入力。配信 PC に入っているもの）、文字の大きさ、色、太さ、縁取り（色と太さ）、影（色、ぼかし、ずれ）、背景（色と透明度、角の丸み、余白）、配置（左・中央・右）、消えるときの動き（なし / ふわっと）。選んだものは CSS に組み立ててページに入れ、そのあとに `css` を入れる（`css` が優先）
+- 装飾（管理ページで選ぶ）: フォント（名前を入力。配信 PC に入っているもの）、文字の大きさ、色、太さ、縁取り（色と太さ）、影（色、ぼかし、ずれ）、背景（色と透明度、角の丸み、余白）、配置（左・中央・右）、消えるときの動き（なし / ふわっと）。選んだものは CSS に組み立て、そのあとに `css` を足して（`css` が優先）、`/source/{name}/style.css`（`Content-Type: text/css; charset=utf-8`）で配る。HTML には入れない（`</style>` などで、ページにスクリプトを入れられないようにする）。装飾から組み立てる CSS の中の文字（フォントの名前など）は、CSS の文字列（`"…"`。`"` と `\` と改行はエスケープする）として書く
 
 ### 管理ページのカード
 
-- カードごとに、表示名、URL（コピーのボタン）、プレビュー（実際の `/source/<name>` を小さな枠で表示する）、編集、削除
-- 編集の画面: テンプレート、値の一覧、装飾、自由な CSS。変えると、その場でプレビューに反映する（`POST /api/sources/preview` で組み立てた文字を返す）
+- カードごとに、表示名、URL（コピーのボタン。host は第6節「URL の host」）、プレビュー、編集、削除
+- **プレビュー**: カードごとに SSE を開かない（平文の HTTP/1.1 では、ブラウザは同じ接続先に6本までしか同時に接続しないため）。管理ページの `/api/events` の `event: sources` で全ソースの組み立てた文字を受け、カードの中の Shadow DOM に、そのソースの `style.css` を `<link>` で読み込んで表示する（iframe は使わない。Shadow DOM なので、ソースの CSS は管理ページのほかの部分に効かない）
+- 編集の画面: テンプレート、値の一覧、装飾、自由な CSS。変えると、その場でプレビューに反映する（`POST /api/sources/preview` が、保存していない内容で組み立てた文字と CSS を返す。画面はその CSS を、HTML に入れずに Shadow DOM の `adoptedStyleSheets` で当てる）
 - OBS への取り込みの案内: 「OBS のブラウザソースの URL にこれを入れる。幅と高さは〜」を表示する
+
+### 回線の状況のテスト
+
+- ソースの一覧と作成の画面に、テストの状況の切り替えを置く。状況は「実際の値」（既定）、「OK」（4,200kbps）、「LOW」（600kbps）、「DOWN」（0kbps、つながっていない）、「自動の待機中」（持ち主 `auto`、戻り先は今の監視対象のシーン）、「配信していない」と、値を手で入れる「自由」（値の一覧の数値と状態を選んで入れる）
+- 「実際の値」以外を選ぶと、本体はその状況の値の組（実際の値を土台に、状況に当たる値だけを差し替えたもの）でテンプレートを組み立て、管理ページのカードと作成の画面のプレビューだけに返す（`POST /api/sources/preview` に `simulate` を渡す。一覧のカードは、テストの間は `/api/events` の代わりに、この応答を1秒ごとに取る）
+- テストの状況は、OBS が読んでいる実際のソースのページ（`/source/<名前>`）には効かせない（テストで配信の画面が変わらないように）
+- 自動切替や status には何も効かせない（表示だけのテスト）
+- OBS の中で同時に読めるソースの数（OBS のブラウザソースも、同じ接続先への同時の接続の上限を分け合うかもしれない）は、実機で確かめて既知の制約に書く（第11節）
 
 ## 10. エラーの扱い
 
 | 起きること | 扱い |
 |---|---|
-| 管理ページが本体とつながらない | 画面の上に案内を出し、自動でつなぎ直す |
+| 管理ページが本体とつながらない | 画面の上に案内を出し、自動でつなぎ直す（再起動して反映の間は「再起動しています」） |
 | 設定の検証に通らない | 422 と欄ごとの理由。config.yaml は書き換えない |
+| 新しいポートが使えない | 422 とその項目。config.yaml は書き換えない |
 | config.yaml を書けない | エラーを出し、今の設定で動き続ける |
 | config.yaml が外で書き換えられていた | 上書きせず 409。読み直しを促す |
-| 設定の反映に失敗する | 管理ページと窓に理由と「元に戻す」 |
-| 本体の再起動のあと、管理 API の待ち受けに失敗する | 窓に理由と「元に戻して再起動」 |
+| 世代の作成に失敗する（再起動して反映のあと） | Windows は窓に理由と「元に戻して再起動」。Linux は journal に理由を出して終わる（`config.yaml.bak` から手で戻す） |
+| 反映のあと、OBS につながらない、MediaMTX が再起動を続ける | 失敗にしない。status の状態と警告で示す |
 | OBS のシーン一覧が取れない | 名前を直接入力する欄に切り替える |
-| 配信の記録を書けない | ログに警告を出し、記録だけ止める |
+| 配信の記録を書けない | ログに警告を出し、その件の記録を止める。次の配信の開始で試し直す |
+| `sources.yaml` が読めない | 起動を止めない。ソースを空として扱い、管理ページに理由を出す。読めるようになるまで上書きしない |
 | ソースの組み立てに失敗する | そのソースを空にして、ログに理由を出す |
-| 小さな窓を作れない | ログに残し、メッセージボックスで知らせて終わる |
-| ログインの失敗が続く | 第6節の待ち（429） |
+| 小さな窓を作れない | メッセージボックスで知らせ、ログを開ければ残して終わる |
+| パスワードの照合の失敗が続く | 接続元の IP ごとに30秒の待ち（429。第6節） |
+| 本体が落ちる（Windows） | 落ちたときの出力を `logs/crash-…log` に残す（第3節） |
 
 ## 11. テスト方針
 
 - **Go の単体テスト**（表の形、TDD。第1段階と同じ進め方）
-  - settings: 変わった項目と反映の仕方の判定、config.yaml の書き換え（コメントと並びが残ることをゴールデンファイルで確かめる）、外での書き換えの検出、`.bak` からの戻し
-  - sources: テンプレートの読み取りと計算（差し込み、形、条件式、入れ子、比較の型、未定義の値、誤りの位置、`{{` `}}`）、HTML として解釈しないこと
-  - history: 偽の時計で、1件の区切り（開始、停止、切断、中断）、まとめの値、間引き、日数での削除、書けないとき
-  - web: ログイン、使い捨ての合言葉（1回だけ、60秒）、セッションの期限、総当たり対策、CSRF、Basic 認証、SSE の形、資格情報が認証なしの応答（`/source/*`、`/api/source-values`）に出ないこと
-  - app: 設定の反映の振り分け（偽の部品で、区分ごとに正しい部品が呼ばれること、いちばん重いもので済ませること）
-  - core: `ScenesConfigured` と閾値の差し替えの入口（チャネルの決まりを守ること）
+  - settings: 反映の仕方の判定（2段階。混ざったら再起動だけ）、config.yaml の書き換え（空行、位置ぞろえ、コメント、キーの順が残ることをゴールデンファイルで確かめる。引用符つきとなしのスカラー、シーケンス、ない項目と区分の追加）、外での書き換えの検出、新しいポートの確かめ（今の世代のポートを除く）、`.bak`（世代を作れたときだけ進む）と、そこからの戻し、`Validate` の項目ごとの理由
+  - sources: 字句（`{{` `}}`、対にならない `}`、`{a}}}`、文字列のエスケープ、予約語）、文法（優先順位、かっこ、つなげた比較のエラー、左辺の数値と文字列）、型と比較の規則（型の組み合わせ × 演算子、未定義、`not`）、形（既定の形、型に合わない形のエラー）、制御のタグだけの行の改行、誤りの位置（行と文字。全角の文字を含む）、HTML として解釈しないこと、CSS の文字列のエスケープ
+  - history: 偽の時計とできごとの列で、1件の区切り（開始、停止、切断して止まっていた、切断して続いていた、中断）、`end` のあとの sample を集計しないこと、まとめの値（まとめの表の各項目）、`end` のないファイル、ファイル名の衝突（`O_EXCL`）、`{id}` の形の確かめ、間引き、日数での削除（書いている途中のファイルを消さない）、書けないときと次の配信での再開、`dropped`
+  - web: ログイン、使い捨ての合言葉（1回だけ、60秒、ヘッダー、無効ならログインの画面へ）、セッションの期限、総当たり対策（IP ごと、Basic を含む、30秒、セッションと合言葉は対象外）、CSRF、Basic 認証、`WWW-Authenticate`（`Authorization` があるときだけ）、SSE の形と書き込みの期限、`/api/events` と `/api/source-values` に認証が要ること、資格情報が認証なしの応答（`/source/*`）に出ないこと、ソースのページの CSP
+  - app: 世代（偽の部品で、止める順と作る順、作成の失敗で `failed` になり作りかけの部品が止まること、セッションが残ること、すぐ反映が正しい部品に届くこと、混ざったときに再起動だけになること）、`PUT` の同期の確かめ（409、422、500）と 202
+  - core: 設定の差し替えの入口（チャネルの決まりを守ること、1回の処理で差し替えて Snapshot を1回作ること、閾値の差し替えで受信状態を保つこと）、できごとの購読（受け手が詰まっても中核ループが止まらないこと、あふれたときの数と `dropped`）、ログと同じ箇所でできごとが出ること、Sample ごとに `sample` が1件出ること
+  - logging: 秘密の追加（追加のあと、新旧どちらの値も `***` になること）、日付が変わったときの削除
 - **画面（JS）**: 自動のテストは作らない。必要な要素が HTML にあることを Go のテストで確かめ、動きは手での確認に入れる
 - **手での確認**（実機）
-  - Windows: 小さな窓の表示と更新、二重の起動、窓の「×」の3つの動き、起動の失敗の表示、「管理ページを開く」の自動ログイン、設定の反映の4つの区分、「元に戻す」、パスワードの作り直しと OBS のメディアソースの書き換え、QR コードをスマホで読むこと、配信の記録の一覧と詳しい画面、ソースを OBS のブラウザソースで読むこと（条件式、装飾、カスタム CSS）
-  - Linux: `service install --user` で常駐し、再起動と停止、journal にログが出ること、`--dir`
+  - Windows: 小さな窓の表示と更新、二重の起動（最小化した窓が元に戻って前に出る）、窓の「×」の3つの動き、起動の失敗の表示、「管理ページを開く」の自動ログイン、MediaMTX のコンソールの窓が出ないこと（起動と再起動のたび）、ブラウザを閉じた状態から「管理ページを開く」で開き、本体を終了してもブラウザが残ること（「ログを開く」のエクスプローラーも）、すぐ反映と再起動して反映（配信中の確認の表示を含む）、「元に戻して再起動」、パスワードの作り直しと OBS のメディアソースの書き換え、ログオフとシャットダウンで MediaMTX が残らないこと、落ちたときの出力のファイル、QR コードをスマホで読むこと、配信の記録の一覧と詳しい画面、ソースを OBS のブラウザソースで読むこと（条件式、装飾、カスタム CSS）、CSP（第6節）を付けたソースのページで OBS の「カスタム CSS」が効くこと、OBS の中で同時に読めるソースの数
+  - Linux: `service install --user` で常駐し、再起動と停止、journal にログが出て、パスワードが出ないこと、`service install --system --run-as`、`--dir`
 - **レビュー**: この spec は Fable と codex sol で並行してレビューする。実装のまとまりごとに sol か opus のレビュー、直したあとの確認は terra
 
 ## 12. 実装の前に決めること
@@ -343,12 +591,16 @@ irl-live-keeper(.exe)
 - 小さな窓のライブラリ: Go だけで書かれた Win32 のライブラリから選ぶ（C のコンパイラが要らないこと、保守されていること、ライセンス、Linux からの Windows 向けのビルドが通ること、固定の大きさの窓・ラベル・ボタン・メッセージボックスが作れること）。候補を比べて、spec に追記する
 - グラフと QR の JS のライブラリの版（2週間以上前に出た版を、ライセンスの全文とともに同梱する）
 - アイコンの絵
+- ブラウザとフォルダを Job の外で開く方法（第3節）: `JOB_OBJECT_LIMIT_BREAKAWAY_OK` と `CREATE_BREAKAWAY_FROM_JOB` で、既定のブラウザ（URL の関連付け）とエクスプローラーをどう起動するかを、実機で確かめる。ブラウザがすでに動いているときと、動いていないときの両方
 
 ## 13. 既知の制約
 
-- セッションは本体のメモリにだけ持つので、本体を再起動するとログインし直す（小さな窓から開けば自動でログインする）
-- ソースのページは認証なしなので、管理 API を LAN に公開しているときは、LAN の機器からも読める（中身は資格情報を含まない状態の値だけ）
-- ソースは1つごとに OBS の中で小さなブラウザが動くので、テキストソースより少し重い
+- セッションは本体のメモリにだけ持つので、本体を終了して起動し直すとログインし直す（小さな窓から開けば自動でログインする）。中での再起動では残るが、`admin.listen` の host が変わると Cookie が届かないので、開き直す
+- 再起動して反映では、MediaMTX も止まるので、届いている配信が切れる。Machine を作り直すので、待機の持ち主と戻り先が消える。自動の待機中だったときは、回線が戻っても自動では戻り先へ戻らない（人がシーンを戻す）。記録中の配信は「中断」になり、直近10分のグラフと直近のログは空に戻る
+- 補助の接続を開いている間は、OBS への obs-websocket の接続が2本になる
+- goobs の制約（コアの spec 13章）は、世代の作り直しと補助の接続でも引き継ぐ
+- ソースのページは認証なしなので、管理 API を LAN に公開しているときは、LAN の機器からも読める（中身は資格情報を含まない、組み立てた文字だけ）
+- ソースは1つごとに OBS の中で小さなブラウザが動くので、テキストソースより少し重い。OBS の中で同時に読めるソースの数は、実機で確かめて書く（未確認）
 - フォントは配信 PC に入っているものだけ（ウェブフォントの読み込みは作らない）
 - 管理ページは平文の HTTP（コアの spec 13章と同じ）。LAN に公開するときは、管理 API と同じリスクがある
 - macOS の GUI は作らない（試す環境がない）
@@ -358,3 +610,4 @@ irl-live-keeper(.exe)
 | 日付 | 版 | 変更 | 理由 | commit |
 |---|---|---|---|---|
 | 2026-11-20 | v0.1 | 初版 | 2026-11-20 の brainstorming（ユーザーが節ごとに承認） | この版の commit |
+| 2026-11-20 | v0.2 | 設定の反映を「すぐ反映」と「再起動して反映」の2段階にし、中での再起動を世代（プロセスの寿命のものと世代ごとのもの、止める順と作る順）で定義した。`PUT /api/settings` は 202 を返し、反映の状態を status に出す。失敗の基準、`config.yaml.bak` の扱い、ポートの事前確認、秘密の置き換え、config.yaml の書き換えの方式を決めた（7章）。`/api/events` に認証を求め、ソースのページは別の SSE で組み立てた文字だけを受ける。総当たり対策を IP ごとにし Basic も含め、待ちを一定にした。`WWW-Authenticate` の条件、使い捨ての合言葉のヘッダー、URL の host、ソースのページの CSP を決めた（2章、6章）。Windows の `CREATE_NO_WINDOW`、Job の外でブラウザを開くこと、起動の順、落ちたときの出力、ログオフ、二重の起動の印。Linux のサービスで秘密を journal に出さないこと、linger、`--run-as`（3章、4章）。配信の記録を、core が出すできごと（一覧と型）から作り、ファイル名、時刻の形、終わり方、まとめの定義、保存の日数を決めた（8章）。テンプレートの字句と文法（EBNF）、型、比較、形、誤りの位置、値の型と情報源、OBS の統計を別の接続で読むこと、自由な CSS を別の CSS のファイルで配ること、カードのプレビューを Shadow DOM にすることを決めた（9章）。2a から、拡大した範囲の取り直しとログインの待ちの倍々を削った（1章、8章）。10章、11章、12章、13章を合わせた。前提をコアの spec v2.12 にした。管理ページの OBS への要求（一覧、書き換え、統計）は補助の接続で送り、自動切替を待たせない。ソースのページの CSP で `style-src 'unsafe-inline'` を許す（OBS のカスタム CSS のため）。Web のデザインの要望（最初の画面、設定のページの階層とスイッチ、ソースのカードと拡大、回線の状況のテスト）を 5章と 9章に足した | Fable と codex sol の設計レビュー 1 周目（Fable: Critical 2 / Important 14 / Minor 13、sol: Critical 0 / Important 17 / Minor 2）と、2026-11-20 のユーザーの裁定。Web のデザインはユーザーの要望（2026-11-20 22:46） | この版の commit |
