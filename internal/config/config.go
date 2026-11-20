@@ -349,6 +349,14 @@ func (c *Config) Validate() error {
 		add("admin.password", "空にできません")
 	}
 
+	// ログ
+	if c.Log.Dir == "" {
+		add("log.dir", "空にできません")
+	}
+	if c.Log.KeepDays < 0 {
+		add("log.keep_days", fmt.Sprintf("0 以上にしてください（現在 %d）", c.Log.KeepDays))
+	}
+
 	if len(errs) == 0 {
 		return nil
 	}

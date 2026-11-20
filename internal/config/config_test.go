@@ -86,6 +86,12 @@ func TestValidate(t *testing.T) {
 
 		{"admin.password 空 落ちる", func(c *Config) { c.Admin.Password = "" }, "admin.password"},
 		{"obs.password 空 通る", func(c *Config) { c.OBS.Password = "" }, ""},
+
+		{"log.dir 空 落ちる", func(c *Config) { c.Log.Dir = "" }, "log.dir"},
+		{"log.dir 指定 通る", func(c *Config) { c.Log.Dir = "logs/irl" }, ""},
+		{"log.keep_days 14 通る", func(c *Config) { c.Log.KeepDays = 14 }, ""},
+		{"log.keep_days 0 通る", func(c *Config) { c.Log.KeepDays = 0 }, ""},
+		{"log.keep_days -1 落ちる", func(c *Config) { c.Log.KeepDays = -1 }, "log.keep_days"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

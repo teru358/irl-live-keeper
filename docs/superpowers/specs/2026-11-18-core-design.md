@@ -97,6 +97,7 @@ stream:
   publish_pass: "*"
   read_user: obs             # OBS が読み出すときの資格情報（OBS 用 URL に埋め込む）
   read_pass: "*"
+  publish_host: ""           # 送信用 URL の host。空なら起動時に LAN の IPv4 を自動で調べる（自動）。ポート転送やトンネル、VPN のアドレスが決まっていれば、そのホスト名か IP を書く（手動）
 
 obs:
   host: 127.0.0.1
@@ -135,6 +136,8 @@ log:
 - `obs.monitored_scenes` は1つ以上で、どの名前も空でなく、互いに異なる
 - `on_stream_start.enabled` が true のとき、`on_stream_start.scene` は空でなく、`obs.standby_scene` と異なる（待機シーンで配信が始まると、持ち主が `none` の待機になり自動で戻らないため）
 - `admin.password` は空でない
+- `stream.publish_host` は空か、ホスト名か IP アドレス（`net.ParseIP` で通る IP か、`[A-Za-z0-9.-]` の文字だけからなる 253 文字以内の名前）。スキーム、ポート、パス、`[ ]` は含めない
+- `log.dir` は空でなく、`log.keep_days` は 0 以上
 
 シーンの設定（`obs.standby_scene`、`obs.monitored_scenes`、`switch.auto_enabled`、`on_stream_start`）は、第2段階の管理ページで OBS のシーン一覧（`GetSceneList`）を取得して選べるようにする。そのため switcher は、これらを config から直接読まず、差し替えられる入力（Event `ScenesConfigured`。6章）として受け取る。第1段階では起動時に config から1回だけ渡す。初回生成の既定値は `standby_scene: Standby`、`monitored_scenes: [Camera]` とする。OBS にその名前のシーンがなければ、接続時に status の `warnings` に出る（6章末「実装前に決めたこと」の 4）。
 
@@ -511,11 +514,11 @@ type Client interface {
   - api: 本体の起動のたびにランダムに作るユーザー名とパスワード（MediaMTX の再起動では変えない。変えると、作成時に資格情報を受け取った Poller が認証に失敗し続けるため）、`127.0.0.1` と `::1` からだけ許可。Poller はこの資格情報で API を呼ぶ
 - MediaMTX の API の応答は、ログにそのまま書かない。`/v3/rtmp/conns/list` は RTMP の publisher のクエリ（`user=…&pass=…`）を平文で返す（spike ③ で確認）
 
-送信用 URL（status と、起動時の標準出力に表示する。10章のログの規則を参照）:
+送信用 URL（status と、起動時の標準出力に表示する。10章のログの規則を参照）。`<host>` は `stream.publish_host` が空でなければその値（手動）、空なら起動時に1回調べた LAN の IPv4（自動。ネットワークインターフェースのうち、有効で loopback でないものの、プライベートアドレス〔`net.IP.IsPrivate`〕の IPv4 を、インターフェースの順で最初の1つ。外部への通信はしない）。自動で見つからなければ `127.0.0.1` にして警告をログに出す。自動のときは、起動時の表示に「屋外から送るときは、host をポート転送やトンネルのアドレスに置き換える（`stream.publish_host` で固定できる）」と添える:
 - SRT: `srt://<host>:<srt_port>?streamid=publish:<name>:<user>:<pass>`
 - RTMP: `rtmp://<host>:<rtmp_port>/<name>?user=<user>&pass=<pass>`
 
-OBS メディアソース用 URL は spike ① の結果で決める。どれを選んでも read の資格情報を埋め込む（候補: `rtsp://<read_user>:<read_pass>@<host>:<rtsp_port>/<name>`、`rtmp://<host>:<rtmp_port>/<name>?user=<read_user>&pass=<read_pass>`、`srt://<host>:<srt_port>?streamid=read:<name>:<read_user>:<read_pass>`）。この URL も status と起動時の標準出力にだけ表示する。
+OBS メディアソース用 URL は spike ① の結果で決める。spike ① までは仮に RTSP（`rtsp://<read_user>:<read_pass>@127.0.0.1:<rtsp_port>/<name>`。OBS は同じ PC で動くので host は `127.0.0.1`）とする。どれを選んでも read の資格情報を埋め込む（候補: `rtsp://<read_user>:<read_pass>@<host>:<rtsp_port>/<name>`、`rtmp://<host>:<rtmp_port>/<name>?user=<read_user>&pass=<read_pass>`、`srt://<host>:<srt_port>?streamid=read:<name>:<read_user>:<read_pass>`）。この URL も status と起動時の標準出力にだけ表示する。
 
 ### 起動と再起動
 
@@ -611,13 +614,23 @@ goroutine 1本が switcher の状態を持ち、次を `select` で受ける: in
 | config.yaml がない | 既定値で生成し（`*` はランダム）、送信用 URL と管理 API のパスワードを表示して起動を続ける。`obs.password` が空のままでは、OBS 側で認証が有効なら接続に失敗し、status に認証失敗として出る |
 | config.yaml が不正 | 項目名と理由を表示して起動を止める |
 
+### 起動と終了の手順（main）
+
+1. 実行ファイルと同じディレクトリの `config.yaml` を読む。なければ生成する。不正なら項目名と理由を標準エラーに出して終了する（終了コード 1）。`log.dir` と `mediamtx.binary` が相対パスなら、実行ファイルのディレクトリを基準にする
+2. ログを開く（下の「ログ」）。`config.Warnings()` の警告をログに出す
+3. Windows では `supervisor.InitJob()` を1回呼ぶ（失敗は警告にして続ける。8章）
+4. ポートの事前確認（8章）。使用中なら理由を出して終了する（終了コード 1）
+5. 起動時の表示を標準出力に1回だけ書く（slog を通さない）: 送信用 URL（SRT、RTMP）、OBS 用 URL、管理 API のアドレス、config.yaml を生成したときは管理 API のパスワード
+6. supervisor、Poller（1秒ごと）、obs、core、管理 API の HTTP サーバーを動かす。HTTP サーバーには `ReadHeaderTimeout` などの時間の上限を付ける
+7. Ctrl+C（SIGINT）か SIGTERM で終了を始める。HTTP サーバーを止め、ctx を取り消し、MediaMTX が止まるのを待ってから終了する（終了コード 0）。管理 API の待ち受けに失敗したときも、MediaMTX を止めてから終了する（終了コード 1）
+
 ### ログ
 
 - `log/slog` のテキスト形式で、標準出力と `<log.dir>/irl-live-keeper-YYYY-MM-DD.log` の両方に書く。日付が変わったら新しいファイルに切り替える
 - 起動時に `keep_days` を過ぎたログファイルを消す。依存は増やさない
 - 自動切替のたびに理由を残す。例: `msg="scene switch" purpose=auto_fail from="Camera" to="Standby" reason=low kbps=620 for=5s`
 - パスワードと、パスワードを含む URL（送信用、OBS 用）はログファイルに書かない。起動時に標準出力にだけ1回表示する（config.yaml を生成したときは、生成した管理 API のパスワードもあわせて表示する）
-- 細部（v2.4 で決めたこと）: 日付はローカル時刻で決め、書き込みのたびに日付を見て、変わっていたら新しいファイルを開く。消すのは、名前が `irl-live-keeper-YYYY-MM-DD.log` の形で、その日付が「今日 − `keep_days` 日」より前のファイルだけ（`keep_days: 14` で今日が 11-20 なら 11-05 以前を消し、11-06 は残す）。ほかのファイルには触らない。ログの行の中のパスワード（`admin.password`、`publish_pass`、`read_pass`、`obs.password` のうち空でないもの）は、標準出力にもファイルにも `***` に置き換えて書く（パスワードを含む URL も、パスワードの部分が `***` になる）。起動時の表示は slog を通さず、標準出力に直接書く
+- 細部（v2.4 で決めたこと）: 日付はローカル時刻で決め、書き込みのたびに日付を見て、変わっていたら新しいファイルを開く。消すのは、名前が `irl-live-keeper-YYYY-MM-DD.log` の形で、その日付が「今日 − `keep_days` 日」より前のファイルだけ（`keep_days: 14` で今日が 11-20 なら 11-05 以前を消し、11-06 は残す）。ほかのファイルには触らない。ログの行の中のパスワード（`admin.password`、`publish_pass`、`read_pass`、`obs.password` のうち空でないもの）は、標準出力にもファイルにも `***` に置き換えて書く（パスワードを含む URL も、パスワードの部分が `***` になる）。置き換えは、各パスワードの出現位置（slog が引用してエスケープした形も含む）を集め、重なる区間や隣り合う区間を1つに併合してから、区間ごとに `***` にする（2つのパスワードが途中で重なっても、どちらの文字も残さない）。起動時の表示は slog を通さず、標準出力に直接書く
 
 ## 11. テスト方針
 
@@ -724,4 +737,4 @@ goobs のラッパーは実際の OBS を相手に手動で確かめる。自動
 | 2026-11-19 | v2.1 | 期待に登録時の `ConfigEpoch` を持たせ、設定が変わったあとの期待は持ち主と戻り先に作用しないとした。期待が残る間は StandbyOn を受け付けない。開始時の切替が無効でも通常の自動切替は行うと結合テストを直した。テストのケースを5つ足した（6章、11章） | spec v2.0 の設計レビュー（codex sol: Critical 0 / Important 3 / Minor 0） | 5d87123 |
 | 2026-11-19 | v2.2 | 6章に「細部の規則（v2.1 の表を作る中で決めたこと）」を追加（V-01〜V-18）。13章に遅れて届いた本体の切替の制約を追記 | v2.1 の switcher の「入口 × 状態」の表を作る中で見つかった不明点。技術で決まるものとして、表の案どおりに決めた | 33f4d5a |
 | 2026-11-19 | v2.3 | status の `last_error` の形と、接続前の `scene_class` を定義（9章） | T9 の検収で、`last_error` の形が決まっていないことがわかった | 8a5a31f |
-| 2026-11-20 | v2.4 | API の細部を決めた: 確かめる順序（404 → 401 → 405 → 403）、`WWW-Authenticate`、独自ヘッダーの値、本文の形、中核ループが受け取らないときの 503、想定外の 500（9章）。ログの日付の切替、消すファイルの範囲、パスワードの置き換え（10章） | T10・T11 の準備で、9章と10章に決まっていない点が見つかった | この版の commit |
+| 2026-11-20 | v2.4 | API の細部を決めた: 確かめる順序（404 → 401 → 405 → 403）、`WWW-Authenticate`、独自ヘッダーの値、本文の形、中核ループが受け取らないときの 503、想定外の 500（9章）。ログの日付の切替、消すファイルの範囲、パスワードの置き換え（10章）。`log.dir` と `log.keep_days` の検証（4章）。送信用 URL の host を自動と手動で切り替える `stream.publish_host`（4章、8章）。OBS 用 URL は spike ① まで仮に RTSP（8章）。main の起動と終了の手順（10章） | T10・T11 の準備で、決まっていない点が見つかった。publish_host と OBS 用 URL は 2026-11-20 のユーザーの裁定 | この版の commit |
