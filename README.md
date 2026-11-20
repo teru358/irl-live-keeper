@@ -77,7 +77,7 @@ irl-live-keeper は、MediaMTX が受け取ったバイト数の差分からビ�
 | `stream.publish_host` | 空 | 送信用 URL の host。空なら LAN のアドレスを自動で調べる。転送先やトンネルのアドレスが決まっていれば書く |
 | `stream.obs_read_host` | 空 | OBS 用 URL の host。空なら `127.0.0.1`（配信 PC に置く場合）。LAN の中継 PC に置くときは中継 PC の LAN のアドレスを書く |
 | `stream.publish_rtmp_port` / `publish_srt_port` | `0` / `0` | 送信用 URL に出す RTMP と SRT のポート。0 なら受信のポート（`mediamtx.rtmp_port` / `srt_port`）と同じ。ルーターのポート転送で外側のポートを変えたときに書く |
-| `admin.listen` | `127.0.0.1:8787` | 管理 API の待ち受け。別の PC から操作するときだけ LAN のアドレスにする |
+| `admin.port` / `admin.lan` | `8787` / `false` | 管理 API のポートと、LAN に公開するか。false なら `127.0.0.1` だけで待ち受ける。別の PC から操作するときと、LAN の中継 PC に置くときだけ true にする |
 | `obs.standby_scene` | `Standby` | 回線が悪い間に出す待機シーン |
 | `obs.monitored_scenes` | `[Camera]` | カメラ映像を使うシーン（自動切替の対象） |
 | `switch.auto_enabled` | `true` | 自動切替の ON/OFF |

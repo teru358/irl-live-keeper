@@ -17,7 +17,7 @@ ports = {"rtmp": ("tcp", "", int(e("RTMP", "1935")), "mediamtx.rtmp_port"),
          "srt":  ("udp", "", int(e("SRT", "8890")), "mediamtx.srt_port"),
          "rtsp": ("tcp", "", int(e("RTSP", "8554")), "mediamtx.rtsp_port"),
          "api":  ("tcp", "127.0.0.1", int(e("API", "9997")), "mediamtx.api_port"),
-         "admin":("tcp", "127.0.0.1", int(e("ADMIN", "8787")), "admin.listen")}
+         "admin":("tcp", "127.0.0.1", int(e("ADMIN", "8787")), "admin.port")}
 held = []
 for t in sys.argv[1:]:
     if t not in ports:

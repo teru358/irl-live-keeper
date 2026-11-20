@@ -29,7 +29,7 @@ $specs = @{
   srt   = @{ Proto = 'udp'; Addr = [System.Net.IPAddress]::Any;      Port = $Srt;   Name = 'mediamtx.srt_port' }
   rtsp  = @{ Proto = 'tcp'; Addr = [System.Net.IPAddress]::Any;      Port = $Rtsp;  Name = 'mediamtx.rtsp_port' }
   api   = @{ Proto = 'tcp'; Addr = [System.Net.IPAddress]::Loopback; Port = $Api;   Name = 'mediamtx.api_port' }
-  admin = @{ Proto = 'tcp'; Addr = [System.Net.IPAddress]::Loopback; Port = $Admin; Name = 'admin.listen' }
+  admin = @{ Proto = 'tcp'; Addr = [System.Net.IPAddress]::Loopback; Port = $Admin; Name = 'admin.port' }
 }
 
 $held = @()
