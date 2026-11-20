@@ -46,6 +46,12 @@ func fakeMediaMTX(mode string) {
 			}
 		}
 		os.Exit(0)
+	case "infkill": // INF の行だけを出して、自分で SIGKILL される（kill -9 された場合の再現）
+		fmt.Println("INF started with listener on 127.0.0.1:19997 (TCP/HTTP)")
+		if p, err := os.FindProcess(os.Getpid()); err == nil {
+			_ = p.Kill()
+		}
+		time.Sleep(time.Minute)
 	case "bindfail":
 		fmt.Println("INF MediaMTX v1.21.4")
 		fmt.Println("ERR listen tcp :1935: bind: address already in use")
@@ -206,6 +212,25 @@ func TestEarlyExitSetsLastError(t *testing.T) {
 	st := s.Status()
 	if !strings.Contains(st.LastError, "address already in use") {
 		t.Errorf("LastError = %q", st.LastError)
+	}
+	if st.State != StateDown {
+		t.Errorf("State = %q", st.State)
+	}
+}
+
+// ERR の行がないまま起動直後に落ちたときは、INF の行ではなく終了の文を last_error に出す。
+func TestEarlyExitWithoutERRSetsExitMessage(t *testing.T) {
+	s, _ := newSup(t, "infkill")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s.sleep = func(context.Context, time.Duration) error { cancel(); return context.Canceled }
+	s.Run(ctx)
+	st := s.Status()
+	if !strings.Contains(st.LastError, "mediamtx が終了しました") {
+		t.Errorf("LastError = %q, want 終了の文", st.LastError)
+	}
+	if strings.Contains(st.LastError, "INF") {
+		t.Errorf("LastError に INF の行が出ています: %q", st.LastError)
 	}
 	if st.State != StateDown {
 		t.Errorf("State = %q", st.State)

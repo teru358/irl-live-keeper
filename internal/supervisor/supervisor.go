@@ -279,7 +279,6 @@ type lineWriter struct {
 	mu      sync.Mutex
 	buf     bytes.Buffer
 	lastErr string
-	last    string
 }
 
 var _ io.Writer = (*lineWriter)(nil)
@@ -318,19 +317,16 @@ func (w *lineWriter) emit(line string) {
 	if line == "" {
 		return
 	}
-	w.last = line
 	if strings.Contains(line, "ERR") {
 		w.lastErr = line
 	}
 	w.log.Info(line)
 }
 
-// lastErrorLine は最後の ERR の行を、なければ最後の行を返す。
+// lastErrorLine は最後の ERR の行を返す。ERR の行がなければ空文字列を返す
+// （INF の行は起動の失敗の理由にならないので使わない）。
 func (w *lineWriter) lastErrorLine() string {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if w.lastErr != "" {
-		return w.lastErr
-	}
-	return w.last
+	return w.lastErr
 }
