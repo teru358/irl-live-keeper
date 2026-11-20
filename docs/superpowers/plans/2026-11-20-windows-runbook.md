@@ -15,7 +15,7 @@
 4. 初回起動: `irl-live-keeper.exe` をダブルクリックかターミナルから実行する。`config.yaml` ができ、送信用 URL とパスワードが表示される。`obs.password` に OBS のパスワードを書き、`obs.monitored_scenes` に `Camera` と `Camera2` を書いて、起動し直す
    - Windows のファイアウォールの許可を求められたら、プライベートネットワークだけ許可する（mediamtx.exe と irl-live-keeper.exe）
    - SmartScreen（署名のない実行ファイルの警告）が出たら、「詳細情報 → 実行」
-5. 配信先: 配信開始の試験（④、T12 の 13）には配信先が要る。本番の配信サイトに流さないよう、YouTube の限定公開か、Linux サーバーの試験用 MediaMTX（RTMP 21935）を配信先にする
+5. 配信先: 配信開始の試験（④、T12 の 13）と、配信中の切替の試験には配信先が要る。Twitch の帯域幅テストモード（OBS の「設定 → 配信」で Twitch を選び、「帯域幅テストモードを有効にする」）を使う。配信は始まるが視聴者には届かない（2026-11-20 のユーザーの方針）
 
 ## 1. 起動まわり（Windows でしか確かめられない）
 
@@ -65,8 +65,12 @@ ctl.exe watch 60
 
 | # | 確かめること | 結果 |
 |---|---|---|
-| S4-1 | `STARTED` で切り替えたとき、切替前のシーン（Camera）が配信に何秒映るか（配信先の録画か、限定公開の配信の最初を見る） | |
-| S4-2 | `STARTING` の時点で切替を送れば、最初から開始時のシーンで配信が始まるか（本体の作りを変える必要があるので、ctl.exe で手動に試す: ctl.exe watch で `STARTING` が出た直後に `ctl.exe scene Talk`） | |
+帯域幅テストモードでは配信の中身を見られないので、配信に切替前のシーンが映る長さは、`ctl.exe watch 60` が出すイベントの時刻の差で見積もる（`StreamStateChanged OBS_WEBSOCKET_OUTPUT_STARTING` / `…_STARTED` と、`SceneChanged Talk`）。OBS は `SceneChanged` をトランジションの終わりに出す（Linux で確認）ので、トランジションの長さも控える。
+
+| # | 確かめること | 結果 |
+|---|---|---|
+| S4-1 | `STARTING` から `STARTED` までの時間と、`STARTED` から `SceneChanged Talk` までの時間（何回か測る）。`STARTED` で切り替える今の作りで、切替前のシーンが配信に映る長さの見積もりになる | |
+| S4-2 | `STARTING` の時点で切替を送れば、`STARTED` より前にシーンが変わるか（本体の作りを変える必要があるので、手で試す: `on_stream_start.enabled: false` にして、ctl.exe watch で `STARTING` が出た直後に別の窓から `ctl.exe scene Talk`）。`STARTING` の間に切替の要求が受け付けられるか（エラーにならないか）も見る | |
 
 結果で spec 6章と 7章の配信状態の写像を見直す。
 
