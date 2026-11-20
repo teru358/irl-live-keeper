@@ -84,15 +84,19 @@ func judgeThresholds(cfg *config.Config) ingest.Thresholds {
 	}
 }
 
-// obsReadHost は OBS 用 URL の host。OBS は同じ PC で動く。OBS 用 URL は RTSP（Windows の OBS で遅延は約1秒）。
-const obsReadHost = "127.0.0.1"
+// defaultObsReadHost は stream.obs_read_host が空のときの OBS 用 URL の host（本ツールを配信 PC に置く場合）。
+const defaultObsReadHost = "127.0.0.1"
 
-// buildURLs は status と起動時の表示に使う URL を作る。送信用は host、OBS 用は 127.0.0.1。
+// buildURLs は status と起動時の表示に使う URL を作る。送信用は publishHost とポートの上書き、OBS 用は stream.obs_read_host（空なら 127.0.0.1）。OBS 用 URL は RTSP（Windows の OBS で遅延は約1秒）。
 func buildURLs(cfg *config.Config, publishHost string) core.URLs {
+	obsHost := cfg.Stream.ObsReadHost
+	if obsHost == "" {
+		obsHost = defaultObsReadHost
+	}
 	pub := supervisor.PublishURLs(cfg, publishHost)
 	return core.URLs{
 		PublishSRT:  pub.SRT,
 		PublishRTMP: pub.RTMP,
-		OBSRead:     supervisor.ReadURLs(cfg, obsReadHost).RTSP,
+		OBSRead:     supervisor.ReadURLs(cfg, obsHost).RTSP,
 	}
 }

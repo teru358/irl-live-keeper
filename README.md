@@ -54,6 +54,19 @@ irl-live-keeper は、MediaMTX が受け取ったバイト数の差分からビ�
    - RTMP: `rtmp://<この PC のアドレス>:1935/live?user=<ユーザー>&pass=<パスワード>`
 6. 外から送る場合は、ルーターで 1935/TCP と 8890/UDP だけを、この PC へ転送する
 
+## LAN の中継 PC に置く場合
+
+- 基本の置き方は、OBS と同じ配信 PC に本ツールと MediaMTX を置くこと。本ツールと MediaMTX を LAN の別の PC（中継 PC）に置き、OBS は配信 PC に置く構成にも対応する
+- `config.yaml`（中継 PC 側）の設定
+  - `obs.host`: 配信 PC のアドレス（obs-websocket は 4455）
+  - `stream.obs_read_host`: 中継 PC の LAN のアドレス（配信 PC の OBS が RTSP を読みに行く先）
+  - ルーターのポート転送で外側のポートを変えたときは、`stream.publish_rtmp_port` / `stream.publish_srt_port` に外側のポートを書く
+- ファイアウォール（どちらも LAN からだけ許可する）
+  - 配信 PC: obs-websocket の 4455/TCP
+  - 中継 PC: RTSP の 8554/TCP
+- LAN の通信は暗号化されない。obs-websocket と、OBS の RTSP の読み出し（read の資格情報を含む）は、LAN 内で盗聴されうる。信頼できない人がいる LAN では使わない
+- 外部のサーバー（VPS など）に置くことは、VPN（Tailscale など）越しなら技術的には可能だが、正式には対応しない。インターネットへ直接は通さない
+
 ## 設定（config.yaml の主な項目）
 
 | 項目 | 既定値 | 意味 |
@@ -62,6 +75,8 @@ irl-live-keeper は、MediaMTX が受け取ったバイト数の差分からビ�
 | `switch.recover_kbps` / `recover_sec` | 1500 / 10 | これ以上が何秒続いたら配信画面へ戻す |
 | `switch.down_sec` | 2 | 受信が途切れて何秒で待機画面へ |
 | `stream.publish_host` | 空 | 送信用 URL の host。空なら LAN のアドレスを自動で調べる。転送先やトンネルのアドレスが決まっていれば書く |
+| `stream.obs_read_host` | 空 | OBS 用 URL の host。空なら `127.0.0.1`（配信 PC に置く場合）。LAN の中継 PC に置くときは中継 PC の LAN のアドレスを書く |
+| `stream.publish_rtmp_port` / `publish_srt_port` | `0` / `0` | 送信用 URL に出す RTMP と SRT のポート。0 なら受信のポート（`mediamtx.rtmp_port` / `srt_port`）と同じ。ルーターのポート転送で外側のポートを変えたときに書く |
 | `admin.listen` | `127.0.0.1:8787` | 管理 API の待ち受け。別の PC から操作するときだけ LAN のアドレスにする |
 | `obs.standby_scene` | `Standby` | 回線が悪い間に出す待機シーン |
 | `obs.monitored_scenes` | `[Camera]` | カメラ映像を使うシーン（自動切替の対象） |

@@ -114,6 +114,28 @@ func TestURLs(t *testing.T) {
 	}
 }
 
+func TestPublishURLsPorts(t *testing.T) {
+	cfg := loadCfg(t, "")
+	cfg.Stream.PublishRTMPPort, cfg.Stream.PublishSRTPort = 21935, 28890
+	p := PublishURLs(cfg, "example.com")
+	if want := "srt://example.com:28890?streamid=publish:live:irl:pubPASS123"; p.SRT != want {
+		t.Errorf("SRT = %q, want %q", p.SRT, want)
+	}
+	if want := "rtmp://example.com:21935/live?user=irl&pass=pubPASS123"; p.RTMP != want {
+		t.Errorf("RTMP = %q, want %q", p.RTMP, want)
+	}
+	// 片方だけ上書き。0 の側は受信のポート
+	cfg.Stream.PublishSRTPort = 0
+	p = PublishURLs(cfg, "example.com")
+	if want := "srt://example.com:8890?streamid=publish:live:irl:pubPASS123"; p.SRT != want {
+		t.Errorf("SRT = %q, want %q", p.SRT, want)
+	}
+	// 読み出し側の候補は受信のポートのまま
+	if want := "rtmp://example.com:1935/live?user=obs&pass=readPASS123"; ReadURLs(cfg, "example.com").RTMP != want {
+		t.Errorf("読み出し側のポートが変わった")
+	}
+}
+
 // freePorts は空いているポートを4つ選んで cfg に入れる。
 func freePorts(t *testing.T) *config.Config {
 	t.Helper()

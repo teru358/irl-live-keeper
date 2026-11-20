@@ -50,6 +50,11 @@ type Stream struct {
 	PublishPass string `yaml:"publish_pass"`
 	ReadUser    string `yaml:"read_user"`
 	ReadPass    string `yaml:"read_pass"`
+	// ObsReadHost は OBS 用 URL の host。空なら 127.0.0.1。LAN の中継 PC に置くときは中継 PC の LAN のアドレス。
+	ObsReadHost string `yaml:"obs_read_host"`
+	// PublishRTMPPort / PublishSRTPort は送信用 URL に出すポート。0 なら受信のポート（mediamtx.*）と同じ。
+	PublishRTMPPort int `yaml:"publish_rtmp_port"`
+	PublishSRTPort  int `yaml:"publish_srt_port"`
 	// PublishHost は送信用 URL の host。空なら起動時に LAN の IPv4 を自動で調べる。
 	PublishHost string `yaml:"publish_host"`
 }
@@ -161,6 +166,9 @@ stream:
   publish_pass: "*"
   read_user: obs             # OBS が読み出すときの資格情報（OBS 用 URL に埋め込む）
   read_pass: "*"
+  obs_read_host: ""          # OBS 用 URL の host。空なら 127.0.0.1（本ツールを配信 PC に置く場合）。LAN の中継 PC に置くときは、中継 PC の LAN のアドレスを書く
+  publish_rtmp_port: 0       # 送信用 URL に出す RTMP のポート。0 なら mediamtx.rtmp_port と同じ。ルーターのポート転送で外側のポートを変えたときに書く
+  publish_srt_port: 0        # 送信用 URL に出す SRT のポート。0 なら mediamtx.srt_port と同じ
   publish_host: ""           # 送信用 URL の host。空なら起動時に LAN の IPv4 を自動で調べる（自動）。ポート転送やトンネル、VPN のアドレスが決まっていれば、そのホスト名か IP を書く（手動）
 
 obs:
@@ -323,9 +331,26 @@ func (c *Config) Validate() error {
 		add("stream.read_user", "stream.publish_user と異なる名前にしてください")
 	}
 
-	// 送信用 URL の host。IP アドレスか、スキーム・ポート・パス・角括弧を含まないホスト名
-	if h := c.Stream.PublishHost; h != "" && net.ParseIP(h) == nil && (len(h) > maxHostLen || !hostNameRe.MatchString(h)) {
-		add("stream.publish_host", "空か、ホスト名か IP アドレスにしてください（スキーム、ポート、パス、[ ] は含めず、名前は英数字・.・- の 253 文字以内）")
+	// 送信用 URL と OBS 用 URL の host。IP アドレスか、スキーム・ポート・パス・角括弧を含まないホスト名
+	for _, f := range []struct{ field, v string }{
+		{"stream.publish_host", c.Stream.PublishHost},
+		{"stream.obs_read_host", c.Stream.ObsReadHost},
+	} {
+		if h := f.v; h != "" && net.ParseIP(h) == nil && (len(h) > maxHostLen || !hostNameRe.MatchString(h)) {
+			add(f.field, "空か、ホスト名か IP アドレスにしてください（スキーム、ポート、パス、[ ] は含めず、名前は英数字・.・- の 253 文字以内）")
+		}
+	}
+	// 送信用 URL に出すポート。0 は受信のポートと同じ。外側のポートなので受信のポートとの重複は問わない
+	for _, f := range []struct {
+		field string
+		v     int
+	}{
+		{"stream.publish_rtmp_port", c.Stream.PublishRTMPPort},
+		{"stream.publish_srt_port", c.Stream.PublishSRTPort},
+	} {
+		if f.v < 0 || f.v > 65535 {
+			add(f.field, fmt.Sprintf("0（受信のポートと同じ）か 1〜65535 の範囲にしてください（現在 %d）", f.v))
+		}
 	}
 
 	// シーン名

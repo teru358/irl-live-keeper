@@ -63,6 +63,24 @@ func TestValidate(t *testing.T) {
 		{"publish_host 空白 落ちる", func(c *Config) { c.Stream.PublishHost = "a b" }, "stream.publish_host"},
 		{"publish_host 254 文字 落ちる", func(c *Config) { c.Stream.PublishHost = strings.Repeat("a", 254) }, "stream.publish_host"},
 
+		{"obs_read_host 空 通る", func(c *Config) { c.Stream.ObsReadHost = "" }, ""},
+		{"obs_read_host IPv4 通る", func(c *Config) { c.Stream.ObsReadHost = "192.168.1.20" }, ""},
+		{"obs_read_host IPv6 通る", func(c *Config) { c.Stream.ObsReadHost = "::1" }, ""},
+		{"obs_read_host 名前 通る", func(c *Config) { c.Stream.ObsReadHost = "relay.local" }, ""},
+		{"obs_read_host スキーム 落ちる", func(c *Config) { c.Stream.ObsReadHost = "rtsp://x" }, "stream.obs_read_host"},
+		{"obs_read_host ポート 落ちる", func(c *Config) { c.Stream.ObsReadHost = "host:8554" }, "stream.obs_read_host"},
+		{"obs_read_host 角括弧 落ちる", func(c *Config) { c.Stream.ObsReadHost = "[::1]" }, "stream.obs_read_host"},
+		{"obs_read_host 254 文字 落ちる", func(c *Config) { c.Stream.ObsReadHost = strings.Repeat("a", 254) }, "stream.obs_read_host"},
+		{"publish ポート 0 通る", func(c *Config) { c.Stream.PublishRTMPPort, c.Stream.PublishSRTPort = 0, 0 }, ""},
+		{"publish ポート 1 と 65535 通る", func(c *Config) { c.Stream.PublishRTMPPort, c.Stream.PublishSRTPort = 1, 65535 }, ""},
+		{"publish ポート 受信と同じでも通る", func(c *Config) {
+			c.Stream.PublishRTMPPort, c.Stream.PublishSRTPort = c.MediaMTX.RTMPPort, c.MediaMTX.SRTPort
+		}, ""},
+		{"publish_rtmp_port 負 落ちる", func(c *Config) { c.Stream.PublishRTMPPort = -1 }, "stream.publish_rtmp_port"},
+		{"publish_rtmp_port 65536 落ちる", func(c *Config) { c.Stream.PublishRTMPPort = 65536 }, "stream.publish_rtmp_port"},
+		{"publish_srt_port 負 落ちる", func(c *Config) { c.Stream.PublishSRTPort = -1 }, "stream.publish_srt_port"},
+		{"publish_srt_port 65536 落ちる", func(c *Config) { c.Stream.PublishSRTPort = 65536 }, "stream.publish_srt_port"},
+
 		{"stream.name 空 落ちる", func(c *Config) { c.Stream.Name = "" }, "stream.name"},
 		{"stream.name 記号 落ちる", func(c *Config) { c.Stream.Name = "a/b" }, "stream.name"},
 		{"stream.name 英数_- 通る", func(c *Config) { c.Stream.Name = "Live_1-a" }, ""},
@@ -190,6 +208,24 @@ func TestGenerateとLoad(t *testing.T) {
 	}
 	if !strings.Contains(string(raw), "publish_host: \"\"") || !strings.Contains(string(raw), "# 送信用 URL の host。空なら起動時に LAN の IPv4 を自動で調べる（自動）") {
 		t.Error("publish_host の行とコメントがない")
+	}
+	for _, want := range []string{
+		"obs_read_host: \"\"",
+		"# OBS 用 URL の host。空なら 127.0.0.1（本ツールを配信 PC に置く場合）",
+		"publish_rtmp_port: 0",
+		"# 送信用 URL に出す RTMP のポート。0 なら mediamtx.rtmp_port と同じ",
+		"publish_srt_port: 0",
+		"# 送信用 URL に出す SRT のポート。0 なら mediamtx.srt_port と同じ",
+	} {
+		if !strings.Contains(string(raw), want) {
+			t.Errorf("生成した config に項目やコメントがない: %s", want)
+		}
+	}
+	if strings.Index(string(raw), "obs_read_host:") > strings.Index(string(raw), "publish_host:") {
+		t.Error("obs_read_host が publish_host の前にない")
+	}
+	if cfg.Stream.ObsReadHost != "" || cfg.Stream.PublishRTMPPort != 0 || cfg.Stream.PublishSRTPort != 0 {
+		t.Errorf("新しい項目の既定値が空と 0 でない: %+v", cfg.Stream)
 	}
 	if cfg.Stream.PublishHost != "" {
 		t.Errorf("publish_host の既定値が空でない: %q", cfg.Stream.PublishHost)

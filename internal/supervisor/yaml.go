@@ -75,11 +75,19 @@ type PublishURLSet struct {
 }
 
 // PublishURLs は送信用 URL を作る。host は送信側から見た本機のアドレス。
+// ポートは stream.publish_rtmp_port / publish_srt_port が 0 でなければその値、0 なら受信のポート。
 func PublishURLs(cfg *config.Config, host string) PublishURLSet {
 	s := cfg.Stream
+	rtmpPort, srtPort := cfg.MediaMTX.RTMPPort, cfg.MediaMTX.SRTPort
+	if s.PublishRTMPPort != 0 {
+		rtmpPort = s.PublishRTMPPort
+	}
+	if s.PublishSRTPort != 0 {
+		srtPort = s.PublishSRTPort
+	}
 	return PublishURLSet{
-		SRT:  fmt.Sprintf("srt://%s?streamid=publish:%s:%s:%s", hostPort(host, cfg.MediaMTX.SRTPort), s.Name, s.PublishUser, s.PublishPass),
-		RTMP: fmt.Sprintf("rtmp://%s/%s?user=%s&pass=%s", hostPort(host, cfg.MediaMTX.RTMPPort), s.Name, s.PublishUser, s.PublishPass),
+		SRT:  fmt.Sprintf("srt://%s?streamid=publish:%s:%s:%s", hostPort(host, srtPort), s.Name, s.PublishUser, s.PublishPass),
+		RTMP: fmt.Sprintf("rtmp://%s/%s?user=%s&pass=%s", hostPort(host, rtmpPort), s.Name, s.PublishUser, s.PublishPass),
 	}
 }
 

@@ -147,3 +147,44 @@ func TestBuildURLs(t *testing.T) {
 		t.Errorf("OBS = %q, want %q", u.OBSRead, want)
 	}
 }
+
+func TestBuildURLsOverrides(t *testing.T) {
+	tests := []struct {
+		name                           string
+		mod                            func(*config.Config)
+		publishHost                    string
+		wantSRT, wantRTMP, wantOBSRead string
+	}{
+		{"既定", func(c *config.Config) {}, "192.168.1.10",
+			"srt://192.168.1.10:8890?streamid=publish:live:irl:PUBPASS12", "rtmp://192.168.1.10:1935/live?user=irl&pass=PUBPASS12", "rtsp://obs:READPASS1@127.0.0.1:8554/live"},
+		{"obs_read_host 指定", func(c *config.Config) { c.Stream.ObsReadHost = "192.168.1.20" }, "192.168.1.10",
+			"srt://192.168.1.10:8890?streamid=publish:live:irl:PUBPASS12", "rtmp://192.168.1.10:1935/live?user=irl&pass=PUBPASS12", "rtsp://obs:READPASS1@192.168.1.20:8554/live"},
+		{"ポート上書き", func(c *config.Config) { c.Stream.PublishRTMPPort, c.Stream.PublishSRTPort = 21935, 28890 }, "example.com",
+			"srt://example.com:28890?streamid=publish:live:irl:PUBPASS12", "rtmp://example.com:21935/live?user=irl&pass=PUBPASS12", "rtsp://obs:READPASS1@127.0.0.1:8554/live"},
+		{"ポート 0 は受信のポート", func(c *config.Config) { c.MediaMTX.RTMPPort, c.MediaMTX.SRTPort = 11935, 18890 }, "example.com",
+			"srt://example.com:18890?streamid=publish:live:irl:PUBPASS12", "rtmp://example.com:11935/live?user=irl&pass=PUBPASS12", "rtsp://obs:READPASS1@127.0.0.1:8554/live"},
+		{"IPv6", func(c *config.Config) {
+			c.Stream.ObsReadHost = "fd00::20"
+			c.Stream.PublishRTMPPort = 21935
+		}, "fd00::10",
+			"srt://[fd00::10]:8890?streamid=publish:live:irl:PUBPASS12", "rtmp://[fd00::10]:21935/live?user=irl&pass=PUBPASS12", "rtsp://obs:READPASS1@[fd00::20]:8554/live"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := testConfig(t)
+			cfg.Stream.Name, cfg.Stream.PublishUser, cfg.Stream.PublishPass = "live", "irl", "PUBPASS12"
+			cfg.Stream.ReadUser, cfg.Stream.ReadPass = "obs", "READPASS1"
+			tt.mod(cfg)
+			u := buildURLs(cfg, tt.publishHost)
+			if u.PublishSRT != tt.wantSRT {
+				t.Errorf("SRT = %q, want %q", u.PublishSRT, tt.wantSRT)
+			}
+			if u.PublishRTMP != tt.wantRTMP {
+				t.Errorf("RTMP = %q, want %q", u.PublishRTMP, tt.wantRTMP)
+			}
+			if u.OBSRead != tt.wantOBSRead {
+				t.Errorf("OBS = %q, want %q", u.OBSRead, tt.wantOBSRead)
+			}
+		})
+	}
+}

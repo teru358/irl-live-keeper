@@ -1,7 +1,7 @@
 # irl-live-keeper 設計 — 全体構成と第1段階（コア）
 
 - 作成日: 2026-11-18
-- 版: v2.8（変更は末尾の変更履歴を参照）
+- 版: v2.9（変更は末尾の変更履歴を参照）
 - 状態: ユーザー承認済みの設計（セクション1〜5）を文書化したもの。v2.0 でシーンのモデルを 2026-11-19 のユーザーの裁定に合わせて書き直した（6章の末尾に「実装前に決めたこと」がある）
 - 対象バージョン: MediaMTX v1.21.4（2026-11-15 リリース）、obs-websocket v5
 
@@ -20,7 +20,10 @@
 
 ### 前提
 
-- 配置: OBS と同じマシン、または同じ LAN 内の別 PC。VPS は対象外
+- 配置（v2.9 で整理した。2026-11-20 のユーザーの方針）:
+  - **配信 PC**（OBS と同じ PC）: 基本の置き方
+  - **LAN の中の中継 PC**（本ツールと MediaMTX を LAN の別の PC に置き、OBS は配信 PC）: 対応する。`obs.host` に配信 PC のアドレスを、`stream.obs_read_host` に中継 PC の LAN のアドレスを書く（4章、8章）
+  - **外部のサーバー**（VPS など）: 技術的には可能だが、正式には対応しない。中継 PC と同じ設定を VPN（Tailscale など）越しに行う。obs-websocket と RTSP の読み出しは暗号化されないので、インターネットへ直接は通さない（13章）
 - 配信 PC は Windows を想定。Linux と macOS でも動くこと
 - 入力: RTMP と SRT の両方（送信側は Larix / IRL Pro / Moblin / OBS など）
 
@@ -98,6 +101,9 @@ stream:
   publish_pass: "*"
   read_user: obs             # OBS が読み出すときの資格情報（OBS 用 URL に埋め込む）
   read_pass: "*"
+  obs_read_host: ""          # OBS 用 URL の host。空なら 127.0.0.1（本ツールを配信 PC に置く場合）。LAN の中継 PC に置くときは、中継 PC の LAN のアドレスを書く
+  publish_rtmp_port: 0       # 送信用 URL に出す RTMP のポート。0 なら mediamtx.rtmp_port と同じ。ルーターのポート転送で外側のポートを変えたときに書く
+  publish_srt_port: 0        # 送信用 URL に出す SRT のポート。0 なら mediamtx.srt_port と同じ
   publish_host: ""           # 送信用 URL の host。空なら起動時に LAN の IPv4 を自動で調べる（自動）。ポート転送やトンネル、VPN のアドレスが決まっていれば、そのホスト名か IP を書く（手動）
 
 obs:
@@ -137,6 +143,8 @@ log:
 - `obs.monitored_scenes` は1つ以上で、どの名前も空でなく、互いに異なる
 - `on_stream_start.enabled` が true のとき、`on_stream_start.scene` は空でなく、`obs.standby_scene` と異なる（待機シーンで配信が始まると、持ち主が `none` の待機になり自動で戻らないため）
 - `admin.password` は空でない
+- `stream.obs_read_host` は `stream.publish_host` と同じ規則（空か、ホスト名か IP アドレス）
+- `stream.publish_rtmp_port` と `stream.publish_srt_port` は 0 か 1〜65535（受信のポートとの重複は問わない。外側のポートなので）
 - `stream.publish_host` は空か、ホスト名か IP アドレス（`net.ParseIP` で通る IP か、`[A-Za-z0-9.-]` の文字だけからなる 253 文字以内の名前）。スキーム、ポート、パス、`[ ]` は含めない
 - `log.dir` は空でなく、`log.keep_days` は 0 以上
 
@@ -516,11 +524,11 @@ type Client interface {
   - api: 本体の起動のたびにランダムに作るユーザー名とパスワード（MediaMTX の再起動では変えない。変えると、作成時に資格情報を受け取った Poller が認証に失敗し続けるため）、`127.0.0.1` と `::1` からだけ許可。Poller はこの資格情報で API を呼ぶ
 - MediaMTX の API の応答は、ログにそのまま書かない。`/v3/rtmp/conns/list` は RTMP の publisher のクエリ（`user=…&pass=…`）を平文で返す（spike ③ で確認）
 
-送信用 URL（status と、起動時の標準出力に表示する。10章のログの規則を参照）。`<host>` は `stream.publish_host` が空でなければその値（手動）、空なら起動時に1回調べた LAN の IPv4（自動。ネットワークインターフェースのうち、有効で loopback でないものの、プライベートアドレス〔`net.IP.IsPrivate`〕の IPv4 を、インターフェースの順で最初の1つ。外部への通信はしない）。自動で見つからなければ `127.0.0.1` にして警告をログに出す。自動のときは、起動時の表示に「屋外から送るときは、host をポート転送やトンネルのアドレスに置き換える（`stream.publish_host` で固定できる）」と添える:
+送信用 URL（status と、起動時の標準出力に表示する。10章のログの規則を参照）。ポートは `stream.publish_rtmp_port` / `stream.publish_srt_port` が 0 でなければその値、0 なら受信のポート（`mediamtx.rtmp_port` / `srt_port`）。`<host>` は `stream.publish_host` が空でなければその値（手動）、空なら起動時に1回調べた LAN の IPv4（自動。ネットワークインターフェースのうち、有効で loopback でないものの、プライベートアドレス〔`net.IP.IsPrivate`〕の IPv4 を、インターフェースの順で最初の1つ。外部への通信はしない）。自動で見つからなければ `127.0.0.1` にして警告をログに出す。自動のときは、起動時の表示に「屋外から送るときは、host をポート転送やトンネルのアドレスに置き換える（`stream.publish_host` で固定できる）」と添える:
 - SRT: `srt://<host>:<srt_port>?streamid=publish:<name>:<user>:<pass>`
 - RTMP: `rtmp://<host>:<rtmp_port>/<name>?user=<user>&pass=<pass>`
 
-OBS メディアソース用 URL は RTSP（`rtsp://<read_user>:<read_pass>@127.0.0.1:<rtsp_port>/<name>`。OBS は同じ PC で動くので host は `127.0.0.1`）とする（spike ① で決めた。Windows の OBS で遅延は約1秒）。OBS のメディアソースは、「ローカルファイル」を外し、FFmpeg のオプションに `rtsp_transport=tcp`、「再接続までの遅延」は2秒、「アクティブになったときに再生を再開」は解除を推奨する（12章の spike ②）。どれを選んでも read の資格情報を埋め込む（候補: `rtsp://<read_user>:<read_pass>@<host>:<rtsp_port>/<name>`、`rtmp://<host>:<rtmp_port>/<name>?user=<read_user>&pass=<read_pass>`、`srt://<host>:<srt_port>?streamid=read:<name>:<read_user>:<read_pass>`）。この URL も status と起動時の標準出力にだけ表示する。
+OBS メディアソース用 URL は RTSP（`rtsp://<read_user>:<read_pass>@<obs_read_host>:<rtsp_port>/<name>`。`<obs_read_host>` は `stream.obs_read_host` が空なら `127.0.0.1`。本ツールを LAN の中継 PC に置くときは、OBS から見た中継 PC のアドレスを書く）とする（spike ① で決めた。Windows の OBS で遅延は約1秒）。OBS のメディアソースは、「ローカルファイル」を外し、FFmpeg のオプションに `rtsp_transport=tcp`、「再接続までの遅延」は2秒、「アクティブになったときに再生を再開」は解除を推奨する（12章の spike ②）。どれを選んでも read の資格情報を埋め込む（候補: `rtsp://<read_user>:<read_pass>@<host>:<rtsp_port>/<name>`、`rtmp://<host>:<rtmp_port>/<name>?user=<read_user>&pass=<read_pass>`、`srt://<host>:<srt_port>?streamid=read:<name>:<read_user>:<read_pass>`）。この URL も status と起動時の標準出力にだけ表示する。
 
 ### 起動と再起動
 
@@ -730,6 +738,7 @@ goobs のラッパーは実際の OBS を相手に手動で確かめる。自動
     - switcher の「入口 × 状態」の表（`docs/superpowers/plans/2026-11-19-switcher-table.md`）とテストを作り直す。状態機械の中心の変更なので、設計とレビューは opus か codex sol で行う
 - SRT の streamid と RTMP のクエリに含めた資格情報は暗号化されない（SRT のパスフレーズは第1段階では使わない）
 - goobs の制約（v1.11.1。v1.0.0 以降のすべての版で同じ作り）: WebSocket の接続はできたが認証が終わらずに `New` が失敗したとき（OBS が固まって Hello や認証の応答を返さず、応答待ちの5秒を過ぎた場合）、ラッパーが接続を閉じても（7章）、goobs の中の goroutine が残る。goobs の受信の goroutine は、閉じるフレーム以外の読み取りのエラー（接続を閉じたときのエラーを含む）では内部のチャネルを閉じずに抜けるので、opcode を処理する goroutine が閉じられないチャネルを待ったまま残る。応答待ちを過ぎたあとに Identified が届いた場合と、Identify の送信に失敗した場合は、認証の結果を送る goroutine が、受け手のいないチャネルへの送信で止まったまま残る。認証が終わる前に、通常の読み取りのエラーで接続が切れた場合も、同じく opcode を処理する goroutine が残る。再接続は最短5秒ごとなので、その状態が続くと1時間に数百本（数 MB）増えうる。OBS が起動していない（接続が拒否される）ときと、パスワードが違う（OBS が認証の失敗で接続を閉じる）ときは起きない。goobs を使い続け、上流に報告した（https://github.com/andreykaipov/goobs/issues/277、2026-11-20）。直るまでの制約とする（2026-11-20 のユーザーの裁定。Go の obs-websocket v5 のライブラリは事実上 goobs だけで、活発に保守されている）
+- 本ツールを LAN の中継 PC に置くと、obs-websocket（中継 PC から配信 PC の 4455）と、OBS の RTSP の読み出し（配信 PC から中継 PC の 8554。read の資格情報を含む）が LAN を通る。どちらも暗号化されないので、LAN 内で盗聴されうる（管理 API を LAN に公開したときと同じ）。配信 PC のファイアウォールで obs-websocket を、中継 PC のファイアウォールで RTSP を、LAN からだけ許可する。外部のサーバーに置くときは、必ず VPN 越しにする
 - MediaMTX の受信サーバーの設定（ポートなど）や path の認証設定を変えると、配信が切れる。第2段階の設定編集では「配信中に変えると切れる」設定として扱う
 
 ## 変更履歴
@@ -753,3 +762,4 @@ goobs のラッパーは実際の OBS を相手に手動で確かめる。自動
 | 2026-11-20 | v2.6 | ポートの事前確認で、全インターフェースのポートは IPv4 の `0.0.0.0:port` でも確かめる（8章） | Windows の実機で、ほかのプロセスが IPv4 で使っているポートを見落とした | この版の commit |
 | 2026-11-20 | v2.7 | spike ①② の結果を反映した。OBS 用 URL は RTSP に決定（8章）。RESTART のあとの待ち時間は1秒（6章）。メディアソースは `restart_on_activate` の解除と「再接続までの遅延」2秒を推奨（8章、12章） | Windows の実機の spike ①②（ユーザーと一緒に行った） | この版の commit |
 | 2026-11-20 | v2.8 | spike ④ の結果を反映した。配信開始時の切替は `STARTED` のまま（切替前のシーンが映るのは約 0.3秒）（12章、13章） | Windows の実機の spike ④。ユーザーの裁定。STARTING で切り替える作りにする場合のメモを 13章に残した | この版の commit |
+| 2026-11-20 | v2.9 | 配置の範囲を整理した（配信 PC が基本、LAN の中継 PC に対応、外部のサーバーは VPN 越しで技術的に可能）。`stream.obs_read_host`（OBS 用 URL の host）と、`stream.publish_rtmp_port` / `publish_srt_port`（送信用 URL に出すポート）を足した。中継 PC での LAN の通信のリスクを 13章に書いた（1章、4章、8章、13章） | 2026-11-20 のユーザーの方針 | この版の commit |
