@@ -2,6 +2,8 @@ package obs
 
 import (
 	"context"
+	"errors"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -137,5 +139,103 @@ func TestRunClosesEveryConnectionAfterRetries(t *testing.T) {
 		case <-time.After(3 * time.Second):
 			t.Fatalf("接続 %d 本のうち %d 本しか閉じられていない", n, i)
 		}
+	}
+}
+
+// newPipe は net.Pipe の両端を返す。テストの後で両端を閉じる。
+func newPipe(t *testing.T) (net.Conn, net.Conn) {
+	t.Helper()
+	a, b := net.Pipe()
+	t.Cleanup(func() { a.Close(); b.Close() })
+	return a, b
+}
+
+// requirePeerEOF は peer の Read が期限内に io.EOF で戻ることを確かめる。
+// 閉じられていなければ Read は戻らず、期限切れで失敗する。
+func requirePeerEOF(t *testing.T, peer net.Conn, what string) {
+	t.Helper()
+	ret := make(chan error, 1)
+	go func() {
+		_, err := peer.Read(make([]byte, 1))
+		ret <- err
+	}()
+	select {
+	case err := <-ret:
+		if !errors.Is(err, io.EOF) {
+			t.Fatalf("%s: 相手の Read が io.EOF ではなく %v で戻った", what, err)
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("%s: 接続が閉じられていない（相手の Read が戻らない）", what)
+	}
+}
+
+func TestConnRecorderClosesConnAddedAfterClose(t *testing.T) {
+	var rec connRecorder
+	rec.close()
+	c, peer := newPipe(t)
+	rec.add(c)
+	requirePeerEOF(t, peer, "close のあとに add した接続")
+}
+
+func TestConnRecorderAddAfterCloseReturnsErrClosed(t *testing.T) {
+	var rec connRecorder
+	rec.close()
+	c, peer := newPipe(t)
+	err := rec.add(c)
+	if !errors.Is(err, net.ErrClosed) {
+		t.Fatalf("close のあとの add は net.ErrClosed を包んだエラーを返すべきだが、%v を返した", err)
+	}
+	requirePeerEOF(t, peer, "エラーを返した add の接続")
+}
+
+func TestConnRecorderClosesConnAddedBeforeClose(t *testing.T) {
+	var rec connRecorder
+	c, peer := newPipe(t)
+	rec.add(c)
+	rec.close()
+	requirePeerEOF(t, peer, "close の前に add した接続")
+}
+
+func TestConnRecorderCloseTwiceDoesNotPanic(t *testing.T) {
+	var rec connRecorder
+	c, peer := newPipe(t)
+	rec.add(c)
+	rec.close()
+	rec.close() // 2回目は何もしない（パニックしない）
+	requirePeerEOF(t, peer, "close を2回呼んだあとの接続")
+}
+
+// TestConnRecorderAddAndCloseConcurrently は add と close を並行に呼ぶ。
+// どちらが先でも、記録された接続はすべて閉じられていなければならない。
+func TestConnRecorderAddAndCloseConcurrently(t *testing.T) {
+	var rec connRecorder
+	const n = 50
+	conns := make([]net.Conn, n)
+	peers := make([]net.Conn, n)
+	for i := range n {
+		conns[i], peers[i] = newPipe(t)
+	}
+
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for i := range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			rec.add(conns[i])
+		}()
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		<-start
+		rec.close()
+	}()
+	close(start)
+	wg.Wait()
+
+	for i, p := range peers {
+		requirePeerEOF(t, p, "並行に add した接続 "+strconv.Itoa(i))
 	}
 }

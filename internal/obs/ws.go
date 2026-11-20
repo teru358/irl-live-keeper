@@ -153,24 +153,34 @@ func (w *WS) session(ctx context.Context) (connected bool) {
 }
 
 // connRecorder は dial で開いた接続を記録し、あとから閉じられるようにする。
-// goobs.New は失敗しても接続を閉じないため、こちらで閉じる。何度閉じてもよい。
+// goobs.New は失敗しても接続を閉じないため、こちらで閉じる。
+// close のあとに add された接続は記録せず、その場で閉じる。何度 close してもよい。
 type connRecorder struct {
-	mu    sync.Mutex
-	conns []net.Conn
+	mu     sync.Mutex
+	closed bool
+	conns  []net.Conn
 }
 
-func (r *connRecorder) add(c net.Conn) {
+// add は c を記録する。close のあとなら c を閉じて、net.ErrClosed を包んだエラーを返す。
+func (r *connRecorder) add(c net.Conn) error {
 	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed {
+		_ = c.Close()
+		return fmt.Errorf("OBS への接続は閉じられたあとに開かれた: %w", net.ErrClosed)
+	}
 	r.conns = append(r.conns, c)
-	r.mu.Unlock()
+	return nil
 }
 
 func (r *connRecorder) close() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.closed = true
 	for _, c := range r.conns {
 		_ = c.Close()
 	}
+	r.conns = nil
 }
 
 // dial は goobs.New で OBS に接続する。失敗したときと、実行中に ctx が終わったときは、
@@ -186,7 +196,9 @@ func (w *WS) dial(ctx context.Context, addr string) (*goobs.Client, *connRecorde
 			if err != nil {
 				return nil, err
 			}
-			rec.add(c)
+			if err := rec.add(c); err != nil {
+				return nil, err
+			}
 			return c, nil
 		},
 	}
