@@ -48,7 +48,11 @@ func main() {
 		fmt.Fprintln(os.Stderr, "実行ファイルの場所を調べられません:", err)
 		os.Exit(1)
 	}
-	os.Exit(run(ctx, base, os.Stdout, os.Stderr))
+	code := run(ctx, base, os.Stdout, os.Stderr)
+	if shouldPause(code, consoleProcessCount) {
+		waitEnter(os.Stdin, os.Stderr)
+	}
+	os.Exit(code)
 }
 
 // baseDir は実行ファイルのあるディレクトリ（シンボリックリンクは辿る）。
@@ -97,6 +101,7 @@ func run(ctx context.Context, base string, stdout, stderr io.Writer) int {
 	}
 
 	if err := supervisor.CheckPorts(cfg); err != nil {
+		log.Error("ポートの事前確認に失敗しました", "error", err)
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
@@ -155,6 +160,7 @@ func run(ctx context.Context, base string, stdout, stderr io.Writer) int {
 	if err != nil {
 		cancel()
 		wg.Wait()
+		log.Error("admin.listen で待ち受けできません", "listen", cfg.Admin.Listen, "error", err)
 		fmt.Fprintf(stderr, "admin.listen %s で待ち受けできません: %v\n", cfg.Admin.Listen, err)
 		return 1
 	}
@@ -164,6 +170,7 @@ func run(ctx context.Context, base string, stdout, stderr io.Writer) int {
 	select {
 	case <-ctx.Done():
 	case err := <-serveErr:
+		log.Error("管理 API が止まりました", "error", err)
 		fmt.Fprintf(stderr, "管理 API が止まりました: %v\n", err)
 		code = 1
 	}

@@ -374,6 +374,9 @@ func TestRunはポートが使用中なら終了コード1(t *testing.T) {
 	if strings.Contains(stdout.String(), "srt://") {
 		t.Error("起動を止めたのに起動の表示が出ている")
 	}
+	if got := readLogs(t, filepath.Join(base, "logs")); !strings.Contains(got, "rtmp_port") {
+		t.Errorf("ログファイルにポートの名前がない:\n%s", got)
+	}
 }
 
 func TestRunは管理APIの待ち受けに失敗したら終了コード1(t *testing.T) {
@@ -413,5 +416,8 @@ func TestRunは管理APIの待ち受けに失敗したら終了コード1(t *tes
 	}
 	if !strings.Contains(stderr.String(), "admin.listen") {
 		t.Errorf("標準エラーに admin.listen がない:\n%s", stderr.String())
+	}
+	if got := readLogs(t, filepath.Join(base, "logs")); !strings.Contains(got, "admin.listen") {
+		t.Errorf("ログファイルに admin.listen がない:\n%s", got)
 	}
 }
