@@ -1,7 +1,7 @@
 # irl-live-keeper 設計 — 全体構成と第1段階（コア）
 
 - 作成日: 2026-11-18
-- 版: v2.6（変更は末尾の変更履歴を参照）
+- 版: v2.7（変更は末尾の変更履歴を参照）
 - 状態: ユーザー承認済みの設計（セクション1〜5）を文書化したもの。v2.0 でシーンのモデルを 2026-11-19 のユーザーの裁定に合わせて書き直した（6章の末尾に「実装前に決めたこと」がある）
 - 対象バージョン: MediaMTX v1.21.4（2026-11-15 リリース）、obs-websocket v5
 
@@ -262,7 +262,7 @@ Tick{}        // 1秒ごと。再送と期待の期限の判定に使う
 
 // Action
 SetScene{Scene string}           // OBS のシーン名そのもの
-RestartMedia{Wait time.Duration} // RESTART を送ったあと、次の Action までの待ち時間（spike ② で決める定数）
+RestartMedia{Wait time.Duration} // RESTART を送ったあと、次の Action までの待ち時間（定数 1秒。spike ② で決めた）
 StartStream{}
 StopStream{}
 ```
@@ -327,7 +327,7 @@ switcher は、待機シーンに「誰が入れたか」と「どこへ戻す�
 - **AutoFail:** 現在のシーンが Monitored、受信状態が `LOW` か `DOWN`、持ち主が `none` → `[SetScene(待機シーン)]`。バッチは戻り先として、その時点の現在のシーン名を持つ。戻り先と持ち主（`auto`）が入るのは、待機シーンへの期待どおりの `SceneChanged` が届いた時点
 - **AutoRecover:** 持ち主が `auto`、現在のシーンが待機シーン、受信状態が `OK` → `[RestartMedia, SetScene(戻り先)]`
   - `RestartMedia` は `TriggerMediaInputAction`（`OBS_WEBSOCKET_MEDIA_INPUT_ACTION_RESTART`）を `obs.media_source` に送る
-  - RESTART と切替の順序、間に置く待ち時間（`RestartMedia.Wait`）は spike ②（12章）で決め、定数として実装する
+  - RESTART と切替の順序、間に置く待ち時間（`RestartMedia.Wait`）は spike ②（12章）で決めた: RESTART を送り、1秒待ってから切り替える。Windows と Linux の OBS で、RESTART から再生開始（`MediaInputPlaybackStarted`）まで約 1.02秒で、切替のトランジションの時間も加わるので、戻った瞬間に映像が出た
 - Other のシーンには触らない。持ち主が `none` の待機シーン（人が手動で選んだ）と、持ち主が `manual` の待機シーンからは、自動では戻さない
 - `ScenesConfigured` を受けたら、新しい設定に差し替え、持ち主と戻り先を上の規則で確かめ（「待機の持ち主と戻り先」）、`ConfigEpoch` を進める。未完了のシーン切替のバッチは承認で却下される。期待はそのまま残す（そのあと届いた `SceneChanged` を手動と誤認しないため）。そのあと通常の判定をする
 - 受信状態が `LinkChanged` で変わったときだけでなく、`SceneChanged`（本体の切替でも手動の切替でも）、`StreamStateChanged`、`OBSConnected`、`ScenesConfigured`、`Tick` のあとにも同じ判定をする
@@ -520,7 +520,7 @@ type Client interface {
 - SRT: `srt://<host>:<srt_port>?streamid=publish:<name>:<user>:<pass>`
 - RTMP: `rtmp://<host>:<rtmp_port>/<name>?user=<user>&pass=<pass>`
 
-OBS メディアソース用 URL は spike ① の結果で決める。spike ① までは仮に RTSP（`rtsp://<read_user>:<read_pass>@127.0.0.1:<rtsp_port>/<name>`。OBS は同じ PC で動くので host は `127.0.0.1`）とする。どれを選んでも read の資格情報を埋め込む（候補: `rtsp://<read_user>:<read_pass>@<host>:<rtsp_port>/<name>`、`rtmp://<host>:<rtmp_port>/<name>?user=<read_user>&pass=<read_pass>`、`srt://<host>:<srt_port>?streamid=read:<name>:<read_user>:<read_pass>`）。この URL も status と起動時の標準出力にだけ表示する。
+OBS メディアソース用 URL は RTSP（`rtsp://<read_user>:<read_pass>@127.0.0.1:<rtsp_port>/<name>`。OBS は同じ PC で動くので host は `127.0.0.1`）とする（spike ① で決めた。Windows の OBS で遅延は約1秒）。OBS のメディアソースは、「ローカルファイル」を外し、FFmpeg のオプションに `rtsp_transport=tcp`、「再接続までの遅延」は2秒、「アクティブになったときに再生を再開」は解除を推奨する（12章の spike ②）。どれを選んでも read の資格情報を埋め込む（候補: `rtsp://<read_user>:<read_pass>@<host>:<rtsp_port>/<name>`、`rtmp://<host>:<rtmp_port>/<name>?user=<read_user>&pass=<read_pass>`、`srt://<host>:<srt_port>?streamid=read:<name>:<read_user>:<read_pass>`）。この URL も status と起動時の標準出力にだけ表示する。
 
 ### 起動と再起動
 
@@ -709,6 +709,7 @@ goobs のラッパーは実際の OBS を相手に手動で確かめる。自動
 
 1. **OBS からの読み出し:** rtsp / rtmp / srt のうち、遅延が小さく再接続が確実な URL と、メディアソースの設定（`reconnect_delay_sec`、バッファリング、ネットワークバッファ）を決める。決まった URL を 8章の OBS 用 URL とする
 2. **Fail → Live の復帰:** 待機シーン中はメディアソースが非表示になる。`restart_on_activate`（既定 ON）だと、非表示中に再接続しても表示されるまで再生を始めない。この挙動のもとで、切替の前に `RESTART` を送ると映像がすぐ出るか、RESTART と切替の順序と待ち時間をどうするかを決める。結果は 6章の定数に反映する
+   - **結果（2026-11-20、Windows と Linux の OBS）:** 送信が止まると、メディアソースは RESTART を受けるまで再生を戻さない（RESTART が要る）。RESTART から再生開始まで約 1.02秒で、待ち時間は1秒にした。`restart_on_activate` が有効だと、本体が RESTART のあとに切り替えた瞬間に再生がもう一度やり直され、「再接続までの遅延」の間（約2秒）黒い画面が出た（Windows で再現性あり）。そのため `restart_on_activate` は解除を推奨する。解除しても、送信がない間は OBS が裏で「再接続までの遅延」ごとに読み直すので、人が IRL Link などでカメラのシーンへ切り替えたときも映像はすぐ出た。カメラの接続が確立してから画面に出るまでの時間は「再接続までの遅延」に依存するので、2秒を推奨する（1秒にすると、送信がない間に MediaMTX のログが毎秒2行増える）
 3. **（済）テスト用の JSON:** 実際の API の応答（`/v3/paths/get/{name}`、`/v3/rtmp/conns/list`、`/v3/srt/conns/list`）を、RTMP と SRT それぞれ送信中・未送信の状態で録り、`internal/ingest/testdata/` に置く。TCP 接続が残ったままバイトが止まる状況を再現できれば、それも録る。あわせて、MediaMTX のログに publish の資格情報が出るかを確かめる（8章の置き換えが効いているかの確認）
 4. **配信開始時の切替（①② とあわせて行う）:** 配信開始時の切替（6章）を、obs-websocket の `StreamStateChanged` の `STARTING` の時点で送れるか、送ったシーンで配信が始まるか（`STARTED` で送る場合に、切替前のシーンが配信に出る長さも測る）を確かめる。結果で 6章と 7章の写像を見直す
 
@@ -744,3 +745,4 @@ goobs のラッパーは実際の OBS を相手に手動で確かめる。自動
 | 2026-11-20 | v2.4 | API の細部を決めた: 確かめる順序（404 → 401 → 405 → 403）、`WWW-Authenticate`、独自ヘッダーの値、本文の形、中核ループが受け取らないときの 503、想定外の 500（9章）。ログの日付の切替、消すファイルの範囲、パスワードの置き換え（10章）。`log.dir` と `log.keep_days` の検証（4章）。送信用 URL の host を自動と手動で切り替える `stream.publish_host`（4章、8章）。OBS 用 URL は spike ① まで仮に RTSP（8章）。main の起動と終了の手順（10章）。`internal/redact` を足し、MediaMTX のログの置き換えも10章と同じ規則にした（3章、8章）。OBS の接続に失敗したときに接続を自分で閉じる（7章）。goobs の中に残る goroutine を既知の制約にした（13章）。パスワードの比較を固定長にする（9章） | T10・T11 の準備で、決まっていない点が見つかった。publish_host と OBS 用 URL は 2026-11-20 のユーザーの裁定。7章・9章・13章は T10〜T11 のレビュー（codex sol: Critical 0 / Important 1 / Minor 1） | この版の commit |
 | 2026-11-20 | v2.5 | 6章の StandbyOn の有効条件と「実装前に決めたこと」の 2 から、AutoFail が先に待機シーンへ届いて却下される例を除き、通常の列での却下は `SceneEpoch` によると直した。11章の「同じシーンへの期待が複数ある」の例を、6章 V-02 の決定に合わせて「StandbyOff の押し直しで、同じ戻り先への期待が2つ」に書き換えた。古い「表を作り直す」の文を消し、表の場所だけを書いた。6章の StandbyOn の有効条件の行と11章に、V-13（通常の列では起きない組み合わせは、状態を直接作って `Approve` を呼ぶ）を添えた | 文書の残り（T9 の報告から） | この版の commit |
 | 2026-11-20 | v2.6 | ポートの事前確認で、全インターフェースのポートは IPv4 の `0.0.0.0:port` でも確かめる（8章） | Windows の実機で、ほかのプロセスが IPv4 で使っているポートを見落とした | この版の commit |
+| 2026-11-20 | v2.7 | spike ①② の結果を反映した。OBS 用 URL は RTSP に決定（8章）。RESTART のあとの待ち時間は1秒（6章）。メディアソースは `restart_on_activate` の解除と「再接続までの遅延」2秒を推奨（8章、12章） | Windows の実機の spike ①②（ユーザーと一緒に行った） | この版の commit |

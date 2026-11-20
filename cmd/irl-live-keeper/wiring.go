@@ -84,7 +84,7 @@ func judgeThresholds(cfg *config.Config) ingest.Thresholds {
 	}
 }
 
-// obsReadHost は OBS 用 URL の host。OBS は同じ PC で動く。
+// obsReadHost は OBS 用 URL の host。OBS は同じ PC で動く。OBS 用 URL は RTSP（Windows の OBS で遅延は約1秒）。
 const obsReadHost = "127.0.0.1"
 
 // buildURLs は status と起動時の表示に使う URL を作る。送信用は host、OBS 用は 127.0.0.1。

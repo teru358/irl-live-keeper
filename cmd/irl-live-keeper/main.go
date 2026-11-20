@@ -30,7 +30,8 @@ const (
 	configName = "config.yaml"
 	// pollInterval は Poller が MediaMTX の API を読む間隔。
 	pollInterval = time.Second
-	// restartWait は RestartMedia の送出から切替までの待ち時間。実機で確かめるまでの暫定の値。
+	// restartWait は RestartMedia の送出から切替までの待ち時間。Windows と Linux の OBS で、RESTART から
+	// 再生開始まで約 1.02秒だった。切替のトランジションの時間も加わるので、1秒で戻った瞬間に映像が出る。
 	restartWait = time.Second
 	// shutdownTimeout は管理 API の HTTP サーバーの終了を待つ上限。
 	shutdownTimeout = 5 * time.Second
