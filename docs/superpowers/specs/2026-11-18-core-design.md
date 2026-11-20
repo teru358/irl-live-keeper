@@ -73,6 +73,7 @@ internal/obs                  … goobs のラッパー（接続維持・イベ�
 internal/core                 … 中核ループ（各部品をつなぎ、状態を1か所で持つ）
 internal/web                  … JSON API（第1段階）
 internal/logging              … 標準出力 + 日付ごとのログファイル
+internal/redact               … ログの行の中のパスワードを *** に置き換える（logging と supervisor が使う）
 ```
 
 ## 4. config.yaml
@@ -524,7 +525,7 @@ OBS メディアソース用 URL は spike ① の結果で決める。spike ①
 
 - 起動前に、`rtmp_port`（TCP）、`srt_port`（UDP）、`rtsp_port`（TCP）、`api_port`（TCP）を、MediaMTX と同じ形（全インターフェース、api だけ 127.0.0.1）で listen できるか確かめ、すぐ閉じる。これは補助の診断で、ポートの予約ではない（閉じてから MediaMTX が bind するまでに、別のプロセスが取ることはありうる）。使用中なら、どのポートかと「前回の mediamtx が残っていないか確認すること」を示して起動を止める
 - MediaMTX が起動直後に落ちたときは、そのログに出た bind などのエラー行を `last_error` に出す。事前確認を通ったあとの起動失敗も、これで理由が見える
-- MediaMTX の標準出力と標準エラーは、`component=mediamtx` を付けて本体のログに流す。その際、`publish_pass`、`read_pass`、api のパスワードの文字列を `***` に置き換える（MediaMTX のログに RTMP のクエリや SRT の streamid が出る場合に備える。4章で使える文字を制限しているので、URL エンコードで形が変わることはない）
+- MediaMTX の標準出力と標準エラーは、`component=mediamtx` を付けて本体のログに流す。その際、`publish_pass`、`read_pass`、api のパスワードの文字列を `***` に置き換える（置き換えの規則は10章「ログ」の細部と同じで、`internal/redact` を使う。MediaMTX のログに RTMP のクエリや SRT の streamid が出る場合に備える。4章で使える文字を制限しているので、URL エンコードで形が変わることはない）
 - 落ちたら再起動する。待ち時間は 1→2→4…秒と延ばし、上限30秒。60秒安定して動けば待ち時間を1秒に戻す
 - 落ちている間、Poller の API 呼び出しは失敗するので受信状態は `DOWN` になる。status では `mediamtx: "down"` として区別する
 - 本体の終了時（Ctrl+C、SIGTERM）は MediaMTX を止めてから終了する
@@ -737,4 +738,4 @@ goobs のラッパーは実際の OBS を相手に手動で確かめる。自動
 | 2026-11-19 | v2.1 | 期待に登録時の `ConfigEpoch` を持たせ、設定が変わったあとの期待は持ち主と戻り先に作用しないとした。期待が残る間は StandbyOn を受け付けない。開始時の切替が無効でも通常の自動切替は行うと結合テストを直した。テストのケースを5つ足した（6章、11章） | spec v2.0 の設計レビュー（codex sol: Critical 0 / Important 3 / Minor 0） | 5d87123 |
 | 2026-11-19 | v2.2 | 6章に「細部の規則（v2.1 の表を作る中で決めたこと）」を追加（V-01〜V-18）。13章に遅れて届いた本体の切替の制約を追記 | v2.1 の switcher の「入口 × 状態」の表を作る中で見つかった不明点。技術で決まるものとして、表の案どおりに決めた | 33f4d5a |
 | 2026-11-19 | v2.3 | status の `last_error` の形と、接続前の `scene_class` を定義（9章） | T9 の検収で、`last_error` の形が決まっていないことがわかった | 8a5a31f |
-| 2026-11-20 | v2.4 | API の細部を決めた: 確かめる順序（404 → 401 → 405 → 403）、`WWW-Authenticate`、独自ヘッダーの値、本文の形、中核ループが受け取らないときの 503、想定外の 500（9章）。ログの日付の切替、消すファイルの範囲、パスワードの置き換え（10章）。`log.dir` と `log.keep_days` の検証（4章）。送信用 URL の host を自動と手動で切り替える `stream.publish_host`（4章、8章）。OBS 用 URL は spike ① まで仮に RTSP（8章）。main の起動と終了の手順（10章） | T10・T11 の準備で、決まっていない点が見つかった。publish_host と OBS 用 URL は 2026-11-20 のユーザーの裁定 | この版の commit |
+| 2026-11-20 | v2.4 | API の細部を決めた: 確かめる順序（404 → 401 → 405 → 403）、`WWW-Authenticate`、独自ヘッダーの値、本文の形、中核ループが受け取らないときの 503、想定外の 500（9章）。ログの日付の切替、消すファイルの範囲、パスワードの置き換え（10章）。`log.dir` と `log.keep_days` の検証（4章）。送信用 URL の host を自動と手動で切り替える `stream.publish_host`（4章、8章）。OBS 用 URL は spike ① まで仮に RTSP（8章）。main の起動と終了の手順（10章）。`internal/redact` を足し、MediaMTX のログの置き換えも10章と同じ規則にした（3章、8章） | T10・T11 の準備で、決まっていない点が見つかった。publish_host と OBS 用 URL は 2026-11-20 のユーザーの裁定 | この版の commit |
