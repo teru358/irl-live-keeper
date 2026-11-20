@@ -54,10 +54,13 @@ func parseLevel(raw string) slog.Level {
 // fileNameRe は消す対象の名前の形。日付の妥当性は time.Parse で確かめる。
 var fileNameRe = regexp.MustCompile(`^irl-live-keeper-(\d{4}-\d{2}-\d{2})\.log$`)
 
+// crashFileNameRe は落ちたときの出力のファイル名（crash-YYYYMMDD-HHMMSS.log）の形。
+var crashFileNameRe = regexp.MustCompile(`^crash-(\d{8}-\d{6})\.log$`)
+
 // Options は Open の設定。
 type Options struct {
 	Dir      string           // ログのディレクトリ（なければ作る）
-	KeepDays int              // これより古い日付のファイルを Open で消す（0 以上）
+	KeepDays int              // これより古い日付のファイルを Open と日付変更時に消す（0 以上）
 	Secrets  []string         // 置き換える文字列。空の要素は無視する
 	Stdout   io.Writer        // nil なら os.Stdout
 	Now      func() time.Time // nil なら time.Now。テストで差し替える
@@ -66,11 +69,12 @@ type Options struct {
 // Logger は標準出力と日付ごとのログファイルへ書く。書き込みは Slog が返す slog.Logger を通して行う。
 type Logger struct {
 	// mu は file、fileDate、closed と、書き先への書き込みを守る。
-	mu     sync.Mutex
-	dir    string
-	stdout io.Writer
-	now    func() time.Time
-	masker *redact.Masker // 秘密を *** に置き換える
+	mu       sync.Mutex
+	dir      string
+	keepDays int
+	stdout   io.Writer
+	now      func() time.Time
+	masker   *redact.Masker // 秘密を *** に置き換える
 
 	file     *os.File // 今日のファイル。Close まで開いたまま
 	fileDate string   // file の日付（YYYY-MM-DD）。file が nil のときは空
@@ -95,11 +99,12 @@ func Open(o Options) (*Logger, error) {
 		return nil, fmt.Errorf("logging: ログのディレクトリを作れない: %w", err)
 	}
 	l := &Logger{
-		dir:    o.Dir,
-		stdout: o.Stdout,
-		now:    o.Now,
-		masker: redact.New(o.Secrets...),
-		subs:   map[*subscriber]struct{}{},
+		dir:      o.Dir,
+		keepDays: o.KeepDays,
+		stdout:   o.Stdout,
+		now:      o.Now,
+		masker:   redact.New(o.Secrets...),
+		subs:     map[*subscriber]struct{}{},
 	}
 	if l.stdout == nil {
 		l.stdout = os.Stdout
@@ -126,6 +131,16 @@ func Open(o Options) (*Logger, error) {
 // Slog は slog のテキスト形式の Logger を返す。書いた行は標準出力とログファイルの両方に出る。
 func (l *Logger) Slog() *slog.Logger {
 	return l.log
+}
+
+// SetKeepDays は、次にログを消すときから使う保存日数を設定する。負の値は無視する。
+func (l *Logger) SetKeepDays(n int) {
+	if n < 0 {
+		return
+	}
+	l.mu.Lock()
+	l.keepDays = n
+	l.mu.Unlock()
 }
 
 // Close はログファイルを閉じる。2回目以降の Close は何もせず nil を返す。
@@ -271,6 +286,7 @@ func (l *Logger) fileFor(date string) (*os.File, error) {
 	if l.file != nil && l.fileDate == date {
 		return l.file, nil
 	}
+	rolling := l.file != nil
 	var closeErr error
 	if l.file != nil {
 		closeErr = l.file.Close()
@@ -283,6 +299,10 @@ func (l *Logger) fileFor(date string) (*os.File, error) {
 	}
 	l.file = f
 	l.fileDate = date
+	if rolling {
+		// 削除失敗は書き込みに影響させない。mu を保持しているため slog での警告も出さない。
+		_ = prune(l.dir, date, l.keepDays)
+	}
 	return f, closeErr
 }
 
@@ -313,6 +333,57 @@ func prune(dir, today string, keepDays int) error {
 		if d.Before(cutoff) {
 			if err := os.Remove(filepath.Join(dir, e.Name())); err != nil {
 				errs = append(errs, err)
+			}
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// PruneCrashLogs は dir 直下にある crash-YYYYMMDD-HHMMSS.log の通常ファイルを整理する。
+// current は常に残す。空のファイルは削除し、keepKnown のときは日付が保存期間を過ぎたものも削除する。
+func PruneCrashLogs(dir, current string, keepDays int, keepKnown bool, today time.Time) error {
+	if keepKnown && keepDays < 0 {
+		return fmt.Errorf("logging: keep_days は 0 以上（%d）", keepDays)
+	}
+	cutoff := today
+	if keepKnown {
+		date, err := time.Parse(dateLayout, today.Format(dateLayout))
+		if err != nil {
+			return err
+		}
+		cutoff = date.AddDate(0, 0, -keepDays)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	current = filepath.Base(current)
+	var errs []error
+	for _, entry := range entries {
+		name := entry.Name()
+		match := crashFileNameRe.FindStringSubmatch(name)
+		if match == nil || name == current {
+			continue
+		}
+		stamp, err := time.Parse("20060102-150405", match[1])
+		if err != nil || stamp.Format("20060102-150405") != match[1] {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", name, err))
+			continue
+		}
+		if !info.Mode().IsRegular() {
+			continue
+		}
+		remove := info.Size() == 0
+		if keepKnown && stamp.Format(dateLayout) < cutoff.Format(dateLayout) {
+			remove = true
+		}
+		if remove {
+			if err := os.Remove(filepath.Join(dir, name)); err != nil {
+				errs = append(errs, fmt.Errorf("%s: %w", name, err))
 			}
 		}
 	}

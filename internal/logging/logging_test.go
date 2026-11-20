@@ -317,6 +317,59 @@ func TestOpenPrunesOnlyOldLogFiles(t *testing.T) {
 	}
 }
 
+func TestRolloverPrunesOldLogs(t *testing.T) {
+	dir := t.TempDir()
+	clk := &fakeClock{t: at(2026, 11, 19, 23, 0, 0)}
+	var stdout bytes.Buffer
+	lg := openLogger(t, dir, 14, nil, clk, &stdout)
+	writeFile(t, filepath.Join(dir, "irl-live-keeper-2026-11-05.log"))
+	writeFile(t, filepath.Join(dir, "irl-live-keeper-2026-11-06.log"))
+
+	// 同じ日付への書き込みでは掃除しない。
+	clk.Set(at(2026, 11, 19, 23, 30, 0))
+	lg.Slog().Info("same day")
+	if _, err := os.Stat(filepath.Join(dir, "irl-live-keeper-2026-11-05.log")); err != nil {
+		t.Fatalf("同日中に古いファイルが消えた: %v", err)
+	}
+
+	clk.Set(at(2026, 11, 20, 0, 0, 0))
+	lg.Slog().Info("next day")
+	if _, err := os.Stat(filepath.Join(dir, "irl-live-keeper-2026-11-05.log")); !os.IsNotExist(err) {
+		t.Errorf("期限を過ぎたファイルが残った: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "irl-live-keeper-2026-11-06.log")); err != nil {
+		t.Errorf("境界日のファイルが消えた: %v", err)
+	}
+}
+
+func TestSetKeepDaysAppliesOnNextRollover(t *testing.T) {
+	dir := t.TempDir()
+	clk := &fakeClock{t: at(2026, 11, 20, 12, 0, 0)}
+	var stdout bytes.Buffer
+	lg := openLogger(t, dir, 30, nil, clk, &stdout)
+	writeFile(t, filepath.Join(dir, "irl-live-keeper-2026-11-05.log"))
+	lg.SetKeepDays(14)
+	clk.Set(at(2026, 11, 21, 0, 0, 0))
+	lg.Slog().Info("rollover")
+	if _, err := os.Stat(filepath.Join(dir, "irl-live-keeper-2026-11-05.log")); !os.IsNotExist(err) {
+		t.Fatalf("新しい keep_days が適用されていない: %v", err)
+	}
+}
+
+func TestSetKeepDaysNegativeDoesNothing(t *testing.T) {
+	dir := t.TempDir()
+	clk := &fakeClock{t: at(2026, 11, 20, 12, 0, 0)}
+	var stdout bytes.Buffer
+	lg := openLogger(t, dir, 30, nil, clk, &stdout)
+	lg.SetKeepDays(-1)
+	writeFile(t, filepath.Join(dir, "irl-live-keeper-2026-11-05.log"))
+	clk.Set(at(2026, 11, 21, 0, 0, 0))
+	lg.Slog().Info("rollover")
+	if _, err := os.Stat(filepath.Join(dir, "irl-live-keeper-2026-11-05.log")); err != nil {
+		t.Fatalf("負の値で keep_days が変わった: %v", err)
+	}
+}
+
 // 消せない古いログがあっても Open は失敗せず、警告を出して続ける。
 func TestOpenWarnsAndContinuesWhenPruneFails(t *testing.T) {
 	if runtime.GOOS == "windows" {
