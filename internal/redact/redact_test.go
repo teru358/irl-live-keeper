@@ -126,3 +126,13 @@ func TestMaskMatchesReferenceOnRandomInput(t *testing.T) {
 		}
 	}
 }
+
+func TestAddKeepsOldAndAddsNew(t *testing.T) {
+	m := New("old", "")
+	m.Add("", "new")
+	if got := m.Mask("old new"); got != "*** ***" {
+		t.Errorf("got %q", got)
+	}
+	var nilM *Masker
+	nilM.Add("x") // nil でも落ちない
+}

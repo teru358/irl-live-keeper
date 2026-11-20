@@ -7,19 +7,33 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // mask は秘密の代わりに書く文字列。
 const mask = "***"
 
 // Masker は秘密のパターンを持ち、行の中の秘密を置き換える。nil の Masker は何も置き換えない。
+// Add と Mask は複数の goroutine から同時に呼べる。
 type Masker struct {
+	mu       sync.RWMutex
 	patterns []string
 }
 
 // New は秘密から Masker を作る。空の秘密は無視する。
 // slog の TextHandler は " や \ などを含む値を strconv.Quote の形で書くので、その形のパターンも加える。
 func New(secrets ...string) *Masker {
+	m := &Masker{}
+	m.Add(secrets...)
+	return m
+}
+
+// Add は秘密を足す。空の秘密は無視する。足した後の Mask は、前からの秘密も足した秘密も置き換える。
+// nil の Masker には何もしない。
+func (m *Masker) Add(secrets ...string) {
+	if m == nil {
+		return
+	}
 	var pats []string
 	for _, s := range secrets {
 		if s == "" {
@@ -30,7 +44,12 @@ func New(secrets ...string) *Masker {
 			pats = append(pats, q[1:len(q)-1])
 		}
 	}
-	return &Masker{patterns: pats}
+	if len(pats) == 0 {
+		return
+	}
+	m.mu.Lock()
+	m.patterns = append(m.patterns, pats...)
+	m.mu.Unlock()
 }
 
 // span は行の中の区間 [from, to)。
@@ -41,12 +60,18 @@ type span struct{ from, to int }
 // そのため、途中で重なる2つの秘密の、どちらの文字も残らない。
 // Masker が nil のとき、または秘密が1つもないときは line をそのまま返す。
 func (m *Masker) Mask(line string) string {
-	if m == nil || len(m.patterns) == 0 {
+	if m == nil {
+		return line
+	}
+	m.mu.RLock()
+	patterns := m.patterns // append しかしないので、スライスの先頭の部分は変わらない
+	m.mu.RUnlock()
+	if len(patterns) == 0 {
 		return line
 	}
 
 	var spans []span
-	for _, p := range m.patterns {
+	for _, p := range patterns {
 		// 1バイトずつずらして探し、重なる一致も漏らさない
 		for from := 0; from < len(line); {
 			i := strings.Index(line[from:], p)
