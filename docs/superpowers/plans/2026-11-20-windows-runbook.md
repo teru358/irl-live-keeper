@@ -69,8 +69,8 @@ ctl.exe watch 60
 
 | # | 確かめること | 結果 |
 |---|---|---|
-| S4-1 | `STARTING` から `STARTED` までの時間と、`STARTED` から `SceneChanged Talk` までの時間（何回か測る）。`STARTED` で切り替える今の作りで、切替前のシーンが配信に映る長さの見積もりになる | |
-| S4-2 | `STARTING` の時点で切替を送れば、`STARTED` より前にシーンが変わるか（本体の作りを変える必要があるので、手で試す: `on_stream_start.enabled: false` にして、ctl.exe watch で `STARTING` が出た直後に別の窓から `ctl.exe scene Talk`）。`STARTING` の間に切替の要求が受け付けられるか（エラーにならないか）も見る | |
+| S4-1 | `STARTING` から `STARTED` までの時間と、`STARTED` から `SceneChanged Talk` までの時間（何回か測る）。`STARTED` で切り替える今の作りで、切替前のシーンが配信に映る長さの見積もりになる | 2026-11-20: STARTING → STARTED は 1.44 / 1.14 / 1.37秒。STARTED → `SceneChanged Talk` は 0.31 / 0.32 / 0.32秒（0.3秒のフェード）。切替前のシーンが映るのはフェードの途中の約 0.3秒 |
+| S4-2 | `STARTING` の時点で切替を送れば、`STARTED` より前にシーンが変わるか（本体の作りを変える必要があるので、手で試す: `on_stream_start.enabled: false` にして、ctl.exe watch で `STARTING` が出た直後に別の窓から `ctl.exe scene Talk`）。`STARTING` の間に切替の要求が受け付けられるか（エラーにならないか）も見る | 2026-11-20: STARTING で切替を送ると通り（応答まで 0.42秒、err なし）、STARTED の 0.5秒前に切り替わり終えた。ただし見えるのは 0.3秒のフェードだけなので、作りは STARTED のままとした（ユーザーの裁定。spec v2.8） |
 
 結果で spec 6章と 7章の配信状態の写像を見直す。
 
