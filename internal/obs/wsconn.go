@@ -232,17 +232,8 @@ func leadingInt(s string) (int, bool) {
 
 // 以下は外からの要求。門が閉じている間と、未接続のときは、送らずに失敗する。
 
-// SceneTransitionOverride は切替先シーンのトランジションの上書きを読む。
+// SceneTransitionOverrideUUID は切替先シーンのトランジションの上書きを sceneUuid で読む（古い OBS では名前）。
 // 上書きなしは has=false。長さがなければ ms=nil で has=true。
-func (w *WS) SceneTransitionOverride(scene string) (ms *int, has bool, err error) {
-	e, err := w.client()
-	if err != nil {
-		return nil, false, err
-	}
-	return w.transitionOverride(e, scenes.NewGetSceneSceneTransitionOverrideParams().WithSceneName(scene))
-}
-
-// SceneTransitionOverrideUUID は sceneUuid で読む（古い OBS では名前）。
 func (w *WS) SceneTransitionOverrideUUID(uuid string) (ms *int, has bool, err error) {
 	e, err := w.client()
 	if err != nil {
@@ -268,15 +259,6 @@ func (w *WS) transitionOverride(e extConn, p *scenes.GetSceneSceneTransitionOver
 	return ms, has, nil
 }
 
-// SetScene は program のシーンを名前で切り替える。応答待ちの超過は ErrTimeout。
-func (w *WS) SetScene(name string) error {
-	e, err := w.client()
-	if err != nil {
-		return err
-	}
-	return w.setScene(e, scenes.NewSetCurrentProgramSceneParams().WithSceneName(name))
-}
-
 // SetSceneUUID は program のシーンを sceneUuid で切り替える（古い OBS では名前）。
 func (w *WS) SetSceneUUID(uuid string) error {
 	e, err := w.client()
@@ -300,15 +282,6 @@ func (w *WS) setScene(e extConn, p *scenes.SetCurrentProgramSceneParams) error {
 }
 
 const restartAction = "OBS_WEBSOCKET_MEDIA_INPUT_ACTION_RESTART"
-
-// RestartMedia はメディアソースに RESTART を送る。
-func (w *WS) RestartMedia(input string) error {
-	e, err := w.client()
-	if err != nil {
-		return err
-	}
-	return w.restart(e, mediainputs.NewTriggerMediaInputActionParams().WithInputName(input).WithMediaAction(restartAction))
-}
 
 // RestartMediaInputs は入力の UUID の列の順に RESTART を送る（古い OBS では名前）。
 // 入力ごとの失敗（入力がない）は、続けて残りを送り、最初の失敗を返す。接続が使えなくなる失敗

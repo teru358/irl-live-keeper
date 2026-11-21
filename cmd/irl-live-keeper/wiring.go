@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"path/filepath"
 	"slices"
 	"time"
@@ -10,6 +9,7 @@ import (
 	"github.com/teru358/irl-live-keeper/internal/core"
 	"github.com/teru358/irl-live-keeper/internal/ingest"
 	"github.com/teru358/irl-live-keeper/internal/obs"
+	"github.com/teru358/irl-live-keeper/internal/scenemap"
 	"github.com/teru358/irl-live-keeper/internal/supervisor"
 )
 
@@ -33,11 +33,10 @@ func mediaMTXBinary(base, configured, goos string) string {
 	return filepath.Join(base, name)
 }
 
-// obsConfig は config から obs.Config を作る。Scenes は OBS に存在を確かめる名前（待機シーン、
-// 監視対象のシーン、有効なら開始時のシーン）で、重複は除く。
+// obsConfig は config から obs.Config を作る。Scenes は OBS に存在を確かめる名前（待機シーン、有効なら
+// 開始時のシーン）で、重複は除く。Cameras と RTSPPort は、地図でメディアソースの URL を照合するための設定。
 func obsConfig(cfg *config.Config) obs.Config {
 	scenes := []string{cfg.OBS.StandbyScene}
-	scenes = append(scenes, cfg.OBS.MonitoredScenes...)
 	if cfg.OnStreamStart.Enabled {
 		scenes = append(scenes, cfg.OnStreamStart.Scene)
 	}
@@ -47,24 +46,34 @@ func obsConfig(cfg *config.Config) obs.Config {
 		seen[s] = true
 		return dup
 	})
+	cams := make([]obs.CameraConfig, len(cfg.Cameras))
+	for i, c := range cfg.Cameras {
+		cams[i] = obs.CameraConfig{ID: c.ID, Name: c.Name}
+	}
 	return obs.Config{
-		Host:        cfg.OBS.Host,
-		Port:        cfg.OBS.Port,
-		Password:    cfg.OBS.Password,
-		MediaSource: cfg.OBS.MediaSource,
-		Scenes:      scenes,
+		Host:     cfg.OBS.Host,
+		Port:     cfg.OBS.Port,
+		Password: cfg.OBS.Password,
+		Scenes:   scenes,
+		Cameras:  cams,
+		RTSPPort: cfg.MediaMTX.RTSPPort,
 	}
 }
 
-// coreDeps は config から core.Deps のうち、設定に由来する部分を作る。
-// 部品（Machine、Judge、OBS など）は呼び出し側が足す。
-func coreDeps(cfg *config.Config, urls core.URLs) core.Deps {
+// coreDeps は config から core.Deps のうち、設定に由来する部分を作る。カメラごとの閾値は、共通の switch に
+// カメラの上書きを合わせたもの。urls はカメラごとの URL（buildCameraURLs の列）。
+// 部品（Machine、OBS など）は呼び出し側が足す。
+func coreDeps(cfg *config.Config, urls []camURLs) core.Deps {
 	d := core.Deps{
-		StandbyScene:    cfg.OBS.StandbyScene,
-		MonitoredScenes: slices.Clone(cfg.OBS.MonitoredScenes),
-		AutoEnabled:     cfg.Switch.AutoEnabled,
-		MediaSource:     cfg.OBS.MediaSource,
-		URLs:            urls,
+		StandbyScene: cfg.OBS.StandbyScene,
+		AutoEnabled:  cfg.Switch.AutoEnabled,
+	}
+	for i, c := range cfg.Cameras {
+		d.Cameras = append(d.Cameras, core.Camera{
+			ID: c.ID, Name: c.Name, OnBad: scenemap.Motion(c.OnBad),
+			Thresholds: switchThresholds(cfg.CameraSwitch(i)),
+			URLs:       core.CameraURLs{PublishSRT: urls[i].PublishSRT, PublishRTMP: urls[i].PublishRTMP, OBSRead: urls[i].OBSRead},
+		})
 	}
 	if cfg.OnStreamStart.Enabled {
 		scene := cfg.OnStreamStart.Scene
@@ -73,15 +82,15 @@ func coreDeps(cfg *config.Config, urls core.URLs) core.Deps {
 	return d
 }
 
-// judgeThresholds は config から Judge の閾値を作る。
-func judgeThresholds(cfg *config.Config) ingest.Thresholds {
+// switchThresholds は switch の値から Judge の閾値を作る。
+func switchThresholds(sw config.Switch) ingest.Thresholds {
 	sec := func(n int) time.Duration { return time.Duration(n) * time.Second }
 	return ingest.Thresholds{
-		FailKbps:    float64(cfg.Switch.FailKbps),
-		RecoverKbps: float64(cfg.Switch.RecoverKbps),
-		LowSec:      sec(cfg.Switch.LowSec),
-		RecoverSec:  sec(cfg.Switch.RecoverSec),
-		DownSec:     sec(cfg.Switch.DownSec),
+		FailKbps:    float64(sw.FailKbps),
+		RecoverKbps: float64(sw.RecoverKbps),
+		LowSec:      sec(sw.LowSec),
+		RecoverSec:  sec(sw.RecoverSec),
+		DownSec:     sec(sw.DownSec),
 	}
 }
 
@@ -115,40 +124,6 @@ func buildCameraURLs(cfg *config.Config, publishHost string) []camURLs {
 		}
 	}
 	return out
-}
-
-// buildURLs は status に出す URL。先頭のカメラの URL を入れる（カメラごとの status は M-8）。
-// 止めたプロトコルの送信用は空文字になる。
-func buildURLs(cfg *config.Config, publishHost string) core.URLs {
-	first := buildCameraURLs(cfg, publishHost)[0]
-	return core.URLs{
-		PublishSRT:  first.PublishSRT,
-		PublishRTMP: first.PublishRTMP,
-		OBSRead:     first.OBSRead,
-	}
-}
-
-// forwardFirstCamera は Poller の組から先頭のカメラの Sample だけを core へ渡す（M-8 まで）。
-// in が閉じるか ctx が終わると戻る。
-func forwardFirstCamera(ctx context.Context, in <-chan ingest.SampleSet, out chan<- ingest.Sample) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case set, ok := <-in:
-			if !ok {
-				return
-			}
-			if len(set.Cameras) == 0 {
-				continue
-			}
-			select {
-			case out <- set.Cameras[0]:
-			case <-ctx.Done():
-				return
-			}
-		}
-	}
 }
 
 // cameraIDs は設定の順のカメラの id の列。

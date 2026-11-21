@@ -49,7 +49,7 @@ func TestStateLogSceneChangedByUser(t *testing.T) {
 	h.samplesN(5, goodKbps)
 	h.connect(true, camera)
 	h.waitSnap("camera", sceneIs(camera))
-	h.obsEvent(switcher.SceneChanged{At: h.clk.Now(), Scene: talk})
+	h.obsEvent(switcher.SceneChanged{At: h.clk.Now(), Scene: talk, SceneUUID: talk})
 	h.waitSnap("talk", sceneIs(talk))
 	h.samplesN(2, goodKbps)
 	if n := logCount(h, `msg="scene changed by user" from=Camera to=Talk`); n != 1 {

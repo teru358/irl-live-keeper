@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/teru358/irl-live-keeper/internal/ingest"
+	"github.com/teru358/irl-live-keeper/internal/scenemap"
 	"github.com/teru358/irl-live-keeper/internal/supervisor"
 	"github.com/teru358/irl-live-keeper/internal/switcher"
 )
@@ -92,7 +93,7 @@ func newFakeOBS(clk *fakeClock) *fakeOBS {
 	}
 	// 既定では、SetScene は OBS と同じく program のシーンの変更を流してから成功を返す。
 	f.onScene = func(name string) error {
-		f.emit(switcher.SceneChanged{At: clk.Now(), Scene: name})
+		f.emit(switcher.SceneChanged{At: clk.Now(), Scene: name, SceneUUID: name})
 		return nil
 	}
 	return f
@@ -131,7 +132,7 @@ func (f *fakeOBS) Calls() []string {
 
 func (f *fakeOBS) Events() <-chan switcher.Event { return f.events }
 
-func (f *fakeOBS) SceneTransitionOverride(scene string) (*int, bool, error) {
+func (f *fakeOBS) SceneTransitionOverrideUUID(scene string) (*int, bool, error) {
 	defer f.record("override:" + scene)()
 	if f.onOverride != nil {
 		return f.onOverride(scene)
@@ -139,15 +140,17 @@ func (f *fakeOBS) SceneTransitionOverride(scene string) (*int, bool, error) {
 	return nil, false, nil
 }
 
-func (f *fakeOBS) SetScene(name string) error {
+func (f *fakeOBS) SetSceneUUID(name string) error {
 	defer f.record("scene:" + name)()
 	return f.onScene(name)
 }
 
-func (f *fakeOBS) RestartMedia(input string) error {
-	defer f.record("restart:" + input)()
+// RestartMediaInputs は呼びごとに "restart:" と入力の UUID を "," でつないで記録する。
+func (f *fakeOBS) RestartMediaInputs(inputs []string) error {
+	in := strings.Join(inputs, ",")
+	defer f.record("restart:" + in)()
 	if f.onRestart != nil {
-		return f.onRestart(input)
+		return f.onRestart(in)
 	}
 	return nil
 }
@@ -169,6 +172,33 @@ func (f *fakeOBS) StopStream() error {
 }
 
 // ---- 組み立て ----
+
+// mainCam と subCam は例に使うカメラの id。
+const (
+	mainCam = "main"
+	subCam  = "sub"
+)
+
+// testCamera は例のカメラの設定。閾値は testThresholds。
+func testCamera(id, name string, onBad scenemap.Motion) Camera {
+	return Camera{ID: id, Name: name, OnBad: onBad, Thresholds: testThresholds,
+		URLs: CameraURLs{PublishSRT: "srt://x/" + id, PublishRTMP: "rtmp://x/" + id, OBSRead: "rtsp://x/" + id}}
+}
+
+// testMap は例の地図。UUID は名前と同じにする。待機シーンと管理外のシーン（Talk、Opening）はカメラなし、
+// Camera と Camera2 には、カメラ main のメディアソース IRL を映す。
+func testMap() *scenemap.Map {
+	cam := func(name string) scenemap.Container {
+		return scenemap.Container{Name: name, Items: []scenemap.Item{{ID: 1, SourceUUID: "IRL", SourceKind: scenemap.InputSource, Enabled: true}}}
+	}
+	return &scenemap.Map{
+		Scenes: map[string]scenemap.Container{
+			standby: {Name: standby}, camera: cam(camera), camera2: cam(camera2), talk: {Name: talk}, opening: {Name: opening},
+		},
+		Groups: map[string]scenemap.Container{},
+		Inputs: map[string]scenemap.Input{"IRL": {Name: "IRL", CameraID: mainCam}},
+	}
+}
 
 // 例に使うシーン名。待機シーン、監視対象2つ、管理外2つ。
 const (
@@ -196,7 +226,7 @@ type harness struct {
 	obs     *fakeOBS
 	core    *Core
 	log     *syncBuf
-	samples chan ingest.Sample
+	samples chan ingest.SampleSet
 	ticks   chan time.Time
 	seen    chan any // 中核ループが処理した Event と承認の記録
 
@@ -227,25 +257,23 @@ func newHarness(t *testing.T, opts ...option) *harness {
 	mcfg := switcher.Config{RestartWait: 10 * time.Millisecond}
 	h := &harness{
 		t: t, clk: clk, obs: f, log: buf,
-		samples: make(chan ingest.Sample),
+		samples: make(chan ingest.SampleSet),
 		ticks:   make(chan time.Time),
 		seen:    make(chan any, 10000),
 		runDone: make(chan struct{}),
 		mtx:     supervisor.Status{State: supervisor.StateRunning},
 	}
 	deps := Deps{
-		OBS:             f,
-		StandbyScene:    standby,
-		MonitoredScenes: []string{camera, camera2},
-		AutoEnabled:     true,
-		MediaSource:     "IRL",
-		Samples:         h.samples,
+		OBS:          f,
+		StandbyScene: standby,
+		Cameras:      []Camera{testCamera(mainCam, "メイン", scenemap.MotionStandby)},
+		AutoEnabled:  true,
+		Samples:      h.samples,
 		MediaMTX: func() supervisor.Status {
 			h.mtxMu.Lock()
 			defer h.mtxMu.Unlock()
 			return h.mtx
 		},
-		URLs: URLs{PublishSRT: "srt://x", PublishRTMP: "rtmp://x", OBSRead: "rtsp://x"},
 		Log:  slog.New(slog.NewTextHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug})),
 		Tick: h.ticks,
 		Now:  clk.Now,
@@ -254,7 +282,6 @@ func newHarness(t *testing.T, opts ...option) *harness {
 		o(&mcfg, &deps)
 	}
 	deps.Machine = switcher.New(mcfg)
-	deps.Judge = ingest.NewJudge(testThresholds)
 	h.core = New(deps)
 	h.core.observe = func(v any) {
 		select {
@@ -287,14 +314,32 @@ func (h *harness) start() {
 	}()
 }
 
-// sample は1秒ぶんの Sample を送る。中核ループが受け取るまで待つ。
+// sample は1秒ぶんの Sample を、先頭のカメラに kbps、残りのカメラに 0 で、1組にして送る。中核ループが受け取るまで待つ。
 func (h *harness) sample(kbps float64) {
 	h.t.Helper()
-	s := ingest.Sample{At: h.clk.Advance(time.Second), Interval: time.Second, Online: kbps > 0, Protocol: "srt", Kbps: kbps}
+	ks := make([]float64, len(h.core.cams))
+	ks[0] = kbps
+	h.sampleSet(ks...)
+}
+
+// sampleSet は1秒ぶんの Sample の組を、カメラの順の kbps で作って送る。
+func (h *harness) sampleSet(kbps ...float64) {
+	h.t.Helper()
+	at := h.clk.Advance(time.Second)
+	set := ingest.SampleSet{At: at}
+	for i, k := range kbps {
+		set.Cameras = append(set.Cameras, ingest.Sample{
+			Camera: h.core.cams[i].cfg.ID, At: at, Interval: time.Second, Online: k > 0, Protocol: "srt", Kbps: k})
+	}
+	h.sendSet(set)
+}
+
+func (h *harness) sendSet(set ingest.SampleSet) {
+	h.t.Helper()
 	select {
-	case h.samples <- s:
+	case h.samples <- set:
 	case <-time.After(wait):
-		h.t.Fatalf("Sample を受け取らない（kbps=%v）", kbps)
+		h.t.Fatalf("Sample の組を受け取らない: %+v", set)
 	}
 }
 
@@ -333,7 +378,7 @@ func (h *harness) setMediaMTX(st supervisor.Status) {
 
 func (h *harness) connect(streaming bool, scene string) {
 	h.t.Helper()
-	h.obsEvent(switcher.OBSConnected{At: h.clk.Now(), Streaming: streaming, Scene: scene})
+	h.obsEvent(switcher.OBSConnected{At: h.clk.Now(), Streaming: streaming, Scene: scene, SceneUUID: scene, Map: testMap()})
 }
 
 // command は Command を送り、かかった時間も返す。
@@ -404,8 +449,9 @@ func (h *harness) waitSnap(what string, pred func(Snapshot) bool) Snapshot {
 	}
 }
 
+// linkIs は先頭のカメラの受信状態を見る。
 func linkIs(state string) func(Snapshot) bool {
-	return func(s Snapshot) bool { return s.Link.State == state }
+	return func(s Snapshot) bool { return len(s.Cameras) > 0 && s.Cameras[0].State == state }
 }
 
 func sceneIs(scene string) func(Snapshot) bool {
@@ -465,10 +511,3 @@ func countPrefix(calls []string, prefix string) int {
 	}
 	return n
 }
-
-// UUID の要求は M-8 まで core が使わない。ビルドを通すだけの空の実装。
-func (f *fakeOBS) SetSceneUUID(string) error { return nil }
-func (f *fakeOBS) SceneTransitionOverrideUUID(string) (*int, bool, error) {
-	return nil, false, nil
-}
-func (f *fakeOBS) RestartMediaInputs([]string) error { return nil }

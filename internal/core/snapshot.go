@@ -8,17 +8,21 @@ import (
 
 // Snapshot は status の JSON（9章）になる読み取り専用の状態。
 // キーは null のときも省かない。
+// カメラの spec 第9節の sources、hidden、user_shown、unusable と obs.studio_mode は、隠す・戻す（0b）で足す。
 type Snapshot struct {
-	Link      LinkStatus `json:"link"`
-	OBS       OBSStatus  `json:"obs"`
-	MediaMTX  string     `json:"mediamtx"`
-	URLs      URLs       `json:"urls"`
-	LastError *LastError `json:"last_error"`
+	Cameras   []CameraStatus `json:"cameras"` // 設定の順
+	OBS       OBSStatus      `json:"obs"`
+	MediaMTX  string         `json:"mediamtx"`
+	URLs      []CameraURLs   `json:"urls"` // カメラごと。設定の順
+	LastError *LastError     `json:"last_error"`
 }
 
-// LinkStatus は受信状態と最後の Sample の値。
-type LinkStatus struct {
-	State    string     `json:"state"` // OK / LOW / DOWN
+// CameraStatus はカメラ1台の設定と、受信状態と最後の Sample の値。
+type CameraStatus struct {
+	ID       string     `json:"id"`
+	Name     string     `json:"name"`
+	OnBad    string     `json:"on_bad"` // standby / hide
+	State    string     `json:"state"`  // OK / LOW / DOWN
 	Kbps     float64    `json:"kbps"`
 	Online   bool       `json:"online"`
 	Protocol string     `json:"protocol"`
@@ -34,16 +38,20 @@ type SRTStatus struct {
 
 // OBSStatus は OBS の接続と、switcher が追っている状態。
 type OBSStatus struct {
-	Connected   bool          `json:"connected"`
-	Streaming   bool          `json:"streaming"`
-	Scene       string        `json:"scene"`
-	SceneClass  string        `json:"scene_class"` // monitored / standby / other / unknown
+	Connected  bool   `json:"connected"`
+	Streaming  bool   `json:"streaming"`
+	Scene      string `json:"scene"`       // 地図の名前（なければ UUID）
+	SceneClass string `json:"scene_class"` // monitored / standby / other / unknown
+	// SceneCameras は今のシーンに映るカメラの id（辞書順。空でも [] にする）。
+	SceneCameras []string `json:"scene_cameras"`
+	// SceneHealth は今のシーンの健康（OK / LOW / DOWN）。監視対象のシーンでなければ null。
+	SceneHealth *string       `json:"scene_health"`
 	Standby     StandbyStatus `json:"standby"`
 	AutoEnabled bool          `json:"auto_enabled"`
 	Warnings    []string      `json:"warnings"` // 空でも [] にする
 }
 
-// StandbyStatus は待機の持ち主と戻り先。戻り先がなければ ReturnScene は null。
+// StandbyStatus は待機の持ち主と戻り先（シーンの名前）。戻り先がなければ ReturnScene は null。
 type StandbyStatus struct {
 	Owner       string  `json:"owner"` // none / auto / manual
 	ReturnScene *string `json:"return_scene"`
@@ -62,8 +70,10 @@ const (
 	SourceMediaMTX = "mediamtx"
 )
 
-// URLs は status に出す固定の URL。
-type URLs struct {
+// CameraURLs はカメラ1台の status に出す固定の URL。止めたプロトコルの送信用は空文字。
+type CameraURLs struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
 	PublishSRT  string `json:"publish_srt"`
 	PublishRTMP string `json:"publish_rtmp"`
 	OBSRead     string `json:"obs_read"`
@@ -74,28 +84,38 @@ func (c *Core) publish() {
 	ms := c.m.Snapshot()
 	c.logStateChanges(ms)
 	s := Snapshot{
-		Link: LinkStatus{
-			State:    c.judge.State().String(),
-			Kbps:     c.sample.Kbps,
-			Online:   c.sample.Online,
-			Protocol: c.sample.Protocol,
-		},
+		Cameras: make([]CameraStatus, len(c.cams)),
 		OBS: OBSStatus{
-			Connected:   ms.Connected,
-			Streaming:   ms.Streaming,
-			Scene:       ms.Scene,
-			SceneClass:  ms.Class.String(),
-			Standby:     StandbyStatus{Owner: ms.Standby.Owner.String()},
-			AutoEnabled: ms.AutoEnabled,
-			Warnings:    []string{},
+			Connected:    ms.Connected,
+			Streaming:    ms.Streaming,
+			Scene:        sceneLabel(ms.Scene, ms.SceneName),
+			SceneClass:   ms.Class.String(),
+			SceneCameras: append([]string{}, ms.VisibleCameras...),
+			Standby:      StandbyStatus{Owner: ms.Standby.Owner.String()},
+			AutoEnabled:  ms.AutoEnabled,
+			Warnings:     []string{},
 		},
-		URLs: c.urls,
+		URLs: make([]CameraURLs, len(c.cams)),
+	}
+	for i, cam := range c.cams {
+		cs := CameraStatus{
+			ID: cam.cfg.ID, Name: cam.cfg.Name, OnBad: string(cam.cfg.OnBad),
+			State: cam.judge.State().String(), Kbps: cam.sample.Kbps, Online: cam.sample.Online, Protocol: cam.sample.Protocol,
+		}
+		if st := cam.sample.SRT; st != nil {
+			cs.SRT = &SRTStatus{RTTMs: st.RTTMs, LossRate: st.LossRate, RecvMbps: st.RecvMbps}
+		}
+		s.Cameras[i] = cs
+		s.URLs[i] = cam.cfg.URLs
+		s.URLs[i].ID, s.URLs[i].Name = cam.cfg.ID, cam.cfg.Name
+	}
+	if ms.HasHealth {
+		h := string(ms.Health)
+		s.OBS.SceneHealth = &h
 	}
 	if r := ms.Standby.ReturnScene; r != "" {
-		s.OBS.Standby.ReturnScene = &r
-	}
-	if st := c.sample.SRT; st != nil {
-		s.Link.SRT = &SRTStatus{RTTMs: st.RTTMs, LossRate: st.LossRate, RecvMbps: st.RecvMbps}
+		name := sceneLabel(r, ms.Standby.ReturnSceneName)
+		s.OBS.Standby.ReturnScene = &name
 	}
 	if c.warnings != nil {
 		if w := c.warnings(); len(w) > 0 {
@@ -113,6 +133,14 @@ func (c *Core) publish() {
 		s.LastError = &e
 	}
 	c.snap.Store(&s)
+}
+
+// sceneLabel は status とログに出すシーンの名前。地図に名前がなければ UUID。
+func sceneLabel(uuid, name string) string {
+	if name != "" {
+		return name
+	}
+	return uuid
 }
 
 // last_error は switcher と MediaMTX の2か所から来る。どちらも消えずに上書きされるだけなので、
@@ -160,9 +188,9 @@ func (c *Core) logStateChanges(ms switcher.Snapshot) {
 		c.log.Info("stream state", "streaming", ms.Streaming)
 	}
 	if ms.SceneEpoch != prev.SceneEpoch {
-		c.log.Info("scene changed by user", "from", prev.Scene, "to", ms.Scene)
+		c.log.Info("scene changed by user", "from", sceneLabel(prev.Scene, prev.SceneName), "to", sceneLabel(ms.Scene, ms.SceneName))
 	}
 	if ms.Standby != prev.Standby {
-		c.log.Info("standby changed", "owner", ms.Standby.Owner.String(), "return_scene", ms.Standby.ReturnScene)
+		c.log.Info("standby changed", "owner", ms.Standby.Owner.String(), "return_scene", sceneLabel(ms.Standby.ReturnScene, ms.Standby.ReturnSceneName))
 	}
 }

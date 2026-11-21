@@ -30,12 +30,12 @@ func TestMainMismatchedIDDiscardsClientAndReconnects(t *testing.T) {
 		return auxReply{}, false
 	})
 	h.awaitConnected(1)
-	if err := h.w.SetScene("A"); !errors.Is(err, ErrTimeout) {
+	if err := h.w.SetSceneUUID("A"); !errors.Is(err, ErrTimeout) {
 		t.Fatalf("ErrTimeout のはずが %v", err)
 	}
 	h.awaitDisconnected(1)
 	h.awaitConnected(2)
-	if err := h.w.SetScene("B"); err != nil {
+	if err := h.w.SetSceneUUID("B"); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -52,9 +52,9 @@ func TestMainQueuedRequestIsNotSentAfterTimeout(t *testing.T) {
 	})
 	h.awaitConnected(1)
 	errs := make(chan error, 2)
-	go func() { errs <- h.w.SetScene("A") }()
+	go func() { errs <- h.w.SetSceneUUID("A") }()
 	waitFor(t, "1本目が届く", func() bool { return len(h.s.requestsOf("SetCurrentProgramScene")) == 1 })
-	go func() { errs <- h.w.SetScene("B") }()
+	go func() { errs <- h.w.SetSceneUUID("B") }()
 	for range 2 {
 		select {
 		case err := <-errs:
@@ -169,13 +169,13 @@ func TestCollectionChangeClosesGateAndReconnects(t *testing.T) {
 		t.Fatalf("閉じられたのは補助の接続（2本目）のはずが %d 本目", n)
 	}
 	before := mainRequests(h.s)
-	if err := h.w.SetScene("X"); !errors.Is(err, errSwitching) {
+	if err := h.w.SetSceneUUID("X"); !errors.Is(err, errSwitching) {
 		t.Fatalf("門が閉じている間は errSwitching のはずが %v", err)
 	}
-	if err := h.w.RestartMedia("Cam"); !errors.Is(err, errSwitching) {
+	if err := h.w.RestartMediaInputs([]string{"Cam"}); !errors.Is(err, errSwitching) {
 		t.Fatalf("RestartMedia: %v", err)
 	}
-	if _, _, err := h.w.SceneTransitionOverride("X"); !errors.Is(err, errSwitching) {
+	if _, _, err := h.w.SceneTransitionOverrideUUID("X"); !errors.Is(err, errSwitching) {
 		t.Fatalf("SceneTransitionOverride: %v", err)
 	}
 	if err := h.w.StartStream(); !errors.Is(err, errSwitching) {
@@ -207,7 +207,7 @@ func TestCollectionChangeClosesGateAndReconnects(t *testing.T) {
 	if got := h.s.accepted(); got != 3 {
 		t.Fatalf("websocket はつないだまま（本来 + 補助の開き直し）のはずが %d 本", got)
 	}
-	if err := h.w.SetScene("Second"); err != nil {
+	if err := h.w.SetSceneUUID("Second"); err != nil {
 		t.Fatalf("門が開いたあとの SetScene: %v", err)
 	}
 	if slices.ContainsFunc(h.w.Warnings(), func(s string) bool { return strings.Contains(s, "切り替え中") }) {
@@ -271,7 +271,7 @@ func TestSceneRemovedOfProgramSceneActsLikeChanging(t *testing.T) {
 	h.s.sendEvent(1, "SceneRemoved", map[string]any{"sceneName": "Live", "sceneUuid": "uuid-live", "isGroup": false})
 	h.awaitDisconnected(1)
 	before := mainRequests(h.s)
-	if err := h.w.SetScene("X"); !errors.Is(err, errSwitching) {
+	if err := h.w.SetSceneUUID("X"); !errors.Is(err, errSwitching) {
 		t.Fatalf("errSwitching のはずが %v", err)
 	}
 	if n := mainRequests(h.s); n != before {
@@ -283,7 +283,7 @@ func TestSceneRemovedOfProgramSceneActsLikeChanging(t *testing.T) {
 	if c, _ := lastOf[switcher.OBSConnected](evs); c.SceneUUID != "uuid-copy" {
 		t.Fatalf("OBSConnected: %+v", c)
 	}
-	if err := h.w.SetScene("Copy"); err != nil {
+	if err := h.w.SetSceneUUID("Copy"); err != nil {
 		t.Fatal(err)
 	}
 	// Changed が来たあとの、同じシーンコレクションの Changing なしの Changed は二重に切断しない。
@@ -449,24 +449,6 @@ func TestNewVersionSendsUUIDs(t *testing.T) {
 	}
 }
 
-// 名前で送る今のメソッドは、そのまま名前で送る。
-func TestNameRequestsStillSendNames(t *testing.T) {
-	h := newWSHarness(t, nil)
-	h.awaitConnected(1)
-	if err := h.w.SetScene("B"); err != nil {
-		t.Fatal(err)
-	}
-	if err := h.w.RestartMedia("Cam"); err != nil {
-		t.Fatal(err)
-	}
-	if d := mustJSON(t, h.s.requestsOf("SetCurrentProgramScene")[0].Data); d["sceneName"] != "B" || d["sceneUuid"] != nil {
-		t.Errorf("SetScene は名前で送る: %v", d)
-	}
-	if d := mustJSON(t, h.s.requestsOf("TriggerMediaInputAction")[0].Data); d["inputName"] != "Cam" {
-		t.Errorf("RestartMedia は名前で送る: %v", d)
-	}
-}
-
 // 補助の接続は、OBSConnected のときに開き、OBSDisconnected で閉じる。
 func TestAuxFollowsMainConnection(t *testing.T) {
 	h := newWSHarness(t, nil)
@@ -506,7 +488,7 @@ func TestRunLeavesNothingBehind(t *testing.T) {
 		}
 		return auxReply{}, false
 	}
-	if err := h.w.SetScene("A"); !errors.Is(err, ErrTimeout) {
+	if err := h.w.SetSceneUUID("A"); !errors.Is(err, ErrTimeout) {
 		t.Fatal(err)
 	}
 	h.awaitConnected(3)

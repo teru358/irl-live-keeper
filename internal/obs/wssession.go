@@ -13,7 +13,6 @@ import (
 	"github.com/andreykaipov/goobs"
 	"github.com/andreykaipov/goobs/api/events"
 	"github.com/andreykaipov/goobs/api/requests/general"
-	"github.com/andreykaipov/goobs/api/requests/inputs"
 	"github.com/andreykaipov/goobs/api/requests/scenes"
 	"github.com/andreykaipov/goobs/api/requests/stream"
 	"github.com/andreykaipov/goobs/api/requests/transitions"
@@ -731,7 +730,8 @@ func (w *WS) fetchConnected(ctx context.Context, c *mainConn, legacy bool, now f
 	}, nil
 }
 
-// checkNames は config のシーン名とメディアソースが OBS にあるかを確かめ、なければ警告にする。
+// checkNames は config のシーン名（待機シーンと開始時のシーン）が OBS にあるかを確かめ、なければ警告にする。
+// カメラのメディアソースの警告は、地図から作る。
 func (w *WS) checkNames(ctx context.Context, c *mainConn) {
 	var warns []string
 	if l, err := mcall(w, ctx, c, "GetSceneList", func(cli *goobs.Client) (*scenes.GetSceneListResponse, error) {
@@ -746,23 +746,6 @@ func (w *WS) checkNames(ctx context.Context, c *mainConn) {
 		for _, n := range w.cfg.Scenes {
 			if n != "" && !have[n] {
 				warns = append(warns, fmt.Sprintf("シーン %q が OBS にない", n))
-			}
-		}
-	}
-	if w.cfg.MediaSource != "" {
-		if l, err := mcall(w, ctx, c, "GetInputList", func(cli *goobs.Client) (*inputs.GetInputListResponse, error) {
-			return cli.Inputs.GetInputList()
-		}); err != nil {
-			warns = append(warns, "入力一覧を取得できない: "+err.Error())
-		} else {
-			found := false
-			for _, in := range l.Inputs {
-				if in.InputName == w.cfg.MediaSource {
-					found = true
-				}
-			}
-			if !found {
-				warns = append(warns, fmt.Sprintf("メディアソース %q が OBS にない", w.cfg.MediaSource))
 			}
 		}
 	}

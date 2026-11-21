@@ -20,18 +20,13 @@ type Client interface {
 	// Events は OBSConnected / OBSDisconnected / SceneChanged / TransitionChanged /
 	// StreamStateChanged を流す。閉じられない。
 	Events() <-chan switcher.Event
-	// SceneTransitionOverride は GetSceneSceneTransitionOverride。
-	SceneTransitionOverride(scene string) (ms *int, has bool, err error)
-	// SetScene は SetCurrentProgramScene。応答待ちの超過は ErrTimeout で返す。
-	SetScene(name string) error
-	RestartMedia(input string) error
 	StartStream() error
 	StopStream() error
 
 	// 以下は UUID で送る要求（カメラの spec 第3節「識別」）。古い OBS（obs-websocket 5.4.0 未満）では、
-	// UUID の代わりに名前を渡し、名前で送る。今の名前のメソッドは M-8 で外す。
+	// UUID の代わりに名前を渡し、名前で送る。
 
-	// SetSceneUUID は SetCurrentProgramScene を sceneUuid で送る。
+	// SetSceneUUID は SetCurrentProgramScene を sceneUuid で送る。応答待ちの超過は ErrTimeout で返す。
 	SetSceneUUID(uuid string) error
 	// SceneTransitionOverrideUUID は GetSceneSceneTransitionOverride を sceneUuid で送る。
 	SceneTransitionOverrideUUID(uuid string) (ms *int, has bool, err error)
@@ -44,9 +39,7 @@ type Config struct {
 	Host     string
 	Port     int
 	Password string // 空なら認証なしで接続する
-	// MediaSource は RestartMedia の対象の入力名。
-	MediaSource string
-	// Scenes は config で割り当てたシーン名。接続時に存在を確かめる。
+	// Scenes は config で割り当てたシーン名（待機シーンと開始時のシーン）。接続時に存在を確かめる。
 	Scenes []string
 	// Cameras は地図で、メディアソースの URL を照合するカメラ（設定の順）。
 	Cameras []CameraConfig

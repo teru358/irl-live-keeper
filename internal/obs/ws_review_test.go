@@ -25,9 +25,9 @@ func TestQueuedRequestIsNotSentAfterGateCloses(t *testing.T) {
 	})
 	h.awaitConnected(1)
 	aErr, bErr := make(chan error, 1), make(chan error, 1)
-	go func() { aErr <- h.w.SetScene("A") }()
+	go func() { aErr <- h.w.SetSceneUUID("A") }()
 	waitFor(t, "A が届く", func() bool { return len(h.s.requestsOf("SetCurrentProgramScene")) == 1 })
-	go func() { bErr <- h.w.SetScene("B") }()
+	go func() { bErr <- h.w.SetSceneUUID("B") }()
 	time.Sleep(100 * time.Millisecond) // B は gate 待ち
 	h.s.sendEvent(1, "CurrentSceneCollectionChanging", map[string]any{"sceneCollectionName": "Old"})
 	h.awaitDisconnected(1)
@@ -202,7 +202,7 @@ func stallSession(h *wsHarness) {
 func requireGateClosed(t *testing.T, h *wsHarness) {
 	t.Helper()
 	before := len(h.s.requestsOf("SetCurrentProgramScene"))
-	if err := h.w.SetScene("X"); !errors.Is(err, errSwitching) && !errors.Is(err, errConnDropped) && !errors.Is(err, errNotConnected) {
+	if err := h.w.SetSceneUUID("X"); !errors.Is(err, errSwitching) && !errors.Is(err, errConnDropped) && !errors.Is(err, errNotConnected) {
 		t.Fatalf("門が閉じているはずが %v", err)
 	}
 	time.Sleep(100 * time.Millisecond)

@@ -10,6 +10,8 @@ import (
 	"github.com/teru358/irl-live-keeper/internal/config"
 	"github.com/teru358/irl-live-keeper/internal/core"
 	"github.com/teru358/irl-live-keeper/internal/ingest"
+	"github.com/teru358/irl-live-keeper/internal/obs"
+	"github.com/teru358/irl-live-keeper/internal/scenemap"
 )
 
 // testConfig は検証を通る設定を返す（Generate を使わずに既定値と固定のパスワードで作る）。
@@ -26,32 +28,38 @@ func testConfig(t *testing.T) *config.Config {
 func TestObsConfig(t *testing.T) {
 	cfg := testConfig(t)
 	cfg.OBS.Host, cfg.OBS.Port, cfg.OBS.Password = "10.0.0.2", 4456, "obspw"
-	cfg.OBS.MediaSource = "Cam"
 	cfg.OBS.StandbyScene = "Wait"
-	cfg.OBS.MonitoredScenes = []string{"A", "B"}
+	cfg.MediaMTX.RTSPPort = 18554
+	cfg.Cameras = []config.Camera{{ID: "main", Name: "メイン", OnBad: "standby"}, {ID: "sub", Name: "サブ", OnBad: "hide"}}
 
 	got := obsConfig(cfg)
-	if got.Host != "10.0.0.2" || got.Port != 4456 || got.Password != "obspw" || got.MediaSource != "Cam" {
+	if got.Host != "10.0.0.2" || got.Port != 4456 || got.Password != "obspw" {
 		t.Errorf("接続の設定が違う: %+v", got)
 	}
-	if want := []string{"Wait", "A", "B"}; !reflect.DeepEqual(got.Scenes, want) {
+	if want := []string{"Wait"}; !reflect.DeepEqual(got.Scenes, want) {
 		t.Errorf("Scenes = %v, want %v", got.Scenes, want)
+	}
+	if want := []obs.CameraConfig{{ID: "main", Name: "メイン"}, {ID: "sub", Name: "サブ"}}; !reflect.DeepEqual(got.Cameras, want) {
+		t.Errorf("Cameras = %v, want %v（設定の順）", got.Cameras, want)
+	}
+	if got.RTSPPort != 18554 {
+		t.Errorf("RTSPPort = %d, want 18554", got.RTSPPort)
 	}
 
 	cfg.OnStreamStart.Enabled, cfg.OnStreamStart.Scene = true, "Intro"
-	if want := []string{"Wait", "A", "B", "Intro"}; !reflect.DeepEqual(obsConfig(cfg).Scenes, want) {
+	if want := []string{"Wait", "Intro"}; !reflect.DeepEqual(obsConfig(cfg).Scenes, want) {
 		t.Errorf("開始時のシーンが入っていない: %v", obsConfig(cfg).Scenes)
 	}
 
-	// 開始時のシーンが監視対象と同じでも、名前は1回だけ
-	cfg.OnStreamStart.Scene = "B"
-	if want := []string{"Wait", "A", "B"}; !reflect.DeepEqual(obsConfig(cfg).Scenes, want) {
+	// 開始時のシーンが待機シーンと同じ名前でも、名前は1回だけ
+	cfg.OnStreamStart.Scene = "Wait"
+	if want := []string{"Wait"}; !reflect.DeepEqual(obsConfig(cfg).Scenes, want) {
 		t.Errorf("重複を除いていない: %v", obsConfig(cfg).Scenes)
 	}
 
 	// 無効のときは scene に値があっても入れない
 	cfg.OnStreamStart.Enabled, cfg.OnStreamStart.Scene = false, "Intro"
-	if want := []string{"Wait", "A", "B"}; !reflect.DeepEqual(obsConfig(cfg).Scenes, want) {
+	if want := []string{"Wait"}; !reflect.DeepEqual(obsConfig(cfg).Scenes, want) {
 		t.Errorf("無効なのに開始時のシーンが入っている: %v", obsConfig(cfg).Scenes)
 	}
 }
@@ -59,15 +67,34 @@ func TestObsConfig(t *testing.T) {
 func TestCoreDeps(t *testing.T) {
 	cfg := testConfig(t)
 	cfg.OBS.StandbyScene = "Wait"
-	cfg.OBS.MonitoredScenes = []string{"A", "B"}
-	cfg.OBS.MediaSource = "Cam"
 	cfg.Switch.AutoEnabled = false
-	urls := core.URLs{PublishSRT: "s", PublishRTMP: "r", OBSRead: "o"}
+	cfg.Switch.FailKbps, cfg.Switch.RecoverKbps = 700, 1600
+	cfg.Switch.LowSec, cfg.Switch.RecoverSec, cfg.Switch.DownSec = 6, 12, 3
+	fail := 300
+	cfg.Cameras = []config.Camera{
+		{ID: "main", Name: "メイン", OnBad: "standby"},
+		{ID: "sub", Name: "サブ", OnBad: "hide", Switch: &config.SwitchOverride{FailKbps: &fail}},
+	}
+	urls := []camURLs{
+		{ID: "main", Name: "メイン", PublishSRT: "s1", PublishRTMP: "r1", OBSRead: "o1"},
+		{ID: "sub", Name: "サブ", PublishSRT: "s2", PublishRTMP: "r2", OBSRead: "o2"},
+	}
 
 	d := coreDeps(cfg, urls)
-	if d.StandbyScene != "Wait" || !reflect.DeepEqual(d.MonitoredScenes, []string{"A", "B"}) ||
-		d.AutoEnabled || d.MediaSource != "Cam" || d.URLs != urls {
+	if d.StandbyScene != "Wait" || d.AutoEnabled {
 		t.Errorf("詰め替えが違う: %+v", d)
+	}
+	common := ingest.Thresholds{FailKbps: 700, RecoverKbps: 1600, LowSec: 6 * time.Second, RecoverSec: 12 * time.Second, DownSec: 3 * time.Second}
+	override := common
+	override.FailKbps = 300
+	want := []core.Camera{
+		{ID: "main", Name: "メイン", OnBad: scenemap.MotionStandby, Thresholds: common,
+			URLs: core.CameraURLs{PublishSRT: "s1", PublishRTMP: "r1", OBSRead: "o1"}},
+		{ID: "sub", Name: "サブ", OnBad: scenemap.MotionHide, Thresholds: override,
+			URLs: core.CameraURLs{PublishSRT: "s2", PublishRTMP: "r2", OBSRead: "o2"}},
+	}
+	if !reflect.DeepEqual(d.Cameras, want) {
+		t.Errorf("Cameras\n got: %+v\nwant: %+v", d.Cameras, want)
 	}
 	if d.StartScene != nil {
 		t.Errorf("開始時の切替が無効なのに StartScene がある: %q", *d.StartScene)
@@ -78,25 +105,6 @@ func TestCoreDeps(t *testing.T) {
 	d = coreDeps(cfg, urls)
 	if d.StartScene == nil || *d.StartScene != "Intro" || !d.AutoEnabled {
 		t.Errorf("StartScene/AutoEnabled が違う: %+v", d)
-	}
-
-	// 元の config の配列を共有しない
-	d.MonitoredScenes[0] = "X"
-	if cfg.OBS.MonitoredScenes[0] != "A" {
-		t.Error("MonitoredScenes を共有している")
-	}
-}
-
-func TestJudgeThresholds(t *testing.T) {
-	cfg := testConfig(t)
-	cfg.Switch.FailKbps, cfg.Switch.RecoverKbps = 700, 1600
-	cfg.Switch.LowSec, cfg.Switch.RecoverSec, cfg.Switch.DownSec = 6, 12, 3
-	want := ingest.Thresholds{
-		FailKbps: 700, RecoverKbps: 1600,
-		LowSec: 6 * time.Second, RecoverSec: 12 * time.Second, DownSec: 3 * time.Second,
-	}
-	if got := judgeThresholds(cfg); got != want {
-		t.Errorf("got %+v, want %+v", got, want)
 	}
 }
 
@@ -132,12 +140,12 @@ func TestMediaMTXBinary(t *testing.T) {
 	}
 }
 
-func TestBuildURLs(t *testing.T) {
+func TestBuildCameraURLsOne(t *testing.T) {
 	cfg := testConfig(t)
 	cfg.Cameras = []config.Camera{{ID: "live", Name: "live", OnBad: "standby"}}
 	cfg.Stream.PublishUser, cfg.Stream.PublishPass = "irl", "PUBPASS12"
 	cfg.Stream.ReadUser, cfg.Stream.ReadPass = "obs", "READPASS1"
-	u := buildURLs(cfg, "192.168.1.10")
+	u := buildCameraURLs(cfg, "192.168.1.10")[0]
 	if want := "srt://192.168.1.10:8890?streamid=publish:live:irl:PUBPASS12"; u.PublishSRT != want {
 		t.Errorf("SRT = %q, want %q", u.PublishSRT, want)
 	}
@@ -150,7 +158,7 @@ func TestBuildURLs(t *testing.T) {
 	}
 }
 
-func TestBuildURLsOverrides(t *testing.T) {
+func TestBuildCameraURLsOverrides(t *testing.T) {
 	tests := []struct {
 		name                           string
 		mod                            func(*config.Config)
@@ -178,7 +186,7 @@ func TestBuildURLsOverrides(t *testing.T) {
 			cfg.Stream.PublishUser, cfg.Stream.PublishPass = "irl", "PUBPASS12"
 			cfg.Stream.ReadUser, cfg.Stream.ReadPass = "obs", "READPASS1"
 			tt.mod(cfg)
-			u := buildURLs(cfg, tt.publishHost)
+			u := buildCameraURLs(cfg, tt.publishHost)[0]
 			if u.PublishSRT != tt.wantSRT {
 				t.Errorf("SRT = %q, want %q", u.PublishSRT, tt.wantSRT)
 			}
@@ -245,23 +253,5 @@ func TestBuildCameraURLsStopped(t *testing.T) {
 		if c.PublishSRT != "" || c.PublishRTMP == "" || c.OBSRead == "" {
 			t.Errorf("SRT を止めたときのカメラ %d: %+v", i, c)
 		}
-	}
-}
-
-// status の urls は先頭のカメラ。止めた方は空文字。
-func TestBuildURLsStatusUsesFirstCamera(t *testing.T) {
-	cfg := testConfig(t)
-	cfg.Cameras = []config.Camera{{ID: "main", Name: "メイン", OnBad: "standby"}, {ID: "sub", Name: "サブ", OnBad: "standby"}}
-	cfg.Stream.PublishUser, cfg.Stream.PublishPass = "irl", "PUBPASS12"
-	cfg.Stream.ReadUser, cfg.Stream.ReadPass = "obs", "READPASS1"
-	cfg.MediaMTX.SRTEnabled = false
-	got := buildURLs(cfg, "192.168.1.10")
-	want := core.URLs{
-		PublishSRT:  "",
-		PublishRTMP: "rtmp://192.168.1.10:1935/main?user=irl&pass=PUBPASS12",
-		OBSRead:     "rtsp://obs:READPASS1@127.0.0.1:8554/main",
-	}
-	if got != want {
-		t.Errorf("status の URL = %+v, want %+v", got, want)
 	}
 }

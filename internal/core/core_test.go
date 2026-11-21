@@ -15,6 +15,7 @@ import (
 
 	"github.com/teru358/irl-live-keeper/internal/ingest"
 	"github.com/teru358/irl-live-keeper/internal/obs"
+	"github.com/teru358/irl-live-keeper/internal/scenemap"
 	"github.com/teru358/irl-live-keeper/internal/supervisor"
 	"github.com/teru358/irl-live-keeper/internal/switcher"
 )
@@ -38,7 +39,7 @@ func TestEndToEndAutoFail(t *testing.T) {
 		t.Errorf("scene_class = %q, want standby", s.OBS.SceneClass)
 	}
 
-	want := `msg="scene switch" from=Camera to=Standby reason=low kbps=0`
+	want := `msg="scene switch" from=Camera to=Standby reason=low camera=main kbps=0`
 	if out := h.log.String(); !strings.Contains(out, want) {
 		t.Errorf("ログに %q がない:\n%s", want, out)
 	}
@@ -81,7 +82,7 @@ func TestExternalSceneChoiceBecomesReturnScene(t *testing.T) {
 	h.start()
 	h.autoStandby(camera)
 
-	h.obsEvent(switcher.SceneChanged{At: h.clk.Now(), Scene: camera2})
+	h.obsEvent(switcher.SceneChanged{At: h.clk.Now(), Scene: camera2, SceneUUID: camera2})
 	h.waitSeen("2本目の AutoFail の BatchDone", isBatchDone(switcher.BatchCompleted))
 	h.waitSnap("Camera2 を戻り先にした待機", both(sceneIs(standby), standbyIs("auto", camera2)))
 	n := len(h.obs.Calls())
@@ -106,7 +107,7 @@ func TestManualEntryIntoMonitoredWhileBad(t *testing.T) {
 	if n := len(h.obs.Calls()); n != 0 {
 		t.Fatalf("管理外のシーンで操作した: %v", h.obs.Calls())
 	}
-	h.obsEvent(switcher.SceneChanged{At: h.clk.Now(), Scene: camera})
+	h.obsEvent(switcher.SceneChanged{At: h.clk.Now(), Scene: camera, SceneUUID: camera})
 	h.waitCall("scene:" + standby)
 	h.waitSeen("BatchDone{Completed}", isBatchDone(switcher.BatchCompleted))
 	h.waitSnap("Camera を戻り先にした待機", both(sceneIs(standby), standbyIs("auto", camera)))
@@ -249,7 +250,7 @@ func TestNoDeadlockWhileExecutorBlocked(t *testing.T) {
 				t.Errorf("Command %v: err = %v, want invalid=%v", c.kind, err, c.invalid)
 			}
 			kbps := float64(100 * (i + 1))
-			h.waitSnap(fmt.Sprintf("kbps=%v", kbps), func(s Snapshot) bool { return s.Link.Kbps == kbps })
+			h.waitSnap(fmt.Sprintf("kbps=%v", kbps), func(s Snapshot) bool { return s.Cameras[0].Kbps == kbps })
 		}
 	}
 	if n := countPrefix(h.obs.Calls(), "scene:"); n != 1 {
@@ -268,7 +269,7 @@ func TestMissingSceneEventResendsAfterDeadline(t *testing.T) {
 	first.Store(true)
 	h.obs.onScene = func(name string) error {
 		if !first.Swap(false) {
-			h.obs.emit(switcher.SceneChanged{At: h.clk.Now(), Scene: name})
+			h.obs.emit(switcher.SceneChanged{At: h.clk.Now(), Scene: name, SceneUUID: name})
 		}
 		return nil
 	}
@@ -594,18 +595,29 @@ func waitInflightZero(t *testing.T, f *fakeOBS) {
 	}
 }
 
-// status の JSON は 9章の形と同じキーを持つ。
+// status の JSON の形（カメラの spec 第9節の 0a の分）。sources、hidden、user_shown、unusable、studio_mode は 0b で足す。
 const specStatusJSON = `{
-  "link":    {"state": "OK", "kbps": 4200.5, "online": true, "protocol": "srt",
-              "srt": {"rtt_ms": 85.2, "loss_rate": 0.01, "recv_mbps": 4.2}},
-  "obs":     {"connected": true, "streaming": true, "scene": "Camera", "scene_class": "monitored",
+  "cameras": [
+    {"id": "main", "name": "メイン", "on_bad": "standby", "state": "LOW", "kbps": 4200.5, "online": true, "protocol": "srt",
+     "srt": {"rtt_ms": 85.2, "loss_rate": 0.01, "recv_mbps": 4.2}},
+    {"id": "sub", "name": "サブ", "on_bad": "hide", "state": "DOWN", "kbps": 0, "online": false, "protocol": "", "srt": null}
+  ],
+  "obs":     {"connected": true, "streaming": false, "scene": "Camera", "scene_class": "monitored",
+              "scene_cameras": ["main"], "scene_health": "LOW",
               "standby": {"owner": "none", "return_scene": null},
               "auto_enabled": true,
               "warnings": []},
   "mediamtx": "running",
-  "urls":    {"publish_srt": "srt://…", "publish_rtmp": "rtmp://…", "obs_read": "rtsp://obs:…@…"},
+  "urls":    [
+    {"id": "main", "name": "メイン", "publish_srt": "srt://x/main", "publish_rtmp": "rtmp://x/main", "obs_read": "rtsp://x/main"},
+    {"id": "sub", "name": "サブ", "publish_srt": "srt://x/sub", "publish_rtmp": "rtmp://x/sub", "obs_read": "rtsp://x/sub"}
+  ],
   "last_error": null
 }`
+
+func twoCameras(_ *switcher.Config, d *Deps) {
+	d.Cameras = []Camera{testCamera(mainCam, "メイン", scenemap.MotionStandby), testCamera(subCam, "サブ", scenemap.MotionHide)}
+}
 
 func TestSnapshotJSONShape(t *testing.T) {
 	var spec map[string]any
@@ -613,9 +625,9 @@ func TestSnapshotJSONShape(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h := newHarness(t)
-	// 起動前の初期値: warnings は []、return_scene・srt・last_error は null。OBS に一度も
-	// 接続していないので scene_class は unknown。auto_enabled は Deps のシーンの設定から入る。
+	h := newHarness(t, twoCameras)
+	// 起動前の初期値: カメラは DOWN で kbps 0、srt は null。OBS に一度も接続していないので scene_class は unknown、
+	// scene_cameras は []、scene_health は null。auto_enabled は Deps の設定から入る。
 	initial := marshalMap(t, h.core.Snapshot())
 	if !reflect.DeepEqual(keyPaths(initial, ""), keyPaths(spec, "")) {
 		t.Errorf("初期値のキー = %v, want %v", keyPaths(initial, ""), keyPaths(spec, ""))
@@ -624,6 +636,12 @@ func TestSnapshotJSONShape(t *testing.T) {
 	if w, ok := obsPart["warnings"].([]any); !ok || len(w) != 0 {
 		t.Errorf("warnings = %#v, want []", obsPart["warnings"])
 	}
+	if sc, ok := obsPart["scene_cameras"].([]any); !ok || len(sc) != 0 {
+		t.Errorf("scene_cameras = %#v, want []", obsPart["scene_cameras"])
+	}
+	if v, ok := obsPart["scene_health"]; !ok || v != nil {
+		t.Errorf("scene_health = %#v, want null", v)
+	}
 	wantStandby := map[string]any{"owner": "none", "return_scene": nil}
 	if !reflect.DeepEqual(obsPart["standby"], wantStandby) {
 		t.Errorf("standby = %#v, want %#v", obsPart["standby"], wantStandby)
@@ -631,40 +649,53 @@ func TestSnapshotJSONShape(t *testing.T) {
 	if obsPart["scene_class"] != "unknown" || obsPart["auto_enabled"] != true || obsPart["connected"] != false {
 		t.Errorf("obs = %#v", obsPart)
 	}
-	for _, v := range []any{initial["last_error"], initial["link"].(map[string]any)["srt"]} {
-		if v != nil {
-			t.Errorf("null であるべき値 = %#v", v)
-		}
+	if initial["last_error"] != nil {
+		t.Errorf("last_error = %#v", initial["last_error"])
 	}
-	if initial["mediamtx"] != "running" || initial["urls"].(map[string]any)["obs_read"] != "rtsp://x" {
+	cams, _ := initial["cameras"].([]any)
+	if len(cams) != 2 {
+		t.Fatalf("cameras = %#v", initial["cameras"])
+	}
+	wantInit := []any{
+		map[string]any{"id": "main", "name": "メイン", "on_bad": "standby", "state": "DOWN", "kbps": 0.0, "online": false, "protocol": "", "srt": nil},
+		map[string]any{"id": "sub", "name": "サブ", "on_bad": "hide", "state": "DOWN", "kbps": 0.0, "online": false, "protocol": "", "srt": nil},
+	}
+	if !reflect.DeepEqual(cams, wantInit) {
+		t.Errorf("cameras = %#v, want %#v", cams, wantInit)
+	}
+	if initial["mediamtx"] != "running" || !reflect.DeepEqual(initial["urls"], spec["urls"]) {
 		t.Errorf("初期値 = %#v", initial)
 	}
 
-	// SRT の Sample のあと: srt の中のキーも同じ。
+	// SRT の Sample のあと: 1組の中のカメラごとの値。sub は送っていない（0 kbps）。
 	h.start()
-	srt := ingest.Sample{At: h.clk.Advance(time.Second), Interval: time.Second, Online: true, Protocol: "srt", Kbps: 4200.5,
-		SRT: &ingest.SRTStats{RTTMs: 85.2, LossRate: 0.01, RecvMbps: 4.2}}
-	select {
-	case h.samples <- srt:
-	case <-time.After(wait):
-		t.Fatal("Sample を受け取らない")
-	}
-	h.waitSnap("srt", func(s Snapshot) bool { return s.Link.SRT != nil })
+	h.connect(false, camera)
+	at := h.clk.Advance(time.Second)
+	h.sendSet(ingest.SampleSet{At: at, Cameras: []ingest.Sample{
+		{Camera: mainCam, At: at, Interval: time.Second, Online: true, Protocol: "srt", Kbps: 4200.5,
+			SRT: &ingest.SRTStats{RTTMs: 85.2, LossRate: 0.01, RecvMbps: 4.2}},
+		{Camera: subCam, At: at, Interval: time.Second},
+	}})
+	h.waitSnap("srt", func(s Snapshot) bool { return s.Cameras[0].SRT != nil && s.OBS.SceneHealth != nil })
 	full := marshalMap(t, h.core.Snapshot())
+	// 受信は DOWN から good 1回なので LOW（Judge の規則）。
 	if !reflect.DeepEqual(keyPaths(full, ""), keyPaths(spec, "")) {
 		t.Errorf("キー = %v, want %v", keyPaths(full, ""), keyPaths(spec, ""))
 	}
-	want := map[string]any{"state": "LOW", "kbps": 4200.5, "online": true, "protocol": "srt",
-		"srt": map[string]any{"rtt_ms": 85.2, "loss_rate": 0.01, "recv_mbps": 4.2}}
-	if !reflect.DeepEqual(full["link"], want) {
-		t.Errorf("link = %#v, want %#v", full["link"], want)
+	if !reflect.DeepEqual(full["cameras"], spec["cameras"]) {
+		t.Errorf("cameras = %#v, want %#v", full["cameras"], spec["cameras"])
+	}
+	fo := full["obs"].(map[string]any)
+	if !reflect.DeepEqual(fo["scene_cameras"], []any{"main"}) || fo["scene_health"] != "LOW" || fo["scene"] != "Camera" || fo["scene_class"] != "monitored" {
+		t.Errorf("obs = %#v", fo)
 	}
 
 	// 接続すると分類が入る。
 	h.connect(false, talk)
 	h.waitSnap("talk", sceneIs(talk))
-	if got := marshalMap(t, h.core.Snapshot())["obs"].(map[string]any)["scene_class"]; got != "other" {
-		t.Errorf("scene_class = %#v, want other", got)
+	fo = marshalMap(t, h.core.Snapshot())["obs"].(map[string]any)
+	if fo["scene_class"] != "other" || fo["scene_health"] != nil || len(fo["scene_cameras"].([]any)) != 0 {
+		t.Errorf("obs = %#v", fo)
 	}
 
 	// last_error はオブジェクトになる。
@@ -774,22 +805,34 @@ func marshalMap(t *testing.T, s Snapshot) map[string]any {
 
 // nullObjects は null のことがあるオブジェクトの場所と、その中のキー。
 var nullObjects = map[string][]string{
-	"link.srt":   {"loss_rate", "recv_mbps", "rtt_ms"},
 	"last_error": {"at", "message", "source"},
 }
 
-// keyPaths はオブジェクトのキーを "obs.standby.owner" の形で並べる。
-// 値が null の場所は、相手がオブジェクトでもキーだけを比べる（srt と last_error は null のことがある）。
+// keyPaths はオブジェクトのキーを "obs.standby.owner" の形で並べる。配列の中のオブジェクトは、先頭の要素で "cameras[]." の形にする。
+// 値が null の場所は、相手がオブジェクトでもキーだけを比べる（last_error は null のことがある）。
+// cameras[].srt の中のキーは SRT のときだけなので比べない。
 func keyPaths(m map[string]any, prefix string) []string {
 	var out []string
 	for k, v := range m {
 		p := prefix + k
 		out = append(out, p)
-		if sub, ok := v.(map[string]any); ok {
-			out = append(out, keyPaths(sub, p+".")...)
-		} else if keys, ok := nullObjects[p]; ok && v == nil {
-			for _, key := range keys {
-				out = append(out, p+"."+key)
+		if strings.HasSuffix(p, "[].srt") {
+			continue
+		}
+		switch v := v.(type) {
+		case map[string]any:
+			out = append(out, keyPaths(v, p+".")...)
+		case []any:
+			if len(v) > 0 {
+				if first, ok := v[0].(map[string]any); ok {
+					out = append(out, keyPaths(first, p+"[].")...)
+				}
+			}
+		default:
+			if keys, ok := nullObjects[p]; ok && v == nil {
+				for _, key := range keys {
+					out = append(out, p+"."+key)
+				}
 			}
 		}
 	}

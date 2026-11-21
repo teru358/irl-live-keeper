@@ -121,12 +121,12 @@ func run(ctx context.Context, base string, stdout, stderr io.Writer) int {
 	if auto && !found {
 		log.Warn("LAN の IPv4 アドレスが見つからないため、送信用 URL の host を 127.0.0.1 にしました。stream.publish_host で固定できます")
 	}
-	urls := buildURLs(cfg, host)
 	// 管理 API の URL。lan が true のときは、送信用 URL の自動の決め方と同じで LAN のアドレスを調べる
 	lanHost, _, lanFound := choosePublishHost("", systemInterfaces)
 	adminURL, adminNote := adminBannerURL(cfg.Admin.Port, cfg.Admin.LAN, lanHost, lanFound)
+	cameraURLs := buildCameraURLs(cfg, host)
 	info := bannerInfo{
-		Cameras:  buildCameraURLs(cfg, host),
+		Cameras:  cameraURLs,
 		AdminURL: adminURL, AdminNote: adminNote, AutoHost: auto, HostFound: found,
 	}
 	if generated {
@@ -142,13 +142,11 @@ func run(ctx context.Context, base string, stdout, stderr io.Writer) int {
 	sup := supervisor.New(cfg, binPath, base, log)
 	apiUser, apiPass := sup.APICredentials()
 	poller := ingest.NewPoller(fmt.Sprintf("http://127.0.0.1:%d", cfg.MediaMTX.APIPort), apiUser, apiPass, cameraIDs(cfg), nil)
-	sets := make(chan ingest.SampleSet)
-	samples := make(chan ingest.Sample) // つなぎ: core には先頭のカメラの Sample だけを渡す（M-8 で1組にする）
+	samples := make(chan ingest.SampleSet) // Poller → core。全カメラの Sample の1組
 	obsClient := obs.New(obsConfig(cfg), log)
 
-	deps := coreDeps(cfg, urls)
+	deps := coreDeps(cfg, cameraURLs)
 	deps.Machine = switcher.New(switcher.Config{RestartWait: restartWait})
-	deps.Judge = ingest.NewJudge(judgeThresholds(cfg))
 	deps.OBS = obsClient
 	deps.Samples = samples
 	deps.MediaMTX = sup.Status
@@ -157,8 +155,7 @@ func run(ctx context.Context, base string, stdout, stderr io.Writer) int {
 	c := core.New(deps)
 
 	wg.Go(func() { sup.Run(runCtx) })
-	wg.Go(func() { poller.Run(runCtx, pollInterval, sets) })
-	wg.Go(func() { forwardFirstCamera(runCtx, sets, samples) })
+	wg.Go(func() { poller.Run(runCtx, pollInterval, samples) })
 	wg.Go(func() { obsClient.Run(runCtx) })
 	wg.Go(func() { c.Run(runCtx) })
 

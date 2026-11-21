@@ -300,15 +300,22 @@ func TestStatusGETDoesNotNeedHeader(t *testing.T) {
 }
 
 func sampleSnapshot() core.Snapshot {
-	rs := "Camera"
+	rs, health := "Camera", "OK"
 	return core.Snapshot{
-		Link: core.LinkStatus{State: "OK", Kbps: 4200.5, Online: true, Protocol: "srt",
-			SRT: &core.SRTStatus{RTTMs: 85.2, LossRate: 0.01, RecvMbps: 4.2}},
+		Cameras: []core.CameraStatus{
+			{ID: "main", Name: "メイン", OnBad: "standby", State: "OK", Kbps: 4200.5, Online: true, Protocol: "srt",
+				SRT: &core.SRTStatus{RTTMs: 85.2, LossRate: 0.01, RecvMbps: 4.2}},
+			{ID: "sub", Name: "サブ", OnBad: "hide", State: "DOWN"},
+		},
 		OBS: core.OBSStatus{Connected: true, Streaming: true, Scene: "Standby", SceneClass: "standby",
+			SceneCameras: []string{"main"}, SceneHealth: &health,
 			Standby:     core.StandbyStatus{Owner: "auto", ReturnScene: &rs},
 			AutoEnabled: true, Warnings: []string{"シーン X がない"}},
-		MediaMTX:  "running",
-		URLs:      core.URLs{PublishSRT: "srt://a", PublishRTMP: "rtmp://b", OBSRead: "rtsp://obs:p@c"},
+		MediaMTX: "running",
+		URLs: []core.CameraURLs{
+			{ID: "main", Name: "メイン", PublishSRT: "srt://a", PublishRTMP: "rtmp://b", OBSRead: "rtsp://obs:p@c"},
+			{ID: "sub", Name: "サブ", PublishSRT: "srt://a2", PublishRTMP: "rtmp://b2", OBSRead: "rtsp://obs:p@c2"},
+		},
 		LastError: &core.LastError{At: time.Date(2026, 11, 20, 13, 0, 0, 0, time.UTC), Source: "switcher", Message: "失敗"},
 	}
 }
@@ -352,18 +359,30 @@ func TestStatusShapeFull(t *testing.T) {
 		t.Fatalf("code = %d", w.Code)
 	}
 	m := decodeBody(t, w)
-	eqKeys(t, "top", m, "link", "obs", "mediamtx", "urls", "last_error")
-	link := m["link"].(map[string]any)
-	eqKeys(t, "link", link, "state", "kbps", "online", "protocol", "srt")
-	eqKeys(t, "link.srt", link["srt"], "rtt_ms", "loss_rate", "recv_mbps")
+	eqKeys(t, "top", m, "cameras", "obs", "mediamtx", "urls", "last_error")
+	cams := m["cameras"].([]any)
+	if len(cams) != 2 {
+		t.Fatalf("cameras = %v", cams)
+	}
+	cam := cams[0].(map[string]any)
+	eqKeys(t, "cameras[0]", cam, "id", "name", "on_bad", "state", "kbps", "online", "protocol", "srt")
+	eqKeys(t, "cameras[0].srt", cam["srt"], "rtt_ms", "loss_rate", "recv_mbps")
 	o := m["obs"].(map[string]any)
-	eqKeys(t, "obs", o, "connected", "streaming", "scene", "scene_class", "standby", "auto_enabled", "warnings")
+	eqKeys(t, "obs", o, "connected", "streaming", "scene", "scene_class", "scene_cameras", "scene_health", "standby", "auto_enabled", "warnings")
 	eqKeys(t, "obs.standby", o["standby"], "owner", "return_scene")
-	eqKeys(t, "urls", m["urls"], "publish_srt", "publish_rtmp", "obs_read")
+	urls := m["urls"].([]any)
+	if len(urls) != 2 {
+		t.Fatalf("urls = %v", urls)
+	}
+	eqKeys(t, "urls[0]", urls[0], "id", "name", "publish_srt", "publish_rtmp", "obs_read")
 	eqKeys(t, "last_error", m["last_error"], "at", "source", "message")
 
-	if link["state"] != "OK" || link["kbps"] != 4200.5 || link["online"] != true || link["protocol"] != "srt" {
-		t.Fatalf("link = %v", link)
+	if cam["id"] != "main" || cam["name"] != "メイン" || cam["on_bad"] != "standby" ||
+		cam["state"] != "OK" || cam["kbps"] != 4200.5 || cam["online"] != true || cam["protocol"] != "srt" {
+		t.Fatalf("cameras[0] = %v", cam)
+	}
+	if sc, _ := o["scene_cameras"].([]any); len(sc) != 1 || sc[0] != "main" || o["scene_health"] != "OK" {
+		t.Fatalf("scene_cameras/scene_health = %v / %v", o["scene_cameras"], o["scene_health"])
 	}
 	if o["scene_class"] != "standby" || o["standby"].(map[string]any)["owner"] != "auto" ||
 		o["standby"].(map[string]any)["return_scene"] != "Camera" {
@@ -383,24 +402,31 @@ func TestStatusShapeFull(t *testing.T) {
 
 func TestStatusShapeNulls(t *testing.T) {
 	b := &fakeBackend{snap: core.Snapshot{
-		Link: core.LinkStatus{State: "DOWN", Protocol: ""},
-		OBS: core.OBSStatus{SceneClass: "unknown", Standby: core.StandbyStatus{Owner: "none"},
+		Cameras: []core.CameraStatus{{ID: "main", Name: "メイン", OnBad: "standby", State: "DOWN"}},
+		OBS: core.OBSStatus{SceneClass: "unknown", SceneCameras: []string{}, Standby: core.StandbyStatus{Owner: "none"},
 			Warnings: []string{}},
+		URLs: []core.CameraURLs{},
 	}}
 	w := do(t, New(b, testPass), http.MethodGet, "/api/status", reqOpt{})
 	if w.Code != http.StatusOK {
 		t.Fatalf("code = %d", w.Code)
 	}
 	m := decodeBody(t, w)
-	eqKeys(t, "top", m, "link", "obs", "mediamtx", "urls", "last_error")
+	eqKeys(t, "top", m, "cameras", "obs", "mediamtx", "urls", "last_error")
 	if v, ok := m["last_error"]; !ok || v != nil {
 		t.Fatalf("last_error = %#v, want null", v)
 	}
-	link := m["link"].(map[string]any)
-	if v, ok := link["srt"]; !ok || v != nil {
+	cam := m["cameras"].([]any)[0].(map[string]any)
+	if v, ok := cam["srt"]; !ok || v != nil {
 		t.Fatalf("srt = %#v, want null", v)
 	}
 	o := m["obs"].(map[string]any)
+	if v, ok := o["scene_health"]; !ok || v != nil {
+		t.Fatalf("scene_health = %#v, want null", v)
+	}
+	if sc, ok := o["scene_cameras"].([]any); !ok || len(sc) != 0 {
+		t.Fatalf("scene_cameras = %#v, want []", o["scene_cameras"])
+	}
 	if v, ok := o["standby"].(map[string]any)["return_scene"]; !ok || v != nil {
 		t.Fatalf("return_scene = %#v, want null", v)
 	}

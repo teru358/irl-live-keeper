@@ -25,7 +25,7 @@ func TestMainTimeoutDiscardsClientAndReconnects(t *testing.T) {
 	h.awaitConnected(1)
 
 	start := time.Now()
-	err := h.w.SetScene("A")
+	err := h.w.SetSceneUUID("A")
 	if !errors.Is(err, ErrTimeout) {
 		t.Fatalf("ErrTimeout のはずが %v", err)
 	}
@@ -38,7 +38,7 @@ func TestMainTimeoutDiscardsClientAndReconnects(t *testing.T) {
 		t.Fatalf("つなぎ直していない: 接続は %d 本", got)
 	}
 	// つなぎ直したあとは、要求がふつうに通る。
-	if err := h.w.SetScene("B"); err != nil {
+	if err := h.w.SetSceneUUID("B"); err != nil {
 		t.Fatalf("つなぎ直したあとの SetScene が失敗: %v", err)
 	}
 	if lastDisc, ok := lastOf[switcher.OBSDisconnected](h.events()); !ok || lastDisc.At.IsZero() {

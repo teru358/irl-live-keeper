@@ -33,7 +33,7 @@ func (c *Core) execute(ctx context.Context, b *switcher.Batch) {
 		if isSet {
 			name := set.SceneUUID
 			r, ok := callOBS(ctx, func() overrideResult {
-				ms, has, err := c.obs.SceneTransitionOverride(name)
+				ms, has, err := c.obs.SceneTransitionOverrideUUID(name)
 				return overrideResult{ms, has, err}
 			})
 			if !ok {
@@ -90,16 +90,11 @@ func (c *Core) execute(ctx context.Context, b *switcher.Batch) {
 func (c *Core) send(a switcher.Action) error {
 	switch a := a.(type) {
 	case switcher.SetScene:
-		return c.obs.SetScene(a.SceneUUID)
+		return c.obs.SetSceneUUID(a.SceneUUID)
 	case switcher.RestartMedia:
-		// Inputs の入力に順に送る。1つ失敗しても残りに送り、最初の失敗を返す。待ちは呼び出し側が最後に1回行う。
-		var first error
-		for _, in := range a.Inputs {
-			if err := c.obs.RestartMedia(in); err != nil && first == nil {
-				first = err
-			}
-		}
-		return first
+		// Inputs の入力（UUID）に順に送る。1つ失敗しても残りに送り、最初の失敗を返すのは obs の側。
+		// 待ちは呼び出し側が最後に1回行う。
+		return c.obs.RestartMediaInputs(a.Inputs)
 	case switcher.StartStream:
 		return c.obs.StartStream()
 	case switcher.StopStream:
@@ -110,7 +105,7 @@ func (c *Core) send(a switcher.Action) error {
 
 // requestApproval は承認要求を中核ループに送り、応答を待つ。ctx が終われば ok=false。
 func (c *Core) requestApproval(ctx context.Context, b *switcher.Batch, a switcher.Action, o switcher.Override) (switcher.ApproveResult, bool) {
-	req := approveReq{batchID: b.BatchID, purpose: b.Purpose, action: a, override: o, reply: make(chan switcher.ApproveResult, 1)}
+	req := approveReq{batchID: b.BatchID, purpose: b.Purpose, badCamera: b.BadCamera, action: a, override: o, reply: make(chan switcher.ApproveResult, 1)}
 	select {
 	case c.approvals <- req:
 	case <-ctx.Done():
