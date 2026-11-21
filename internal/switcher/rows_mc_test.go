@@ -292,6 +292,10 @@ func TestMCSceneMapChanged(t *testing.T) {
 			ev: smcMap(1000, multiMap()), change: toMap(multiMap()), out: PurposeAutoFail, bad: camMain},
 		{name: "MC-MAP-14", base: baseMulti, setup: all(states(DOWN, OK, OK), failed),
 			ev: smcMap(1000, mm(func(m *scenemap.Map) { m.Groups = nil }))},
+		{name: "MC-MAP-14/camera_id_only", base: baseMulti, setup: all(useMap(aOnlyM), states(OK, DOWN, OK), failed),
+			ev: smcMap(1000, editMap(aOnlyM, func(m *scenemap.Map) { m.Inputs[inMain] = scenemap.Input{Name: "main-src", CameraID: camSub} })),
+			change: toMap(editMap(aOnlyM, func(m *scenemap.Map) { m.Inputs[inMain] = scenemap.Input{Name: "main-src", CameraID: camSub} })),
+			out: PurposeAutoFail, bad: camSub, check: wantSnap(ClassMonitored, true, DOWN, camSub, camSub)},
 		{name: "MC-MAP-17", base: baseMulti, setup: all(own(OwnerAuto, camera), failed, sentAt(PurposeAutoRecover, 800)),
 			ev: smcMap(1000, mm(renamed(camera, "Camera-renamed"))), change: toMap(mm(renamed(camera, "Camera-renamed"))),
 			out: PurposeAutoRecover, in: []string{inMain, inSub}},
@@ -695,13 +699,19 @@ func TestLastErrorUsesMapName(t *testing.T) {
 
 // ---- 所有権（表2章）: Event の map と slice を、Handle のあとに外で変えても、状態は変わらない ----
 
+// withGroup は、項目 1 つを持つグループを地図に足す（所有権のテスト用）。
+func withGroup(m *scenemap.Map) {
+	m.Groups[groupUUID] = scenemap.Container{Name: "G", Items: []scenemap.Item{itm(1, inSub)}}
+}
+
 func TestEventOwnership(t *testing.T) {
 	t.Run("OBSConnected", func(t *testing.T) {
 		m := newMachine()
 		m.Handle(cfg(0, withMulti()))
-		mp := multiMap()
+		mp := mm(withGroup)
 		m.Handle(connM(1, true, camera, mp))
 		before := cloneState(m.st)
+		mp.Groups[groupUUID].Items[0].Enabled = false
 		mp.Collection = "changed"
 		mp.Inputs[inMain] = scenemap.Input{Name: "x", CameraID: "x"}
 		mp.Scenes[camera] = scenemap.Container{Name: "changed"}
@@ -713,9 +723,10 @@ func TestEventOwnership(t *testing.T) {
 		m := newMachine()
 		m.Handle(cfg(0, withMulti()))
 		m.Handle(connM(1, true, camera, multiMap()))
-		mp := mm(renamed(camera, "Camera-renamed"))
+		mp := mm(renamed(camera, "Camera-renamed"), withGroup)
 		m.Handle(smcMap(2, mp))
 		before := cloneState(m.st)
+		mp.Groups[groupUUID].Items[0].Enabled = false
 		mp.Scenes[camera].Items[0].Enabled = false
 		mp.Inputs[inSub] = scenemap.Input{Name: "x", CameraID: "x"}
 		if d := diffState(m.st, before); d != "" {
