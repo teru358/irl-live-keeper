@@ -405,6 +405,11 @@ func (m *Machine) resplit() {
 			delete(s.Unsent, k)
 		}
 	}
+	for k := range s.MAConfirm {
+		if m.entryIdx(k) < 0 {
+			delete(s.MAConfirm, k)
+		}
+	}
 	m.sortHidden()
 	m.touch()
 }
@@ -443,7 +448,7 @@ func (m *Machine) reconcile(at time.Time) {
 			case !it.Enabled && !unsent:
 				e.State = HiddenH
 				m.touch()
-			case it.Enabled && !unsent && e.SettledAt != nil && at.Sub(*e.SettledAt) > pSweep && !m.hasQ(k):
+			case it.Enabled && !unsent && e.SettledAt != nil && at.Sub(*e.SettledAt) > pSweep && !m.hasQ(k) && !s.MAConfirm[k]:
 				m.removeEntry(i)
 				continue
 			}
@@ -480,7 +485,7 @@ func (m *Machine) expireItems(at time.Time) {
 	if s.Map != nil {
 		for i := 0; i < len(s.Hidden); {
 			e := &s.Hidden[i]
-			if e.State == HiddenP && e.SettledAt != nil && at.Sub(*e.SettledAt) > pSweep && !m.hasQ(e.Key()) {
+			if e.State == HiddenP && e.SettledAt != nil && at.Sub(*e.SettledAt) > pSweep && !m.hasQ(e.Key()) && !s.MAConfirm[e.Key()] {
 				if it, ok := m.findItem(e.Key()); ok && it.Enabled {
 					m.removeEntry(i)
 					continue
@@ -638,33 +643,44 @@ func (m *Machine) onItemRequestDone(e ItemRequestDone) []Batch {
 		}
 	}
 	k := rec.Key
-	ei := m.entryIdx(k)
+	// 結果は、送った時の Z・入力 UUID の記録（Hidden か Retained）だけに当てる。別の Z の同じ鍵の記録は触らない。
+	list, ei := m.recEntry(rec)
+	inHidden := list == &s.Hidden
+	remove := func() {
+		if inHidden {
+			m.removeEntry(ei)
+		} else if list != nil {
+			*list = slices.Delete(*list, ei, ei+1)
+			m.touch()
+		}
+	}
+	state := func() HiddenState { return (*list)[ei].State }
 	if !rec.Value {
 		switch e.Result {
 		case ItemOK:
 			respond()
-			if ei >= 0 && s.Hidden[ei].State == HiddenP && s.Hidden[ei].SettledAt == nil {
+			if ei >= 0 && state() == HiddenP && (*list)[ei].SettledAt == nil {
 				t := e.At
-				s.Hidden[ei].SettledAt = &t
+				(*list)[ei].SettledAt = &t
 				m.touch()
 			}
 		case ItemTimeout:
 			respond()
-			if ei >= 0 && s.Hidden[ei].State == HiddenP {
+			if ei >= 0 && state() == HiddenP {
 				t := e.At
-				s.Hidden[ei].State = HiddenU
-				s.Hidden[ei].SettledAt = &t
+				(*list)[ei].State = HiddenU
+				(*list)[ei].SettledAt = &t
 				m.touch()
 			}
 		case ItemError:
 			dropQ()
-			if ei >= 0 && s.Hidden[ei].State == HiddenP {
-				m.removeEntry(ei)
+			if ei >= 0 && state() == HiddenP {
+				remove()
 			}
 		case ItemNotFound:
 			dropQ()
 			if ei >= 0 {
-				m.removeEntry(ei)
+				remove()
 			}
 		}
 	} else {
@@ -672,22 +688,37 @@ func (m *Machine) onItemRequestDone(e ItemRequestDone) []Batch {
 		case ItemOK:
 			respond()
 			if rec.Scope == RestoreTrackedItems && ei >= 0 {
-				m.removeEntry(ei)
+				remove()
 			}
 		case ItemTimeout:
 			respond()
 		case ItemError:
 			dropQ()
-			delete(s.MAConfirm, k)
+			if rec.Z == s.Z {
+				delete(s.MAConfirm, k)
+			}
 		case ItemNotFound:
 			dropQ()
 			if ei >= 0 {
-				m.removeEntry(ei)
+				remove()
 			}
 		}
 	}
 	m.refine()
 	return m.jb(e.At, false)
+}
+
+// recEntry は台帳の記録に当たる記録（Hidden か Retained。鍵・接続先とコレクション・入力 UUID が一致するもの）を返す。
+func (m *Machine) recEntry(rec ItemReceipt) (*[]HiddenEntry, int) {
+	s := &m.st
+	for _, lp := range []*[]HiddenEntry{&s.Hidden, &s.Retained} {
+		for i, e := range *lp {
+			if e.Key() == rec.Key && entryZone(e) == rec.Z && e.SourceUUID == rec.Source {
+				return lp, i
+			}
+		}
+	}
+	return nil, -1
 }
 
 // ---- バッチの発行 ----

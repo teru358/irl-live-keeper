@@ -579,7 +579,8 @@ func hbSQ10AMAが実行中Hideの残りを止める(t *testing.T) {
 	h.wantEntries("x:H")
 	h.out(h.tick(2350), "")
 	px := h.proceed(ma, 2400, kx, true)
-	h.want(h.ap(ma, 2400, ky, true), ky, ma, 2400, true, Skip{}) // y は隠していない（地図 true、記録なし）
+	py := h.proceed(ma, 2400, ky, true) // y は記録がなく地図 true でも、固定した対象でカメラの項目なので送る（HB-AP-22）
+	h.itemDone(2420, py.ItemReqID, ItemOK)
 	h.itemDone(2400, px.ItemReqID, ItemOK)
 	h.itemEv(2450, kx, true)
 	h.out(h.bdone(2500, ma.BatchID, BatchCompleted, nil), "")

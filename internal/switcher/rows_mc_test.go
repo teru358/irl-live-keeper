@@ -710,7 +710,7 @@ func TestEventOwnership(t *testing.T) {
 		mp.Collection = "changed"
 		mp.Inputs[inMain] = scenemap.Input{Name: "x", CameraID: "x"}
 		mp.Scenes[camera] = scenemap.Container{Name: "changed"}
-		if d := diffState(m.st, before); d != "" {
+		if d := diffState0a(m.st, before); d != "" {
 			t.Fatalf("OBSConnected の Map を共有している:%s", d)
 		}
 	})
@@ -724,7 +724,7 @@ func TestEventOwnership(t *testing.T) {
 		mp.Groups[groupUUID].Items[0].Enabled = false
 		mp.Scenes[camera].Items[0].Enabled = false
 		mp.Inputs[inSub] = scenemap.Input{Name: "x", CameraID: "x"}
-		if d := diffState(m.st, before); d != "" {
+		if d := diffState0a(m.st, before); d != "" {
 			t.Fatalf("SceneMapChanged の Map を共有している:%s", d)
 		}
 	})
@@ -735,7 +735,7 @@ func TestEventOwnership(t *testing.T) {
 		handle1(m, CamerasChanged{At: at(1), States: states})
 		before := cloneState(m.st)
 		states[camSub] = DOWN
-		if d := diffState(m.st, before); d != "" {
+		if d := diffState0a(m.st, before); d != "" {
 			t.Fatalf("CamerasChanged の States を共有している:%s", d)
 		}
 	})

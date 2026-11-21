@@ -162,13 +162,14 @@ func (m *Machine) approveItem(pb *PendingBatch, action Action, at time.Time) App
 		if s.CameraStates[pb.CameraID] != scenemap.StateOK {
 			return Skip{}
 		}
+		// 固定した入力のすべてが今もそのカメラの入力のときだけ送る。一つでも違えば Skip。
 		calc := m.calcMap()
 		for _, in := range a.Inputs {
-			if x, ok := calc.Inputs[in]; ok && x.CameraID == pb.CameraID {
-				return Proceed{}
+			if x, ok := calc.Inputs[in]; !ok || x.CameraID != pb.CameraID {
+				return Skip{}
 			}
 		}
-		return Skip{}
+		return Proceed{}
 	case SetItemEnabled:
 		return m.approveSetItem(pb, a, at)
 	}
@@ -220,8 +221,11 @@ func (m *Machine) approveSetItem(pb *PendingBatch, a SetItemEnabled, at time.Tim
 		if ei < 0 {
 			// 一覧外。カメラの項目（設定のカメラの入力）であることを再確認する。
 			calc := m.calcMap()
-			if in, ok := calc.Inputs[it.SourceUUID]; !ok || in.CameraID == "" || it.Enabled || it.SourceKind != scenemap.InputSource {
+			if in, ok := calc.Inputs[it.SourceUUID]; !ok || in.CameraID == "" || it.SourceKind != scenemap.InputSource {
 				return Skip{}
+			}
+			if pb.Scope != RestoreAllCameraItems && it.Enabled {
+				return Skip{} // 停止用は、記録のない表示の項目に送らない。手動は固定した対象に、地図 true でも送る（HB-AP-22）
 			}
 			return m.proceedItem(pb, pi, at)
 		}
@@ -309,7 +313,7 @@ func (m *Machine) proceedItem(pb *PendingBatch, pi *pendItem, at time.Time) Appr
 		Key: pi.Key, Value: pi.Value, ReqID: id, BatchID: pb.BatchID, Purpose: pb.Purpose, Scope: pb.Scope,
 	})
 	s.ItemReceipts[id] = ItemReceipt{ReqID: id, Key: pi.Key, Value: pi.Value, BatchID: pb.BatchID,
-		CameraID: pb.CameraID, Purpose: pb.Purpose, Scope: pb.Scope}
+		CameraID: pb.CameraID, Z: s.Z, Source: pi.Source, Purpose: pb.Purpose, Scope: pb.Scope}
 	if pb.Scope == RestoreAllCameraItems && pi.Value {
 		s.MAConfirm[pi.Key] = true
 	}

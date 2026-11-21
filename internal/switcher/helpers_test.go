@@ -376,15 +376,21 @@ func normState(s state) state {
 	return c
 }
 
-// diffState は2つの状態の違うフィールドを並べる。同じなら空文字列。
-func diffState(got, want state) string {
+// diffState は2つの状態の違うフィールドを並べる。同じなら空文字列。0b の行はこれを使う（除外なし）。
+func diffState(got, want state) string { return diffStateIgnoring(got, want) }
+
+// diffState0a は 0a 以前の行用。0b の内部の帳簿（接続先の Z と、HiddenRestored の受付済みの印）は、
+// それらの行の「状態の変化」の欄にないので比べない。
+func diffState0a(got, want state) string {
+	return diffStateIgnoring(got, want, "Z", "HiddenRestoredDone")
+}
+
+func diffStateIgnoring(got, want state, ignore ...string) string {
 	g, w := normState(got), normState(want)
 	gv, wv := reflect.ValueOf(g), reflect.ValueOf(w)
 	var b strings.Builder
 	for i := 0; i < gv.NumField(); i++ {
-		// 0b の内部の帳簿（接続先の Z と、HiddenRestored の受付済みの印）は、行の「状態の変化」の欄にない。
-		// 0a 以前の行の比較からは除く（0b の行は、記録・期待・台帳・u・f・送出時刻を別に確かめる）。
-		if n := gv.Type().Field(i).Name; n == "Z" || n == "HiddenRestoredDone" {
+		if slices.Contains(ignore, gv.Type().Field(i).Name) {
 			continue
 		}
 		if !reflect.DeepEqual(gv.Field(i).Interface(), wv.Field(i).Interface()) {
@@ -622,7 +628,7 @@ func runEvRows(t *testing.T, rows []evRow) {
 				t.Errorf("batch: got %+v, want none", got)
 			}
 			checkRecErr(t, m, &want, before.LastError, r.recErr, r.ev.eventAt())
-			if d := diffState(m.st, want); d != "" {
+			if d := diffState0a(m.st, want); d != "" {
 				t.Errorf("state differs:%s", d)
 			}
 			if r.check != nil {
@@ -732,7 +738,7 @@ func runApRows(t *testing.T, rows []apRow) {
 				}
 			}
 			checkRecErr(t, m, &want, before.LastError, r.recErr, atT)
-			if d := diffState(m.st, want); d != "" {
+			if d := diffState0a(m.st, want); d != "" {
 				t.Errorf("state differs:%s", d)
 			}
 			if r.check != nil {
@@ -885,7 +891,7 @@ func (q *seq) cmdErr(ev Event, want error) {
 		q.t.Fatalf("got batch %s, want none", showBatch(b))
 	}
 	checkErr(q.t, err, want, "")
-	if d := diffState(q.m.st, before); d != "" {
+	if d := diffState0a(q.m.st, before); d != "" {
 		q.t.Fatalf("state changed on cmdErr:%s", d)
 	}
 }

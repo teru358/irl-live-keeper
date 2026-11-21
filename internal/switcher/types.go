@@ -745,6 +745,9 @@ type ItemReceipt struct {
 	Value    bool
 	BatchID  int
 	CameraID string
+	// Z と Source は送った時の接続先・コレクションと入力 UUID。結果は、この Z の記録だけに当てる。
+	Z        zone
+	Source   string
 	Purpose  Purpose
 	Scope    RestoreScope
 	Result   ItemResult // 0 なら結果をまだ受けていない

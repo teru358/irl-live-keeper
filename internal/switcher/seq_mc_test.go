@@ -117,7 +117,7 @@ func TestMCSeq02(t *testing.T) {
 		sent := q.m.st.LastAutoSent[ar]
 		before := cloneState(q.m.st)
 		q.none(CamerasChanged{At: at(2000), States: map[string]scenemap.CameraState{camDesk: DOWN, camSub: LOW, camMain: OK}})
-		if d := diffState(q.m.st, before); d != "" {
+		if d := diffState0a(q.m.st, before); d != "" {
 			t.Fatalf("同じ組で状態が変わった:%s", d)
 		}
 		if got := q.m.st.LastAutoSent[ar]; !got.Equal(sent) {

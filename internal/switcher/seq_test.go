@@ -646,7 +646,7 @@ func TestSeqConfigAndOwner(t *testing.T) {
 		q := newSeq(t).PA(camera)
 		before := cloneState(q.m.st)
 		q.none(cfg(1000))
-		if d := diffState(q.m.st, before); d != "" {
+		if d := diffState0a(q.m.st, before); d != "" {
 			t.Fatalf("state changed:%s", d)
 		}
 	})
@@ -1346,7 +1346,7 @@ func TestSeqOutputReconnect(t *testing.T) {
 		q.ticks(2000, 5000, 1000)
 		q.owner(OwnerAuto, camera)
 		q.pending(2)
-		if d := diffState(q.m.st, before); d != "" {
+		if d := diffState0a(q.m.st, before); d != "" {
 			t.Fatalf("state changed:%s", d)
 		}
 	})
