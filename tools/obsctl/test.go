@@ -202,18 +202,30 @@ func testRestore(c *goobs.Client) error {
 		if _, err := c.Scenes.SetCurrentProgramScene(&scenes.SetCurrentProgramSceneParams{SceneName: &s.Scene}); err != nil {
 			fmt.Println("注意: 元のシーンへ戻せなかった:", s.Scene, err)
 		}
+		// トランジションが終わってから消す（program のシーンを消すと、本体はシーンコレクションの切替とみなして
+		// 読み直す。M-9 の C の2回目で起きた）。GetCurrentProgramScene はトランジションの途中でも行き先を答えるので、
+		// トランジションの長さ + 1秒を待つ（最大 11 秒）
+		wait := 1300 * time.Millisecond
+		if tr, err := c.Transitions.GetCurrentSceneTransition(); err == nil && tr.TransitionDuration > 0 {
+			wait = time.Duration(tr.TransitionDuration)*time.Millisecond + time.Second
+		}
+		if wait > 11*time.Second {
+			wait = 11 * time.Second
+		}
+		time.Sleep(wait)
 	}
 	failed := false
 	for _, sc := range s.Scenes {
 		u := sc.UUID
-		if _, err := c.Scenes.RemoveScene(&scenes.RemoveSceneParams{SceneUuid: &u}); err != nil {
+		if _, err := c.Scenes.RemoveScene(&scenes.RemoveSceneParams{SceneUuid: &u}); err != nil && !notFound(err) {
 			fmt.Println("注意: シーンを消せなかった:", sc.Name, err)
 			failed = true
 		}
 	}
 	for _, in := range s.Inputs {
 		u := in.UUID
-		if _, err := c.Inputs.RemoveInput(&inputs.RemoveInputParams{InputUuid: &u}); err != nil {
+		if _, err := c.Inputs.RemoveInput(&inputs.RemoveInputParams{InputUuid: &u}); err != nil && !notFound(err) {
+			// シーンを消すと、そのシーンだけで使っていたソースは OBS が消す（ResourceNotFound は消えたものとする）
 			fmt.Println("注意: ソースを消せなかった:", in.Name, err)
 			failed = true
 		}
@@ -397,4 +409,10 @@ func waitReady(c *goobs.Client) error {
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
+}
+
+// notFound は、OBS が「その UUID のものはない」（ResourceNotFound、600）と答えたかを返す。
+func notFound(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "ResourceNotFound") || strings.Contains(msg, "(600)")
 }

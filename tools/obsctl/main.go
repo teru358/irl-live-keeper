@@ -12,7 +12,7 @@
 //	setinput <url>（入力 IRL）| mediastatus [入力名] | inputs（メディアソースの一覧と再生の状態）
 //	item <シーン> <ソース> on|off（シーンの項目の表示・非表示）| hwdecode on|off（試験のシーンコレクションの中だけ）
 //	tdur <ms> | override <シーン> <トランジション> <ms> | transition
-//	onstarting <シーン> <秒> | watch <秒>
+//	onstarting <シーン> <秒> | watch <秒> [ファイル]（ファイルを渡すと1行ごとに直接書く。裏で動かして止めても欠けない）
 //	test setup | test restore（試験のプロファイルとシーンコレクション。test.go）
 package main
 
@@ -229,6 +229,16 @@ func run(c *goobs.Client, a []string) error {
 		var d time.Duration
 		fmt.Sscan(a[1], &d)
 		end := time.After(d * time.Second)
+		out := os.Stdout
+		if len(a) >= 3 {
+			// PowerShell の > で書くと、止めたときにパイプの中の行が失われる（M-9 で2回起きた）。直接ファイルに書く
+			f, err := os.OpenFile(a[2], os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+			out = f
+		}
 		for {
 			select {
 			case ev := <-c.IncomingEvents:
@@ -252,8 +262,8 @@ func run(c *goobs.Client, a []string) error {
 					line = "CurrentProfileChanged " + e.ProfileName
 				}
 				if line != "" {
-					fmt.Println(now(), line)
-					os.Stdout.Sync()
+					fmt.Fprintln(out, now(), line)
+					out.Sync()
 				}
 			case <-end:
 				return nil
