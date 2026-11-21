@@ -168,7 +168,9 @@ func New(d Deps) *Core {
 	cfgs := make([]switcher.CameraConfig, len(d.Cameras))
 	for i, cam := range d.Cameras {
 		c.cams = append(c.cams, &camState{cfg: cam, judge: ingest.NewJudge(cam.Thresholds)})
-		cfgs[i] = switcher.CameraConfig{ID: cam.ID, OnBad: cam.OnBad}
+		// 0b のつなぎ（M-11）: 項目の表示・非表示の実行役と hidden.json は M-12 で配線する。それまでは on_bad=hide も
+		// 0a と同じく standby として Machine に渡し、Hide の動きを有効にしない。
+		cfgs[i] = switcher.CameraConfig{ID: cam.ID, OnBad: scenemap.MotionStandby}
 	}
 	var start *string
 	if d.StartScene != nil {
@@ -520,6 +522,11 @@ func (c *Core) rememberNames(m *scenemap.Map) {
 
 // approve は承認要求に答える。Replace の代わりのバッチは列の先頭に入れる。
 func (c *Core) approve(req approveReq) switcher.ApproveResult {
+	// 0b のつなぎ（M-11）: 項目の表示・非表示（SetItemEnabled）の実行は M-12 で配線する。それまでは記録なしで false を
+	// 送らないよう、Machine に問わず Reject する（実行役が BatchDone{Rejected} を返し、Machine は予約を巻き戻す）。
+	if _, ok := req.action.(switcher.SetItemEnabled); ok {
+		return switcher.Reject{}
+	}
 	from := c.m.Snapshot().Scene
 	res := c.m.Approve(req.batchID, req.action, req.override, c.now())
 	switch r := res.(type) {
