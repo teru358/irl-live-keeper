@@ -145,17 +145,26 @@ func readFile(t *testing.T, path string) ([]fileEntry, bool) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	es, err := parseHiddenFile(b)
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+	return es, true
+}
+
+// parseHiddenFile は hidden.json の中身を、試験側の型で読む（core の型を使わない）。
+func parseHiddenFile(b []byte) ([]fileEntry, error) {
 	var f struct {
 		Version int         `json:"version"`
 		Entries []fileEntry `json:"entries"`
 	}
 	if err := json.Unmarshal(b, &f); err != nil {
-		t.Fatalf("hidden.json が JSON でない: %v: %s", err, b)
+		return nil, fmt.Errorf("hidden.json が JSON でない: %v: %s", err, b)
 	}
 	if f.Version != 1 {
-		t.Fatalf("version = %d", f.Version)
+		return nil, fmt.Errorf("version = %d", f.Version)
 	}
-	return f.Entries, true
+	return f.Entries, nil
 }
 
 func waitFile(t *testing.T, path string, pred func([]fileEntry) bool) []fileEntry {
