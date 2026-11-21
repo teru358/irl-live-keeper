@@ -47,7 +47,8 @@ const camsThree = "cameras:\n  - id: main\n    name: メインカメラ\n    on_
 // camsTwo は id が main と sub の2台。
 const camsTwo = "cameras:\n  - id: main\n    name: メイン\n    on_bad: standby\n  - id: sub\n    name: サブ\n    on_bad: hide\n"
 
-// パスワードを固定した1台（id は live）の mediamtx.yml の入力で、受付のスイッチだけを変えたもの。
+// TestGenerateYAMLGoldenVariants は、カメラの台数（1台と3台）と受付の組み合わせ（両方、RTMP だけ、SRT だけ）ごとに、
+// 手で書いたゴールデンと一致することを確かめる。ゴールデンは -update で作らない。
 func TestGenerateYAMLGoldenVariants(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -56,7 +57,7 @@ func TestGenerateYAMLGoldenVariants(t *testing.T) {
 		golden string
 		ids    []string
 	}{
-		{"3台（both on）", camsThree, "", "golden-3cams.yml", []string{"main", "sub", "hand"}},
+		{"3台、両方有効", camsThree, "", "golden-3cams.yml", []string{"main", "sub", "hand"}},
 		{"RTMP だけ（SRT を止める）", camsOne, "mediamtx:\n  srt_enabled: false\n", "golden-rtmp-only.yml", []string{"live"}},
 		{"SRT だけ（RTMP を止める）", camsOne, "mediamtx:\n  rtmp_enabled: false\n", "golden-srt-only.yml", []string{"live"}},
 	}
