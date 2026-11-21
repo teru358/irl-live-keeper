@@ -139,6 +139,9 @@ func TestMapReadFailureFailsConnectionThenEmptyMapAfterThreeFailures(t *testing.
 	if hasWarning(h.w, "見つかりません") {
 		t.Errorf("読めないときに、カメラごとの警告は出さない: %v", h.w.Warnings())
 	}
+	// 空の地図でつないだら、30秒を待たずに、補助の接続で本当の地図を読みにいく。
+	// 本来の接続の読み取りは GetSceneCollectionList が 3 回（失敗）+ 空の地図の 1 回。
+	waitFor(t, "補助の接続で読み直す", func() bool { return h.f.count("GetSceneCollectionList") >= 5 })
 }
 
 func TestMapReadSuccessResetsFailureCount(t *testing.T) {

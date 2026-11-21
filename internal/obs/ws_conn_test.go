@@ -519,3 +519,32 @@ func TestRunLeavesNothingBehind(t *testing.T) {
 	}
 	waitFor(t, "goroutine が基準まで戻る", func() bool { return runtime.NumGoroutine() <= base })
 }
+
+// goobs の中で止まった Client（受け手のいない応答で handleOpcodes が止まり、要求は送る段階で戻らない。
+// goobs 自身の応答待ちの期限も効かない）でも、呼び出し側の期限で session が終わり、つなぎ直し続け、
+// Run は上限内に止まる。止まった goobs の goroutine は外から戻せないので、このテストのあとに残る。
+func TestStuckGoobsDoesNotStallRunAndEveryConnectionIsClosed(t *testing.T) {
+	s := newAuxServer(t)
+	s.ghost = true
+	f := newFakeOBS()
+	s.setHandler(f.handle)
+	h := startWSHarness(t, s, f, func(w *WS) { w.backoffMin, w.backoffMax = 20*time.Millisecond, 40*time.Millisecond })
+
+	waitFor(t, "止まった Client を捨てて、3回つなぎ直す", func() bool { return s.accepted() >= 3 })
+	if n := countOf[switcher.OBSConnected](h.events()); n != 0 {
+		t.Fatalf("止まっているのに OBSConnected を流した: %d", n)
+	}
+	start := time.Now()
+	h.stop()
+	if el := time.Since(start); el > 5*time.Second {
+		t.Fatalf("Run が止まるまでに %v かかった", el)
+	}
+	n := s.accepted()
+	for i := range n {
+		select {
+		case <-s.closed:
+		case <-time.After(3 * time.Second):
+			t.Fatalf("接続 %d 本のうち %d 本しか閉じられていない", n, i)
+		}
+	}
+}

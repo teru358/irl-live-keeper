@@ -249,7 +249,10 @@ func (w *WS) readFirstMap(ctx context.Context, c *mainConn, legacy bool) (m *sce
 // connect は読み取りの結果で OBSConnected を流し、動作中に入る。session を続けられなければ false。
 func (s *sess) connect(r reloadResult, addr string) bool {
 	w, c := s.w, s.conn
-	s.reloadStop = nil
+	if s.reloadStop != nil {
+		s.reloadStop() // 読み取りは終わっている。ctx の後始末
+		s.reloadStop = nil
+	}
 	s.first = false
 	s.legacy = r.legacy
 	c.legacy.Store(r.legacy)
@@ -285,7 +288,8 @@ func (s *sess) connect(r reloadResult, addr string) bool {
 		if heldTrans {
 			s.kickTransition()
 		}
-		if heldKick {
+		// 空の地図でつないだときは、補助の接続での読み直しで、本当の地図を早く読む。
+		if heldKick || r.emptyReason != "" {
 			s.ep.refresher.kick()
 		}
 	}
