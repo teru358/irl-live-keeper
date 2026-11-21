@@ -94,9 +94,11 @@ type Core struct {
 	prevSw     *switcher.Snapshot // 前回の Snapshot を作ったときの switcher の状態。最初は nil
 
 	// 地図の Enabled の引き継ぎ（カメラの spec 第3節）。
-	connected bool             // OBS につながっているか（OBSConnected から OBSDisconnected まで）
-	mapCopy   *scenemap.Map    // Machine に渡した最後の地図の写し。ItemEnabledChanged も当てる。未接続なら nil
-	unknown   map[itemKey]bool // 写しにない項目の ItemEnabledChanged の最後の値
+	connected bool          // OBS につながっているか（OBSConnected から OBSDisconnected まで）
+	mapCopy   *scenemap.Map // Machine に渡した最後の地図の写し。ItemEnabledChanged も当てる。未接続なら nil
+	// knownNames はシーンの UUID → 最後に分かっていた名前。切断しても消さない（切れている間の status とログに名前を出すため）。
+	knownNames map[string]string
+	unknown    map[itemKey]bool // 写しにない項目の ItemEnabledChanged の最後の値
 
 	// observe はテスト用。中核ループが処理した Event と承認（approval）ごとに、中核ループの goroutine で呼ぶ。
 	observe func(any)
@@ -338,6 +340,7 @@ func (c *Core) prepareMap(ev switcher.Event) (switcher.Event, bool) {
 	case switcher.OBSConnected:
 		c.connected = true
 		c.mapCopy = cloneMap(e.Map)
+		c.rememberNames(e.Map)
 		clear(c.unknown)
 	case switcher.OBSDisconnected:
 		c.connected = false
@@ -350,6 +353,7 @@ func (c *Core) prepareMap(ev switcher.Event) (switcher.Event, bool) {
 		m := cloneMap(e.Map)
 		overlayEnabled(m, c.mapCopy, c.unknown)
 		c.mapCopy = cloneMap(m)
+		c.rememberNames(m)
 		clear(c.unknown)
 		e.Map = m
 		return e, true
@@ -436,14 +440,41 @@ func setEnabled(m *scenemap.Map, uuid string, id int, enabled bool) bool {
 	return false
 }
 
-// sceneName は地図（写し）での UUID の名前。なければ UUID そのもの（古い OBS は名前を UUID の代わりに使う）。
+// sceneName は地図（写し）での UUID の名前。地図になければ最後に分かっていた名前、それもなければ UUID そのもの
+// （古い OBS は名前を UUID の代わりに使う）。
 func (c *Core) sceneName(uuid string) string {
 	if c.mapCopy != nil {
 		if sc, ok := c.mapCopy.Scenes[uuid]; ok && sc.Name != "" {
 			return sc.Name
 		}
 	}
+	if n, ok := c.knownNames[uuid]; ok {
+		return n
+	}
 	return uuid
+}
+
+// sceneLabel は表示とログに使うシーンの名前。Machine が地図から引いた名前があればそれ、なければ sceneName。
+func (c *Core) sceneLabel(uuid, name string) string {
+	if name != "" {
+		return name
+	}
+	return c.sceneName(uuid)
+}
+
+// rememberNames は地図のシーンの名前を knownNames に足す（上書きする。消えたシーンの名前は残す）。
+func (c *Core) rememberNames(m *scenemap.Map) {
+	if m == nil {
+		return
+	}
+	if c.knownNames == nil {
+		c.knownNames = make(map[string]string)
+	}
+	for uuid, sc := range m.Scenes {
+		if sc.Name != "" {
+			c.knownNames[uuid] = sc.Name
+		}
+	}
 }
 
 // approve は承認要求に答える。Replace の代わりのバッチは列の先頭に入れる。

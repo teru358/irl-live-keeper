@@ -88,7 +88,7 @@ func (c *Core) publish() {
 		OBS: OBSStatus{
 			Connected:    ms.Connected,
 			Streaming:    ms.Streaming,
-			Scene:        sceneLabel(ms.Scene, ms.SceneName),
+			Scene:        c.sceneLabel(ms.Scene, ms.SceneName),
 			SceneClass:   ms.Class.String(),
 			SceneCameras: append([]string{}, ms.VisibleCameras...),
 			Standby:      StandbyStatus{Owner: ms.Standby.Owner.String()},
@@ -114,7 +114,7 @@ func (c *Core) publish() {
 		s.OBS.SceneHealth = &h
 	}
 	if r := ms.Standby.ReturnScene; r != "" {
-		name := sceneLabel(r, ms.Standby.ReturnSceneName)
+		name := c.sceneLabel(r, ms.Standby.ReturnSceneName)
 		s.OBS.Standby.ReturnScene = &name
 	}
 	if c.warnings != nil {
@@ -133,14 +133,6 @@ func (c *Core) publish() {
 		s.LastError = &e
 	}
 	c.snap.Store(&s)
-}
-
-// sceneLabel は status とログに出すシーンの名前。地図に名前がなければ UUID。
-func sceneLabel(uuid, name string) string {
-	if name != "" {
-		return name
-	}
-	return uuid
 }
 
 // last_error は switcher と MediaMTX の2か所から来る。どちらも消えずに上書きされるだけなので、
@@ -188,9 +180,9 @@ func (c *Core) logStateChanges(ms switcher.Snapshot) {
 		c.log.Info("stream state", "streaming", ms.Streaming)
 	}
 	if ms.SceneEpoch != prev.SceneEpoch {
-		c.log.Info("scene changed by user", "from", sceneLabel(prev.Scene, prev.SceneName), "to", sceneLabel(ms.Scene, ms.SceneName))
+		c.log.Info("scene changed by user", "from", c.sceneLabel(prev.Scene, prev.SceneName), "to", c.sceneLabel(ms.Scene, ms.SceneName))
 	}
 	if ms.Standby != prev.Standby {
-		c.log.Info("standby changed", "owner", ms.Standby.Owner.String(), "return_scene", sceneLabel(ms.Standby.ReturnScene, ms.Standby.ReturnSceneName))
+		c.log.Info("standby changed", "owner", ms.Standby.Owner.String(), "return_scene", c.sceneLabel(ms.Standby.ReturnScene, ms.Standby.ReturnSceneName))
 	}
 }

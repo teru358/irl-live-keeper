@@ -496,3 +496,21 @@ func TestGroupItemsCarryOver(t *testing.T) {
 		t.Errorf("新しい項目: scene_cameras = %v, want なし（項目2は false）", s.OBS.SceneCameras)
 	}
 }
+
+// OBS と切れている間も、status のシーンと戻り先は、最後に分かっていた地図の名前で出す（UUID を出さない。M-9 の Linux の確認）。
+func TestSceneNameKeptWhileDisconnected(t *testing.T) {
+	h := newHarness(t)
+	h.start()
+	m := testMap()
+	sc := m.Scenes[camera]
+	sc.Name = "カメラ"
+	m.Scenes["uuid-camera"] = sc
+	delete(m.Scenes, camera)
+	h.obsEvent(switcher.OBSConnected{At: h.clk.Now(), Streaming: false, Scene: "カメラ", SceneUUID: "uuid-camera", Map: m})
+	h.waitSnap("つながった", func(s Snapshot) bool { return s.OBS.Connected && s.OBS.Scene == "カメラ" })
+	h.obsEvent(switcher.OBSDisconnected{At: h.clk.Now()})
+	s := h.waitSnap("切れた", func(s Snapshot) bool { return !s.OBS.Connected })
+	if s.OBS.Scene != "カメラ" {
+		t.Errorf("切れている間の obs.scene = %q、want %q（UUID でなく名前）", s.OBS.Scene, "カメラ")
+	}
+}
