@@ -232,7 +232,7 @@ ignore しか映らないシーンの健康は OK。無視を全 hide 不良判�
 | HB-H-01 | s だけ映る、s=DOWN | Monitored/DOWN、F(D)、Hc なし |
 | HB-H-02 | s だけ映る、s=OK、f(s)=3 | Monitored/DOWN、F(D) |
 | HB-H-03 | m=standby/LOW、s=hide/OK | Monitored/LOW、F(A) |
-| HB-H-04 | m=s=hide、両 DOWN | Monitored/DOWN、代表 m、F(A) |
+| HB-H-04 | m=s=hide、両 DOWN | Monitored/DOWN、代表 m。出す列は [F(A),Hc(m)]（H-09 の決定。同じ Handle で先に候補にした Hc(m) を重ね、Hc(s) は空にするので出さない。HB-CC-07 と同じ） |
 | HB-H-05 | m=s=hide、m=OK、s=DOWN | Monitored/OK、Hc(s) |
 | HB-H-06 | s=hide/DOWN、Studio on/ignore | Monitored/OK、Hide なし |
 
