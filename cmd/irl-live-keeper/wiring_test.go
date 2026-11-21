@@ -133,7 +133,8 @@ func TestMediaMTXBinary(t *testing.T) {
 
 func TestBuildURLs(t *testing.T) {
 	cfg := testConfig(t)
-	cfg.Stream.Name, cfg.Stream.PublishUser, cfg.Stream.PublishPass = "live", "irl", "PUBPASS12"
+	cfg.Cameras = []config.Camera{{ID: "live", Name: "live", OnBad: "standby"}}
+	cfg.Stream.PublishUser, cfg.Stream.PublishPass = "irl", "PUBPASS12"
 	cfg.Stream.ReadUser, cfg.Stream.ReadPass = "obs", "READPASS1"
 	u := buildURLs(cfg, "192.168.1.10")
 	if want := "srt://192.168.1.10:8890?streamid=publish:live:irl:PUBPASS12"; u.PublishSRT != want {
@@ -172,7 +173,8 @@ func TestBuildURLsOverrides(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := testConfig(t)
-			cfg.Stream.Name, cfg.Stream.PublishUser, cfg.Stream.PublishPass = "live", "irl", "PUBPASS12"
+			cfg.Cameras = []config.Camera{{ID: "live", Name: "live", OnBad: "standby"}}
+			cfg.Stream.PublishUser, cfg.Stream.PublishPass = "irl", "PUBPASS12"
 			cfg.Stream.ReadUser, cfg.Stream.ReadPass = "obs", "READPASS1"
 			tt.mod(cfg)
 			u := buildURLs(cfg, tt.publishHost)

@@ -21,7 +21,7 @@ var update = flag.Bool("update", false, "ゴールデンファイルを更新す
 func loadCfg(t *testing.T, extra string) *config.Config {
 	t.Helper()
 	p := filepath.Join(t.TempDir(), "config.yaml")
-	body := "admin:\n  password: adminPASS123\nstream:\n  publish_pass: pubPASS123\n  read_pass: readPASS123\n" + extra
+	body := "admin:\n  password: adminPASS123\nstream:\n  publish_pass: pubPASS123\n  read_pass: readPASS123\ncameras:\n  - id: live\n    name: ライブ\n    on_bad: standby\n" + extra
 	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}

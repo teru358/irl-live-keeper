@@ -12,6 +12,8 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"gopkg.in/yaml.v3"
 )
@@ -21,6 +23,7 @@ type Config struct {
 	Admin         Admin         `yaml:"admin"`
 	MediaMTX      MediaMTX      `yaml:"mediamtx"`
 	Stream        Stream        `yaml:"stream"`
+	Cameras       []Camera      `yaml:"cameras"`
 	OBS           OBS           `yaml:"obs"`
 	OnStreamStart OnStreamStart `yaml:"on_stream_start"`
 	Switch        Switch        `yaml:"switch"`
@@ -57,11 +60,56 @@ type MediaMTX struct {
 	SRTPort  int    `yaml:"srt_port"`
 	RTSPPort int    `yaml:"rtsp_port"`
 	APIPort  int    `yaml:"api_port"`
+	// RTMPEnabled / SRTEnabled は受付（RTMP・SRT）を使うか。既定は両方 true。
+	RTMPEnabled bool `yaml:"rtmp_enabled"`
+	SRTEnabled  bool `yaml:"srt_enabled"`
+}
+
+// Camera は監視するカメラ1台。
+type Camera struct {
+	ID    string `yaml:"id"`
+	Name  string `yaml:"name"`
+	OnBad string `yaml:"on_bad"`
+	// Switch は共通の switch の閾値を上書きする値。省略可。書いた項目だけ上書きする。
+	Switch *SwitchOverride `yaml:"switch"`
+}
+
+// SwitchOverride はカメラごとの閾値の上書き。nil の項目は共通の値を使う。
+type SwitchOverride struct {
+	FailKbps    *int `yaml:"fail_kbps"`
+	LowSec      *int `yaml:"low_sec"`
+	RecoverKbps *int `yaml:"recover_kbps"`
+	RecoverSec  *int `yaml:"recover_sec"`
+	DownSec     *int `yaml:"down_sec"`
+}
+
+// CameraSwitch は i 番目のカメラの閾値（共通の値に上書きを重ねたもの）を返す。
+func (c *Config) CameraSwitch(i int) Switch {
+	sw := c.Switch
+	o := c.Cameras[i].Switch
+	if o == nil {
+		return sw
+	}
+	if o.FailKbps != nil {
+		sw.FailKbps = *o.FailKbps
+	}
+	if o.LowSec != nil {
+		sw.LowSec = *o.LowSec
+	}
+	if o.RecoverKbps != nil {
+		sw.RecoverKbps = *o.RecoverKbps
+	}
+	if o.RecoverSec != nil {
+		sw.RecoverSec = *o.RecoverSec
+	}
+	if o.DownSec != nil {
+		sw.DownSec = *o.DownSec
+	}
+	return sw
 }
 
 // Stream は配信（path と資格情報）の設定。
 type Stream struct {
-	Name        string `yaml:"name"`
 	PublishUser string `yaml:"publish_user"`
 	PublishPass string `yaml:"publish_pass"`
 	ReadUser    string `yaml:"read_user"`
@@ -114,9 +162,9 @@ func defaults() *Config {
 	return &Config{
 		Admin: Admin{Port: 8787},
 		MediaMTX: MediaMTX{
-			RTMPPort: 1935, SRTPort: 8890, RTSPPort: 8554, APIPort: 9997,
+			RTMPPort: 1935, SRTPort: 8890, RTSPPort: 8554, APIPort: 9997, RTMPEnabled: true, SRTEnabled: true,
 		},
-		Stream: Stream{Name: "live", PublishUser: "irl", ReadUser: "obs"},
+		Stream: Stream{PublishUser: "irl", ReadUser: "obs"},
 		OBS: OBS{
 			Host: "127.0.0.1", Port: 4455, MediaSource: "IRL",
 			StandbyScene: "Standby", MonitoredScenes: []string{"Camera"},
@@ -143,6 +191,9 @@ func parse(data []byte) (*Config, error) {
 	if err := dec.Decode(cfg); err != nil && !errors.Is(err, io.EOF) {
 		if strings.Contains(err.Error(), "field listen not found in type config.Admin") {
 			return nil, fmt.Errorf("設定ファイルの形式が不正です: admin.listen は使えなくなりました。admin.port（ポート番号）と admin.lan（LAN に公開するなら true）に書き直してください: %w", err)
+		}
+		if strings.Contains(err.Error(), "field name not found in type config.Stream") {
+			return nil, fmt.Errorf("設定ファイルの形式が不正です: stream.name は使えなくなりました。cameras の id に書き直してください: %w", err)
 		}
 		return nil, fmt.Errorf("設定ファイルの形式が不正です: %w", err)
 	}
@@ -180,9 +231,17 @@ mediamtx:
   srt_port: 8890
   rtsp_port: 8554            # OBS からの読み出し用（spike の結果で見直す）
   api_port: 9997             # 127.0.0.1 にだけ公開する
+  rtmp_enabled: true         # RTMP の受付。使わないなら false にできる（RTMP と SRT のどちらかは true にする）
+  srt_enabled: true          # SRT の受付。使わないなら false にできる。RTSP は OBS の読み出しに使うので止めない
+
+cameras:                     # 1〜8台。上から順に表示する
+  - id: main                 # URL の path。英小文字・数字・- _ の 1〜32 文字（先頭は英小文字か数字）。重複不可
+    name: メインカメラ        # 表示名（日本語可）。1〜32 文字
+    on_bad: standby          # 回線が悪いとき: standby（待機シーンへ送る）/ hide（このカメラのソースを OBS で隠す）
+    # switch:                # 省略可。書いた項目だけ共通の switch を上書きする（fail_kbps、low_sec、recover_kbps、recover_sec、down_sec）
+    #   fail_kbps: 400
 
 stream:
-  name: live                 # MediaMTX の path 名
   publish_user: irl
   publish_pass: "*"
   read_user: obs             # OBS が読み出すときの資格情報（OBS 用 URL に埋め込む）
@@ -293,24 +352,14 @@ func (c *Config) Validate() error {
 	}
 
 	// 閾値
-	if c.Switch.RecoverKbps <= c.Switch.FailKbps {
-		add("switch.recover_kbps", fmt.Sprintf("switch.fail_kbps（%d）より大きくしてください（現在 %d）", c.Switch.FailKbps, c.Switch.RecoverKbps))
-	}
-	secs := []struct {
-		field string
-		v     int
-	}{
-		{"switch.low_sec", c.Switch.LowSec},
-		{"switch.recover_sec", c.Switch.RecoverSec},
-		{"switch.down_sec", c.Switch.DownSec},
-	}
-	for _, s := range secs {
-		if s.v < 1 {
-			add(s.field, fmt.Sprintf("1 以上にしてください（現在 %d）", s.v))
-		}
-	}
-	if c.Switch.DownSec > c.Switch.LowSec {
-		add("switch.down_sec", fmt.Sprintf("switch.low_sec（%d）以下にしてください（現在 %d）", c.Switch.LowSec, c.Switch.DownSec))
+	checkThresholds(c.Switch, "switch", add)
+
+	// カメラ
+	c.validateCameras(add)
+
+	// 受付
+	if !c.MediaMTX.RTMPEnabled && !c.MediaMTX.SRTEnabled {
+		add("mediamtx.rtmp_enabled", "rtmp_enabled と srt_enabled の両方を false にはできません。どちらかは true にしてください")
 	}
 
 	// ポート
@@ -349,7 +398,6 @@ func (c *Config) Validate() error {
 
 	// 資格情報と path 名
 	for _, f := range []struct{ field, v string }{
-		{"stream.name", c.Stream.Name},
 		{"stream.publish_user", c.Stream.PublishUser},
 		{"stream.publish_pass", c.Stream.PublishPass},
 		{"stream.read_user", c.Stream.ReadUser},
@@ -465,4 +513,67 @@ func (c *Config) Warnings() []string {
 		return nil
 	}
 	return []string{"admin.lan が true のため、管理 API と管理ページを LAN に公開しています。通信は平文のため、LAN 内で盗聴されるおそれがあります。パスワードを取られると、LAN の機器から、すべてのパスワードの表示と設定の変更ができます。ルーターでこのポートを転送しないでください"}
+}
+
+// checkThresholds は閾値の規則を確かめる。prefix は項目名の前につける（"switch" や "cameras[0].switch"）。
+func checkThresholds(sw Switch, prefix string, add func(field, reason string)) {
+	if sw.RecoverKbps <= sw.FailKbps {
+		add(prefix+".recover_kbps", fmt.Sprintf("%s.fail_kbps（%d）より大きくしてください（現在 %d）", prefix, sw.FailKbps, sw.RecoverKbps))
+	}
+	for _, f := range []struct {
+		field string
+		v     int
+	}{
+		{"low_sec", sw.LowSec},
+		{"recover_sec", sw.RecoverSec},
+		{"down_sec", sw.DownSec},
+	} {
+		if f.v < 1 {
+			add(prefix+"."+f.field, fmt.Sprintf("1 以上にしてください（現在 %d）", f.v))
+		}
+	}
+	if sw.DownSec > sw.LowSec {
+		add(prefix+".down_sec", fmt.Sprintf("%s.low_sec（%d）以下にしてください（現在 %d）", prefix, sw.LowSec, sw.DownSec))
+	}
+}
+
+var cameraIDRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
+
+const (
+	minCameras = 1
+	maxCameras = 8
+	maxNameLen = 32
+)
+
+func (c *Config) validateCameras(add func(field, reason string)) {
+	if n := len(c.Cameras); n < minCameras || n > maxCameras {
+		add("cameras", fmt.Sprintf("%d〜%d 台にしてください（現在 %d 台）", minCameras, maxCameras, n))
+	}
+	seen := map[string]int{}
+	for i, cam := range c.Cameras {
+		p := fmt.Sprintf("cameras[%d]", i)
+		switch {
+		case cam.ID == "all" || cam.ID == "all_others":
+			add(p+".id", fmt.Sprintf("%s は使えません（MediaMTX の path の設定で特別な名前のため）", cam.ID))
+		case !cameraIDRe.MatchString(cam.ID):
+			add(p+".id", fmt.Sprintf("英小文字・数字・- _ の 1〜32 文字にしてください。先頭は英小文字か数字です（現在 %q）", cam.ID))
+		default:
+			if j, dup := seen[cam.ID]; dup {
+				add(p+".id", fmt.Sprintf("cameras[%d].id と同じ %q です。互いに異なる id にしてください", j, cam.ID))
+			} else {
+				seen[cam.ID] = i
+			}
+		}
+		if n := utf8.RuneCountInString(cam.Name); n < 1 || n > maxNameLen {
+			add(p+".name", fmt.Sprintf("1〜%d 文字にしてください（現在 %d 文字）", maxNameLen, n))
+		} else if strings.ContainsFunc(cam.Name, unicode.IsControl) {
+			add(p+".name", "制御文字（改行やタブなど）は使えません")
+		}
+		if cam.OnBad != "standby" && cam.OnBad != "hide" {
+			add(p+".on_bad", fmt.Sprintf("standby か hide にしてください（現在 %q）", cam.OnBad))
+		}
+		if cam.Switch != nil {
+			checkThresholds(c.CameraSwitch(i), p+".switch", add)
+		}
+	}
 }

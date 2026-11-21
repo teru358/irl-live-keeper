@@ -61,10 +61,10 @@ authInternalUsers:
 paths:
   %s: {}
 `, m.APIPort, m.RTSPPort, m.RTMPPort, m.SRTPort,
-		s.PublishUser, s.PublishPass, s.Name,
-		s.ReadUser, s.ReadPass, s.Name,
+		s.PublishUser, s.PublishPass, cfg.Cameras[0].ID,
+		s.ReadUser, s.ReadPass, cfg.Cameras[0].ID,
 		apiUser, apiPass,
-		s.Name)
+		cfg.Cameras[0].ID)
 	return []byte(out), nil
 }
 
@@ -86,8 +86,8 @@ func PublishURLs(cfg *config.Config, host string) PublishURLSet {
 		srtPort = s.PublishSRTPort
 	}
 	return PublishURLSet{
-		SRT:  fmt.Sprintf("srt://%s?streamid=publish:%s:%s:%s", hostPort(host, srtPort), s.Name, s.PublishUser, s.PublishPass),
-		RTMP: fmt.Sprintf("rtmp://%s/%s?user=%s&pass=%s", hostPort(host, rtmpPort), s.Name, s.PublishUser, s.PublishPass),
+		SRT:  fmt.Sprintf("srt://%s?streamid=publish:%s:%s:%s", hostPort(host, srtPort), cfg.Cameras[0].ID, s.PublishUser, s.PublishPass),
+		RTMP: fmt.Sprintf("rtmp://%s/%s?user=%s&pass=%s", hostPort(host, rtmpPort), cfg.Cameras[0].ID, s.PublishUser, s.PublishPass),
 	}
 }
 
@@ -102,9 +102,9 @@ type ReadURLSet struct {
 func ReadURLs(cfg *config.Config, host string) ReadURLSet {
 	s := cfg.Stream
 	return ReadURLSet{
-		RTSP: fmt.Sprintf("rtsp://%s:%s@%s/%s", s.ReadUser, s.ReadPass, hostPort(host, cfg.MediaMTX.RTSPPort), s.Name),
-		RTMP: fmt.Sprintf("rtmp://%s/%s?user=%s&pass=%s", hostPort(host, cfg.MediaMTX.RTMPPort), s.Name, s.ReadUser, s.ReadPass),
-		SRT:  fmt.Sprintf("srt://%s?streamid=read:%s:%s:%s", hostPort(host, cfg.MediaMTX.SRTPort), s.Name, s.ReadUser, s.ReadPass),
+		RTSP: fmt.Sprintf("rtsp://%s:%s@%s/%s", s.ReadUser, s.ReadPass, hostPort(host, cfg.MediaMTX.RTSPPort), cfg.Cameras[0].ID),
+		RTMP: fmt.Sprintf("rtmp://%s/%s?user=%s&pass=%s", hostPort(host, cfg.MediaMTX.RTMPPort), cfg.Cameras[0].ID, s.ReadUser, s.ReadPass),
+		SRT:  fmt.Sprintf("srt://%s?streamid=read:%s:%s:%s", hostPort(host, cfg.MediaMTX.SRTPort), cfg.Cameras[0].ID, s.ReadUser, s.ReadPass),
 	}
 }
 
