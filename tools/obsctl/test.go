@@ -142,7 +142,9 @@ func testRestore(c *goobs.Client) error {
 	if _, err := c.Config.SetCurrentProfile(&config.SetCurrentProfileParams{ProfileName: &s.Profile}); err != nil {
 		return err
 	}
-	time.Sleep(time.Second)
+	if err := waitReady(c); err != nil {
+		return err
+	}
 	pl, err := c.Config.GetProfileList()
 	if err != nil {
 		return err
@@ -177,7 +179,9 @@ func switchProfile(c *goobs.Client, existing []string) error {
 	if err != nil {
 		return err
 	}
-	time.Sleep(time.Second)
+	if err := waitReady(c); err != nil {
+		return err
+	}
 	pl, err := c.Config.GetProfileList()
 	if err != nil {
 		return err
@@ -212,7 +216,9 @@ func switchCollection(c *goobs.Client, existing []string) error {
 	if err != nil {
 		return err
 	}
-	time.Sleep(time.Second)
+	if err := waitReady(c); err != nil {
+		return err
+	}
 	cl, err := c.Config.GetSceneCollectionList()
 	if err != nil {
 		return err
@@ -349,4 +355,27 @@ func setHWDecode(c *goobs.Client, on bool) error {
 		fmt.Println(n, "hw_decode", on)
 	}
 	return nil
+}
+
+// waitReady は、プロファイルやシーンコレクションの切替のあと、OBS が要求に答えられるようになるまで待つ。
+// 切替の間、obs-websocket は NotReady（207）を返す。Windows の OBS 33.0.1 では、プロファイルを作った直後に
+// シーンコレクションを作ると NotReady のまま戻らなかったことがある（2026-11-21）。
+func waitReady(c *goobs.Client) error {
+	time.Sleep(time.Second)
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		_, err := c.Scenes.GetSceneList()
+		if err == nil {
+			// 答えられるようになってから、もう少し待つ（切替のあとの OBS の処理が続いていることがあるため）
+			time.Sleep(2 * time.Second)
+			return nil
+		}
+		if !strings.Contains(err.Error(), "207") && !strings.Contains(strings.ToLower(err.Error()), "not ready") && !strings.Contains(strings.ToLower(err.Error()), "notready") {
+			return err
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("OBS が30秒たっても準備中（NotReady）のまま。OBS の画面にダイアログが出ていないか見て、出ていなければ OBS のメニューで元のプロファイルとシーンコレクション（%s）に戻す", testStateFile)
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
 }
