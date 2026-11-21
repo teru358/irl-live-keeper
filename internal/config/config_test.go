@@ -114,13 +114,7 @@ func TestValidate(t *testing.T) {
 		{"user が異なる 通る", func(c *Config) { c.Stream.PublishUser = "alice"; c.Stream.ReadUser = "bob" }, ""},
 
 		{"standby_scene 空 落ちる", func(c *Config) { c.OBS.StandbyScene = "" }, "obs.standby_scene"},
-		{"standby_scene が監視対象に含まれる 落ちる", func(c *Config) { c.OBS.StandbyScene = "Camera" }, "obs.standby_scene"},
 		{"standby_scene が監視対象と別 通る", func(c *Config) { c.OBS.StandbyScene = "待機" }, ""},
-		{"monitored_scenes 空 落ちる", func(c *Config) { c.OBS.MonitoredScenes = nil }, "obs.monitored_scenes"},
-		{"monitored_scenes 1つ 通る", func(c *Config) { c.OBS.MonitoredScenes = []string{"A"} }, ""},
-		{"monitored_scenes 複数 通る", func(c *Config) { c.OBS.MonitoredScenes = []string{"A", "B", "オープニング"} }, ""},
-		{"monitored_scenes の要素が空 落ちる", func(c *Config) { c.OBS.MonitoredScenes = []string{"A", ""} }, "obs.monitored_scenes[1]"},
-		{"monitored_scenes が重複 落ちる", func(c *Config) { c.OBS.MonitoredScenes = []string{"A", "B", "A"} }, "obs.monitored_scenes[2]"},
 		{"on_stream_start 無効なら scene 空でも通る", func(c *Config) { c.OnStreamStart = OnStreamStart{Enabled: false, Scene: ""} }, ""},
 		{"on_stream_start 有効で scene 空 落ちる", func(c *Config) { c.OnStreamStart = OnStreamStart{Enabled: true, Scene: ""} }, "on_stream_start.scene"},
 		{"on_stream_start 有効で scene が待機と同じ 落ちる", func(c *Config) { c.OnStreamStart = OnStreamStart{Enabled: true, Scene: c.OBS.StandbyScene} }, "on_stream_start.scene"},
@@ -273,7 +267,6 @@ func TestGenerateとLoad(t *testing.T) {
 	}
 	for _, want := range []string{
 		"# 待機シーン（1つ）。回線が悪い間に出す OBS のシーン名。既定値は Standby",
-		"# 監視対象のシーン（1つ以上）。カメラ映像（メディアソース）を使うシーン。既定値は Camera の1つ",
 		"# 配信開始時の切替（安全機能）",
 		"# true にすると、配信が始まったときに scene へ切り替える",
 		"# 自動切替。あえて乱れた映像を出したいときに false にする",
@@ -354,7 +347,7 @@ func TestLoad(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if cfg.Admin.Port != 8787 || cfg.Admin.LAN || cfg.GUI.CloseAction != "confirm" || cfg.Switch.FailKbps != 800 || cfg.OBS.StandbyScene != "Standby" || len(cfg.OBS.MonitoredScenes) != 1 || cfg.OBS.MonitoredScenes[0] != "Camera" || cfg.OnStreamStart.Enabled || !cfg.Switch.AutoEnabled || cfg.Log.KeepDays != 14 {
+		if cfg.Admin.Port != 8787 || cfg.Admin.LAN || cfg.GUI.CloseAction != "confirm" || cfg.Switch.FailKbps != 800 || cfg.OBS.StandbyScene != "Standby" || cfg.OnStreamStart.Enabled || !cfg.Switch.AutoEnabled || cfg.Log.KeepDays != 14 {
 			t.Fatalf("既定値が入っていない: %+v", cfg)
 		}
 	})
@@ -377,11 +370,11 @@ func TestLoad(t *testing.T) {
 		}
 	})
 	t.Run("シーンの設定を読む", func(t *testing.T) {
-		cfg, err := Load(write(t, minimal+"obs:\n  standby_scene: 待機\n  monitored_scenes: [Cam1, Cam2]\non_stream_start:\n  enabled: true\n  scene: Cam1\n"))
+		cfg, err := Load(write(t, minimal+"obs:\n  standby_scene: 待機\non_stream_start:\n  enabled: true\n  scene: Cam1\n"))
 		if err != nil {
 			t.Fatal(err)
 		}
-		if cfg.OBS.StandbyScene != "待機" || !reflect.DeepEqual(cfg.OBS.MonitoredScenes, []string{"Cam1", "Cam2"}) || !cfg.OnStreamStart.Enabled || cfg.OnStreamStart.Scene != "Cam1" {
+		if cfg.OBS.StandbyScene != "待機" || !cfg.OnStreamStart.Enabled || cfg.OnStreamStart.Scene != "Cam1" {
 			t.Fatalf("%+v %+v", cfg.OBS, cfg.OnStreamStart)
 		}
 	})

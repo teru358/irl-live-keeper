@@ -237,6 +237,28 @@ func TestLoadの古いstream_name(t *testing.T) {
 	}
 }
 
+func TestLoadの古いobsの項目(t *testing.T) {
+	for _, c := range []struct {
+		name, yaml string
+		wants      []string
+	}{
+		{"media_source", "obs:\n  media_source: IRL\n", []string{"obs.media_source は使えなくなりました", "OBS", "メディアソース", "書き直して"}},
+		{"monitored_scenes", "obs:\n  monitored_scenes: [Camera]\n", []string{"obs.monitored_scenes は使えなくなりました", "OBS", "シーン", "書き直して"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := Load(writeCfg(t, camMinimal+oneCam+c.yaml))
+			if err == nil {
+				t.Fatal("通ってしまった")
+			}
+			for _, want := range c.wants {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("エラーの文に %q がない: %v", want, err)
+				}
+			}
+		})
+	}
+}
+
 func TestGenerateのカメラと受付(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	cfg, err := Generate(path)
@@ -269,5 +291,10 @@ func TestGenerateのカメラと受付(t *testing.T) {
 	}
 	if strings.Contains(string(raw), "  name: live") {
 		t.Error("stream.name が残っている")
+	}
+	for _, gone := range []string{"media_source", "monitored_scenes"} {
+		if strings.Contains(string(raw), gone) {
+			t.Errorf("ひな形に古い項目 %s が残っている", gone)
+		}
 	}
 }

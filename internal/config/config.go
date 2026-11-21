@@ -125,14 +125,11 @@ type Stream struct {
 
 // OBS は OBS への接続設定。
 type OBS struct {
-	Host        string `yaml:"host"`
-	Port        int    `yaml:"port"`
-	Password    string `yaml:"password"`
-	MediaSource string `yaml:"media_source"`
+	Host     string `yaml:"host"`
+	Port     int    `yaml:"port"`
+	Password string `yaml:"password"`
 	// StandbyScene は回線が悪い間に出す待機シーン名（1つ）。
 	StandbyScene string `yaml:"standby_scene"`
-	// MonitoredScenes は監視対象のシーン名（1つ以上）。カメラ映像を使うシーン。
-	MonitoredScenes []string `yaml:"monitored_scenes"`
 }
 
 // OnStreamStart は配信開始時の切替（安全機能）の設定。
@@ -166,8 +163,7 @@ func defaults() *Config {
 		},
 		Stream: Stream{PublishUser: "irl", ReadUser: "obs"},
 		OBS: OBS{
-			Host: "127.0.0.1", Port: 4455, MediaSource: "IRL",
-			StandbyScene: "Standby", MonitoredScenes: []string{"Camera"},
+			Host: "127.0.0.1", Port: 4455, StandbyScene: "Standby",
 		},
 		Switch: Switch{AutoEnabled: true, FailKbps: 800, LowSec: 5, RecoverKbps: 1500, RecoverSec: 10, DownSec: 2},
 		Log:    Log{Dir: "logs", KeepDays: 14},
@@ -194,6 +190,12 @@ func parse(data []byte) (*Config, error) {
 		}
 		if strings.Contains(err.Error(), "field name not found in type config.Stream") {
 			return nil, fmt.Errorf("設定ファイルの形式が不正です: stream.name は使えなくなりました。cameras の id に書き直してください: %w", err)
+		}
+		if strings.Contains(err.Error(), "field media_source not found in type config.OBS") {
+			return nil, fmt.Errorf("設定ファイルの形式が不正です: obs.media_source は使えなくなりました。カメラのメディアソースは OBS から調べます。OBS に、メディアソースを cameras の id ごとに作り、URL を rtsp://…/<id> にしてください（この項目は消して書き直してください）: %w", err)
+		}
+		if strings.Contains(err.Error(), "field monitored_scenes not found in type config.OBS") {
+			return nil, fmt.Errorf("設定ファイルの形式が不正です: obs.monitored_scenes は使えなくなりました。監視対象のシーンは OBS の中身（カメラのメディアソースを映すシーン）から決めます。この項目は消して書き直してください: %w", err)
 		}
 		return nil, fmt.Errorf("設定ファイルの形式が不正です: %w", err)
 	}
@@ -255,10 +257,7 @@ obs:
   host: 127.0.0.1
   port: 4455
   password: ""               # 空なら認証なしで接続する（OBS 側で認証を無効にしている場合）
-  media_source: IRL          # MediaMTX を読むメディアソースの入力名
-  standby_scene: Standby     # 待機シーン（1つ）。回線が悪い間に出す OBS のシーン名。既定値は Standby
-  monitored_scenes:          # 監視対象のシーン（1つ以上）。カメラ映像（メディアソース）を使うシーン。既定値は Camera の1つ
-    - Camera
+  standby_scene: Standby     # 待機シーン（1つ）。回線が悪い間に出す OBS のシーン名。既定値は Standby。カメラのメディアソースは OBS から自動で調べる（cameras の id ごとに、URL が rtsp://…/<id> のメディアソースを作る）
 
 on_stream_start:             # 配信開始時の切替（安全機能）
   enabled: false             # true にすると、配信が始まったときに scene へ切り替える
@@ -454,25 +453,6 @@ func (c *Config) Validate() error {
 	// シーン名
 	if c.OBS.StandbyScene == "" {
 		add("obs.standby_scene", "空にできません")
-	}
-	if len(c.OBS.MonitoredScenes) == 0 {
-		add("obs.monitored_scenes", "1つ以上指定してください")
-	}
-	for i, s := range c.OBS.MonitoredScenes {
-		field := fmt.Sprintf("obs.monitored_scenes[%d]", i)
-		if s == "" {
-			add(field, "空にできません")
-			continue
-		}
-		if s == c.OBS.StandbyScene {
-			add("obs.standby_scene", fmt.Sprintf("obs.monitored_scenes に含まれないシーンにしてください（%q は %s にあります）", s, field))
-		}
-		for j, prev := range c.OBS.MonitoredScenes[:i] {
-			if prev == s {
-				add(field, fmt.Sprintf("obs.monitored_scenes[%d] と同じシーン名 %q です。互いに異なる名前にしてください", j, s))
-				break
-			}
-		}
 	}
 	if c.OnStreamStart.Enabled {
 		if c.OnStreamStart.Scene == "" {
