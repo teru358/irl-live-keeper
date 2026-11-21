@@ -7,13 +7,15 @@
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File .\watch-status.ps1
   powershell -ExecutionPolicy Bypass -File .\watch-status.ps1 -Log .\status-c1.txt
+  powershell -ExecutionPolicy Bypass -File .\watch-status.ps1 -Once   # status の JSON を1回だけ出す（資格情報の入る urls を除く）
 #>
 param(
   [string]$Password = "",
   [string]$Url = "http://127.0.0.1:8787",
   [int]$IntervalMs = 500,
   [string]$Log = "",
-  [string]$Config = (Join-Path $PSScriptRoot "config.yaml")
+  [string]$Config = (Join-Path $PSScriptRoot "config.yaml"),
+  [switch]$Once
 )
 
 function Read-AdminPassword([string]$path) {
@@ -32,6 +34,14 @@ if ($Password -eq "") {
   $Password = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec))
 }
 $auth = "Basic " + [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("admin:$Password"))
+
+if ($Once) {
+  [Console]::OutputEncoding = [Text.Encoding]::UTF8
+  $s = Invoke-RestMethod -Uri "$Url/api/status" -Headers @{ Authorization = $auth } -TimeoutSec 2
+  $s.PSObject.Properties.Remove('urls')
+  $s | ConvertTo-Json -Depth 8
+  exit 0
+}
 
 while ($true) {
   $now = Get-Date -Format "HH:mm:ss.fff"
