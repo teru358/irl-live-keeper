@@ -12,17 +12,21 @@
 
 ### 区切り0 複数のカメラ（spec `2026-11-21-multi-camera-design.md`。以下「カメラの spec」）
 
+- **テストを緑に保つつなぎ**: M-1〜M-7 のそれぞれで、変えたパッケージの外（core、cmd など）は「先頭のカメラ1台で今の形に渡す」つなぎで動かし、`go test -race ./...` を緑に保つ。つなぎは M-8 で外す
+- **後の task への引き継ぎ**: S2-5・S2-6（世代）は止める順の 3 の前に `Stopping` と2秒の待ち、作る順の 6 で `hidden.json` を読む（カメラの spec 第6節）。S2-24（すぐ反映）はカメラの `name`・`on_bad`・閾値の上書きも届ける。S2-27・S2-28（設定の画面と保存）は `cameras` の区分の書き換え（第2節）。S2-31 は `id` を変えたときの引き継ぎ（第2節）。S2-35 は直近10分をカメラごとに600件。S2-4 の `sample` は1組
+
 | # | task | 依存 | 受入条件（カメラの spec の節） | テストの完成形 |
 |---|---|---|---|---|
-| M-1 | config: `cameras`、受付の停止 | S2-1 | 第2節のひな形と検証。古い `stream.name`・`obs.media_source`・`obs.monitored_scenes` を書き直し方つきで止める。`ValidationError` の項目名 `cameras[i].…` | 第9節 config の表。生成した値が検証を通ること |
+| M-0 | spike（Linux の画面なしの OBS 33。コードは捨てる） | — | 第7節の7点に答えが出て、カメラの spec と README の対応する OBS の版に反映されている | なし。結果は spec |
+| M-1 | config: `cameras`、受付の停止 | S2-1 | 第2節のひな形と検証。古い `stream.name`・`obs.media_source`・`obs.monitored_scenes` を書き直し方つきで止める。`ValidationError` の項目名 `cameras[i].…` | 第10節 config の表。生成した値が検証を通ること |
 | M-2 | supervisor と URL: カメラごとの path、受付の停止 | M-1 | 第2節の mediamtx.yml、カメラごとの URL、止めたプロトコルを書かない・事前確認しない。起動の表示をカメラごとに | mediamtx.yml のゴールデンファイル（1台、3台、RTMP だけ、SRT だけ）。URL の表。事前確認するポートの表 |
-| M-3 | ingest: `/v3/paths/list` とカメラごとの判定 | M-1 | 第4節「カメラごとの判定」。カメラごとの基準と Judge、SRT の振り分け、失敗で全カメラに `Err` | 第9節 ingest の列挙。偽の API の応答（JSON のファイル）で |
-| M-4 | **要所** obs: 補助の接続（S2-25 をここへ移す） | — | 第2段階の spec 6章「補助の接続」の期限、作り直し、試す間隔。開く条件はカメラの spec 第3節（本来の接続がつながっている間は常に） | S2-25 の列のとおり。開く条件だけ置き換え |
-| M-5 | obs: シーンの地図（純粋な関数） | M-1 | 第3節の URL の照合、項目のたどり方、「映る」、分類。第4節の健康の関数 | 第9節の地図と健康の表 |
-| M-6 | obs: 地図の読み取りとイベント | M-4、M-5 | 第3節「新しく保つ」（接続のあとに全部、9つのイベントで 0.3秒まとめて読み直し、`ItemEnabledChanged`、失敗で1秒あけて読み直し）。`SetSceneItemEnabled`、`RestartMedia` の入力の列。カメラのメディアソースの警告 | 偽の goobs（またはそれを包む interface）で、読む順、まとめ方、途中のイベントでもう一度、失敗。警告の文 |
-| M-7 | **要所** switcher: カメラ、地図、隠す・戻す | M-5 | 第5節、第6節（`hidden.json` のファイルを除く）。先に「入口 × 状態」の表を作り、opus か codex sol でレビューしてから実装 | 第9節 switcher の列挙。今の列のテストを1台の形に置き換えて同じ結果 |
-| M-8 | **要所** core と app: 配線、`hidden.json`、status | M-2、M-3、M-6、M-7 | 第3節の読み直しの間の渡し直し、第6節の `hidden.json` と止めるときの「すべて戻す」（2秒）、第7節の status、ログ。main（S2-5 の前なので今の `cmd`）の配線 | 第9節 core の列挙。status の JSON の形 |
-| M-9 | 区切り0の実機の確認 | M-1〜M-8 | カメラの spec 第9節「実機の確認」（Linux と Windows）。README（第7節） | チェックリストの結果を記録する |
+| M-3 | ingest: `/v3/paths/list` と1組の Sample | M-1 | 第4節「カメラごとの判定」（1組の Sample、カメラごとの基準、SRT の振り分け、失敗で全カメラに `Err`）。Judge はカメラごとに作れる形に | 第10節 ingest の列挙。偽の API の応答（JSON のファイル）で |
+| M-4 | **要所** obs: 補助の接続（S2-25 をここへ移す） | — | 第2段階の spec 6章「補助の接続」の期限、作り直し、試す間隔。開く条件はカメラの spec 第3節（本来の接続がつながっている間は常に）。要求は `GetSceneList`、`GetSceneItemList`、`GetGroupSceneItemList`、`GetInputList`、`GetInputSettings`、`GetSceneCollectionList`（S2-26 の分も） | S2-25 の列のとおり（「30秒で閉じる」の試験は除く）。常に開く条件 |
+| M-5 | `scenemap`: 型と純粋な関数、switcher の入口の型 | M-0、M-1 | 第3節の識別、URL の照合、項目のたどり方、「映る」、分類。第4節の健康。第5節の入口と Action の型（`CamerasChanged`、`SceneMapChanged`、`ItemEnabledChanged`、`MapReadStarted`、`MapUnknown`、`ItemRequestDone`、`HiddenRestored`、`Stopping`、`SetItemEnabled`、`RestartMedia{Inputs}`）と `obs.Client` の interface の変更（実装は M-6 と M-7） | 第10節の地図と健康の表 |
+| M-6 | obs: 地図の読み取りとイベント | M-4、M-5 | 第3節「読む時期と接続」（最初の地図を本来の接続で `OBSConnected` の前に、9つのイベントで 0.3秒まとめて補助の接続で、`InputSettingsChanged` はその入力だけ、コレクションの切替、`MapReadStarted` を同じチャネルに、接続の世代）。`GetVersion` の確かめ。`SetSceneItemEnabled`、`RestartMedia` の入力の列。カメラのメディアソースの警告 | 偽の goobs（またはそれを包む interface）で、読む順、まとめ方、途中のイベントでもう一度、失敗、コレクションの切替、古い版の警告。警告の文 |
+| M-7 | **要所** switcher: カメラ、地図、隠す・戻す | M-5 | 第5節、第6節（`hidden.json` のファイルの読み書きを除く。`HiddenRestored` の照合は含む）。先に「入口 × 状態」の表を作り、opus か codex sol でレビューしてから実装 | 第10節 switcher の列挙。今の列のテストを1台の形に置き換えて同じ結果 |
+| M-8 | **要所** core と配線: 1組の Sample、地図の重ね、`hidden.json`、status | M-2、M-3、M-6、M-7 | 第3節「読み直しの間の表示の変化」、第4節の `CamerasChanged` を1回、第5節のバッチの列の入れ方、第6節の `hidden.json`（送る前に書く、壊れたファイル）と `Stopping`（2秒）、第8節の status、ログ。main（S2-5 の前なので今の `cmd`）の配線。つなぎを外す | 第10節 core と結合の列挙（偽の OBS で、実行役を含めて）。status の JSON の形 |
+| M-9 | 区切り0の実機の確認 | M-1〜M-8 | カメラの spec 第10節「実機の確認」（Linux と Windows）。README（第8節） | チェックリストの結果を記録する |
 
 ### 2a 区切り1 土台
 
@@ -101,7 +105,7 @@
 
 ## 進める順序
 
-0. **区切り0**: M-1 → M-2、M-3、M-5 は並行にできる（M-2 と M-3 は別のパッケージ）。M-4 は M-1 と並行にできる → M-6 → M-7（M-5 のあと）→ M-8 → M-9。S2-4（core の購読）は M-8 のあとに、`sample` にカメラの `id` を足して再開する。S2-25 は M-4 に移した
+0. **区切り0**: M-0（spike）を先に行う。M-1 と M-4 は並行にできる → M-2、M-3、M-5 は並行にできる（M-5 は M-0 のあと）→ M-6（M-4、M-5 のあと）→ M-7（M-5 のあと。M-6 と並行にできる）→ M-8 → M-9。S2-4（core の購読）は M-8 のあとに、`sample` を1組にして再開する。S2-25 は M-4 に移した
 1. **区切り1**: S2-0（spike）はユーザーの都合のよいときに Windows の実機で行う。S2-13、S2-15〜S2-18 の前に要る
    - S2-1 → S2-5 → S2-6 は直列（config と app はどちらも `main.go`、`wiring.go`、`banner.go` を書き換えるので並行にしない）。S2-2、S2-3、S2-4 は S2-1 と並行にできる（別のパッケージ）
    - web は S2-9 → S2-10 → S2-11 → S2-12 → S2-13、S2-14 の直列（今の `web.New` は1つの HandlerFunc なので、S2-9 でルーターに分けてから足す）
@@ -145,3 +149,4 @@
 | 2026-11-20 | v1.0 | 初版 | 第2段階の spec v0.3（6aeeaec）の確定 | この版の commit |
 | 2026-11-21 | v1.1 | 細部 10 を spec v0.5 に合わせた | S2-4 の設計レビュー（codex sol） | この版の commit |
 | 2026-11-21 | v1.2 | 区切り0（複数のカメラ、M-1〜M-9）を足し、S2-25（補助の接続）を M-4 に移した。S2-4 は M-8 のあとに再開する | 2026-11-21 のユーザーの裁定（複数のカメラを第2段階に入れる） | この版の commit |
+| 2026-11-21 | v1.3 | 区切り0をカメラの spec v0.2 に合わせた（M-0 の spike、M-5 を `scenemap` と型に、テストを緑に保つつなぎ、後の task への引き継ぎ、M-4 の要求、M-8 の結合のテスト） | 複数のカメラの設計レビュー1周目（Fable、codex sol） | この版の commit |
