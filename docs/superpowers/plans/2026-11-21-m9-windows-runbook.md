@@ -45,7 +45,7 @@
 | # | 確かめること | 結果 |
 |---|---|---|
 | T-12 | 配信中に上り回線を一時的に切って、OBS の出力が再接続しても、待機の持ち主と戻り先が保たれる | 2026-11-21: 合格（Windows の Claude Code のセッションが代理で進めた。指示書と結果は `docs/superpowers/plans/m9-windows/` の `t12-agent-brief.md` と `t12-result.md`。`ctl.exe t12` の命令は、あとで `ctl.exe test`〔tools/obsctl〕に置き換えた）。WAN の線を抜けないので、試験だけのプロファイル（`ctl.exe t12 setup`。配信先は PC の中の試験だけの MediaMTX `127.0.0.1:21935`）で配信し、その MediaMTX を止めた。OBS の `OUTPUT_RECONNECTING`（17:56:39.8）から `OUTPUT_RECONNECTED`（17:57:14.7）までの約35秒、status の全行で `streaming=True`、owner `auto`、return `Camera`。本体のログには何も出ない。そのあとカメラを送ると Camera へ戻った（owner none）。元のプロファイルに戻したことを確かめた。`scene switch` のログから `standby changed` まで約5秒あるのは、T-11 で設定したフェード 5000ms が残っていたため（ログはトランジションの始まり、持ち主の変化は終わり） |
-| T-15 | 実際のスマホの配信アプリ（SRT か RTMP）で、屋外に近い回線（モバイル回線など）から送り、kbps の揺れと、誤った切替が起きないか。SRT の RTT とロス率が status に出るか（Tailscale で送るときは `stream.publish_host` に Tailscale のアドレスを書く） | |
+| T-15 | 実際のスマホの配信アプリ（SRT か RTMP）で、屋外に近い回線（モバイル回線など）から送り、kbps の揺れと、誤った切替が起きないか。SRT の RTT とロス率が status に出るか（Tailscale で送るときは `stream.publish_host` に Tailscale のアドレスを書く） || 2026-11-21: 一部。RTMP の接続だけ確かめた: iPhone 15 Pro（It's My Live）をモバイル回線にし、Tailscale（`direct`）で Windows の Tailscale のアドレスへ送ると、つながって約 2 Mbps で OK になった。そのために、今のフォルダの mediamtx.exe の受信を Tailscale（プライベート）で許す規則を足した（もとの規則はパブリックだけだった）。kbps の揺れ、SRT、長い時間はこれから |
 
 ## 3. 複数のカメラ（スマホ2台）
 
@@ -73,6 +73,7 @@
 | F-5 | Android の RTMP Streamer は無料の版で、約5分ごとに送信が止まる（C-4 のやり直しと、C-6 の1回目の測りの捨てはこのため） | 試験の計画で考える（長い確認は iOS か、制限のないアプリで） | |
 | F-6 | AutoRecover の `scene switch` のログの `camera` が、回復のきっかけのカメラでなく、戻り先に映るカメラのうち kbps がいちばん低いもの（19:03:17、main が OK に戻ったのに `camera=sub`）。M-8 で決めた形だが、読み手には分かりにくい | 回復のきっかけ（戻り先に映るカメラのうち、最後に OK になったもの）にした（カメラの spec v0.14、ユーザーの裁定） | テストで確かめた（実機はまだ） |
 | F-7 | 試験の道具: `ctl.exe test restore` が、program に出ていた試験のシーンをトランジションの途中で消し、本体がシーンコレクションの切替とみなして読み直した（害はない）。`ctl.exe watch` を PowerShell の `>` で書くと、止めたときに最後の行が欠けた | restore はトランジションの長さ + 1秒待ってから消す。watch はファイルを引数で渡すと直接書く（tools/obsctl） | Linux で確かめた |
+| F-8 | iPhone の配信アプリで、配信中に縦と横を切り替えると、OBS の映像の縦横の比率がうまく追従しないことがある（本体はメディアソースの位置と大きさに触れない。OBS の側の動き） | アプリで向きを固定する。OBS の項目の境界ボックスを「内側の境界に合わせて拡大縮小」にする（README に書く候補） | |
 | F-2 | ログの kbps が長い小数で読みにくい | 小数1桁に丸める（568cd6b） | 2026-11-21: 合格（`kbps=1827.7`） |
 
 ## 4. 終わったら
