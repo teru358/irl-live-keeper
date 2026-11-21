@@ -421,3 +421,90 @@ func TestRunは管理APIの待ち受けに失敗したら終了コード1(t *tes
 		t.Errorf("ログファイルに admin.port がない:\n%s", got)
 	}
 }
+
+// ---- 0b: hidden.json と Stopping ----
+
+func TestHiddenPathはbaseのstate下(t *testing.T) {
+	got := hiddenPath(filepath.Join("a", "b"))
+	if want := filepath.Join("a", "b", "state", "hidden.json"); got != want {
+		t.Errorf("hiddenPath = %q, want %q", got, want)
+	}
+}
+
+// 終わる道では、HTTP サーバーと MediaMTX を止める前に core に Stopping を渡す。待ちは2秒を超えない。
+type orderRecorder struct {
+	mu     sync.Mutex
+	events []string
+	dl     time.Duration
+}
+
+func (r *orderRecorder) add(s string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.events = append(r.events, s)
+}
+
+func (r *orderRecorder) Stopping(ctx context.Context) {
+	if d, ok := ctx.Deadline(); ok {
+		r.dl = time.Until(d)
+	}
+	r.add("stopping")
+}
+
+func (r *orderRecorder) Shutdown(context.Context) error { r.add("http shutdown"); return nil }
+func (r *orderRecorder) Close() error                   { r.add("http close"); return nil }
+
+func TestShutdownはHTTPとMediaMTXより前にStoppingを渡す(t *testing.T) {
+	r := &orderRecorder{}
+	var wg sync.WaitGroup
+	wg.Go(func() { time.Sleep(10 * time.Millisecond); r.add("parts stopped") })
+	shutdown(r, r, func() { r.add("cancel") }, &wg)
+	want := []string{"stopping", "http shutdown", "cancel", "parts stopped"}
+	if fmt.Sprint(r.events) != fmt.Sprint(want) {
+		t.Errorf("順 = %v, want %v", r.events, want)
+	}
+	if r.dl <= 0 || r.dl > 2*time.Second {
+		t.Errorf("Stopping の待ちの上限 = %v, want 2秒以内", r.dl)
+	}
+}
+
+// 壊れた hidden.json は、警告を出して空として始まり、hidden.json.broken に残る。
+func TestRunは壊れたhidden_jsonを警告して残す(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("シェルスクリプトの偽の MediaMTX を使うため")
+	}
+	base := t.TempDir()
+	bin := filepath.Join(base, "fake-mediamtx.sh")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nexec sleep 30\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	useGenerate(t, bin, nil)
+	if err := os.MkdirAll(filepath.Join(base, "state"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(hiddenPath(base), []byte("{壊れた"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr syncBuffer
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := runInBackground(ctx, base, &stdout, &stderr)
+	logDir := filepath.Join(base, "logs")
+	waitFor(t, "警告がログに載る", func() bool { return strings.Contains(readLogs2(logDir), "hidden.json を読めなかった") })
+	cancel()
+	select {
+	case code := <-done:
+		if code != 0 {
+			t.Fatalf("終了コード = %d\nstderr: %s", code, stderr.String())
+		}
+	case <-time.After(15 * time.Second):
+		t.Fatal("run が終わらない")
+	}
+	if b, err := os.ReadFile(hiddenPath(base) + ".broken"); err != nil || string(b) != "{壊れた" {
+		t.Errorf(".broken = %q, %v", b, err)
+	}
+	if _, err := os.Stat(hiddenPath(base)); err == nil {
+		t.Errorf("元の hidden.json が残っている（空で始めたのだから、読み直されないよう名前を替えるはず）")
+	}
+}

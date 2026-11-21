@@ -67,6 +67,7 @@ func TestObsConfig(t *testing.T) {
 func TestCoreDeps(t *testing.T) {
 	cfg := testConfig(t)
 	cfg.OBS.StandbyScene = "Wait"
+	cfg.OBS.StudioModeHide = "ignore"
 	cfg.Switch.AutoEnabled = false
 	cfg.Switch.FailKbps, cfg.Switch.RecoverKbps = 700, 1600
 	cfg.Switch.LowSec, cfg.Switch.RecoverSec, cfg.Switch.DownSec = 6, 12, 3
@@ -83,6 +84,9 @@ func TestCoreDeps(t *testing.T) {
 	d := coreDeps(cfg, urls)
 	if d.StandbyScene != "Wait" || d.AutoEnabled {
 		t.Errorf("詰め替えが違う: %+v", d)
+	}
+	if d.StudioModeHide != "ignore" {
+		t.Errorf("StudioModeHide = %q, want ignore（obs.studio_mode_hide を渡す）", d.StudioModeHide)
 	}
 	common := ingest.Thresholds{FailKbps: 700, RecoverKbps: 1600, LowSec: 6 * time.Second, RecoverSec: 12 * time.Second, DownSec: 3 * time.Second}
 	override := common

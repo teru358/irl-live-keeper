@@ -35,7 +35,14 @@ const (
 	restartWait = time.Second
 	// shutdownTimeout は管理 API の HTTP サーバーの終了を待つ上限。
 	shutdownTimeout = 5 * time.Second
+	// stateDirName は hidden.json などの状態を置くフォルダ（config.yaml のあるフォルダの下）。
+	stateDirName = "state"
 )
+
+// hiddenPath は隠した項目の記録 hidden.json のパス。`--dir` ができたら、その下になる（今は base）。
+func hiddenPath(base string) string {
+	return filepath.Join(base, stateDirName, "hidden.json")
+}
 
 // generate は config.yaml がないときの生成。テストで差し替える。
 var generate = config.Generate
@@ -145,8 +152,18 @@ func run(ctx context.Context, base string, stdout, stderr io.Writer) int {
 	samples := make(chan ingest.SampleSet) // Poller → core。全カメラの Sample の1組
 	obsClient := obs.New(obsConfig(cfg), log)
 
+	// 隠した項目の記録。core を作る前に読む（読めなければ警告を出して空として扱い、元のファイルは .broken に残す）
+	hidden, hiddenWarn := core.LoadHidden(hiddenPath(base))
+	if hiddenWarn != "" {
+		log.Warn(hiddenWarn)
+	}
+
 	deps := coreDeps(cfg, cameraURLs)
-	deps.Machine = switcher.New(switcher.Config{RestartWait: restartWait})
+	deps.HiddenPath, deps.HiddenRestored, deps.HiddenLoadWarning = hiddenPath(base), hidden, hiddenWarn
+	deps.Machine = switcher.New(switcher.Config{
+		RestartWait: restartWait,
+		Endpoint:    switcher.Endpoint{Host: cfg.OBS.Host, Port: cfg.OBS.Port},
+	})
 	deps.OBS = obsClient
 	deps.Samples = samples
 	deps.MediaMTX = sup.Status
@@ -174,8 +191,7 @@ func run(ctx context.Context, base string, stdout, stderr io.Writer) int {
 	addr := listenAddr(cfg.Admin.Port, cfg.Admin.LAN)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
-		cancel()
-		wg.Wait()
+		shutdown(c, nil, cancel, &wg)
 		log.Error("管理 API のポート（admin.port）で待ち受けできません", "listen", addr, "error", err)
 		fmt.Fprintf(stderr, "管理 API のポート（admin.port）%d で待ち受けできません（%s）: %v\n", cfg.Admin.Port, addr, err)
 		return 1
@@ -191,15 +207,36 @@ func run(ctx context.Context, base string, stdout, stderr io.Writer) int {
 		code = 1
 	}
 
-	// HTTP サーバーを止め、ctx を取り消し、MediaMTX が止まるのを待つ
-	shutCtx, shutCancel := context.WithTimeout(context.Background(), shutdownTimeout)
-	if err := srv.Shutdown(shutCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		_ = srv.Close()
+	// core に Stopping を渡して隠した項目を戻し（最大2秒）、HTTP サーバーを止め、ctx を取り消し、MediaMTX が止まるのを待つ
+	shutdown(c, srv, cancel, &wg)
+	return code
+}
+
+// stopper は終わる前に隠した項目を戻す core（core.Core.Stopping）。
+type stopper interface{ Stopping(ctx context.Context) }
+
+// httpServer は shutdown が止める管理 API のサーバー（*http.Server）。
+type httpServer interface {
+	Shutdown(ctx context.Context) error
+	Close() error
+}
+
+// shutdown は終わる道（Ctrl+C、SIGTERM、Windows のコンソールを閉じる）の止める順:
+// core の Stopping（最大 core.DefaultStopTimeout＝2秒。Windows のコンソールを閉じるときは数秒しか待たない）→
+// HTTP サーバー → ctx の取り消し → 部品が止まるのを待つ（MediaMTX を含む）。srv は nil でもよい。
+func shutdown(c stopper, srv httpServer, cancel func(), wg *sync.WaitGroup) {
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), core.DefaultStopTimeout)
+	c.Stopping(stopCtx)
+	stopCancel()
+	if srv != nil {
+		shutCtx, shutCancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		if err := srv.Shutdown(shutCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			_ = srv.Close()
+		}
+		shutCancel()
 	}
-	shutCancel()
 	cancel()
 	wg.Wait()
-	return code
 }
 
 // loadConfig は base の config.yaml を読む。なければ生成し、generated を true にする。

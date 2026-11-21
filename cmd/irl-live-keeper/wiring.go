@@ -67,6 +67,8 @@ func coreDeps(cfg *config.Config, urls []camURLs) core.Deps {
 	d := core.Deps{
 		StandbyScene: cfg.OBS.StandbyScene,
 		AutoEnabled:  cfg.Switch.AutoEnabled,
+		// Studio Mode の間の on_bad: hide のカメラの動き（standby / ignore / hide）
+		StudioModeHide: cfg.OBS.StudioModeHide,
 	}
 	for i, c := range cfg.Cameras {
 		d.Cameras = append(d.Cameras, core.Camera{
