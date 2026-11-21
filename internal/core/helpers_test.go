@@ -465,3 +465,10 @@ func countPrefix(calls []string, prefix string) int {
 	}
 	return n
 }
+
+// UUID の要求は M-8 まで core が使わない。ビルドを通すだけの空の実装。
+func (f *fakeOBS) SetSceneUUID(string) error { return nil }
+func (f *fakeOBS) SceneTransitionOverrideUUID(string) (*int, bool, error) {
+	return nil, false, nil
+}
+func (f *fakeOBS) RestartMediaInputs([]string) error { return nil }

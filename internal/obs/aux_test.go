@@ -42,6 +42,10 @@ type auxServer struct {
 	// handleOpcodes が受け手のいない応答の送信で止まり、以後の要求が goobs の中で止まる。
 	ghost  bool
 	wsConn map[int]*websocket.Conn
+	// writers は n 本目の接続への書き込み（イベントを流すのに使う）。
+	writers map[int]func(any)
+	// version は Hello の obsWebSocketVersion（空なら 5.5.0）。
+	version string
 
 	mu     sync.Mutex
 	conns  int
@@ -67,6 +71,10 @@ func newAuxServer(t *testing.T) *auxServer {
 		}
 		s.wsConn[n] = c
 		ghost := s.ghost
+		version := s.version
+		if version == "" {
+			version = "5.5.0"
+		}
 		s.mu.Unlock()
 		defer func() { c.Close(); s.closed <- n }()
 
@@ -76,8 +84,14 @@ func newAuxServer(t *testing.T) *auxServer {
 			defer wmu.Unlock()
 			_ = c.WriteJSON(v)
 		}
+		s.mu.Lock()
+		if s.writers == nil {
+			s.writers = map[int]func(any){}
+		}
+		s.writers[n] = write
+		s.mu.Unlock()
 		write(map[string]any{"op": 0, "d": map[string]any{
-			"obsWebSocketVersion": "5.5.0", "rpcVersion": 1,
+			"obsWebSocketVersion": version, "rpcVersion": 1,
 			"authentication": map[string]string{"challenge": "", "salt": ""},
 		}})
 		connDone := make(chan struct{})
@@ -158,6 +172,16 @@ func (s *auxServer) kill(n int) {
 	s.mu.Unlock()
 	if c != nil {
 		c.Close()
+	}
+}
+
+// sendEvent は n 本目の接続へ OBS のイベントを流す。
+func (s *auxServer) sendEvent(n int, typ string, data any) {
+	s.mu.Lock()
+	w := s.writers[n]
+	s.mu.Unlock()
+	if w != nil {
+		w(map[string]any{"op": 5, "d": map[string]any{"eventType": typ, "eventIntent": 1, "eventData": data}})
 	}
 }
 

@@ -17,13 +17,17 @@ var ErrTimeout = errors.New("OBS の応答がタイムアウト")
 // （api.Client.SendRequest の "timeout waiting for response from server"）。
 const goobsTimeoutText = "timeout waiting for response from server"
 
-// classifyError は goobs のエラーを、応答待ちの超過なら ErrTimeout を包んだ形にして返す。
+// goobs は応答の ID が要求と合わないときも、番兵のエラーを持たない文で返す。応答待ちの超過と同じく
+// 「適用されたかわからない」ので、同じ扱いにする。
+const goobsMismatchText = "mismatched ID"
+
+// classifyError は goobs のエラーを、応答待ちの超過か ID のずれなら ErrTimeout を包んだ形にして返す。
 // それ以外はそのまま返す。
 func classifyError(err error) error {
 	if err == nil {
 		return nil
 	}
-	if strings.Contains(err.Error(), goobsTimeoutText) {
+	if msg := err.Error(); strings.Contains(msg, goobsTimeoutText) || strings.Contains(msg, goobsMismatchText) {
 		return fmt.Errorf("%w: %v", ErrTimeout, err)
 	}
 	return err

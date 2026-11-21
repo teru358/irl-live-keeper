@@ -15,7 +15,7 @@ import (
 func mapEvent(ev any, at time.Time) (out switcher.Event, ok bool) {
 	switch e := ev.(type) {
 	case *events.CurrentProgramSceneChanged:
-		return switcher.SceneChanged{At: at, Scene: e.SceneName}, true
+		return switcher.SceneChanged{At: at, Scene: e.SceneName, SceneUUID: e.SceneUuid}, true
 	case *events.CurrentSceneTransitionDurationChanged:
 		ms := int(math.Round(e.TransitionDuration))
 		return switcher.TransitionChanged{At: at, TransitionMs: &ms}, true
