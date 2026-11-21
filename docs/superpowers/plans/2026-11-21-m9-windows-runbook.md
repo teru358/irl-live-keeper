@@ -36,7 +36,7 @@
 
 | # | 確かめること | 結果 |
 |---|---|---|
-| R-1 | W1（ポートの事前確認）、W4（ログ、パスワードが出ない）、W5・W7・W8（終わり方で MediaMTX が残らない） | |
+| R-1 | W1（ポートの事前確認）、W4（ログ、パスワードが出ない）、W5・W7・W8（終わり方で MediaMTX が残らない） | 2026-11-21: W1 合格（rtmp・srt・rtsp・api・admin の5つとも、理由を出して「Enter キーを押すと閉じます」で止まる）。W5・W7・W8 合格（MediaMTX が残らない）。W4 は確かめ中。気づき: admin のときだけ、止まる前に `OBS に接続できない … operation was canceled` の WARN が1行出る（止めるときの取り消し。害はない）。試験のフォルダの `occupy-ports.ps1` が古く、`admin.listen` と出ていた（scripts の版は直っていた。写し直した） |
 | R-2 | T-8〜T-11（IRL Link からの切替、回線が悪いときの戻り先、トランジション） | T-8 2026-11-21: 合格。待機中（戻り先 Camera）に IRL Link で Camera2 → 0.3秒で待機へ戻され、戻り先 Camera2（owner auto）→ スマホを再開、OK の1秒後に Camera2 へ（owner none）。本体を先に起動したこの回は、メディアソースの見張りは入れ直さなかった（OBS が2秒ごとに自分で試し直していた）。T-9 2026-11-21: 合格（一部）。待機中に IRL Link で Talk → owner none、戻り先なし。Talk のままスマホを再開 → LOW まで（OK になる前に止めたので、OK のときに Talk に残ることは今回は見ていない。owner none なので戻す動きはない）。回線が悪いまま Talk から Camera を選ぶ → すぐ待機へ（戻り先 Camera、owner auto）。OBS → 本体の順のこの回も、見張りが入れ直して映った（17:02:52）。T-9 の残り 2026-11-21: 合格。OK のときに Camera から Talk → 12秒 Talk のまま。T-10 2026-11-21: 合格。OK のときに Talk から待機シーン → 10秒そのまま（owner none）。そのあと人が Camera へ。T-11 2026-11-21: 合格。フェード 5000ms で、AutoFail（17:16:04.1）→ 5秒後のトランジションの終わりに owner auto（17:16:09.1）、AutoRecover（17:16:39.1）→ 17:16:44.1 に owner none。本体の切替を人の切替と取り違えない。配信開始時の AutoFail も同じ（17:15:30.6 → 17:15:35.6） |
 | R-3 | 回線が悪い → 待機 → 戻る、のログに `camera changed` と `scene switch`（`camera`、`kbps`）が出る | 2026-11-21: 合格。スマホを止める → 2秒で `camera changed OK→DOWN` と `scene switch reason=down camera=main kbps=0`（owner auto、戻り先 Camera）→ 再開 → LOW → OK のあと1秒で `scene switch reason=ok`（owner none） |
 
