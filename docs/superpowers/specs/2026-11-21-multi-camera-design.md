@@ -1,9 +1,9 @@
 # irl-live-keeper 設計 — 複数のカメラ（第2段階 区切り0）
 
 - 作成日: 2026-11-21
-- 版: v0.4（変更は末尾の変更履歴を参照）
-- 状態: 2026-11-21 の brainstorming でユーザーが節ごとに承認した内容を文書化したもの。v0.2 で、設計レビュー1周目（Fable、codex sol）の指摘と、2026-11-21 のユーザーの裁定（対応する OBS の版を上げる、使わないカメラは運用で扱う）を反映した
-- 前提: コアの spec `docs/superpowers/specs/2026-11-18-core-design.md`（v2.15。以下「コアの spec」）と第2段階の spec `docs/superpowers/specs/2026-11-20-stage2-design.md`（v0.6。以下「第2段階の spec」）。この文書は両者の一部を置き換える（第9節の表）。食い違うときはこの文書を優先する
+- 版: v0.5（変更は末尾の変更履歴を参照）
+- 状態: 2026-11-21 の brainstorming でユーザーが節ごとに承認した内容を文書化したもの。v0.2〜v0.4 で設計レビュー1周目（Fable、codex sol）と閉鎖確認2回（codex terra）の指摘を、v0.5 で M-0 の spike の結果と設計レビュー2周目（Fable）の指摘を反映し、作りを減らした（コレクションの切替を切断として扱う、要求を UUID で送る、古い OBS は空の地図、守ることを先に書き細部は M-7 の表へ）
+- 前提: コアの spec `docs/superpowers/specs/2026-11-18-core-design.md`（v2.15。以下「コアの spec」）と第2段階の spec `docs/superpowers/specs/2026-11-20-stage2-design.md`（v0.6。以下「第2段階の spec」）。この文書は両者の一部を置き換える（第10節の表）。食い違うときはこの文書を優先する
 
 ## 1. 目的と範囲
 
@@ -13,15 +13,17 @@
 - カメラごとに、回線が悪いときの動きを択一で選ぶ: 待機シーンへ送る（`standby`）か、そのカメラのソースを OBS で隠す（`hide`）
 - どのシーンにどのカメラが映るかは、本体が OBS から自動で調べる（`obs.monitored_scenes` と `obs.media_source` は廃止）
 - RTMP と SRT の受付を個別に止められるようにする
-- 第2段階の頭（区切り0）に置く。第2段階の残りの部品（記録、グラフ、ソース、管理ページ）は、初めからカメラごとの形で作る（第8節）
+- 第2段階の頭（区切り0）に置く。第2段階の残りの部品は、初めからカメラごとの形で作る（第9節）
 
-作り方は、今の switcher を広げて、シーンの切替と「隠す」を1つの状態機械で判断する形にする（2026-11-21 のユーザーの裁定。2つの状態機械に分ける形は、全部隠れたら待機へ、戻る順序、承認の世代、人の操作の見分け、切替中の抑止が、機械の間の取り決めになり、テストの表で網羅しにくいため選ばなかった）。待機の持ち主と戻り先、期待の照合と期限、実行の直前の承認、目的ごとの有効条件、実行役とのチャネルの決まりは今のまま使う。
+作り方は、今の switcher を広げて、シーンの切替と「隠す」を1つの状態機械で判断する（2026-11-21 のユーザーの裁定）。待機の持ち主と戻り先、期待の照合と期限、実行の直前の承認、目的ごとの有効条件、実行役とのチャネルの決まりは今のまま使う。
 
-入れないもの: カメラごとの資格情報（ユーザーは1人で使う想定。資格情報は全カメラで共通）、カメラごとの「何もしない」（全体の `switch.auto_enabled: false` で足りる）、カメラごとの「使う / 使わない」の切替（下の運用で足りる。2026-11-21 のユーザーの裁定）、悪いカメラの代わりに別のシーンへ送る形。
+入れないもの: カメラごとの資格情報（資格情報は全カメラで共通）、カメラごとの「何もしない」（全体の `switch.auto_enabled: false` で足りる）、カメラごとの「使う / 使わない」の切替（下の運用で足りる。ユーザーの裁定）、悪いカメラの代わりに別のシーンへ送る形。
 
 **使わない日のカメラの運用**（README に書く）: 待機へ送るかの判定は、いま映っているシーンだけで行う。ほかのシーンにある、その日使わないカメラが DOWN でも何も起きない。手元カメラを別のシーンに置く運用（ユーザーの例）では、手元のシーンへ切り替えると、手元カメラが届くまで待機シーンになり、届いて OK になったら（`recover_sec` のあと）手元のシーンへ自動で戻る。待ちを短くするには、そのカメラだけ `recover_sec` を上書きする。戻るときは、先にメインのシーンへ切り替えてから手元カメラを止める。OBS で手で非表示にした項目のカメラは、そのシーンでは判定しない。
 
-**対応する OBS**（2026-11-21 のユーザーの裁定）: シーンとソースの UUID と `InputSettingsChanged` を持つ obs-websocket の版（正確な版は M-0 の spike で決め、README の「OBS Studio 28 以降」を書き直す）。つないだときに `GetVersion` で確かめ、古ければ status の `warnings` に出し、自動の切替と隠す・戻すをしない（手動の操作と配信開始時の切替は行う）。
+**対応する OBS**（ユーザーの裁定。版は M-0 で決めた）: **OBS Studio 30.1.0 以降（obs-websocket 5.4.0 以降）**。UUID の項目、`InputSettingsChanged`、UUID で指定する要求がこの版で入った。つないだときに `GetVersion` の `obsWebSocketVersion` で確かめる（`rpcVersion` では見分けられない）。古ければ、地図を空（どのシーンにもカメラが映らない）として扱い、status の `warnings` に「OBS が古いため、自動の切替と隠す・戻すを止めています」と出す。空の地図では、すべてのシーンが管理外か待機シーンになるので、自動の切替と隠す・戻すは起きず、手動の操作と配信開始時の切替は今の規則（StandbyOff は StandbyOffOther）で動く。`hidden.json` の記録は照合せずに残す。README の「OBS Studio 28 以降」を書き直す。ユーザーの Windows は OBS 33.0.1、Linux の試験は OBS 33.0.0（obs-websocket 5.7.6）
+
+**Studio Mode**（M-0 で、OBS の既定〔「シーンを複製」がオン〕では、program のシーンの項目を隠しても配信の画面に効かないとわかった）: Studio Mode がオンの間（`GetStudioModeEnabled` と `StudioModeStateChanged`）は、`on_bad: hide` のカメラを `standby` と同じに扱う（隠さず、悪ければ待機シーンへ送る。隠したつもりで乱れた映像を出すより安全なため）。隠している項目は「c を戻してよい」に入れて戻す。status の `warnings` に「Studio Mode では隠す動きが使えないため、待機シーンへ送ります」と出す
 
 ## 2. 設定
 
@@ -43,254 +45,264 @@ mediamtx:
 ```
 
 - 初回に作る config.yaml のカメラは `main`（表示名「メインカメラ」、`on_bad: standby`）の1台。これで第1段階と同じ動きになる
-- **なくなる設定**: `stream.name`（カメラの `id` に置き換え）、`obs.media_source`、`obs.monitored_scenes`（第3節で OBS から調べる）。まだ配布していないので古い形は読まない。残っていたら知らない項目として不正にし、理由に書き直し方を添える（`admin.listen` と同じ扱い。コアの spec 4章）
+- **なくなる設定**: `stream.name`（カメラの `id` に置き換え）、`obs.media_source`、`obs.monitored_scenes`（第3節で OBS から調べる）。まだ配布していないので古い形は読まない。残っていたら知らない項目として不正にし、理由に書き直し方を添える（`admin.listen` と同じ扱い）
 - **検証**（コアの spec 4章に足す）:
   - `cameras` は1〜8台。`id` は `^[a-z0-9][a-z0-9_-]{0,31}$` で、重複しない。`all` と `all_others` は使えない（MediaMTX の path の設定で特別な名前のため）
   - `name` は1〜32文字（Unicode の文字数）で、制御文字を含まない。重複してよい
   - `on_bad` は `standby` か `hide`
-  - `switch` の上書きは、共通の値と合わせたあとの5つの値で、共通の閾値と同じ規則（`recover_kbps` > `fail_kbps`、秒は1以上、`down_sec` ≤ `low_sec`）を確かめる。理由の項目名は `cameras[<番号>].switch.<項目>`（番号は0から）。`switch` の下に知らない項目があれば不正
+  - `switch` の上書きは、共通の値と合わせたあとの5つの値で、共通の閾値と同じ規則を確かめる。理由の項目名は `cameras[<番号>].switch.<項目>`（番号は0から）。`switch` の下に知らない項目があれば不正
   - `rtmp_enabled` と `srt_enabled` の両方が false なら不正
-- **反映の区分**（第2段階の spec 7章の表を直す）: 表から `obs.monitored_scenes`、`obs.media_source`、`stream.name` を消す。すぐ反映に、カメラの `name`、`on_bad`、`switch` の上書きを足す（閾値と同じく、中核ループがカメラごとの Judge の閾値を差し替える。受信状態は保ち、積み上げた秒数は捨てる）。再起動して反映に、カメラの追加・削除・並べ替え・`id` の変更と、`rtmp_enabled`・`srt_enabled` を足す（MediaMTX の path と受付が変わるため）
-- **config.yaml の書き換え**（第2段階の spec 7章）: `cameras` は対応づけのシーケンス（入れ子に `switch`）で、文字で差し替える書き方（スカラーとスカラーのシーケンス）に当たらない。`cameras` の区分は、変えたときに区分ごと Node で書き出す（区分の外のコメントと空行は残す。区分の中のコメントは残らないことを、設定の画面で知らせる）
-- **URL**: カメラごとに作る。資格情報は全カメラで共通（`stream.publish_user` などはそのまま）
+- **反映の区分**（第2段階の spec 7章の表を直す）: 表から `obs.monitored_scenes`、`obs.media_source`、`stream.name` を消す。すぐ反映に、カメラの `name`、`on_bad`、`switch` の上書きを足す（中核ループがカメラごとの Judge の閾値を差し替える。受信状態は保ち、積み上げた秒数は捨てる）。再起動して反映に、カメラの追加・削除・並べ替え・`id` の変更と、`rtmp_enabled`・`srt_enabled` を足す
+- **config.yaml の書き換え**（第2段階の spec 7章）: `cameras` は対応づけのシーケンスで、文字で差し替える書き方に当たらない。`cameras` の区分は、変えたときに区分ごと Node で書き出す（区分の外のコメントと空行は残す。区分の中のコメントは残らないことを設定の画面で知らせる。ユーザーが承認した）
+- **URL**: カメラごとに作る。資格情報は全カメラで共通
   - SRT: `srt://<host>:<srt_port>?streamid=publish:<id>:<user>:<pass>`（`srt_enabled` が false なら作らない）
   - RTMP: `rtmp://<host>:<rtmp_port>/<id>?user=<user>&pass=<pass>`（`rtmp_enabled` が false なら作らない）
   - OBS 用: `rtsp://<read_user>:<read_pass>@<obs_read_host>:<rtsp_port>/<id>`
   - 起動の表示（コアの spec 10章）はカメラごとに並べる
 - **mediamtx.yml**（コアの spec 8章を置き換える部分）: path はカメラの `id` の数だけ書き、それ以外は受け付けない。`rtmp: no`、`srt: no` を `*_enabled` に合わせて書く。ポートの事前確認は、止めたプロトコルのポートを確かめない
-- **ID を変えたとき**: 送信用 URL と OBS 用 URL が変わる。スマホのアプリは手で直す。OBS のメディアソースは、第2段階の spec 7章「OBS のメディアソースの URL の書き換え」をカメラごとに使える。新しい世代は新しい `id` でしか照合できないので、保存のときに app が、今の地図から「変える前の `id` → そのカメラのメディアソース（入力の UUID）」を覚え、新しい世代の書き換えに渡す（プロセスの寿命の印と同じ持ち方。区切り2の S2-31）。OBS につながっていないときは、新しい世代が最初の地図を作ったあとに、古い設定の `id`・`rtsp_port` で照合して探す
+- **ID を変えたとき**: 送信用 URL と OBS 用 URL が変わる。スマホのアプリは手で直す。OBS のメディアソースは、第2段階の spec 7章「OBS のメディアソースの URL の書き換え」をカメラごとに使える。保存のときに app が、今の地図から「変える前の `id` → そのカメラのメディアソース（入力の UUID）」を覚え、新しい世代の書き換えに渡す（区切り2の S2-31）。OBS につながっていなければ、新しい世代が最初の地図を作ったあとに、古い設定の `id`・`rtsp_port` で照合して探す
 
 ## 3. シーンの地図
 
-本体は OBS から**シーンの地図**を作る: カメラごとのメディアソース、シーンごとの項目、どのシーンにどのカメラが映るか。型と、地図を作る・照合する・健康を計算する純粋な関数は、新しい葉のパッケージ `internal/scenemap` に置く（switcher と obs の両方が使う。obs はすでに switcher を import しているので、obs に置くと循環する）。
+本体は OBS から**シーンの地図**を作る: カメラごとのメディアソース、シーンごとの項目、どのシーンにどのカメラが映るか。型と、地図を作る・照合する・健康を計算する純粋な関数は、新しい葉のパッケージ `internal/scenemap` に置く（obs はすでに switcher を import しているので、obs に置くと循環する）。
 
 ### 識別
 
-- シーン、グループ、入力は **UUID** で識別する（`sceneUuid`、`sourceUuid`、`inputUuid`）。名前は表示と要求の引数に使い、地図を読むたびに新しい名前に追従する。項目は（シーンかグループの UUID、項目の ID）で識別する
-- 地図は、今のシーンコレクションの名前（`GetSceneCollectionList` の `currentSceneCollectionName`）を持つ
+- シーン、グループ、入力は **UUID** で識別し、**OBS への要求も UUID で送る**（goobs v1.11.1 の `SetCurrentProgramScene`、`GetSceneSceneTransitionOverride`、`SetSceneItemEnabled`、`GetSceneItemList`、`GetGroupSceneItemList` は `sceneUuid` を、`TriggerMediaInputAction`、`GetInputSettings` は `inputUuid` を受ける）。名前は表示とログにだけ使う
+- 項目は（シーンかグループの UUID、項目の ID）で識別する
+- switcher の今のシーン、切断前のシーン、シーンの期待、戻り先、`SetScene` の切替先は UUID で持つ（コアの spec 6章「シーンの比較はシーン名の文字列の一致」「切替先はバッチを作った時点のシーン名で固定」を UUID に置き換える）。`SceneChanged` と `OBSConnected` は `SceneUUID` を持つ（`CurrentProgramSceneChanged` は `sceneUuid` を持つ）。設定の名前で書く待機シーンと開始時のシーンは、地図で名前から UUID を引く（同じ名前のシーンは OBS が作らせない）。引けなければ、今どおり status の `warnings` に出す
+- UUID はシーンコレクションを複製すると元と同じになる（M-0 で確かめた）ので、地図、一覧、`hidden.json` の記録は「接続先〔`obs.host` と `obs.port`〕とシーンコレクションの名前と UUID の組」で識別する
 
 ### カメラのメディアソース
 
-- `GetInputList`（`inputKind: ffmpeg_source`）で入力を集め、それぞれの `GetInputSettings` の `input`（URL）を読む。`is_local_file` が false と明示されているものだけを対象にする（`GetInputSettings` は既定値を省くことがあり、`ffmpeg_source` の既定は true のため。M-0 で確かめる）
-- URL を解析し、スキームが `rtsp`、ポートが `mediamtx.rtsp_port`、path（先頭の `/` を除き、末尾の `/` を除いたもの）がカメラの `id` と同じなら、その入力をそのカメラのソースとする。host と資格情報は見ない（`127.0.0.1` と中継 PC の LAN のアドレスのどちらでもよいため）。URL はログに書かない（資格情報を含む）
-- 1台のカメラを複数のメディアソースで読んでいてよい。どのメディアソースにも当たらないカメラは status の `warnings` に出す（「<表示名> のメディアソースが OBS に見つかりません」）。メディアソース以外の種類（VLC ビデオソースなど）は調べない
+- `GetInputList`（`inputKind: ffmpeg_source`）で入力を集め、それぞれの `GetInputSettings` の `input`（URL）を読む。`is_local_file` が false と明示されているものだけを対象にする（`GetInputSettings` は既定値を省き、`ffmpeg_source` の `is_local_file` の既定は true。M-0 で確かめた）
+- URL を解析し、スキームが `rtsp`、ポートが `mediamtx.rtsp_port`、path（先頭と末尾の `/` を除いたもの）がカメラの `id` と同じなら、その入力をそのカメラのソースとする。host と資格情報は見ない。URL はログに書かない
+- 1台のカメラを複数のメディアソースで読んでいてよい。どのメディアソースにも当たらないカメラは status の `warnings` に出す。メディアソース以外の種類は調べない
 
 ### シーンの項目と「映る」
 
-- `GetSceneList` の各シーンの `GetSceneItemList` を読む。項目がシーン（入れ子のシーン）なら、そのシーンを、グループ（`isGroup`）なら `GetGroupSceneItemList` を読む。**読むのはシーンとグループごとに1回**（結果を使い回す）
+- `GetSceneList` の各シーンの `GetSceneItemList` を読む。項目がシーン（入れ子）ならそのシーンを、グループ（`isGroup`）なら `GetGroupSceneItemList` を読む。**読むのはシーンとグループごとに1回**
 - **カメラの項目**: ソースがカメラのメディアソースである項目
-- **シーン S にカメラ c が映る**: S から c の項目まで、たどる道のうち**1本でも**、途中の項目（入れ子のシーンやグループの項目と、c の項目そのもの）がすべて「表示」であること（映るかは道ごとに評価する。ひし形〔S → N と S → M → N〕も、1本が通れば映る。循環する道はたどらない）。ただし、本体が隠した項目（第6節の一覧にあるもの）は表示として数える（隠したことでそのシーンのカメラから外れないため）。人が手で非表示にした項目は数えない
-- **分類**（コアの spec 6章「シーンの設定と分類」を置き換える）: 待機シーンは今どおり `obs.standby_scene` の名前で決める（カメラが映っていても待機シーン）。監視対象（Monitored）は、待機シーンでなく、カメラが1つ以上映るシーン。管理外（Other）は、カメラが映らないシーン。地図がない間は「不明」（コアの spec の分類の「不明」と同じ扱い）
+- **シーン S にカメラ c が映る**: S から c の項目までの道のうち**1本でも**、途中の項目（入れ子のシーンやグループの項目と、c の項目そのもの）がすべて「表示」であること（道ごとに評価する。循環する道はたどらない）。本体が隠した項目（第7節の一覧にあるもの）は表示として数える（隠したことでそのシーンのカメラから外れないため）。人が手で非表示にした項目は数えない
+- **実際に表示されているカメラ**（第6節の「今のシーンを空にしない」に使う）: 上と同じだが、本体が隠した項目も非表示として数える
+- **分類**（コアの spec 6章「シーンの設定と分類」を置き換える）: 待機シーンは今どおり `obs.standby_scene`（地図で UUID に引いたもの）。監視対象は、待機シーンでなく、カメラが1つ以上映るシーン。管理外は、カメラが映らないシーン。切断の間は「不明」
 
-### 読む時期と接続
+### 読む時期
 
-- **最初の地図は本来の接続で読む**: OBS につながったら、今の名前の確かめ（`internal/obs/ws.go` の `checkNames`）と同じ位置で、`OBSConnected` を流す前に読み、`OBSConnected` に地図を載せる（自動切替の中心の機能を補助の接続に頼らないため。つないだ直後の「不明」の窓もなくす）。読めなければ接続の失敗として扱い、今の再接続の規則で試し直す
-- **読み直しは補助の接続で行う**（第2段階の spec 6章。自動切替の `SetScene` を待たせないため）。補助の接続は、本来の接続が OBS につながっている間は常に開いておく（第2段階の spec 6章「開く条件」を置き換える。試す間隔と期限の規則はそのまま）。開けない間は、最後の地図を使い続け、status に警告を出す
-- 次のイベントを受けたら、0.3秒まとめてから全部を読み直す: `SceneCreated`、`SceneRemoved`、`SceneNameChanged`、`SceneItemCreated`、`SceneItemRemoved`、`InputCreated`、`InputRemoved`、`InputNameChanged`、グループの作成・名前の変更（どのイベントが出るかは M-0 で確かめる）。読み直しの間に次のイベントが来たら、終わったあとにもう一度読む。読み取りの途中で失敗したら、その回の結果は捨て、1秒あけて読み直す
-- `InputSettingsChanged` は、地図でカメラのメディアソースか `ffmpeg_source` とわかっている入力のものだけを扱い、全部を読み直さず、イベントの `inputSettings` でその入力の URL の照合だけをやり直す（ほかのツールがテキストソースを毎秒書き換えても、読み直しが続かないため）
-- `SceneItemEnableStateChanged` は読み直さず、`ItemEnabledChanged{SceneUUID, ItemID, Enabled}` として流す（UUID がイベントにない版なら、名前から地図で引く。M-0）
-- **シーンコレクションの切替**: `CurrentSceneCollectionChanging` を受けたら、`MapUnknown` を流し、地図を「不明」にし、補助の接続の読み直しと要求を止める（切替の間に要求を送ると OBS が落ちうる。goobs の説明）。switcher は不明の間、**すべての Action**（`SetScene`、`RestartMedia`、`SetItemEnabled`、`StartStream`、`StopStream`）を承認で却下し、Command は `ErrInvalidState`（理由「OBS のシーンコレクションを切り替え中」）にする。すでに OBS へ送った要求は取り消せないので、その応答は今どおり受ける（既知の制約）。`CurrentSceneCollectionChanged` のあとに本来の接続で全部を読み、`SceneMapChanged` で不明を解く。却下した Auto と HideCamera・ShowCamera は、ふつうの判断で出し直す
-- `OBSDisconnected` で地図を「不明」にする。接続が切れる前に始めた読み直しの結果は捨てる（読み直しに接続の世代を付ける）
+- **最初の地図は本来の接続で読む**: OBS につながったら、今の名前の確かめと同じ位置で、`OBSConnected` を流す前に読み、`OBSConnected` に載せる。読めなければ接続の失敗として、今の再接続の規則で試し直す。**続けて3回失敗したら**、空の地図でつなぎ（古い OBS と同じ扱い）、`warnings` と `last_error` に理由を出し、補助の接続で読み直しを続ける（1つのシーンの読み取りが毎回失敗する場合に、手動の操作まで使えなくしないため）
+- **読み直しは補助の接続で行う**（第2段階の spec 6章。自動切替の `SetScene` を待たせないため）。補助の接続は、本来の接続が OBS につながっている間は常に開いておく（第2段階の spec 6章「開く条件」を置き換える。統計の読み取りは S2-50 で「読む条件」として書く）
+- 次のイベントを受けたら、0.3秒まとめてから全部を読み直す: `SceneCreated`、`SceneRemoved`、`SceneNameChanged`、`SceneItemCreated`、`SceneItemRemoved`、`InputCreated`、`InputRemoved`、`InputNameChanged`（グループの作成は `SceneCreated`〔`isGroup: true`〕、グループの名前の変更は `SceneNameChanged` で届く。M-0）。読み直しの間に次のイベント（下の `InputSettingsChanged` を含む）が来たら、終わったあとにもう一度読む。読み取りの途中で失敗したら、その回の結果は捨て、1秒あけて読み直す
+- **グループの中への項目の追加は通知されない**（M-0）ので、つながっている間は**30秒ごと**にも読み直す
+- `InputSettingsChanged` は、地図で `ffmpeg_source` とわかっている入力のものだけを扱い、全部を読み直さず、イベントの `inputSettings` でその入力の URL の照合だけをやり直す
+- `SceneItemEnableStateChanged` は読み直さず、`ItemEnabledChanged{SceneUUID, ItemID, Enabled}` として流す（グループの中の項目は、グループの UUID で届く。M-0）
+- 読み直しの結果は `SceneMapChanged{Map}` で流す。読み直しには接続の世代を付け、切断の前に始めたものの結果は捨てる
+- obs は、イベントを読む goroutine では要求を送らない（今の `CurrentSceneTransitionChanged` の取り直しも別の goroutine にする）。goobs はイベントの列〔容量100〕があふれると古いイベントを捨てるので、読むのを止めないため
 
-### 地図がないとき
+### 表示・非表示は本来の接続のイベントを正とする
 
-地図がないのは次の3つの場合で、それぞれ扱いが違う。
+補助の接続の読み取りと本来の接続のイベントには、共通の順序の保証がない。表示・非表示が変わると、OBS は本来の接続に必ず `SceneItemEnableStateChanged` を流し、同じ値の設定ではイベントを出さない（M-0。別の接続からの変化でも90回中取りこぼし0、同じ接続では応答が先でイベントが後〔20回中20回〕）。
 
-| 場合 | 分類 | 自動の切替と隠す・戻す | Command（配信の開始・停止、StandbyOn、StandbyOff） | Action の承認 |
-|---|---|---|---|---|
-| **切断**（`OBSDisconnected` から、次の `OBSConnected` まで） | 不明 | しない | 今どおり `ErrNotConnected` | 今どおり（共通の条件の接続で却下） |
-| **コレクションの切替中**（`MapUnknown` から、次の `SceneMapChanged` まで） | 不明 | しない | すべて `ErrInvalidState`（理由「OBS のシーンコレクションを切り替え中」） | すべて却下（切替の間の要求は OBS が落ちうるため） |
-| **非対応の版**（つないだときの `GetVersion` が最低の版より古い。地図を作らない） | 待機シーンは名前で決め、ほかはすべて管理外 | しない（status の `warnings` に「OBS が古いため、自動の切替と隠す・戻すを止めています」） | 今どおり受ける。StandbyOff の戻り先は管理外として扱い、`[SetScene(戻り先)]` だけ（StandbyOffOther。RESTART するソースがわからないため） | 今どおり |
+- 読み直しの結果のうち、今の地図にすでにある項目の表示・非表示は使わず、今の地図の値を引き継ぐ。読み直しの結果の値を使うのは、今の地図にない新しい項目だけ
+- core は、今の地図にない項目の `ItemEnabledChanged` を、項目ごとの最後の値としていつも覚えておき、新しい地図の新しい項目に重ねてから、`SceneMapChanged`（最初の地図は `OBSConnected`）を1回だけ switcher に渡す。覚えた値は、次の地図ができたときと切断のときに空にする
+- `ItemEnabledChanged` は、届いた時点で1回だけ switcher に渡す（期待の照合、人の操作の判定、地図の書き換えはこのときだけ）
+- **ずれを直す規則**: 本体の `SetItemEnabled(X, v)` の応答が `OK` で、期待が期限まで照合されなかったときは、X はすでに v だったとみなし、地図の値を v にして、期待どおりのイベントと同じ扱いにする（`OK` を返した時点で OBS の X は v なので安全。イベントの取りこぼしと古い読み取り値は、これで直る）。ただし、承認から期限までの間に X のイベントが1つでも届いていたら当てはめない（人の操作を上書きしないため）
 
-- 対応する版で、最初の地図の読み取りに失敗したときは、接続の失敗として扱い、今の再接続の規則で試し直す（失敗の理由は `last_error` に出す）。非対応の版では読まないので、つながらなくなることはない
+### 接続の扱い
 
-### 読み直しの間の表示の変化
-
-読み直しは時間がかかり（要求ごとに最大2秒）、その間にも本来の接続から `ItemEnabledChanged` が届く。
-
-補助の接続の読み取りと本来の接続のイベントには、共通の順序の保証がない。そこで、**項目の表示・非表示は本来の接続のイベントだけを正とする**。
-
-- 表示・非表示が変わると、OBS は本来の接続に必ず `SceneItemEnableStateChanged` を流す（M-0 で確かめる）。本来の接続のイベントどうしは OBS が起こした順に届く
-- 読み直しの結果のうち、**今の地図にすでにある項目**（同じシーンかグループの UUID と項目の ID）の表示・非表示は使わず、今の地図の値（イベントで保ってきた値）を引き継ぐ。読み直しの結果の表示・非表示を使うのは、今の地図にない新しい項目だけ
-- core は、今の地図にない項目の `ItemEnabledChanged` を、項目ごとの最後の値として**いつも**覚えておく（次の地図ができたら空にする。数は地図にない項目の分だけ）。新しい地図（最初の地図、読み直し、コレクションの切替のあと、のどれでも）ができたら、その値を新しい地図の新しい項目に重ねる（新しい項目の作成のすぐあとの変化や、読み取りの応答とイベントの前後の入れ替わりで、古い値が勝たないため）。そのうえで `SceneMapChanged`（最初の地図は `OBSConnected`）を1回だけ switcher に渡す（判断も1回）。obs は読み直しを始める前に `MapReadStarted{Seq}` を流し、結果を `SceneMapChanged{Seq, Map}` で流す（`Seq` は接続の世代とあわせて、古い結果を捨てるのに使う）
-- `ItemEnabledChanged` は、届いた時点で1回だけ switcher に渡す（期待の照合、人の操作の判定、地図の書き換えはこのときだけ。地図にまだない項目なら、照合だけ行い地図は書き換えない）。渡し直しはしない
-- 最初の地図とコレクションの切替のあとの地図は、今の地図がない（または不明）ので、すべての項目が新しい項目として上の規則に従う。同じ接続でも、要求の応答とイベントの前後は保証されないとして扱う
-- それでも残る食い違い（読み取りの値とイベントの値の両方が古い、などは起きないが、イベントを取りこぼした場合）は、次の読み直しで新しい項目にならないため直らない。取りこぼしは websocket の切断としてしか起きない（切断なら地図を作り直す）とみなす
+- **本来の接続の Timeout とずれ**: goobs は応答をバッファのないチャネル1本から1件ずつ読むので、要求が Timeout したあとに OBS が遅れて応答すると、次の要求がそれを読んで ID の合わないエラーになり、待つ要求がなければ接続全体が止まる（イベントも止まり、切断として検出されない）。そこで、本来の接続も、要求の Timeout か ID の合わない応答を受けたら、Client を捨ててつなぎ直す（第2段階の spec 6章の補助の接続と同じ規則。obs のラッパーの1か所）。ID の合わない応答は `Error` ではなく `Timeout` と同じ「適用されたかわからない」として扱う。第1段階の `SetScene` の Timeout にも効く（コアの spec 7章、13章を直す）。まず M-6 で、偽の WebSocket の相手で、この止まり方が本当に起きることを確かめる
+- **シーンコレクションの切替は、切断とつなぎ直しとして扱う**: `CurrentSceneCollectionChanging` を受けたら、obs のラッパーが要求の門を閉じ（以後の要求は送らずに失敗を返す）、`OBSDisconnected` を流す（切替の間に要求を送ると OBS が落ちうる。goobs の説明）。`CurrentSceneCollectionChanged` のあとに、つないだときと同じ読み取り（配信状態、今のシーン、トランジション、最初の地図）をして `OBSConnected` を流す。`ConnEpoch` が進むので、実行待ちのバッチは今の規則で却下され、期待も消える。Command は切替の間 `ErrNotConnected` になる（status の `warnings` に「OBS のシーンコレクションを切り替え中」）
+- GUI の「複製」では `CurrentSceneCollectionChanging` が出ないまま、全部のシーンの `SceneRemoved` が続く（M-0）。そこで、**今の program のシーンの `SceneRemoved`** を受けたときも、切替の始まりと同じに門を閉じて `OBSDisconnected` を流し、`CurrentSceneCollectionChanged` か、イベントが2秒途切れたときに、つないだときと同じ読み取りをして `OBSConnected` を流す
+- 切断（コレクションの切替を含む）の前に、一覧の項目のうち今のコレクションのものは、そのまま一覧に残す（第7節。次の地図との照合で決める）
 
 ## 4. 回線の判定とシーンの健康
 
 ### カメラごとの判定
 
-- Poller は1秒に1回、`GET /v3/paths/list` を1回読み、全カメラの Sample を**1組**（同じ `At`）にして出す。各 path の値の扱い（基準、publisher の識別子、`online`、`inboundBytes`）はコアの spec 5章の1本の path と同じで、カメラごとに基準を持つ。`/v3/srt/conns/list` は、SRT のカメラがあるときだけ1回読み、path ごとに振り分ける。path の一覧の API が失敗したら、全カメラの Sample に `Err` を入れる
+- Poller は1秒に1回、`GET /v3/paths/list` を1回読み、全カメラの Sample を**1組**（同じ `At`）にして出す。各 path の値の扱いはコアの spec 5章の1本の path と同じで、カメラごとに基準を持つ。`/v3/srt/conns/list` は、SRT のカメラがあるときだけ1回読み、path ごとに振り分ける。path の一覧の API が失敗したら、全カメラの Sample に `Err` を入れる
 - Judge はカメラごとに1つ。閾値は共通の `switch` にカメラの上書きを合わせたもの。規則はコアの spec 5章のまま
-- core は1組の Sample で全カメラの Judge を更新し、変わったカメラがあれば **`CamerasChanged{States}`**（全カメラの今の状態）を1回だけ switcher に渡す（1台ずつ渡すと、途中の組み合わせ〔たとえば hide の A と B が同時に入れ替わる途中で両方 DOWN〕で誤って待機へ送るため）。Snapshot もそのあと1回作る
+- core は1組の Sample で全カメラの Judge を更新し、変わったカメラがあれば **`CamerasChanged{States}`**（全カメラの今の状態）を1回だけ switcher に渡す（1台ずつ渡すと、途中の組み合わせで誤って待機へ送るため）。Snapshot もそのあと1回作る
 - 送っていないカメラは、今と同じく 0 kbps で、`down_sec` で DOWN になる
 
 ### シーンの健康
 
-監視対象のシーン S の健康（OK / LOW / DOWN）を、そのときの地図とカメラの判定から計算する純粋な関数で決める。
+監視対象のシーン S の健康（OK / LOW / DOWN）を、そのときの地図とカメラの状態から計算する純粋な関数で決める。ここでの「hide のカメラ」は、Studio Mode がオフのときの `on_bad: hide` のカメラ（Studio Mode の間は standby として数える。第1節）。
 
-- S に映るカメラ（第3節）のうち `on_bad: standby` のものが1つでも OK でなければ、**悪い**
-- S に映るカメラがすべて `on_bad: hide` で、すべて OK でなければ（全部隠れる）、**悪い**
-- それ以外は **OK**（「待機へ送る」カメラがすべて OK で、「隠す」カメラの一部が悪いときは、隠すだけでシーンは OK）
-- 悪いときの LOW と DOWN は、悪いと判断したカメラ（上の2つの条件に入ったもの）のうち、いちばん悪いもの（DOWN > LOW）。ログとできごとの `kbps` は、そのカメラ（同じ状態が複数なら設定の順で先のもの）の値
-- 待機シーン、管理外のシーン、地図にないシーン、地図が「不明」のときは健康がない。健康には独自の待ち時間を足さない
+- S に映るカメラのうち、standby のカメラが1つでも OK でなければ、**悪い**
+- S に映るカメラがすべて hide のカメラで、すべて「使えない」なら（全部隠れる）、**悪い**。「使えない」は、OK でないか、表示に戻すのに続けて3回失敗した（第6節）もの
+- それ以外は **OK**
+- 悪いときの LOW と DOWN は、悪いと判断したカメラのうちいちばん悪いもの（DOWN > LOW。3回の失敗で「使えない」ものは DOWN として数える）。ログとできごとの `kbps` は、そのカメラ（同じ状態が複数なら設定の順で先のもの）の値
+- 待機シーン、管理外のシーン、不明のときは健康がない。健康には独自の待ち時間を足さない
 
-## 5. switcher の変更
+## 5. 本体が守ること
+
+第6節と第7節の規則と、M-7 の「入口 × 状態」の表は、次の4つを守るためにある。M-8 の結合のテストは、偽の OBS に対して入力の列を乱数で作り、この4つをいつも確かめる（筋書きを1つずつ足すより漏れが減るため）。
+
+1. **記録のない非表示を作らない**: 本体が送った `false` で非表示になった項目は、必ず一覧か `hidden.json` にある（落ちたとき、切れたとき、遅れて適用されたときも）
+2. **配信中の今のシーンを空にしない**: 本体の操作で、配信中の今のシーン（監視対象）の、実際に表示されているカメラを0にしない（0にするときは、先に待機シーンへ送る）。人の操作で0になったときは、AutoFail が出るまでの間だけ映る（既知の制約）
+3. **人の判断を優先する**: 人が変えた表示を、本体は同じ不調の間は変え直さない
+4. **戻す方へ向かう**: 配信の停止、`auto_enabled` の false、`on_bad` の変更、Studio Mode、世代の停止のあと、一覧は空に向かう（失敗しても出し直す）
+
+## 6. switcher の変更
 
 ### 入口と出力
 
 - `LinkChanged{State}` を **`CamerasChanged{States}`** に置き換える
-- **`SceneMapChanged{Map}`**、**`ItemEnabledChanged{SceneUUID, ItemID, Enabled}`**、**`MapUnknown{}`**（コレクションの切替の始まり）、**`ItemRequestDone{ReqID, Result: OK | Timeout | Error | NotFound}`**（`SetItemEnabled` の応答。項目の期待の期限の起点）、**`HiddenRestored{Entries}`**（`hidden.json` の中身。第6節）、**`Stopping{}`**（世代を止める前の「すべて戻す」。第6節）を足す。`OBSConnected` に最初の地図を載せる
-- `ScenesConfigured` から `Monitored` を外し、カメラの一覧（`id`、`on_bad`）を足す。`ConfigEpoch` を進める条件は、今の内容にカメラの一覧（順序つきで比べる）を足したもの
-- Action に **`SetItemEnabled{SceneName, ItemID, Enabled}`** を足す。`RestartMedia` は **`RestartMedia{Inputs []string, Wait}`**（並べた入力に順に RESTART を送り、最後に1回だけ待つ）にする
-- `Machine.Handle` は**バッチの列**（0個以上、出した順）を返す（コアの spec 6章 細部の規則の「1回の `Handle` が返すバッチは多くても1つ」を置き換える）。列の中の順は、シーンの切替が先、隠す・戻すが後。Command を受け付けた `Handle` で Command のバッチだけを返す規則は残す
-- 中核ループは、受け取ったバッチを列に足すとき、**シーンの切替のバッチを、実行待ちの隠す・戻すのバッチより前に入れる**（実行中のバッチは抜かない）。隠す・戻すのバッチが AutoFail を待たせないため
+- **`SceneMapChanged{Map}`**、**`ItemEnabledChanged{SceneUUID, ItemID, Enabled}`**、**`ItemRequestDone{ReqID, Result: OK | Timeout | Error | NotFound}`**、**`StudioModeChanged{Enabled}`**、**`HiddenRestored{Entries}`**（`hidden.json` の中身）、**`HiddenWriteFailed{BatchID}`**（第7節）、**`Stopping{}`** を足す。`OBSConnected` に最初の地図と Studio Mode を載せる。`SceneChanged`、`OBSConnected` のシーンは UUID
+- `ScenesConfigured` から `Monitored` を外し、カメラの一覧（`id`、`on_bad`）を足す。`ConfigEpoch` を進める条件に、カメラの一覧（順序つき）を足す
+- Action に **`SetItemEnabled{SceneUUID, ItemID, Enabled}`** を足す。`SetScene` は UUID。`RestartMedia` は **`RestartMedia{Inputs []UUID, Wait}`**（並べた入力に順に RESTART を送り、最後に1回だけ待つ。対象が空なら Action ごと省き、待たない）
+- `Machine.Handle` は**バッチの列**を返す（コアの spec 6章 細部の規則の「多くても1つ」を置き換える）。列の順は、シーンの切替 → ShowCamera → HideCamera。Command を受け付けた `Handle` で Command のバッチだけを返す規則は残す
+- 中核ループは、シーンの切替のバッチを、実行待ちの隠す・戻すのバッチより前に入れる（実行中のバッチは抜かない）
 
 ### 目的と有効条件
 
-コアの spec 6章の表を次のように変える（書いていない目的は変えない。共通の条件〔接続、`ConnEpoch`、`StreamEpoch`〕は今のまま）。「戻り先の健康」「今のシーンの健康」は、承認のときにその時点の地図と判定で計算し直す。地図が変わっても新しい世代の番号は足さない（代わりに `SetItemEnabled` の承認で項目を照合する。下）。
+コアの spec 6章の表を次のように変える（書いていない目的は変えない。共通の条件は今のまま）。健康は承認のときにその時点の地図と状態で計算し直す。
 
 | 目的 | バッチ | 有効条件（変えるところ） |
 |---|---|---|
-| AutoFail | `[SetScene(待機シーン)]` | 今のシーンが監視対象で、**健康が悪い**（「受信状態が LOW / DOWN」を置き換え） |
-| AutoRecover | `[RestartMedia(戻り先に映る on_bad: standby のカメラのソースすべて), SetScene(戻り先)]` | **戻り先の健康が OK**（「受信状態が OK」を置き換え）。出すときだけ、加えて「戻り先が待っている隠した項目がない」（下） |
-| StandbyOffMonitored | `[RestartMedia(同上), SetScene(戻り先)]` | `auto_enabled` が true なら**戻り先の健康が OK**。悪いときの `Replace`（持ち主を `auto` にする）は今のまま。出すときだけ、加えて「戻り先が待っている隠した項目がない」 |
-| HideCamera(c) | `[SetItemEnabled(項目, false) …]`（c の項目のうち、地図で今表示のものすべて。全シーン） | 配信中、`auto_enabled`、c が `on_bad: hide`、c が OK でない、地図がある、c に「人が戻した」印がない、`Stopping` を受けていない、**今のシーンを「全部隠れる」にしない**（下） |
-| ShowCamera(c) | `[RestartMedia(c のソースのうち、表示の項目が1つもないもの), SetItemEnabled(項目, true) …]`（c の一覧の項目のうち、地図にあって非表示のものすべて） | **出すとき**: c の一覧に、地図にあって非表示の項目が1つ以上あり、かつ「c を戻してよい」。**承認のとき**: Action ごとに下の「ShowCamera の承認」 |
-| RestoreAll | `[SetItemEnabled(項目, true) …]`（全カメラの一覧の項目のうち、地図にあるものすべて〔隠しかけを含む〕。`RestartMedia` なし、待ちなし） | `Stopping` を受けたとき1回だけ出す（第6節「世代を止めるとき」）。共通の条件は接続と `ConnEpoch` だけ（`StreamEpoch` は見ない）。カメラごとの未完了、5秒、期待の規則を掛けない。承認は Action ごとに、項目が一覧にあり地図にあれば `Proceed`。**「隠しかけ」の項目と、`false` の期待が残る項目は、地図で表示でも `Skip` しない**（送った `false` がまだ届いていないだけのことがあるため。同じ本来の接続で後から送る `true` が後に適用される） |
+| AutoFail | `[SetScene(待機シーン)]` | 今のシーンが監視対象で、**健康が悪い** |
+| AutoRecover | `[RestartMedia(戻り先に映る standby のカメラのソース), SetScene(戻り先)]` | **戻り先の健康が OK**。出すときだけ、加えて「戻り先が待っている隠した項目」がない |
+| StandbyOffMonitored | `[RestartMedia(同上), SetScene(戻り先)]` | `auto_enabled` が true なら**戻り先の健康が OK**。悪いとき、または待っている隠した項目があるときは、今の健康が悪いときの `Replace`（持ち主を `auto` にし、200）と同じ（項目が戻れば AutoRecover が戻す）。`auto_enabled` が false なら待たずに出す |
+| HideCamera(c) | `[SetItemEnabled(項目, false) …]`（c の項目のうち、地図で今表示のもの。全シーン） | 配信中、`auto_enabled`、c が hide のカメラ、c が OK でない、c に「人が戻した」印がない、`Stopping` を受けていない、StartScene のバッチが未完了でない、**今のシーンを空にしない**（下） |
+| ShowCamera(c) | `[RestartMedia(c のソースのうち、表示の項目が1つもないもの), SetItemEnabled(項目, true) …]`（c の一覧の項目のうち、地図にあって非表示のもの） | 出すとき: c の一覧に地図にあって非表示の項目があり、「c を戻してよい」。承認は Action ごと（下） |
+| RestoreAll | `[SetItemEnabled(項目, true) …]`（全カメラの一覧の項目のうち、地図にあるもの。`RestartMedia` なし） | `Stopping` を受けたとき1回だけ出す。共通の条件は接続と `ConnEpoch` だけ。カメラごとの規則を掛けない。「隠しかけ」と `false` の期待が残る項目は、地図で表示でも `Skip` しない |
 
-- **今のシーンを「全部隠れる」にしない**: 今のシーン（program）が監視対象で、c を隠すとそのシーンの健康が「全部隠れる」で悪くなるときは、HideCamera(c) を出さず、承認でも却下する（今のシーンの c の項目だけでなく、バッチ全体）。今のシーンが待機シーン（AutoFail が届いた）か、ほかのシーンに変われば出せる。待機シーンへの切替が失敗や期限切れになっても、今のシーンは変わらないので隠さない（空の画面を配信に出さないため。AutoFail は今どおり再送される）
-- **「c を戻してよい」**: c が OK / 配信中でない / `auto_enabled` が false / c の `on_bad` が `hide` でない、のどれか。c が OK でないとき（無条件に戻すとき）は `RestartMedia` を付けない（映像が来ていないため）
-- **ShowCamera の承認**（Action ごと。一部の項目が先に戻ったり地図が変わったりしても、残りの項目を決められるように、バッチ全体の条件ではなく項目と c の状態を直接見る）: 共通の条件、`Stopping` を受けていない、「c を戻してよい」を確かめたうえで、`RestartMedia` は c が OK なら `Proceed`（OK でなければ `Skip`）。`SetItemEnabled(X, true)` は、X が c の一覧にあり、地図にあって非表示なら `Proceed`、それ以外は `Skip`（下の `SetItemEnabled` の承認の (2)(3)）
-
-- **隠した項目のあるシーンへの切替**: 本体の切替（AutoRecover、StandbyOffMonitored）は、上と下の規則で、戻り先が「全部隠れる」なら健康が悪いので出さず、OK のカメラの隠した項目が残る間も出さない。`auto_enabled` が false なら隠すこと自体をしない（無条件に戻す）。配信開始時の切替は、配信の開始の前に隠した項目はない（HideCamera は配信中だけ）。人が OBS で「全部隠れる」シーンへ切り替えたときは止められないので、そのシーンの健康が悪いことで AutoFail が出るまで、隠れた画面が映る（既知の制約。README に書く）
-- **戻り先が待っている隠した項目**: 戻り先に映る、OK のカメラで、一覧に地図にあって非表示の項目が残っているもの。ある間は AutoRecover と StandbyOffMonitored を出さない（戻ってから空いた画面を映さないため）。承認では見ない（出したあとに OK になった hide のカメラは、戻ったあとに表示に戻れば足りる）。ただし、そのカメラの ShowCamera が続けて3回失敗した（下）ら、そのカメラは待たない
-- AutoRecover の RESTART は「待機へ送る」カメラだけ。「隠す」カメラは、OK に戻った時点の ShowCamera が RESTART してから表示に戻す
-- HideCamera と ShowCamera は、シーンの切替ではないので、`SceneEpoch`、`ConfigEpoch`、切替中の抑止を掛けない。同じカメラの HideCamera と ShowCamera は、どちらかが未完了の間はもう一方を出さない
-- **`SetItemEnabled` の承認**: 次の順に確かめる。(1) 地図が「不明」なら `Reject`。(2) 項目（シーンの UUID と項目の ID）が地図にない、またはその項目のソースが、今の地図でバッチのカメラのメディアソースでない（URL の変更でほかのカメラのソースになった、など）なら `Skip`（その項目は一覧から外す。第6節）。(3) 地図の上ですでに目的の状態なら `Skip`。(4) 目的の有効条件（ShowCamera と RestoreAll は上の項目の条件）。`Proceed` のときは項目の期待を登録する。HideCamera なら、同時に一覧に「隠しかけ」として入れ、`hidden.json` を書く。**書けなければ `Reject`**（記録のない非表示を作らないため。警告と `last_error` に「隠した項目を記録できないため、隠すのを止めました」）。要求の引数のシーン名は、承認の時点の地図の名前を使う
-- **バッチ内の失敗**（コアの spec 6章を足す）: `SetItemEnabled` が失敗しても、バッチを打ち切らずに次の項目へ進み、最後に `BatchDone{Completed}` に `Err` を付ける（1つの項目の失敗で、ほかの項目を戻せなくしないため）。`NotFound`（OBS が項目を見つけられない）なら、その項目を一覧から外す
-- **再送**（コアの spec 6章「再送の歯止め」に足す）: HideCamera と ShowCamera は、条件が続く間、カメラごとに前回の送出から5秒以上たったときだけ出す（`Tick` に限らず、どの入口でも5秒の条件を掛ける。ほかのカメラの変化や地図の変化が続いても連発しないため）。同じ項目への期待が残る間も出さない。**続けて失敗した回数**をカメラごとに数え（`BatchDone` に `Err` がある、または期待の期限切れ）、3回になったら `last_error` に記録する（「<表示名> のソースを隠せません / 表示に戻せません」）。回数は、成功したとき（一覧が目的の状態になった）と、カメラの状態が変わったときに0に戻す
-- **判断し直す入口**: コアの spec 6章の「同じ判定をする」入口に、`CamerasChanged`、`SceneMapChanged`、`ItemEnabledChanged`、`ItemRequestDone`、HideCamera と ShowCamera の `BatchDone` を足す
+- **今のシーンを空にしない**: 今のシーンが監視対象で、c の項目を隠すと、今のシーンに実際に表示されているカメラ（第3節）が0になるなら、HideCamera(c) を出さず、承認でも却下する。今のシーンが変われば（AutoFail が届いた、人が切り替えた）出せる。待機シーンへの切替が失敗や期限切れになっても、今のシーンは変わらないので隠さない
+- **「c を戻してよい」**: c が OK / 配信中でない / `auto_enabled` が false / c が hide のカメラでない（`on_bad` が standby、Studio Mode の間、設定にないカメラ）/ 一覧の項目のソースがもう c のメディアソースでない（その項目だけ）、のどれか。c が OK でないときは `RestartMedia` を付けない
+- **ShowCamera の承認**（Action ごと）: 共通の条件と `Stopping` を受けていないことを確かめたうえで、`RestartMedia` は c が OK なら `Proceed`、でなければ `Skip`。`SetItemEnabled(X, true)` は、X が c の一覧にあり、地図にあって非表示で、X について「c を戻してよい」なら `Proceed`、それ以外は `Skip`
+- **戻り先が待っている隠した項目**: 戻り先に映る、OK のカメラで、一覧に地図にあって非表示の項目が残っているもの（3回の失敗で「使えない」カメラは待たない）。ある間は AutoRecover と StandbyOffMonitored を出さない（戻ってから空いた画面を映さないため）。承認では見ない
+- HideCamera と ShowCamera は、`SceneEpoch`、`ConfigEpoch`、切替中の抑止を掛けない。同じカメラの HideCamera と ShowCamera は、どちらかが未完了の間はもう一方を出さない
+- **`SetItemEnabled` の承認**: (1) 項目が地図にない（消えた）なら `Skip`（一覧から外す）。(2) HideCamera では、項目のソースが今の地図で c のメディアソースでなければ `Skip`（正常なほかのカメラを隠さないため）。(3) 地図の上ですでに目的の状態なら `Skip`（RestoreAll の例外は上）。(4) 目的の条件。`Proceed` のときは項目の期待を登録する
+- **バッチ内の失敗**: `SetItemEnabled` が失敗しても、バッチを打ち切らずに次の項目へ進み、最後に `BatchDone{Completed}` に `Err` を付ける。`NotFound`（goobs のエラーの状態コード 600）なら、その項目を一覧から外す
+- **再送**: HideCamera と ShowCamera は、条件が続く間、カメラごとに前回の送出から5秒以上たったときだけ出す（どの入口でも）。同じ項目への期待が残る間も出さない。続けて失敗した回数をカメラごとに数え、3回で `last_error` に記録し、そのカメラを「使えない」にする（第4節）。回数は、成功したときと、カメラの状態が変わったときに0に戻す
+- **判断し直す入口**: コアの spec 6章の入口に、`CamerasChanged`、`SceneMapChanged`、`ItemEnabledChanged`、`ItemRequestDone`、`StudioModeChanged`、HideCamera と ShowCamera の `BatchDone` を足す
 
 ### 戻り先と地図
 
-- 「持ち主が `auto` で、戻り先が監視対象でなくなったら、持ち主と戻り先を消す（待機シーンに残る）」（コアの spec 6章）を、`SceneMapChanged` と `ItemEnabledChanged` のたびに当てはめる（戻り先のシーンが OBS で消された、カメラが映らなくなった、のどれでも。名前の変更は UUID で追うので消さない。戻り先は UUID で持ち、`SetScene` には承認の時点の名前を使う）
-- 地図がないときの扱いは、第3節「地図がないとき」の表に従う
-- 外部からの手動切替の表、StandbyOff の表、配信開始時の切替（コアの spec 6章）で「受信状態が良い / 悪い」と書かれた箇所は、「今のシーン（または戻り先）の健康が OK / 悪い」と読み替える。健康がないシーン（管理外、不明）は今の「Other」の行に当たる
+- 「持ち主が `auto` で、戻り先が監視対象でなくなったら、持ち主と戻り先を消す（待機シーンに残る）」を、`SceneMapChanged` と `ItemEnabledChanged` のたびに当てはめる（戻り先のシーンが消えた、カメラが映らなくなった。名前の変更は UUID で追うので消さない）
+- 外部からの手動切替の表、StandbyOff の表、配信開始時の切替（コアの spec 6章）の「受信状態が良い / 悪い」は、「今のシーン（または戻り先）の健康が OK / 悪い」と読み替える。健康がないシーンは「Other」の行に当たる
 
-## 6. 隠す・戻す
+## 7. 隠す・戻す
 
-### 一覧と期待
+### 一覧
 
-- **隠した項目の一覧**（カメラごと）: 項目（シーンかグループの UUID と項目の ID）、そのときのソースの UUID、状態（「隠しかけ」か「隠した」）を持つ
-  - 「隠しかけ」で入れる: `SetItemEnabled(false)` の承認が `Proceed` を返した時点（送る前。下の `hidden.json` に書いてから送る）
-  - 「隠した」にする: 期待どおりの `ItemEnabledChanged{Enabled: false}` が届いたとき、または地図で非表示とわかったとき
-  - 外す: (a) 期待どおりの `ItemEnabledChanged{Enabled: true}`（本体が戻した）、(b) 期待の残っていない項目が地図で表示とわかったとき、(c) 項目が地図から消えた、またはそのソースが一覧のソースと違う（ログに残す）、(d) `NotFound`、(e) 下の「人が途中で触ったとき」
-  - `SceneMapChanged` のたびに、一覧の全部の項目を (b)(c) で照合する（読み直しで消えた・変わった項目を残さないため）
-  - 「隠しかけ」は、期限切れ、要求の失敗、切断、配信の停止では消さない。地図で非表示とわかれば「隠した」にする。**表示とわかって外すのは、その要求の決着（`ItemRequestDone` の `OK` か `Error`、または `Timeout`）から10秒たったあと**だけ（OBS が遅れて適用したときに、記録のない非表示を作らないため。表示・非表示はイベントだけを正とするので〔第3節〕、決着のあとの `false` はイベントで届き、「隠しかけ」に当たって「隠した」になる）。`Error` と `NotFound` なら決着の時点で外してよい
-  - 「隠しかけ」の項目に、期待の期限のあとに `ItemEnabledChanged{Enabled: false}` が届いたら、人の操作ではなく本体の操作の遅れとみなして「隠した」にする
-  - **応答が `Timeout` だった `SetItemEnabled(false)`** の項目は、その接続の間ずっと覚えておく。一覧から外れたあとでも、その項目に期待にない `false` が届いたら、本体の操作の遅れとみなし、「隠した」として一覧に戻す（10秒を過ぎて OBS が適用しても、記録のない非表示を作らないため）。`Error` と `NotFound` は、obs-websocket が要求をその場で処理して失敗を返したもので、適用されていないとみなす
-- **項目の期待**: 本体が `Proceed` した `SetItemEnabled` ごとに（項目、目的の状態、`ReqID`）を持つ。期限は `ItemRequestDone{OK}` から2秒（トランジションはないので固定）。`Timeout` なら応答の時刻から2秒、`Error` と `NotFound` ならすぐ消す。期限切れの期待は、シーンの期待と同じく、どの入口でもその時刻で消す。同じ項目に期待が複数あるときは、古いものから照合する。応答より先にイベントが届いたら、そのイベントで照合する（シーンの期待と同じ）。切断と配信の停止で消す
-- 届いた `ItemEnabledChanged` が期待に当たれば本体の操作、当たらなければ人の操作とみなす
+**隠した項目の一覧**（カメラごと）の項目は、接続先とシーンコレクションの名前、項目（シーンかグループの UUID と項目の ID）、そのときのソースの UUID、状態（「隠しかけ」か「隠した」）を持つ。
+
+- **入れる（隠しかけ）**: HideCamera のバッチの最初の `SetItemEnabled` の承認で、バッチの全項目を「隠しかけ」として入れ、`Proceed` の前に core が `hidden.json` を1回書く（1バッチ1回）。書けなければ、core は `HiddenWriteFailed{BatchID}` を `Handle` に渡し（switcher はそのバッチの「隠しかけ」と期待を巻き戻す）、実行役には `Reject` を返す。警告と `last_error`「隠した項目を記録できないため、隠すのを止めました」（ユーザーが承認した）
+- **隠した にする**: 期待どおりの `ItemEnabledChanged{Enabled: false}`、ずれを直す規則（第3節）、地図で非表示とわかったとき
+- **外す**: 期待どおりの `true`（ずれを直す規則を含む）、項目か地図の上の項目そのものが消えた（同じコレクションの地図で）、`NotFound`、人が戻した（下）。外したら `hidden.json` を書き直す
+- HideCamera の `BatchDone` で、送らなかった項目（`Skip`、却下）の「隠しかけ」を外す
+- 「隠しかけ」は、期限切れ、要求の失敗、切断、配信の停止では外さない。地図で非表示なら「隠した」、表示なら、その要求の決着（`ItemRequestDone`）から10秒たったあとに外す（`Error` と `NotFound` なら決着の時点で外してよい）
+- **Timeout の記憶**: 応答が `Timeout`（ID の合わない応答を含む）だった `SetItemEnabled(false)` の項目を、**切断をまたいで**覚える（本来の接続は Timeout でつなぎ直すので）。その項目に期待にない `false` が届いたら、本体の操作の遅れとみなし「隠した」として一覧に入れる。記憶は、その要求のあと最初に届いたその項目の `false`（期待に当たったものを含む）か、その項目への `true` の要求の `OK` で消す（人があとで隠した項目を、本体のものと取り違えないため）
+- **ほかのコレクションの地図**: 地図のコレクションか接続先が項目のものと違うときは、項目を捨てずに「残した記録」へ移す（`hidden.json` の残した記録と同じ扱い）
+
+### 項目の期待
+
+本体が `Proceed` した `SetItemEnabled` ごとに（項目、目的の状態、`ReqID`）を持つ。期限は `ItemRequestDone{OK}` から2秒。`Timeout` なら応答の時刻から2秒、`Error` と `NotFound` ならすぐ消す。**配信の停止では消さず、切断でだけ消す**（シーンの期待と違い、持ち主と戻り先に作用しないため）。届いた `ItemEnabledChanged` が期待に当たれば本体の操作、当たらなければ人の操作とみなす。照合の順と応答より先に届いたイベントの扱いは、シーンの期待に合わせて M-7 の表で決める。
 
 ### 人が途中で触ったとき
 
-- 一覧にある項目に、期待にない `ItemEnabledChanged{Enabled: true}` が届いたら（人が OBS で表示に戻した）、その項目を一覧から外し、カメラに「人が戻した」印を付ける。印のある間は HideCamera を出さない（人の判断を優先する）。印は、そのカメラが OK になったときに消す
-- 「人が戻した」印は、健康の計算には効かない（全部隠れるシーンで人が表示に戻しても、そのシーンは悪いので待機へ送る。README に書く）
-- 一覧にない項目の変化は、地図を書き換えるだけ
+- 一覧にある項目に、期待にない `true` が届いたら、その項目を一覧から外す。そのとき「c を戻してよい」が成り立たない（配信中、`auto_enabled`、hide のカメラ、c が OK でない）なら、カメラに「人が戻した」印を付け、印のある間は HideCamera を出さない。印は、そのカメラが OK になったときと、配信の停止で消す
+- 「人が戻した」印は、健康の計算には効かない（全部隠れるシーンで人が表示に戻しても、そのシーンは悪いので待機へ送る。ユーザーが承認した）
+- 一覧にない項目の変化は、地図を書き換えるだけ（Timeout の記憶に当たるものを除く）
 
-### 無条件に戻すとき
+### 世代を止めるとき
 
-ShowCamera の有効条件（第5節）は状態で書いてあるので、次の状態のあいだ、失敗や取りこぼしのあとでも5秒ごとに出し直す: 配信中でない（配信を止めた、つなぎ直したら止まっていた）、`auto_enabled` が false、そのカメラの `on_bad` が `hide` でない。世代を止めるときは、ShowCamera ではなく RestoreAll で戻す（下）。
+本体の終了と中での再起動では、第2段階の spec 7章の止める順の 3 の前に、app が core に `Stopping` を渡し、最大2秒待つ。
 
-- **世代を止めるとき**（本体の終了と中での再起動）: 第2段階の spec 7章の止める順の 3 の前に、app が core に `Stopping` を渡し、最大2秒待つ
-  - switcher は `Stopping` を受けたら、Auto、HideCamera、ShowCamera を出さず、実行待ちと実行中のそれらのバッチの残りの Action を承認で却下する（実行中の Action〔すでに OBS へ送った要求〕はそのまま終わる）。Command は `ErrInvalidState`（理由「終了中」）にする
-  - 目的 RestoreAll（第5節）のバッチを1本出す。中核ループはそれを、実行中のバッチの次（列の先頭）に入れる。すでに送った `SetItemEnabled(false)` があっても、同じ本来の接続で後から送る `true` が後に適用される
-  - **2秒の待ちの終わり**: RestoreAll の `BatchDone` を受けたとき（すべての要求に応答があった。イベントは待たない）、または2秒たったとき。`BatchDone` のときは、`true` の要求が `OK` だった項目を一覧から外し、`hidden.json` を書いてから、core が app に知らせる。2秒で終わらなければそのまま止める（残った項目は `hidden.json` に残り、次の起動で戻す）
-  - OBS につながっていなければ、RestoreAll は出さず、すぐ終わる（`hidden.json` が残る）
-- OBS の接続が切れてつながり直したときは、最初の地図で一覧を照合する（上の (b)(c)）
+- switcher は `Stopping` を受けたら、Auto、HideCamera、ShowCamera を出さず、実行待ちと実行中のそれらのバッチの残りの Action を承認で却下する（すでに送った要求はそのまま終わる）。Command は `ErrInvalidState`（理由「終了中」）
+- RestoreAll のバッチを1本出す。中核ループはそれを、実行中のバッチの次（列の先頭）に入れる。同じ本来の接続で後から送る `true` は、先に送った `false` のあとに適用される
+- **待ちの終わり**: RestoreAll の `BatchDone`（すべての要求に応答があった。イベントは待たない）か、2秒。`BatchDone` のときは、`true` が `OK` だった項目を一覧から外し、`hidden.json` を書いてから、core が app に知らせる。2秒で終わらなければそのまま止める（残りは `hidden.json` に残り、次の起動で戻す）
+- OBS につながっていなければ、RestoreAll は出さず、すぐ終わる
+- 配信中に中で再起動すると、新しい世代はカメラの初期値が DOWN なので、OK のカメラも `recover_sec` の間いったん隠すか待機へ送る（第2段階 7章の確認の文に1行足す）
 
-### `hidden.json`（落ちたときの戻し）
+### `hidden.json`
 
-- 置き場所（`--dir`。第2段階の spec 3章）の `state/hidden.json` に、一覧（カメラの `id`、接続先〔`obs.host` と `obs.port`〕、シーンコレクションの名前、シーンかグループの UUID、項目の ID、ソースの UUID、状態、書いた時刻）を書く。一覧が変わるたびに、一時ファイルに書いてから名前を替える。空になったら空の一覧を書く
-- 世代を作るとき（第2段階の spec 7章の作る順の 6）に読み、core が `HiddenRestored` として switcher に渡す。switcher は、まだ照合していない記録（読んだものと、下で残したもの）を、**本来の接続で地図を作ったとき**（つないで最初の地図と、コレクションの切替のあとの地図）のたびに照合する: 接続先が今の `obs.host`・`obs.port` と同じで、シーンコレクションの名前が今のものと同じで、項目（UUID と ID）が地図にあり、ソースの UUID が同じで、まだ非表示のものは、「隠した」として一覧に戻す（そのあとは第5節の規則で、配信中で OK でなければ隠したまま、そうでなければ ShowCamera で戻る）。項目がないもの、ソースが違うもの、表示になっているものは捨てる。**接続先かシーンコレクションの名前が違うものは、触らずにファイルに残す**（そのコレクションや OBS に戻ったときに照合する。別の OBS の、同じ UUID の項目を誤って表示に戻さないため。UUID は OBS ごとに作られるので、別の PC の OBS と一致することはまずないが、同じ PC でコレクションを複製すると UUID が同じになりうる〔M-0 で確かめる〕）。残した記録は status の `warnings` に件数を出す。`hidden.json` を書くときは、今の一覧に、残した記録を合わせて書く（残した記録を失わない）
-- 読めない（壊れている）ときは、警告を出して空として扱い、壊れたファイルは `hidden.json.broken` に名前を替えて残す
+- 置き場所（`--dir`）の `state/hidden.json` に、一覧と残した記録（カメラの `id`、接続先、シーンコレクションの名前、シーンかグループの UUID、項目の ID、ソースの UUID、状態、書いた時刻）を書く。一時ファイルに書いてから名前を替える
+- 世代を作るとき（作る順の 6）に読み、`HiddenRestored` として switcher に渡す。switcher は、まだ照合していない記録を、**最初の地図ができたとき**（つないだときと、コレクションの切替のあと。どちらも `OBSConnected`）に照合する: 接続先とコレクションの名前が今のものと同じで、項目が地図にあり、ソースの UUID が同じで、まだ非表示のものは「隠した」として一覧に戻す（そのあとは第6節の規則で、隠したままか、ShowCamera で戻る。設定にないカメラの記録は「c を戻してよい」で戻る）。項目がないもの、ソースが違うもの、表示になっているものは捨てる。接続先かコレクションの名前が違うものは、触らずに残す（件数を status の `warnings` に出す）。空の地図（古い OBS）では照合せずに残す
+- 読めないときは、警告を出して空として扱い、壊れたファイルは `hidden.json.broken` に名前を替えて残す
 
 ### 記録
 
-- ログ: `camera hidden`（`camera`、`items`、`reason`〔`low` / `down`〕）、`camera shown`（`camera`、`items`、`reason`〔`ok` / `stream_stop` / `auto_off` / `config` / `shutdown` / `restore`〕）、`camera changed`（`camera`、`from`、`to`、`kbps`。今の `link changed` を置き換える）、`hidden item dropped`（一覧から (c) で外したとき）
+- ログ: `camera hidden`（`camera`、`items`、`reason`〔`low` / `down`〕）、`camera shown`（`camera`、`items`、`reason`〔`ok` / `stream_stop` / `auto_off` / `config` / `studio_mode` / `shutdown` / `restore`〕）、`camera changed`（`camera`、`from`、`to`、`kbps`。今の `link changed` を置き換える）、`hidden item dropped`
 - できごと（第2段階の spec 8章の一覧に足す）: `camera_hidden`、`camera_shown`（値はログと同じ）
 
-## 7. OBS の動きの確かめ（M-0 の spike）
+## 8. OBS の動きの確かめ
 
-区切り0の状態機械を作る前に、Linux（画面なしの OBS 33）で次を確かめ、この文書を直す（コアの spec 12章の spike と同じ扱い。コードは捨てる）。
+### M-0 で確かめたこと（2026-11-21。結果は scratchpad の `m0/m0-results.md`）
 
-1. UUID（`sceneUuid`、`sourceUuid`、`inputUuid`）と `InputSettingsChanged` を持つ obs-websocket の版と、それを積んだ OBS の版
-2. グループの中の項目の `SceneItemEnableStateChanged`（`sceneName` がグループ名か、UUID があるか）と `SetSceneItemEnabled`。同じ値を設定したときにイベントが出ないこと。表示・非表示の変化（OBS の画面での操作、ほかのツールからの要求、本体の要求）で、本来の接続に必ずイベントが出ること（第3節で表示・非表示はイベントだけを正とするため）
-3. グループの作成と名前の変更で出るイベント
-4. シーンコレクションの切替で出るイベントの順
-5. `GetInputSettings` が既定値（`is_local_file`）を省くか
-6. Studio Mode で、program のシーンの項目を隠したときに配信の画面に効くか（「シーンを複製」の設定の両方で）。効かないなら、Studio Mode がオンで hide のカメラがあるときは status の `warnings` に出し、既知の制約と README に書く
-7. 入れ子のシーンの項目を隠したとき、そのシーンを入れたほかのシーンでも消えること
-8. シーンコレクションを複製したとき、シーンと入力の UUID が元と同じになるか
+1. 最低の版: OBS 30.1.0 / obs-websocket 5.4.0（protocol.md の 5.3.0 と 5.4.0 の差分、UUID 対応のコミット）
+2. グループの中の項目の `SceneItemEnableStateChanged` は、グループ名とグループの UUID で届く。`SetSceneItemEnabled` はグループの名前でも UUID でも効く。同じ値ではイベントが出ない。別の接続からの変化も必ず届く。同じ接続では応答が先
+3. websocket ではグループを作れず、名前も変えられない。GUI で作ると `SceneCreated`（`isGroup: true`）と `SceneItemCreated`、名前の変更は `SceneNameChanged`。**グループの中への項目の追加は通知されない**
+4. `SetCurrentSceneCollection` では `Changing` → `Changed` → 応答。GUI の「複製」では `Changing` がなく、全部のシーンの `SceneRemoved`・`InputRemoved` → 作成 → `CurrentProgramSceneChanged` → `SceneCollectionListChanged` → `Changed`
+5. `GetInputSettings` は既定値を省く。`ffmpeg_source` の `is_local_file` の既定は true
+6. Studio Mode（既定の「シーンを複製」がオン）では、program のシーンの項目を隠しても配信の画面に効かない（次の遷移で効く）。設定をオフにすると効く
+7. 入れ子のシーン N の項目を隠すと、N を入れたシーンでも消える（イベントは N の分の1件）
+8. コレクションを複製すると、シーンと入力の UUID は元と同じ
 
-あわせて、最低の版は obs-websocket の `protocol.md` の「Added in」の記載（UUID の項目、`InputSettingsChanged`、UUID で指定する `SetSceneItemEnabled`）から決める（OBS 33 での実験だけでは決まらないため）。goobs v1.11.1 はこれらの項目と要求を持つ（2026-11-21 に確かめた）。ユーザーの Windows の OBS がその版を満たすかも確かめる
+### M-6 の初めと M-9 で確かめること
 
-## 8. 第2段階のほかの部分への影響
+- 本来の接続の Timeout と ID のずれ（第3節「接続の扱い」）が、偽の WebSocket の相手で起きること
+- 切れた接続の未処理の要求を、OBS があとで適用するか（適用しないなら、Timeout の記憶は「隠しかけを切断をまたいで保ち、最初の地図で決める」に減らせる）
+- 配信中にコレクションを切り替えられるか。切替の途中と終わりに `CurrentProgramSceneChanged`、`CurrentSceneTransitionChanged` が出るか
+- 今のシーンの名前を変えたときに `CurrentProgramSceneChanged` が出るか（UUID で持つので、出なくても困らないことを確かめる）
+- `OK` の応答なのに表示の変化のイベントが出ない場合があるか
+- Studio Mode を Windows の実機で（M-9）
 
-- **status**（コアの spec 9章、第2段階の spec 6章）: `link` を `cameras`（カメラごとの `id`、`name`、`on_bad`、`state`、`kbps`、`online`、`protocol`、`srt`、`sources`〔メディアソースの名前〕、`hidden`〔隠している項目の数〕、`user_shown`〔人が戻した印〕）に置き換える。`obs` に、今のシーンに映るカメラの `id` の一覧（`scene_cameras`）と、今のシーンの健康（`scene_health`。健康がなければ null）を足す。`scene_class` は地図で決める（不明なら `unknown`）。`urls` はカメラごとにする
-- **管理ページ**（第2段階の spec 5章）: 状態の画面の回線の行をカメラごとに。送信の設定の画面をカメラごとの URL と QR に（止めたプロトコルは出さない）。設定の画面に「カメラ」の区分（追加、削除、並べ替え、`id`、表示名、`on_bad`、閾値の上書き〔スイッチで開く〕）。監視対象のシーンとメディアソースを選ぶ欄はなくす
-- **小さな窓**（第2段階の spec 4章）: 回線の行をカメラごとに1行（表示名、●、状態、kbps）。カメラの数に合わせて窓の高さを変える
-- **API**（第2段階の spec 6章）: `GET /api/status` は上の形。`event: sample` は1組（全カメラの値の列）
-- **グラフ**（第2段階の spec 8章「直近10分」）: カメラごとの線。閾値の横線と色の帯は選んだカメラのもの。待機の印に加えて、隠した・戻した印。直近10分はカメラごとに600件
-- **配信の記録**（第2段階の spec 8章）: `sample` のできごとは1組（カメラごとの値の列）で1秒に1件（S2-4。購読の仕組みは変えない）。`auto_fail`・`auto_recover` の `kbps` は第4節のカメラの値、`reason` に加えて `camera`（そのカメラの `id`）。`settings_applied` と meta の設定は、カメラの一覧（`id`、`name`、`on_bad`、合わせたあとの閾値）と、待機シーンなど（`monitored` はなくす）。まとめはカメラごとの平均と最低の kbps、LOW と DOWN の時間と割合、隠した回数と合計の時間。待機の回数・合計・最長は配信全体。CSV はカメラごとの列
-- **ソース**（第2段階の spec 9章）: 使える値に、カメラごとの値（`camera.<id>.kbps`、`camera.<id>.state`、`camera.<id>.name`、`camera.<id>.hidden` など）と、今のシーンの健康を足す。今の `link.*` は、設定で先頭のカメラの値の別名として残す（並べ替えで指す先が変わることを画面に書く）。回線の状況のテストは、カメラごとに状態を選べるようにし、「自動の待機中」の戻り先は、地図の監視対象のシーンの最初のもの（地図がなければ「—」）
-- **メディアソースの URL の書き換え**（第2段階の spec 7章）: カメラごとに行う。書き換える入力は、第3節で見つけたそのカメラのソース（`id` を変えたときは第2節）
-- **README**: 複数のカメラの使い方（OBS にカメラごとのメディアソースを作る、`on_bad` の選び方、使わない日のカメラの運用〔第1節〕、全部隠れるシーンで人が表示に戻しても待機へ送ること）。2台以上を同じ上り回線から送ると帯域を分け合うこと、メディアソースの「ハードウェアデコードを使用」を勧めること。対応する OBS の版
+## 9. 第2段階のほかの部分への影響
 
-## 9. 置き換える箇所
+- **status**（コアの spec 9章、第2段階の spec 6章）: `link` を `cameras`（カメラごとの `id`、`name`、`on_bad`、`state`、`kbps`、`online`、`protocol`、`srt`、`sources`〔メディアソースの名前〕、`hidden`〔隠している項目の数〕、`user_shown`〔人が戻した印〕、`unusable`〔3回の失敗〕）に置き換える。`obs` に、今のシーンに映るカメラの `id` の一覧（`scene_cameras`）、今のシーンの健康（`scene_health`。なければ null）、`studio_mode` を足す。`scene_class` は地図で決める。`urls` はカメラごと
+- **管理ページ**（第2段階の spec 5章、7章「入力の画面」）: 状態の画面の回線の行をカメラごとに。送信の設定の画面をカメラごとの URL と QR に。設定の画面に「カメラ」の区分（追加、削除、並べ替え、`id`、表示名、`on_bad`、閾値の上書き）。監視対象のシーンを選ぶ欄とメディアソースを選ぶ欄はなくす（`GET /api/obs/inputs` は、URL の書き換えの対象の確認に使う）
+- **小さな窓**（第2段階の spec 4章）: 回線の行をカメラごとに1行。カメラの数に合わせて窓の高さを変える
+- **API**（第2段階の spec 6章）: `GET /api/status` は上の形。`event: sample` は1組
+- **グラフ**（第2段階の spec 8章）: カメラごとの線。閾値の横線と色の帯は選んだカメラのもの。待機の印に加えて、隠した・戻した印。直近10分はカメラごとに600件
+- **配信の記録**（第2段階の spec 8章）: `sample` のできごとは1組で1秒に1件（S2-4）。`auto_fail`・`auto_recover` の `kbps` は第4節のカメラの値、`camera` を足す。`settings_applied` と meta の設定は、カメラの一覧（`id`、`name`、`on_bad`、合わせたあとの閾値）と待機シーンなど（`monitored` はなくす）。購読の形の「設定を返す関数」もこの形。まとめはカメラごとの平均と最低の kbps、LOW と DOWN の時間と割合、隠した回数と合計の時間。待機の回数・合計・最長は配信全体。CSV はカメラごとの列
+- **ソース**（第2段階の spec 9章）: 使える値に、カメラごとの値（`camera.<id>.kbps`、`camera.<id>.state`、`camera.<id>.name`、`camera.<id>.hidden` など）と、今のシーンの健康を足す。`link.*` は、設定で先頭のカメラの値の別名として残す（並べ替えで指す先が変わることを画面に書く）。`obs.scene_class` は地図で。回線の状況のテストは、カメラごとに状態を選べるようにし、「自動の待機中」の戻り先は、地図の監視対象のシーンの最初のもの（なければ「—」）
+- **メディアソースの URL の書き換え**（第2段階の spec 7章）: カメラごとに行う（`update_obs_input` はカメラごとの印）
+- **README**: 複数のカメラの使い方、`on_bad` の選び方、使わない日のカメラの運用、全部隠れるシーンで人が表示に戻しても待機へ送ること、人が「全部隠れる」シーンへ切り替えると待機へ送るまで隠れた画面が映ること、Studio Mode では隠さず待機へ送ること、コレクションの切替の間は操作を断ること。2台以上を同じ上り回線から送ると帯域を分け合うこと、メディアソースの「ハードウェアデコードを使用」。対応する OBS の版
+- **既知の制約**（コアの spec 13章に足す）: `hidden.json` は、落ちたあとに人が隠し直した項目と区別できない。補助の接続は常に2本目として開く。HideCamera は全シーンの項目を1つのバッチで送るので、項目が多いと実行中の間だけ AutoRecover が待つ
+
+## 10. 置き換える箇所
 
 | 文書と箇所 | 置き換えの中身 |
 |---|---|
 | コアの spec 1章（前提の OBS の版）、README | 第1節「対応する OBS」 |
-| コアの spec 4章（ひな形、検証、初回の既定値） | 第2節 |
-| コアの spec 5章（Poller、Judge） | 第4節「カメラごとの判定」 |
-| コアの spec 6章 分類、入口と出力、目的と有効条件、自動切替（判断し直す入口、戻り先を消すとき） | 第3節「分類」、第5節、第6節 |
-| コアの spec 6章 外部からの手動切替の表、手動操作（StandbyOff の表）、配信開始時の切替 | 第5節「戻り先と地図」の読み替え |
-| コアの spec 6章 再送の歯止め、バッチ内の失敗 | 第5節「再送」「バッチ内の失敗」を足す |
-| コアの spec 6章 未接続の間、配信の停止 | 項目の期待も消す。地図を「不明」に。一覧の「隠しかけ」は消さない（第6節） |
-| コアの spec 6章 細部の規則 U-01（`RestartMedia` の承認の括弧書きは AutoRecover と StandbyOffMonitored のこと。ShowCamera の `RestartMedia` は ShowCamera の有効条件で決める）、U-14（同じ値の `CamerasChanged`、同じ内容の `SceneMapChanged` では何もしない）、U-15（初期値: カメラごとに DOWN、地図は不明、一覧は空）、U-22（期待にない `ReqID` の `ItemRequestDone` は無視）、Command と自動判定（バッチの列）、V-10（カメラの一覧は順序つきで比べる）、v2.0 の初回の既定値 | 第5節、第6節 |
-| コアの spec 7章（obs） | 接続のときの `media_source` と `monitored_scenes` の確かめを、第3節（最初の地図、カメラのメディアソースの警告）に置き換える。`RestartMedia` は入力の列。`SetSceneItemEnabled`、地図の読み取り、`GetVersion`、第3節のイベントを足す |
-| コアの spec 8章（mediamtx.yml、URL、ポートの事前確認） | 第2節 |
-| コアの spec 9章（status、中核ループ） | 第8節の status。中核ループは Sample の1組で `CamerasChanged` を1回、`Handle` のバッチの列をシーンの切替を先にして列へ、読み直しの間の `ItemEnabledChanged` を重ねる（第3節） |
-| コアの spec 10章（ログ、エラーの表、起動の表示） | `link changed` を `camera changed` に。`camera hidden`・`camera shown`・`hidden item dropped` を足す。`scene switch` の `kbps` は第4節のカメラの値で、`camera` を足す。エラーの表の「メディアソース名が OBS にない」は第3節の警告に。起動の表示はカメラごとの URL |
-| コアの spec 11章、13章 | 第10節のテスト。既知の制約に、Studio Mode（M-0 の結果しだい）、`hidden.json` は落ちたあとに人が隠し直した項目と区別できないこと、補助の接続が常に2本目として開くこと |
-| 第2段階の spec 6章「補助の接続」の開く条件、API の表 | 第3節（常に開く）、第8節（status と `sample`） |
-| 第2段階の spec 7章 反映の区分、すぐ反映の届け方（シーンの設定、閾値）、入力の画面、config.yaml の書き換え、メディアソースの URL の書き換え、作る順と止める順 | 第2節、第8節。作る順の 6 で `hidden.json` を読む。止める順の 3 の前に `Stopping`（第6節） |
-| 第2段階の spec 8章（できごとの一覧、購読の形の設定を返す関数、直近10分、まとめ）、9章（使える値、回線の状況のテスト）、4章、5章 | 第8節 |
-| 第2段階の spec 13章 | 補助の接続は常に2本目として開く |
+| コアの spec 3章（ディレクトリ構成）、第2段階の spec 3章（`--dir` の中身） | `internal/scenemap` と、置き場所の `state/hidden.json` を足す |
+| コアの spec 4章 | 第2節 |
+| コアの spec 5章 | 第4節「カメラごとの判定」 |
+| コアの spec 6章 分類、入口と出力、シーンの比較（名前 → UUID）、切替先の固定（名前 → UUID）、目的と有効条件、自動切替（判断し直す入口、戻り先を消すとき）、再送の歯止め、バッチ内の失敗 | 第3節、第6節、第7節 |
+| コアの spec 6章 外部からの手動切替の表、StandbyOff の表、配信開始時の切替 | 第6節「戻り先と地図」の読み替え |
+| コアの spec 6章 未接続の間、配信の停止 | 項目の期待は切断でだけ消す。一覧の「隠しかけ」は消さない。「人が戻した」印は配信の停止で消す |
+| コアの spec 6章 細部の規則 U-01（`RestartMedia` の承認の括弧書きは AutoRecover と StandbyOffMonitored のこと）、U-14（同じ値の `CamerasChanged`、同じ内容の `SceneMapChanged`）、U-15（初期値: カメラごとに DOWN、地図は不明、一覧は空）、U-22（期待にない `ReqID` の `ItemRequestDone` は無視）、Command と自動判定（バッチの列）、V-10（カメラの一覧は順序つきで比べる）、v2.0 の初回の既定値 | 第6節、第7節 |
+| コアの spec 7章（obs） | `Client` の引数を UUID に。接続のときの名前の確かめを第3節（最初の地図、カメラのメディアソースの警告、待機シーンと開始時のシーンの UUID）に。`RestartMedia` は入力の列。`SetSceneItemEnabled`、`GetVersion`、Studio Mode、地図の読み取り、第3節のイベント、イベントを読む goroutine で要求を送らないこと、本来の接続の Timeout とずれでのつなぎ直し、コレクションの切替を切断として扱うこと |
+| コアの spec 8章 | 第2節 |
+| コアの spec 9章 | 第9節の status。中核ループは Sample の1組で `CamerasChanged` を1回、バッチの列をシーンの切替を先にして列へ、地図にない項目の変化を覚えて重ねる、`hidden.json` を書いて `HiddenWriteFailed` を返す |
+| コアの spec 10章 | `link changed` を `camera changed` に。`camera hidden`・`camera shown`・`hidden item dropped` を足す。`scene switch` の `kbps` は第4節のカメラの値で、`camera` を足す。エラーの表の「メディアソース名が OBS にない」は第3節の警告に。起動の表示はカメラごとの URL |
+| コアの spec 11章、13章 | 第11節のテスト。第9節の既知の制約。goobs の制約に、Timeout とずれ |
+| 第2段階の spec 6章「補助の接続」の開く条件、API の表 | 第3節（常に開く）、第9節 |
+| 第2段階の spec 7章 反映の区分、すぐ反映の届け方、入力の画面、config.yaml の書き換え、メディアソースの URL の書き換え、作る順と止める順、再起動の確認の文 | 第2節、第7節、第9節。作る順の 6 で `hidden.json` を読む。止める順の 3 の前に `Stopping` |
+| 第2段階の spec 8章、9章、4章、5章、13章 | 第9節 |
 
-## 10. テスト
+## 11. テスト
 
-- **config**: `cameras` の検証の表（`id` の形・重複・長さ・特別な名前、`name` の長さと制御文字、`on_bad`、1〜8台、上書きを合わせたあとの閾値の規則と理由の項目名、`switch` の下の知らない項目）、`*_enabled` の両方 false、古い3つの項目のエラーの文、生成した値が検証を通ること
+- **config**: `cameras` の検証の表、`*_enabled` の両方 false、古い3つの項目のエラーの文、生成した値が検証を通ること
 - **URL と mediamtx.yml**: カメラごとの URL、止めたプロトコルの URL と設定とポートの事前確認、path の数
-- **シーンの地図**（`scenemap` の純粋な関数）: URL の照合の表（スキーム、ポート、path の前後の `/`、host を見ない、資格情報つき、`is_local_file` が false・true・項目がない）。たどり方の表（入れ子のシーン、グループ、途中の非表示、本体が隠した項目を表示として数える、同じカメラを2つのソースで、ひし形、循環、読むのはシーンごとに1回）。分類。UUID で名前の変更に追従すること
-- **健康**（純粋な関数）: 第4節の規則の表（standby が1つ悪い、hide だけ悪い、全部 hide で全部悪い、全部 hide で1つ OK、LOW と DOWN の混ざり、`kbps` のカメラの選び方、カメラのないシーン、待機シーン、不明）
-- **switcher**: 「入口 × 状態」の表を新しく作り、レビューしてから実装する（コアの spec 11章と同じ進め方）。今の列のテストは、カメラ1台・`on_bad: standby`・地図でそのカメラが監視対象のシーンに映る形に置き換えて、同じ結果になることを確かめる（第1段階の動きを壊していない証拠）。加えて: バッチの列の順、HideCamera が待機シーンへの切替を待つこと、一覧の状態の移り変わり（隠しかけ、隠した、外す (a)〜(e)）、項目の期待と期限、人が戻した印、無条件に戻す状態（失敗のあとの出し直し、つなぎ直したら配信が止まっていた）、`Stopping` と RestoreAll（実行中・実行待ちのバッチの残りの却下、2秒の待ちの終わり）、今のシーンを「全部隠れる」にしない HideCamera（待機シーンへの切替の失敗のあとも隠さない）、ShowCamera の Action ごとの承認（一部の項目が先に戻ったとき）、「隠しかけ」を外す10秒の規則と遅れた `false`、`hidden.json` を書けないときの却下、コレクションの切替の間にすべての Action を却下すること、戻り先が待つ隠した項目と3回の失敗、RESTART の対象、`SetItemEnabled` の承認の順、バッチ内の失敗の続行、再送の5秒と失敗の回数、戻り先がなくなったとき、地図が不明の間、`HiddenRestored` の照合（コレクションが違うものを残す）
-- **core**: Sample の1組で `CamerasChanged` が1回であること、読み直しの結果で、今の地図にある項目の表示・非表示を使わないこと、`MapReadStarted` から `SceneMapChanged` までの新しい項目の変化を重ねて1回渡すこと（渡し直さないこと）、接続の世代の違う読み直しの結果を捨てること、シーンの切替のバッチを隠す・戻すより前に入れること、`hidden.json` の書き直し（送る前に書く）と壊れたファイル、`Stopping` と2秒の上限
-- **結合**（M-8。偽の OBS で、実行役を含めて）: 切替の失敗、長いトランジション、項目のイベントの欠け・重なり・遅れ、一部の項目の失敗、配信の停止と再開、古い地図の結果、コレクションの切替、止めるときの「すべて戻す」
-- **ingest**: `/v3/paths/list` の1回の読み取りから1組の Sample を作ること、カメラごとの基準、SRT の振り分け、API の失敗で全カメラに `Err`
+- **シーンの地図と健康**（`scenemap` の純粋な関数）: URL の照合の表（スキーム、ポート、path の前後の `/`、host を見ない、資格情報つき、`is_local_file` が false・true・項目がない）。たどり方の表（入れ子、グループ、途中の非表示、本体が隠した項目を「映る」では表示・「実際に表示」では非表示として数える、同じカメラを2つのソースで、ひし形、循環、読むのはシーンごとに1回）。分類。健康の規則の表（Studio Mode、3回の失敗を含む）
+- **switcher**: 「入口 × 状態」の表を新しく作り、Fable か codex sol でレビューしてから実装する。今の列のテストは、カメラ1台・`on_bad: standby`・地図でそのカメラが監視対象のシーンに映る形に置き換えて、同じ結果になることを確かめる。第5節の4つを守ることを、表の行ごとに確かめる
+- **obs**: 本来の接続の Timeout とずれでつなぎ直すこと（偽の WebSocket の相手で）、コレクションの切替（`Changing` からと、今の program のシーンの `SceneRemoved` から）を切断として流すこと、イベントを読む goroutine で要求を送らないこと、地図の読み取りの順とまとめ方と30秒、`InputSettingsChanged`、古い版で空の地図、最初の地図の3回の失敗
+- **core**: Sample の1組で `CamerasChanged` が1回、地図にない項目の変化を重ねて1回渡すこと、接続の世代の違う結果を捨てること、シーンの切替のバッチを先に入れること、`hidden.json` をバッチごとに1回書くことと `HiddenWriteFailed`、`Stopping` と2秒
+- **結合**（M-8。偽の OBS で、実行役を含めて）: 入力の列を乱数で作り、第5節の4つをいつも確かめる。列には、切替の失敗、長いトランジション、項目のイベントの欠け・重なり・遅れ、Timeout のあとに届く応答、一部の項目の失敗、配信の停止と再開、古い地図の結果、コレクションの切替、Studio Mode、止めるときの RestoreAll を含める
+- **ingest**: `/v3/paths/list` の1回の読み取りから1組の Sample、カメラごとの基準、SRT の振り分け、API の失敗で全カメラに `Err`
 - **実機の確認**（M-9。ユーザーと一緒に）:
-  - Linux（画面なしの OBS）: ffmpeg で2〜3本の偽のカメラを送り、帯域を絞る中継で1本ずつ乱す。待機へ送る・戻る、隠す・戻す、全部隠れて待機へ（待機シーンへ届いてから隠れること）、戻るときに隠していたカメラが先に表示に戻ること、入れ子のシーンとグループ、人が途中で表示を変える、強制終了のあとの `hidden.json` からの戻し、シーンコレクションの切替、OBS を先に閉じたとき、受付の停止、使わない日のカメラの運用（第1節）
-  - **第1段階の確認のやり直し**（カメラ1台）: switcher を広げるので、コアの spec 11章の手動の結合テストと、Windows の手順書（`docs/superpowers/plans/2026-11-20-windows-runbook.md`）の W と T の項目を、カメラ1台・`on_bad: standby` でやり直す。第1段階で残った T-12（上り回線の瞬断）と T-15（Tailscale でモバイル回線から送信）もここで行う
-  - Windows: スマホ2台（できれば別の回線）で同じ流れ。OBS のデコードの負荷（ハードウェアデコードの有無）と、同じ回線から2台を送ったときの乱れ方。Studio Mode（M-0 の結果しだい）
+  - Linux（画面なしの OBS）: ffmpeg で2〜3本の偽のカメラを送り、帯域を絞る中継で1本ずつ乱す。待機へ送る・戻る、隠す・戻す、全部隠れて待機へ（待機シーンへ届いてから隠れること）、戻るときに隠していたカメラが先に表示に戻ること、入れ子のシーンとグループ、人が途中で表示を変える、強制終了のあとの `hidden.json` からの戻し、シーンコレクションの切替（websocket と GUI の複製）、OBS を先に閉じたとき、受付の停止、使わない日のカメラの運用
+  - 第1段階の確認のやり直し（カメラ1台）: コアの spec 11章の手動の結合テストと、Windows の手順書の W と T の項目。残りの T-12 と T-15 もここで
+  - Windows: スマホ2台（できれば別の回線）で同じ流れ。OBS のデコードの負荷と、同じ回線から2台を送ったときの乱れ方。Studio Mode で隠さず待機へ送ること
 
 ## 変更履歴
 
 | 日付 | 版 | 変更 | 理由 | commit |
 |---|---|---|---|---|
-| 2026-11-21 | v0.1 | 初版。brainstorming の第4節「戻るときのバッチ」は、書く途中で、隠していたカメラを戻すのを ShowCamera に任せ、AutoRecover はそれを待つ形に詰めた（1つの入口から複数のバッチが決まるため、`Handle` がバッチの列を返す形にした） | 2026-11-21 の brainstorming（ユーザーが節ごとに承認） | f704f2c |
-| 2026-11-21 | v0.2 | 対応する OBS の版を上げ、UUID で識別する。使わない日のカメラは運用で扱う（第1節）。最初の地図は本来の接続で `OBSConnected` の前に読む。読み直しの間の表示の変化は、同じチャネルの `MapReadStarted` で区切り、地図に重ねて1回だけ渡す。`InputSettingsChanged` はメディアソースだけ、その入力の照合だけ。シーンコレクションの切替で地図を不明にして要求を止める。Sample を1組にして `CamerasChanged` を1回。一覧に「隠しかけ」を足して送る前に記録し、地図のたびに照合して外す規則（(a)〜(e)）を書いた。ShowCamera と「戻り先が待つ隠した項目」を状態で書き、3回の失敗で待たない。HideCamera は待機シーンへの切替を待つ。`SetItemEnabled` の承認の順、`ItemRequestDone`、バッチ内の失敗の続行、再送の5秒をどの入口にも、失敗の回数。`Stopping` と全カメラの戻しを1本のバッチに。シーンの切替のバッチを先に入れる。`hidden.json` にコレクションと UUID、違うコレクションのものは残す。`id` を変えたときの URL の書き換えの引き継ぎ、`cameras` の書き換えは区分ごと Node で。`scenemap` パッケージ（import の循環を避ける）。M-0 の spike（第7節）。置き換える箇所の表を広げた | 設計レビュー1周目（Fable: Critical 1 / Important 13 / Minor 9、codex sol: Critical 0 / Important 13 / Minor 2）と、2026-11-21 のユーザーの裁定 | 411cf41 |
-| 2026-11-21 | v0.3 | 項目の表示・非表示は本来の接続のイベントだけを正とし、読み直しの結果は新しい項目にだけ使う。コレクションの切替の間はすべての Action を却下し Command を断る。HideCamera は今のシーンを「全部隠れる」にしない（待機シーンへの切替の失敗のあとも隠さない）。ShowCamera は出すときの条件と Action ごとの承認を分けた。止めるときは目的 RestoreAll（共通の条件は接続だけ、カメラごとの規則を掛けない、列の先頭、2秒の待ちの終わり）。「隠しかけ」は決着から10秒たつまで表示で外さず、遅れた `false` は本体の操作とみなす。`hidden.json` を書けなければ隠さない。`hidden.json` に接続先を足した。M-0 に2点を足した | 閉鎖確認（codex terra: Critical 0 / Important 6） | f23628a |
-| 2026-11-21 | v0.4 | 地図にない項目の表示の変化をいつも覚えて、どの新しい地図にも重ねる（最初の地図とコレクションの切替のあとも）。RestoreAll は「隠しかけ」と `false` の期待が残る項目を `Skip` せず、`BatchDone` で待ちを終える。`Timeout` だった隠す要求の項目を接続の間覚え、遅れた `false` を本体の操作とみなす。隠した項目のあるシーンへの切替の扱いと、人の切替の既知の制約を書いた。`hidden.json` の残した記録は、本来の接続で地図を作るたびに照合し、書くときに失わない。地図がないときの3つの場合（切断、コレクションの切替中、非対応の版）の表を足し、節どうしの食い違いを直した。M-0 に最低の版の決め方を、実機の確認に第1段階のやり直しと T-12・T-15 を足した | 閉鎖確認 2回目（codex terra: Critical 0 / Important 5）と、指揮者の読み直し | この版の commit |
+| 2026-11-21 | v0.1 | 初版 | 2026-11-21 の brainstorming（ユーザーが節ごとに承認） | f704f2c |
+| 2026-11-21 | v0.2 | UUID で識別、最初の地図を本来の接続で、読み直しの間の変化を重ねる、`InputSettingsChanged` の絞り、コレクションの切替、1組の Sample、「隠しかけ」と一覧の照合、ShowCamera と待ちを状態で、HideCamera が待機を待つ、承認の順、`ItemRequestDone`、失敗の続行と回数、`Stopping`、`hidden.json` の照合、`id` の変更、`scenemap`、M-0 | 設計レビュー1周目（Fable: C1/I13/M9、codex sol: C0/I13/M2）と 2026-11-21 のユーザーの裁定（OBS の版を上げる、使わないカメラは運用で） | 411cf41 |
+| 2026-11-21 | v0.3 | 表示・非表示はイベントを正に、コレクションの切替の間の却下、全部隠れるにしない、ShowCamera の承認を Action ごとに、RestoreAll、「隠しかけ」の10秒、`hidden.json` を書けなければ隠さない、接続先 | 閉鎖確認（codex terra: C0/I6） | f23628a |
+| 2026-11-21 | v0.4 | 地図にない項目の変化をいつも覚えて重ねる、RestoreAll の `Skip` と待ちの終わり、Timeout の記憶、隠した項目のあるシーンへの切替、残した記録の照合、地図がないときの3つの場合、実機の確認の範囲 | 閉鎖確認 2回目（codex terra: C0/I5）と指揮者の読み直し | 8245fce |
+| 2026-11-21 | v0.5 | M-0 の結果を入れた（最低の版 OBS 30.1.0、グループの中の追加が通知されないので30秒ごとの読み直し、GUI の複製は program のシーンの削除で切替とみなす、Studio Mode では hide を standby として扱う〔指揮者の提案〕）。本来の接続も Timeout とずれでつなぎ直す（第1段階にも効く）。要求とシーンの識別を UUID に。コレクションの切替を切断として扱い、`MapUnknown` と特別な却下をなくした。古い OBS は空の地図。最初の地図の3回の失敗で空の地図。ずれを直す規則（`OK` の応答でイベントが来なければその値）。イベントを読む goroutine で要求を送らない。Timeout の記憶を切断をまたいで持ち、最初の `false` か `true` の `OK` で消す。ソースがカメラのものでなくなった項目は戻す。今のシーンを空にしないを「実際に表示」で。列の順は切替 → Show → Hide。3回の失敗で「使えない」。StandbyOff で待つときは持ち主を `auto` に。読み直しの間の `InputSettingsChanged` でもう一度読む。`hidden.json` はバッチごとに1回書き、`HiddenWriteFailed`。一覧の項目にコレクションを持たせ、違う地図では残した記録へ。期待は切断でだけ消し、人が戻した印は配信の停止でも消す。StartScene の間は隠さない。第5節に守ることの4つを置き、細部は M-7 の表へ | M-0 の spike と、設計レビュー2周目（Fable: C1/I12/M8） | この版の commit |

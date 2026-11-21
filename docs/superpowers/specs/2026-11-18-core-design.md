@@ -2,7 +2,7 @@
 
 - 作成日: 2026-11-18
 - 版: v2.15（変更は末尾の変更履歴を参照）
-- **複数のカメラ（v2.15）**: 4章〜10章の一部（1本の path と1つの受信状態、`stream.name`、`obs.media_source`、`obs.monitored_scenes`、`LinkChanged`、分類、AutoFail と AutoRecover の条件など）は、`docs/superpowers/specs/2026-11-21-multi-camera-design.md`（第2段階の区切り0）で置き換える。置き換える箇所はその文書の第9節の表。食い違うときはその文書を優先する
+- **複数のカメラ（v2.15）**: 4章〜10章の一部（1本の path と1つの受信状態、`stream.name`、`obs.media_source`、`obs.monitored_scenes`、`LinkChanged`、分類、AutoFail と AutoRecover の条件など）は、`docs/superpowers/specs/2026-11-21-multi-camera-design.md`（第2段階の区切り0）で置き換える。置き換える箇所はその文書の第10節の表。食い違うときはその文書を優先する
 - 状態: ユーザー承認済みの設計（セクション1〜5）を文書化したもの。v2.0 でシーンのモデルを 2026-11-19 のユーザーの裁定に合わせて書き直した（6章の末尾に「実装前に決めたこと」がある）
 - 対象バージョン: MediaMTX v1.21.4（2026-11-15 リリース）、obs-websocket v5
 
