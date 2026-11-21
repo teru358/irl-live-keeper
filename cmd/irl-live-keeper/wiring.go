@@ -88,17 +88,43 @@ func judgeThresholds(cfg *config.Config) ingest.Thresholds {
 // defaultObsReadHost は stream.obs_read_host が空のときの OBS 用 URL の host（本ツールを配信 PC に置く場合）。
 const defaultObsReadHost = "127.0.0.1"
 
-// buildURLs は status と起動時の表示に使う URL を作る。送信用は publishHost とポートの上書き、OBS 用は stream.obs_read_host（空なら 127.0.0.1）。OBS 用 URL は RTSP（Windows の OBS で遅延は約1秒）。
-func buildURLs(cfg *config.Config, publishHost string) core.URLs {
+// camURLs は1台のカメラの URL。止めたプロトコルの送信用は空文字。
+type camURLs struct {
+	Name, ID                         string
+	PublishSRT, PublishRTMP, OBSRead string
+}
+
+// buildCameraURLs はカメラごとの URL を設定の順に作る。送信用は publishHost とポートの上書き、
+// OBS 用は stream.obs_read_host（空なら 127.0.0.1）の RTSP（Windows の OBS で遅延は約1秒）。
+// 起動時の表示は、この列をそのまま使う。
+func buildCameraURLs(cfg *config.Config, publishHost string) []camURLs {
 	obsHost := cfg.Stream.ObsReadHost
 	if obsHost == "" {
 		obsHost = defaultObsReadHost
 	}
 	pub := supervisor.PublishURLs(cfg, publishHost)
+	read := supervisor.ReadURLs(cfg, obsHost)
+	out := make([]camURLs, len(cfg.Cameras))
+	for i, cam := range cfg.Cameras {
+		out[i] = camURLs{
+			Name:        cam.Name,
+			ID:          cam.ID,
+			PublishSRT:  pub[i].SRT,
+			PublishRTMP: pub[i].RTMP,
+			OBSRead:     read[i].RTSP,
+		}
+	}
+	return out
+}
+
+// buildURLs は status に出す URL。先頭のカメラの URL を入れる（カメラごとの status は M-8）。
+// 止めたプロトコルの送信用は空文字になる。
+func buildURLs(cfg *config.Config, publishHost string) core.URLs {
+	first := buildCameraURLs(cfg, publishHost)[0]
 	return core.URLs{
-		PublishSRT:  pub.SRT,
-		PublishRTMP: pub.RTMP,
-		OBSRead:     supervisor.ReadURLs(cfg, obsHost).RTSP,
+		PublishSRT:  first.PublishSRT,
+		PublishRTMP: first.PublishRTMP,
+		OBSRead:     first.OBSRead,
 	}
 }
 

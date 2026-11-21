@@ -5,14 +5,31 @@ import (
 	"testing"
 )
 
+// mainCam と subCam は2台の表示の例（id は main と sub、表示名は メインカメラ と サブカメラ）。
+var mainCam = camURLs{
+	Name:        "メインカメラ",
+	ID:          "main",
+	PublishSRT:  "srt://192.168.1.10:8890?streamid=publish:main:irl:PPPP",
+	PublishRTMP: "rtmp://192.168.1.10:1935/main?user=irl&pass=PPPP",
+	OBSRead:     "rtsp://obs:RRRR@127.0.0.1:8554/main",
+}
+
+var subCam = camURLs{
+	Name:        "サブカメラ",
+	ID:          "sub",
+	PublishSRT:  "srt://192.168.1.10:8890?streamid=publish:sub:irl:PPPP",
+	PublishRTMP: "rtmp://192.168.1.10:1935/sub?user=irl&pass=PPPP",
+	OBSRead:     "rtsp://obs:RRRR@127.0.0.1:8554/sub",
+}
+
 func TestStartupBanner(t *testing.T) {
 	base := bannerInfo{
-		PublishSRT:  "srt://192.168.1.10:8890?streamid=publish:live:irl:PPPP",
-		PublishRTMP: "rtmp://192.168.1.10:1935/live?user=irl&pass=PPPP",
-		OBSRead:     "rtsp://obs:RRRR@127.0.0.1:8554/live",
-		AdminURL:    "http://127.0.0.1:8787",
-		HostFound:   true,
+		Cameras:   []camURLs{mainCam},
+		AdminURL:  "http://127.0.0.1:8787",
+		HostFound: true,
 	}
+	noRTMP := func(c camURLs) camURLs { c.PublishRTMP = ""; return c }
+	noSRT := func(c camURLs) camURLs { c.PublishSRT = ""; return c }
 	tests := []struct {
 		name    string
 		mutate  func(b *bannerInfo)
@@ -20,9 +37,9 @@ func TestStartupBanner(t *testing.T) {
 		wantNot []string
 	}{
 		{
-			name:    "手動で、config を生成していない",
+			name:    "1台、手動で、config を生成していない",
 			mutate:  func(b *bannerInfo) {},
-			want:    []string{base.PublishSRT, base.PublishRTMP, base.OBSRead, "http://127.0.0.1:8787"},
+			want:    []string{mainCam.PublishSRT, mainCam.PublishRTMP, mainCam.OBSRead, "メインカメラ（main）", "http://127.0.0.1:8787"},
 			wantNot: []string{"パスワード", "置き換え", "見つかりません"},
 		},
 		{
@@ -45,6 +62,24 @@ func TestStartupBanner(t *testing.T) {
 			mutate: func(b *bannerInfo) { b.AutoHost, b.HostFound = true, false },
 			want:   []string{"見つかりません", "127.0.0.1", "stream.publish_host"},
 		},
+		{
+			name:    "2台、両方（それぞれの名前と URL を出す）",
+			mutate:  func(b *bannerInfo) { b.Cameras = []camURLs{mainCam, subCam} },
+			want:    []string{"メインカメラ（main）", "サブカメラ（sub）", mainCam.PublishSRT, mainCam.PublishRTMP, mainCam.OBSRead, subCam.PublishSRT, subCam.PublishRTMP, subCam.OBSRead},
+			wantNot: []string{"パスワード"},
+		},
+		{
+			name:    "RTMP を止めた（どのカメラも RTMP の行と URL を出さない）",
+			mutate:  func(b *bannerInfo) { b.Cameras = []camURLs{noRTMP(mainCam), noRTMP(subCam)} },
+			want:    []string{mainCam.PublishSRT, subCam.PublishSRT, mainCam.OBSRead, subCam.OBSRead},
+			wantNot: []string{"RTMP:", mainCam.PublishRTMP, subCam.PublishRTMP},
+		},
+		{
+			name:    "SRT を止めた（どのカメラも SRT の行と URL を出さない）",
+			mutate:  func(b *bannerInfo) { b.Cameras = []camURLs{noSRT(mainCam), noSRT(subCam)} },
+			want:    []string{mainCam.PublishRTMP, subCam.PublishRTMP, mainCam.OBSRead, subCam.OBSRead},
+			wantNot: []string{"SRT :", mainCam.PublishSRT, subCam.PublishSRT},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -65,6 +100,32 @@ func TestStartupBanner(t *testing.T) {
 				t.Errorf("末尾が改行でない: %q", got)
 			}
 		})
+	}
+}
+
+// 2台のとき、設定の順（main、sub）に並ぶ。自動の host の案内は1回だけ。
+func TestStartupBannerOrderAndNoteOnce(t *testing.T) {
+	got := startupBanner(bannerInfo{
+		Cameras:   []camURLs{mainCam, subCam},
+		AdminURL:  "http://127.0.0.1:8787",
+		AutoHost:  true,
+		HostFound: true,
+	})
+	at := func(s string) int {
+		i := strings.Index(got, s)
+		if i < 0 {
+			t.Fatalf("表示に %q がない:\n%s", s, got)
+		}
+		return i
+	}
+	if at(mainCam.PublishSRT) > at(subCam.PublishSRT) {
+		t.Errorf("送信用の並びが設定の順になっていない:\n%s", got)
+	}
+	if at(mainCam.OBSRead) > at(subCam.OBSRead) {
+		t.Errorf("OBS 用の並びが設定の順になっていない:\n%s", got)
+	}
+	if n := strings.Count(got, "屋外から送るときは"); n != 1 {
+		t.Errorf("自動の host の案内が %d 回出ている（1回のはず）:\n%s", n, got)
 	}
 }
 

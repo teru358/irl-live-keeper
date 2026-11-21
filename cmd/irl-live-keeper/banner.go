@@ -7,9 +7,8 @@ import (
 
 // bannerInfo は起動時の表示に使う値。
 type bannerInfo struct {
-	PublishSRT  string
-	PublishRTMP string
-	OBSRead     string
+	// Cameras は設定の順。止めたプロトコルの送信用 URL は空文字で、表示しない。
+	Cameras []camURLs
 	// AdminURL は管理 API の URL。AdminNote は LAN に公開しているときの案内（空なら出さない）。
 	AdminURL  string
 	AdminNote string
@@ -25,16 +24,25 @@ func startupBanner(b bannerInfo) string {
 	var s strings.Builder
 	s.WriteString("== irl-live-keeper ==\n")
 	s.WriteString("送信用 URL（配信アプリに設定する）\n")
-	fmt.Fprintf(&s, "  SRT : %s\n", b.PublishSRT)
-	fmt.Fprintf(&s, "  RTMP: %s\n", b.PublishRTMP)
+	for _, c := range b.Cameras {
+		fmt.Fprintf(&s, "  %s\n", c.label())
+		if c.PublishSRT != "" {
+			fmt.Fprintf(&s, "    SRT : %s\n", c.PublishSRT)
+		}
+		if c.PublishRTMP != "" {
+			fmt.Fprintf(&s, "    RTMP: %s\n", c.PublishRTMP)
+		}
+	}
 	if b.AutoHost {
 		if !b.HostFound {
 			s.WriteString("  LAN の IPv4 アドレスが見つかりません。host を 127.0.0.1 にしています（stream.publish_host で固定できます）\n")
 		}
 		s.WriteString("  屋外から送るときは、host をポート転送やトンネルのアドレスに置き換える（stream.publish_host で固定できる）\n")
 	}
-	s.WriteString("OBS のメディアソース用 URL\n")
-	fmt.Fprintf(&s, "  %s\n", b.OBSRead)
+	s.WriteString("OBS のメディアソース用 URL（カメラごと）\n")
+	for _, c := range b.Cameras {
+		fmt.Fprintf(&s, "  %s\n    %s\n", c.label(), c.OBSRead)
+	}
 	s.WriteString("管理 API\n")
 	fmt.Fprintf(&s, "  %s （ユーザー名 admin）\n", b.AdminURL)
 	if b.AdminNote != "" {
@@ -44,6 +52,11 @@ func startupBanner(b bannerInfo) string {
 		s.WriteString(adminPasswordLine(b.AdminPassword))
 	}
 	return s.String()
+}
+
+// label はカメラの表示名と id（URL の path）。表示名は重複してよいので、id を並べて区別する。
+func (c camURLs) label() string {
+	return fmt.Sprintf("%s（%s）", c.Name, c.ID)
 }
 
 // adminPasswordLine は、config.yaml を生成したときに出す管理 API のパスワードの行。

@@ -126,7 +126,7 @@ func run(ctx context.Context, base string, stdout, stderr io.Writer) int {
 	lanHost, _, lanFound := choosePublishHost("", systemInterfaces)
 	adminURL, adminNote := adminBannerURL(cfg.Admin.Port, cfg.Admin.LAN, lanHost, lanFound)
 	info := bannerInfo{
-		PublishSRT: urls.PublishSRT, PublishRTMP: urls.PublishRTMP, OBSRead: urls.OBSRead,
+		Cameras:  buildCameraURLs(cfg, host),
 		AdminURL: adminURL, AdminNote: adminNote, AutoHost: auto, HostFound: found,
 	}
 	if generated {

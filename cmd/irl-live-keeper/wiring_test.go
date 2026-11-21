@@ -3,6 +3,7 @@ package main
 import (
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -188,5 +189,79 @@ func TestBuildURLsOverrides(t *testing.T) {
 				t.Errorf("OBS = %q, want %q", u.OBSRead, tt.wantOBSRead)
 			}
 		})
+	}
+}
+
+func TestBuildCameraURLs(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.Cameras = []config.Camera{
+		{ID: "main", Name: "メインカメラ", OnBad: "standby"},
+		{ID: "sub", Name: "サブカメラ", OnBad: "hide"},
+	}
+	cfg.Stream.PublishUser, cfg.Stream.PublishPass = "irl", "PUBPASS12"
+	cfg.Stream.ReadUser, cfg.Stream.ReadPass = "obs", "READPASS1"
+
+	// obs_read_host が空なら、どのカメラの OBS 用も 127.0.0.1
+	got := buildCameraURLs(cfg, "192.168.1.10")
+	want := []camURLs{
+		{
+			Name: "メインカメラ", ID: "main",
+			PublishSRT:  "srt://192.168.1.10:8890?streamid=publish:main:irl:PUBPASS12",
+			PublishRTMP: "rtmp://192.168.1.10:1935/main?user=irl&pass=PUBPASS12",
+			OBSRead:     "rtsp://obs:READPASS1@127.0.0.1:8554/main",
+		},
+		{
+			Name: "サブカメラ", ID: "sub",
+			PublishSRT:  "srt://192.168.1.10:8890?streamid=publish:sub:irl:PUBPASS12",
+			PublishRTMP: "rtmp://192.168.1.10:1935/sub?user=irl&pass=PUBPASS12",
+			OBSRead:     "rtsp://obs:READPASS1@127.0.0.1:8554/sub",
+		},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("カメラごとの URL\n got: %+v\nwant: %+v", got, want)
+	}
+
+	// obs_read_host を書けば、すべてのカメラの OBS 用がその host になる
+	cfg.Stream.ObsReadHost = "192.168.1.20"
+	for i, c := range buildCameraURLs(cfg, "192.168.1.10") {
+		if !strings.HasPrefix(c.OBSRead, "rtsp://obs:READPASS1@192.168.1.20:8554/") {
+			t.Errorf("カメラ %d の OBS 用の host: %q", i, c.OBSRead)
+		}
+	}
+}
+
+// 止めたプロトコルの送信用は空文字。OBS 用の RTSP は止めていても作る。
+func TestBuildCameraURLsStopped(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.Cameras = []config.Camera{{ID: "main", Name: "メイン", OnBad: "standby"}, {ID: "sub", Name: "サブ", OnBad: "standby"}}
+	cfg.MediaMTX.RTMPEnabled = false
+	for i, c := range buildCameraURLs(cfg, "192.168.1.10") {
+		if c.PublishRTMP != "" || c.PublishSRT == "" || c.OBSRead == "" {
+			t.Errorf("RTMP を止めたときのカメラ %d: %+v", i, c)
+		}
+	}
+	cfg.MediaMTX.RTMPEnabled, cfg.MediaMTX.SRTEnabled = true, false
+	for i, c := range buildCameraURLs(cfg, "192.168.1.10") {
+		if c.PublishSRT != "" || c.PublishRTMP == "" || c.OBSRead == "" {
+			t.Errorf("SRT を止めたときのカメラ %d: %+v", i, c)
+		}
+	}
+}
+
+// status の urls は先頭のカメラ。止めた方は空文字。
+func TestBuildURLsStatusUsesFirstCamera(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.Cameras = []config.Camera{{ID: "main", Name: "メイン", OnBad: "standby"}, {ID: "sub", Name: "サブ", OnBad: "standby"}}
+	cfg.Stream.PublishUser, cfg.Stream.PublishPass = "irl", "PUBPASS12"
+	cfg.Stream.ReadUser, cfg.Stream.ReadPass = "obs", "READPASS1"
+	cfg.MediaMTX.SRTEnabled = false
+	got := buildURLs(cfg, "192.168.1.10")
+	want := core.URLs{
+		PublishSRT:  "",
+		PublishRTMP: "rtmp://192.168.1.10:1935/main?user=irl&pass=PUBPASS12",
+		OBSRead:     "rtsp://obs:READPASS1@127.0.0.1:8554/main",
+	}
+	if got != want {
+		t.Errorf("status の URL = %+v, want %+v", got, want)
 	}
 }

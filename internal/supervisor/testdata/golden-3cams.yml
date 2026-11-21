@@ -1,0 +1,52 @@
+# 自動生成。編集しないこと
+logLevel: info
+logDestinations: [stdout]
+api: true
+apiAddress: 127.0.0.1:9997
+apiEncryption: false
+metrics: false
+pprof: false
+playback: false
+rtsp: true
+rtspTransports: [tcp]
+rtspEncryption: "no"
+rtspAddress: :8554
+rtmp: true
+rtmpEncryption: "no"
+rtmpAddress: :1935
+srt: true
+srtAddress: :8890
+hls: false
+webrtc: false
+moq: false
+authMethod: internal
+authInternalUsers:
+  - user: irl
+    pass: pubPASS123
+    ips: []
+    permissions:
+      - action: publish
+        path: main
+      - action: publish
+        path: sub
+      - action: publish
+        path: hand
+  - user: obs
+    pass: readPASS123
+    ips: []
+    permissions:
+      - action: read
+        path: main
+      - action: read
+        path: sub
+      - action: read
+        path: hand
+  - user: APIUSER
+    pass: APIPASS
+    ips: ["127.0.0.1", "::1"]
+    permissions:
+      - action: api
+paths:
+  main: {}
+  sub: {}
+  hand: {}
