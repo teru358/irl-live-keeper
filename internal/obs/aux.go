@@ -57,6 +57,9 @@ type auxConn struct {
 	rec    *connRecorder
 	dead   chan struct{}
 	reason error // dead を閉じる前に書く
+	// gate は goobs の中に入る要求を1本に絞る（容量1）。2本目以降は Aux の中で、期限と dead を
+	// 見ながら待つ。捨てた Client には、以後の要求を入れない。
+	gate chan struct{}
 }
 
 // auxOpen は進行中の接続の試み。done が閉じられたあとに conn / err を読める。
@@ -72,8 +75,11 @@ type auxOpen struct {
 // goroutine の持ち主（すべて wg に数え、Close が戻ったときには全部終わっている）:
 //   - 開く goroutine（runOpen）: dialOBS で1回だけ開き、結果を cur に置く。ctx は本来の接続の
 //     「つながっている間」ごとに作り、切れたら取り消す。
-//   - 要求の goroutine: goobs の要求（mutex の待ちと応答の待ちを含む）を呼ぶ。呼び出し側は
-//     2秒の timer と select するだけで、この goroutine は goobs が戻るまで残りうる。
+//   - 開き直しの goroutine（keepOpen）: 本来の接続がつながっている間ごとに1本。開いていなければ
+//     試す間隔の規則で自分で開き、開いている間は捨てられるのを待つ。
+//   - 要求の goroutine: goobs の要求を呼ぶ。goobs の中に入れる要求は Client ごとに1本（gate）で、
+//     2本目以降は Aux の中で、期限と dead を見ながら待つ。呼び出し側は2秒の timer と select するだけ
+//     で、この goroutine は goobs が戻るまで残りうる。期限切れとずれは、gate を離す前に捨てる。
 //   - 見張りの goroutine: cli.IncomingEvents が閉じられる（OBS から切られた）のを見て捨てる。
 //   - 片づけの goroutine: 捨てた Client の接続を閉じ、Disconnect を呼ぶ。
 //
@@ -133,9 +139,8 @@ func (a *Aux) SetMainConnected(connected bool) {
 	a.main = connected
 	if connected {
 		a.epoch, a.cancel = context.WithCancel(context.Background())
-		if !a.clock.Now().Before(a.nextTry) {
-			a.startOpenLocked()
-		}
+		a.wg.Add(1)
+		go a.keepOpen(a.epoch)
 		return
 	}
 	a.cancel() // 開きかけの接続は、できても捨てられる
@@ -163,7 +168,52 @@ func (a *Aux) Close() {
 		}
 	}
 	a.mu.Unlock()
-	a.wg.Wait()
+
+	// goobs の中で止まった goroutine（goobs の制約。コアの spec 13章）は、外から戻せない。
+	// そのため、待つのは goobs の応答待ち + 1秒までにして、残りは警告に出して戻る。
+	done := make(chan struct{})
+	go func() { a.wg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(a.respTimeout + time.Second):
+		a.log.Warn("補助の接続の goroutine が goobs の中で止まったまま残った（既知の制約）")
+	}
+}
+
+// keepOpen は本来の接続がつながっている間（epoch ごと）、補助の接続を開いたままにする goroutine。
+// 開いていなければ、試す間隔の規則（nextTry）に従って自分で開く。開いている間は、捨てられる
+// （OBS から切られた、期限切れ、ID のずれ）のを待つ。捨てられたあとは、nextTry がなければすぐ、
+// あれば nextTry まで待って開く（要求が先に来れば、要求が開く）。epoch が変わるか Close で終わる。
+func (a *Aux) keepOpen(ctx context.Context) {
+	defer a.wg.Done()
+	for {
+		a.mu.Lock()
+		if a.closed || a.epoch != ctx {
+			a.mu.Unlock()
+			return
+		}
+		var wait <-chan struct{}
+		var timer <-chan time.Time
+		switch {
+		case a.cur != nil:
+			wait = a.cur.dead
+		case a.opening != nil:
+			wait = a.opening.done
+		default:
+			if d := a.nextTry.Sub(a.clock.Now()); d > 0 {
+				timer = a.clock.After(d)
+			} else {
+				wait = a.startOpenLocked().done
+			}
+		}
+		a.mu.Unlock()
+		select {
+		case <-ctx.Done():
+			return
+		case <-wait:
+		case <-timer:
+		}
+	}
 }
 
 // startOpenLocked は開く goroutine を始める。mu を持って呼ぶ。closed でないこと、main であること。
@@ -201,7 +251,7 @@ func (a *Aux) runOpen(ctx context.Context, o *auxOpen) {
 		}
 		o.err = fmt.Errorf("%w: %v", ErrAuxUnavailable, err)
 	default:
-		c := &auxConn{cli: cli, rec: rec, dead: make(chan struct{})}
+		c := &auxConn{cli: cli, rec: rec, dead: make(chan struct{}), gate: make(chan struct{}, 1)}
 		a.cur = c
 		a.interval = auxRetryMin
 		a.nextTry = time.Time{}
@@ -288,6 +338,20 @@ func (a *Aux) spawn(f func()) bool {
 	return true
 }
 
+// auxFailReason は goobs のエラーが、Client を捨てるべきもの（応答待ちの超過、ID のずれ）なら
+// その理由を、そうでなければ nil を返す。
+func auxFailReason(err error) error {
+	switch {
+	case err == nil:
+		return nil
+	case strings.Contains(err.Error(), goobsTimeoutText):
+		return ErrAuxTimeout
+	case strings.Contains(err.Error(), "mismatched ID"):
+		return ErrAuxMismatch
+	}
+	return nil
+}
+
 // auxCall は fn を、期限つきで Client に対して実行する。期限は、接続を開く待ちと goobs の
 // mutex の待ちと応答の待ちを合わせて reqTimeout。fn の結果は channel だけで受け取る
 // （期限で戻ったあとも fn の goroutine は残りうるので、変数を共有しない）。
@@ -310,6 +374,21 @@ func auxCall[T any](a *Aux, op string, fn func(*goobs.Client) (T, error)) (T, er
 		c = o.conn
 	}
 
+	// goobs の中に入れるのは1本だけ。待つ間も期限と dead を見る。
+	select {
+	case c.gate <- struct{}{}:
+	case <-deadline:
+		return zero, fmt.Errorf("%w: %s（送る前の待ち）", ErrAuxTimeout, op)
+	case <-c.dead:
+		return zero, fmt.Errorf("%w: %s", c.reason, op)
+	}
+	select {
+	case <-c.dead: // 待っている間に捨てられた。goobs には入れない。
+		<-c.gate
+		return zero, fmt.Errorf("%w: %s", c.reason, op)
+	default:
+	}
+
 	type result struct {
 		v   T
 		err error
@@ -317,8 +396,14 @@ func auxCall[T any](a *Aux, op string, fn func(*goobs.Client) (T, error)) (T, er
 	res := make(chan result, 1)
 	if !a.spawn(func() {
 		v, err := fn(c.cli)
+		// 期限切れとずれは、gate を離す前に捨てる（次の要求が、応答の列がずれた Client に入らないように）。
+		if reason := auxFailReason(err); reason != nil {
+			a.drop(c, reason)
+		}
+		<-c.gate
 		res <- result{v, err}
 	}) {
+		<-c.gate
 		return zero, ErrAuxClosed
 	}
 	select {
@@ -331,13 +416,8 @@ func auxCall[T any](a *Aux, op string, fn func(*goobs.Client) (T, error)) (T, er
 			return zero, fmt.Errorf("%w: %s: %v", c.reason, op, r.err)
 		default:
 		}
-		switch {
-		case strings.Contains(r.err.Error(), goobsTimeoutText):
-			a.drop(c, ErrAuxTimeout)
-			return zero, fmt.Errorf("%w: %s: %v", ErrAuxTimeout, op, r.err)
-		case strings.Contains(r.err.Error(), "mismatched ID"):
-			a.drop(c, ErrAuxMismatch)
-			return zero, fmt.Errorf("%w: %s: %v", ErrAuxMismatch, op, r.err)
+		if reason := auxFailReason(r.err); reason != nil {
+			return zero, fmt.Errorf("%w: %s: %v", reason, op, r.err)
 		}
 		return zero, fmt.Errorf("%s: %w", op, r.err)
 	case <-deadline:

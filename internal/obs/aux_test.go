@@ -38,6 +38,10 @@ type auxReply struct {
 type auxServer struct {
 	srv     *httptest.Server
 	handler func(auxReq) auxReply
+	// ghost が true なら、Identified の直後に、誰も待っていない応答を1つ送る。goobs の
+	// handleOpcodes が受け手のいない応答の送信で止まり、以後の要求が goobs の中で止まる。
+	ghost  bool
+	wsConn map[int]*websocket.Conn
 
 	mu     sync.Mutex
 	conns  int
@@ -58,6 +62,11 @@ func newAuxServer(t *testing.T) *auxServer {
 		s.mu.Lock()
 		s.conns++
 		n := s.conns
+		if s.wsConn == nil {
+			s.wsConn = map[int]*websocket.Conn{}
+		}
+		s.wsConn[n] = c
+		ghost := s.ghost
 		s.mu.Unlock()
 		defer func() { c.Close(); s.closed <- n }()
 
@@ -84,6 +93,12 @@ func newAuxServer(t *testing.T) *auxServer {
 			switch m.Op {
 			case 1:
 				write(map[string]any{"op": 2, "d": map[string]any{"negotiatedRpcVersion": 1}})
+				if ghost {
+					write(map[string]any{"op": 7, "d": map[string]any{
+						"requestType": "Ghost", "requestId": "ghost",
+						"requestStatus": map[string]any{"result": true, "code": 100},
+					}})
+				}
 			case 6:
 				var d struct {
 					Type string          `json:"requestType"`
@@ -134,6 +149,16 @@ func newAuxServer(t *testing.T) *auxServer {
 	}))
 	t.Cleanup(func() { s.srv.Close(); s.wg.Wait() })
 	return s
+}
+
+// kill は n 本目の接続を、サーバーの側から閉じる（OBS から切られたことにする）。
+func (s *auxServer) kill(n int) {
+	s.mu.Lock()
+	c := s.wsConn[n]
+	s.mu.Unlock()
+	if c != nil {
+		c.Close()
+	}
 }
 
 func (s *auxServer) setHandler(h func(auxReq) auxReply) {
@@ -217,6 +242,13 @@ func (c *fakeClock) After(d time.Duration) <-chan time.Time {
 	}
 	c.waiters = append(c.waiters, fakeWaiter{at: c.now.Add(d), ch: ch})
 	return ch
+}
+
+// pending は、まだ起きていない待ちの数。
+func (c *fakeClock) pending() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.waiters)
 }
 
 func (c *fakeClock) Advance(d time.Duration) {
@@ -367,6 +399,8 @@ func TestAuxTimeoutIncludesMutexWait(t *testing.T) {
 	s.setHandler(func(auxReq) auxReply { return auxReply{Skip: true} })
 	const limit = 300 * time.Millisecond
 	a := newTestAux(t, s.config(t), limit)
+	// goobs の応答待ちは期限よりずっと長くして、期限で戻るのが Aux の timer だと確かめる。
+	a.respTimeout = 1500 * time.Millisecond
 	a.SetMainConnected(true)
 	waitFor(t, "開く", func() bool { return s.accepted() == 1 })
 
@@ -385,7 +419,7 @@ func TestAuxTimeoutIncludesMutexWait(t *testing.T) {
 	go run(r2)
 	time.Sleep(50 * time.Millisecond)
 	if n := len(s.requests()); n != 1 {
-		t.Fatalf("2本目は goobs の mutex で待つはずだが、相手に %d 本届いた", n)
+		t.Fatalf("2本目は Aux の中で待つはずだが、相手に %d 本届いた", n)
 	}
 	for i, ch := range []chan res{r1, r2} {
 		select {
@@ -393,12 +427,157 @@ func TestAuxTimeoutIncludesMutexWait(t *testing.T) {
 			if !errors.Is(r.err, ErrAuxTimeout) {
 				t.Errorf("%d 本目: ErrAuxTimeout のはずが %v", i+1, r.err)
 			}
-			if r.el > limit+400*time.Millisecond {
-				t.Errorf("%d 本目: 期限 %v を大きく超えた: %v", i+1, limit, r.el)
+			if r.el < limit-60*time.Millisecond || r.el > limit+150*time.Millisecond {
+				t.Errorf("%d 本目: 期限 %v のあたりで戻るはずが %v", i+1, limit, r.el)
 			}
 		case <-time.After(3 * time.Second):
 			t.Fatalf("%d 本目が戻らない", i+1)
 		}
+	}
+	s.waitClosed(t, "期限切れのあと")
+	if n := len(s.requests()); n != 1 {
+		t.Fatalf("2本目が goobs に入って相手に届いた: %d 本", n)
+	}
+}
+
+// 接続を開く待ちで期限が来る場合（偽の時計で期限を起こす）。
+func TestAuxDeadlineWhileOpening(t *testing.T) {
+	s := newAuxServer(t)
+	clk := newFakeClock()
+	a := newTestAux(t, s.config(t), 2*time.Second)
+	a.clock = clk
+	release := make(chan struct{})
+	started := make(chan struct{}, 1)
+	a.dialFn = func(ctx context.Context) (*goobs.Client, *connRecorder, error) {
+		started <- struct{}{}
+		select {
+		case <-release:
+		case <-ctx.Done():
+		}
+		return nil, nil, errors.New("開けない")
+	}
+	a.SetMainConnected(true)
+	<-started
+
+	errc := make(chan error, 1)
+	go func() { _, err := a.GetSceneList(); errc <- err }()
+	waitFor(t, "要求の期限の待ちが置かれる", func() bool { return clk.pending() == 1 })
+	select {
+	case err := <-errc:
+		t.Fatalf("期限の前に戻った: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	clk.Advance(2 * time.Second)
+	select {
+	case err := <-errc:
+		if !errors.Is(err, ErrAuxTimeout) {
+			t.Fatalf("ErrAuxTimeout のはずが %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("期限が来ても、開く待ちの要求が戻らない")
+	}
+	close(release)
+}
+
+// goobs の中で止まった要求（受け手のいない応答で handleOpcodes が止まる）があっても、
+// 要求は期限で戻り、Close は上限内に戻る。
+func TestAuxCloseReturnsWhenGoobsIsStuck(t *testing.T) {
+	s := newAuxServer(t)
+	s.ghost = true
+	a := newTestAux(t, s.config(t), 300*time.Millisecond)
+	a.respTimeout = 300 * time.Millisecond
+	a.SetMainConnected(true)
+	waitFor(t, "開く", func() bool { return s.accepted() == 1 })
+
+	errs := make(chan error, 2)
+	for range 2 {
+		go func() { _, err := a.GetSceneList(); errs <- err }()
+	}
+	for range 2 {
+		select {
+		case err := <-errs:
+			if !errors.Is(err, ErrAuxTimeout) {
+				t.Errorf("ErrAuxTimeout のはずが %v", err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("要求が期限で戻らない")
+		}
+	}
+	closed := make(chan struct{})
+	go func() { a.Close(); close(closed) }()
+	select {
+	case <-closed:
+	case <-time.After(a.respTimeout + 3*time.Second):
+		t.Fatal("goobs の中で止まった goroutine があると Close が戻らない")
+	}
+	s.waitClosed(t, "Close のあと")
+}
+
+// 要求を出さなくても、本来の接続がつながっている間は、試す間隔の規則で自分で開き直す。
+func TestAuxRetriesWithoutRequests(t *testing.T) {
+	s := newAuxServer(t)
+	clk := newFakeClock()
+	a := newTestAux(t, s.config(t), 2*time.Second)
+	a.clock = clk
+	var mu sync.Mutex
+	attempts := 0
+	fail := true
+	real := a.dialFn
+	a.dialFn = func(ctx context.Context) (*goobs.Client, *connRecorder, error) {
+		mu.Lock()
+		attempts++
+		f := fail
+		mu.Unlock()
+		if f {
+			return nil, nil, errors.New("開けない")
+		}
+		return real(ctx)
+	}
+	count := func() int { mu.Lock(); defer mu.Unlock(); return attempts }
+
+	a.SetMainConnected(true)
+	waitFor(t, "最初の試み", func() bool { return count() == 1 })
+	for i, sec := range []int{5, 10, 20, 30, 30} {
+		d := time.Duration(sec) * time.Second
+		waitFor(t, "待ちが置かれる", func() bool { return clk.pending() == 1 })
+		before := count()
+		clk.Advance(d - time.Millisecond)
+		time.Sleep(30 * time.Millisecond)
+		if count() != before {
+			t.Fatalf("%d 回目の間隔 %ds の途中で試した", i+1, sec)
+		}
+		clk.Advance(time.Millisecond)
+		waitFor(t, "間隔のあとに試す", func() bool { return count() == before+1 })
+	}
+
+	// 成功したら、そのあと補助の接続だけが切られても、また試す。
+	mu.Lock()
+	fail = false
+	mu.Unlock()
+	waitFor(t, "待ちが置かれる", func() bool { return clk.pending() == 1 })
+	clk.Advance(30 * time.Second)
+	waitFor(t, "開く", func() bool { return s.accepted() == 1 })
+	before := count()
+	s.kill(1)
+	waitFor(t, "補助の接続だけが切られたらまた開く", func() bool { return s.accepted() == 2 })
+	if count() != before+1 {
+		t.Fatalf("試した回数が %d → %d", before, count())
+	}
+
+	// 本来の接続が切れたら、試さない。
+	mu.Lock()
+	fail = true
+	mu.Unlock()
+	a.SetMainConnected(false)
+	s.waitClosed(t, "1本目")
+	s.waitClosed(t, "2本目")
+	before = count()
+	for range 3 {
+		clk.Advance(60 * time.Second)
+		time.Sleep(30 * time.Millisecond)
+	}
+	if count() != before {
+		t.Fatalf("本来の接続が切れているのに試した: %d → %d", before, count())
 	}
 }
 
@@ -614,8 +793,6 @@ func TestAuxCloseDuringOpenLeavesNothing(t *testing.T) {
 
 func TestAuxConcurrentUseThenClose(t *testing.T) {
 	s := newAuxServer(t)
-	runtime.GC()
-	base := runtime.NumGoroutine()
 	a := NewAux(s.config(t), slog.New(slog.DiscardHandler))
 	a.reqTimeout = time.Second
 	a.respTimeout = time.Second
@@ -653,5 +830,10 @@ func TestAuxConcurrentUseThenClose(t *testing.T) {
 	a.Close()
 	close(stop)
 	wg.Wait()
-	waitFor(t, "goroutine が基準まで戻る", func() bool { return runtime.NumGoroutine() <= base })
+	// 開きかけを取り消すたびに、goobs が内部の goroutine を1本残す（既知の制約）ので、
+	// goroutine の総数は見ない。代わりに、相手が受けた接続がすべて閉じられたことを確かめる。
+	n := s.accepted()
+	for i := 0; i < n; i++ {
+		s.waitClosed(t, "受けた接続 "+strconv.Itoa(i+1)+" 本目")
+	}
 }
