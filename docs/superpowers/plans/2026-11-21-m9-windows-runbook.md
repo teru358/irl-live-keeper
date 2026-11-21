@@ -38,7 +38,7 @@
 |---|---|---|
 | R-1 | W1（ポートの事前確認）、W4（ログ、パスワードが出ない）、W5・W7・W8（終わり方で MediaMTX が残らない） | |
 | R-2 | T-8〜T-11（IRL Link からの切替、回線が悪いときの戻り先、トランジション） | |
-| R-3 | 回線が悪い → 待機 → 戻る、のログに `camera changed` と `scene switch`（`camera`、`kbps`）が出る | |
+| R-3 | 回線が悪い → 待機 → 戻る、のログに `camera changed` と `scene switch`（`camera`、`kbps`）が出る | 2026-11-21: 合格。スマホを止める → 2秒で `camera changed OK→DOWN` と `scene switch reason=down camera=main kbps=0`（owner auto、戻り先 Camera）→ 再開 → LOW → OK のあと1秒で `scene switch reason=ok`（owner none） |
 
 ## 2. 第1段階の残り
 
@@ -60,6 +60,13 @@
 | C-5 | 2台を同じ上り回線（同じモバイルルーター）から送ったときの乱れ方と、別の回線から送ったときの違い | |
 | C-6 | OBS の負荷: メディアソース2本のデコード（「ハードウェアデコードを使用」の有無で CPU と GPU の使い方を比べる） | |
 | C-7 | status（`curl.exe`）で、`cameras` に2台、`scene_cameras`、`scene_health` が出る | |
+
+## 3.5 確認の途中で見つけて直したこと
+
+| # | 見つけたこと | 直し | 結果 |
+|---|---|---|---|
+| F-1 | OBS を本体より先に起動すると、メディアソースが黒いまま戻らない（起動の直後に1回だけ開こうとして失敗し、試し直さない。`mediastatus` は `PLAYING` で位置が 0 のまま）。RESTART では戻らず、設定の入れ直し（`ctl.exe setinput`）で戻る。一度つながったあとの切断では、OBS が自分で試し直す | メディアソースの見張り（spec v0.13 第3節。f56b2f3）。カメラが届き始めて5秒後に位置が進んでいなければ、設定を入れ直す | 2026-11-21: 合格。OBS → 本体の順に起動し、スマホを送り始める（16:47:45 に受信）→ 16:47:50 に `media source refreshed`（`IRL` と `メディア`）→ OBS は 16:47:54 に `Reconnected`、16:47:56 に回復で Camera へ。そのあとスマホを止めて再開したときは、本体は入れ直さず（ログなし）、OBS が自分で試し直して 16:48:51 に `Reconnected` |
+| F-2 | ログの kbps が長い小数で読みにくい | 小数1桁に丸める（568cd6b） | 2026-11-21: 合格（`kbps=1827.7`） |
 
 ## 4. 終わったら
 
