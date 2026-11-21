@@ -10,7 +10,8 @@
 //
 //	scene <名前> | current | scenes | stream start|stop | streamstatus | profile
 //	setinput <url>（入力 IRL）| mediastatus [入力名] | inputs（メディアソースの一覧と再生の状態）
-//	item <シーン> <ソース> on|off（シーンの項目の表示・非表示）| hwdecode on|off（試験のシーンコレクションの中だけ）
+//	item <シーン> <ソース> on|off（シーンの項目の表示・非表示）| items <シーン>（項目の表示の状態）| hwdecode on|off（ctl が作ったソースだけ）
+//	studio on|off|status（Studio Mode）
 //	tdur <ms> | override <シーン> <トランジション> <ms> | transition
 //	onstarting <シーン> <秒> | watch <秒> [ファイル]（ファイルを渡すと1行ごとに直接書く。裏で動かして止めても欠けない）
 //	test setup | test restore（試験のプロファイルとシーンコレクション。test.go）
@@ -30,6 +31,7 @@ import (
 	"github.com/andreykaipov/goobs/api/requests/sceneitems"
 	"github.com/andreykaipov/goobs/api/requests/scenes"
 	"github.com/andreykaipov/goobs/api/requests/transitions"
+	"github.com/andreykaipov/goobs/api/requests/ui"
 )
 
 func main() {
@@ -153,6 +155,32 @@ func run(c *goobs.Client, a []string) error {
 		on := a[3] == "on"
 		item := id.SceneItemId
 		_, err = c.SceneItems.SetSceneItemEnabled(&sceneitems.SetSceneItemEnabledParams{SceneName: &a[1], SceneItemId: &item, SceneItemEnabled: &on})
+		return err
+	case "items":
+		if err := need(a, 2, "items <シーン>"); err != nil {
+			return err
+		}
+		r, err := c.SceneItems.GetSceneItemList(&sceneitems.GetSceneItemListParams{SceneName: &a[1]})
+		if err != nil {
+			return err
+		}
+		for _, it := range r.SceneItems {
+			fmt.Printf("%s enabled=%v\n", it.SourceName, it.SceneItemEnabled)
+		}
+		return nil
+	case "studio":
+		if err := need(a, 2, "studio on|off|status"); err != nil {
+			return err
+		}
+		if a[1] == "status" {
+			r, err := c.Ui.GetStudioModeEnabled()
+			if err == nil {
+				fmt.Println("studioMode", r.StudioModeEnabled)
+			}
+			return err
+		}
+		on := a[1] == "on"
+		_, err := c.Ui.SetStudioModeEnabled(&ui.SetStudioModeEnabledParams{StudioModeEnabled: &on})
 		return err
 	case "hwdecode":
 		if err := need(a, 2, "hwdecode on|off"); err != nil {
