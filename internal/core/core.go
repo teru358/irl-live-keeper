@@ -43,6 +43,20 @@ type Deps struct {
 	Cameras      []Camera
 	AutoEnabled  bool
 	StartScene   *string
+	// StudioModeHide は Studio Mode のときの on_bad=hide のカメラの動き（standby / ignore / hide）。空は standby。
+	StudioModeHide string
+	// HiddenPath は隠した項目の記録 hidden.json のパス（config.yaml のあるフォルダの state/hidden.json）。
+	// 空なら記録を書かない（試験用）。HiddenRestored は起動のとき LoadHidden で読んだ記録、HiddenLoadWarning は
+	// 読めなかったときの警告の文（status の warnings に出す）。
+	HiddenPath        string
+	HiddenRestored    []switcher.HiddenEntry
+	HiddenLoadWarning string
+	// HiddenWrite は hidden.json の書き込み。nil なら一時ファイルに書いて名前を替える（試験で差し替える）。
+	HiddenWrite func(path string, data []byte) error
+	// HiddenRetry は通常の保存に失敗したときに書き直す間隔。0 なら 5 秒。
+	HiddenRetry time.Duration
+	// StopTimeout は Stopping が待つ上限。0 なら DefaultStopTimeout（2 秒）。
+	StopTimeout time.Duration
 	// Samples は Poller の出力（全カメラの Sample の1組）。
 	Samples <-chan ingest.SampleSet
 	// MediaMTX は MediaMTX の状態を返す。nil なら status の mediamtx は空。
@@ -98,6 +112,7 @@ type Core struct {
 	results   chan switcher.Event  // 実行役 → 中核ループ。SceneRequestDone と BatchDone を送った順に届ける
 	cmds      chan cmdReq          // Command → 中核ループ
 	stopped   chan struct{}        // Run が戻ったら閉じる
+	stopCh    chan stopReq         // Stopping → 中核ループ
 
 	snap atomic.Pointer[Snapshot]
 
@@ -115,6 +130,24 @@ type Core struct {
 	knownNames map[string]string
 	unknown    map[itemKey]bool // 写しにない項目の ItemEnabledChanged の最後の値
 
+	// ---- 0b: 隠す・戻す ----
+	studioHide  string // Studio Mode のときの hide のカメラの動き
+	anyHide     bool   // on_bad=hide のカメラがあるか（Studio Mode の警告を出すか）
+	store       *hiddenStore
+	pers        *persister
+	stopTimeout time.Duration
+	loadWarning string
+	syncWG      sync.WaitGroup // 同期の保存の goroutine（上限で諦めても、書き込みが戻るまで残る）
+	persistRev  int            // hidden.json の保存を求めた最後の HiddenRevision
+	connSeq     uint64         // OBSConnected と OBSDisconnected のたびに増やす
+	itemSeq     map[uint64]uint64
+	itemLogs    map[int]*itemLog
+	sourceNames map[string][]string // カメラの id → メディアソースの名前（切断しても最後の値を残す）
+	prevHidden  map[hiddenKey]switcher.HiddenEntry
+	falseSent   map[itemKey]bool
+	shownKeys   map[itemKey]bool
+	stop        stopState
+
 	// observe はテスト用。中核ループが処理した Event と承認（approval）ごとに、中核ループの goroutine で呼ぶ。
 	observe func(any)
 }
@@ -123,6 +156,9 @@ type Core struct {
 type approveReq struct {
 	batchID int
 	purpose switcher.Purpose
+	// cameraID と scope は項目のバッチの対象のカメラと範囲（ログの camera と reason に使う）。
+	cameraID string
+	scope    switcher.RestoreScope
 	// badCamera は AutoFail のバッチの悪い代表のカメラ（ほかは空）。
 	badCamera string
 	action    switcher.Action
@@ -160,7 +196,15 @@ func New(d Deps) *Core {
 		results:   make(chan switcher.Event),
 		cmds:      make(chan cmdReq),
 		stopped:   make(chan struct{}),
+		stopCh:    make(chan stopReq),
 		unknown:   map[itemKey]bool{},
+
+		studioHide: d.StudioModeHide, stopTimeout: d.StopTimeout, loadWarning: d.HiddenLoadWarning,
+		itemSeq: map[uint64]uint64{}, itemLogs: map[int]*itemLog{}, sourceNames: map[string][]string{},
+		falseSent: map[itemKey]bool{}, shownKeys: map[itemKey]bool{},
+	}
+	if c.stopTimeout <= 0 {
+		c.stopTimeout = DefaultStopTimeout
 	}
 	if d.MediaWatch != nil {
 		c.media = newMediaDispatcher(d.MediaWatch)
@@ -168,9 +212,10 @@ func New(d Deps) *Core {
 	cfgs := make([]switcher.CameraConfig, len(d.Cameras))
 	for i, cam := range d.Cameras {
 		c.cams = append(c.cams, &camState{cfg: cam, judge: ingest.NewJudge(cam.Thresholds)})
-		// 0b のつなぎ（M-11）: 項目の表示・非表示の実行役と hidden.json は M-12 で配線する。それまでは on_bad=hide も
-		// 0a と同じく standby として Machine に渡し、Hide の動きを有効にしない。
-		cfgs[i] = switcher.CameraConfig{ID: cam.ID, OnBad: scenemap.MotionStandby}
+		cfgs[i] = switcher.CameraConfig{ID: cam.ID, OnBad: cam.OnBad}
+		if cam.OnBad == scenemap.MotionHide {
+			c.anyHide = true
+		}
 	}
 	var start *string
 	if d.StartScene != nil {
@@ -184,7 +229,17 @@ func New(d Deps) *Core {
 		Cameras:     cfgs,
 		AutoEnabled: d.AutoEnabled,
 		StartScene:  start,
+
+		StudioModeHide: d.StudioModeHide,
 	})
+	// 起動のとき hidden.json から読んだ記録（設定のあと、最初の接続より前に1回）。
+	c.handle(switcher.HiddenRestored{At: c.now(), Entries: d.HiddenRestored})
+	ms0 := c.m.Snapshot()
+	c.persistRev, c.prevHidden = ms0.HiddenRevision, indexEntries(allEntries(ms0))
+	if d.HiddenPath != "" {
+		c.store = newHiddenStore(d.HiddenPath, d.HiddenWrite, c.persistRev)
+		c.pers = newPersister(c.store, d.HiddenRetry)
+	}
 	c.publish()
 	return c
 }
@@ -229,7 +284,11 @@ func (c *Core) Run(ctx context.Context) {
 	if c.media != nil {
 		wg.Go(func() { c.media.run(ctx) })
 	}
+	if c.pers != nil {
+		wg.Go(func() { c.pers.run(ctx) })
+	}
 	defer wg.Wait()
+	defer c.waitSyncWrites()
 	c.loop(ctx, tick)
 }
 
@@ -264,6 +323,8 @@ func (c *Core) loop(ctx context.Context, tick <-chan time.Time) {
 		case req := <-c.cmds:
 			// reply は容量1なので止まらない。
 			req.reply <- c.handle(switcher.Command{At: c.now(), Kind: req.kind})
+		case req := <-c.stopCh:
+			c.beginStop(req)
 		case req := <-c.approvals:
 			req.reply <- c.approve(req)
 		case ev := <-c.results:
@@ -356,12 +417,17 @@ func (c *Core) handle(ev switcher.Event) error {
 			c.media.cancelAll()
 		}
 	}
+	if d, ok := ev.(switcher.ItemRequestDone); ok {
+		ev = c.fixItemResult(d)
+	}
 	bs, cmdErr := c.m.Handle(ev)
 	for i := range bs {
-		c.queue = append(c.queue, &bs[i])
+		c.enqueue(&bs[i])
 	}
 	if bd, ok := ev.(switcher.BatchDone); ok {
 		c.logBatchDone(bd)
+		c.logItemBatch(bd)
+		c.onStopBatchDone(bd)
 	}
 	if c.observe != nil {
 		c.observe(ev)
@@ -381,11 +447,13 @@ func (c *Core) handle(ev switcher.Event) error {
 func (c *Core) prepareMap(ev switcher.Event) (switcher.Event, bool) {
 	switch e := ev.(type) {
 	case switcher.OBSConnected:
+		c.connSeq++
 		c.connected = true
 		c.mapCopy = cloneMap(e.Map)
 		c.rememberNames(e.Map)
 		clear(c.unknown)
 	case switcher.OBSDisconnected:
+		c.connSeq++
 		c.connected = false
 		c.mapCopy = nil
 		clear(c.unknown)
@@ -518,19 +586,36 @@ func (c *Core) rememberNames(m *scenemap.Map) {
 			c.knownNames[uuid] = sc.Name
 		}
 	}
+	c.sourceNames = map[string][]string{}
+	for _, in := range m.Inputs {
+		if in.CameraID != "" {
+			c.sourceNames[in.CameraID] = append(c.sourceNames[in.CameraID], in.Name)
+		}
+	}
+	for _, names := range c.sourceNames {
+		slices.Sort(names)
+	}
 }
 
 // approve は承認要求に答える。Replace の代わりのバッチは列の先頭に入れる。
+// 最初の false（MustPersist）では、Proceed を返す前に hidden.json を同期で書く（上限1秒）。書けなければ
+// HiddenWriteFailed を Machine に渡し、実行役には Reject を返す。
 func (c *Core) approve(req approveReq) switcher.ApproveResult {
-	// 0b のつなぎ（M-11）: 項目の表示・非表示（SetItemEnabled）の実行は M-12 で配線する。それまでは記録なしで false を
-	// 送らないよう、Machine に問わず Reject する（実行役が BatchDone{Rejected} を返し、Machine は予約を巻き戻す）。
-	if _, ok := req.action.(switcher.SetItemEnabled); ok {
-		return switcher.Reject{}
-	}
-	from := c.m.Snapshot().Scene
+	ms := c.m.Snapshot()
+	from := ms.Scene
 	res := c.m.Approve(req.batchID, req.action, req.override, c.now())
+	if p, ok := res.(switcher.Proceed); ok && p.MustPersist {
+		if err := c.persistSync(); err != nil {
+			c.log.Error("隠した項目を hidden.json に記録できないため、隠すのを止めました", "error", err)
+			c.handle(switcher.HiddenWriteFailed{At: c.now(), BatchID: req.batchID})
+			res = switcher.Reject{}
+		}
+	}
 	switch r := res.(type) {
 	case switcher.Proceed:
+		if set, ok := req.action.(switcher.SetItemEnabled); ok {
+			c.noteItemProceed(req, set, r, ms)
+		}
 		if set, ok := req.action.(switcher.SetScene); ok {
 			attrs := []any{"from", c.sceneName(from), "to", c.sceneName(set.SceneUUID), "reason", c.reason(req.purpose, req.badCamera)}
 			// camera と kbps の代表: AutoFail は悪い代表のカメラ。AutoRecover は戻り先に映るカメラのうち、最後に OK に

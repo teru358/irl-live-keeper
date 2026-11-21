@@ -23,10 +23,10 @@ func (c *Core) runExecutor(ctx context.Context) {
 }
 
 // execute はバッチの Action を順に実行する。各 Action の直前に承認を取る。
-// RestartMedia の失敗では続け、それ以外の失敗で残りを捨てる。
+// RestartMedia と SetItemEnabled の失敗では続け（最初の失敗を BatchDone の Err にする）、それ以外の失敗で残りを捨てる。
 // ctx が終わったら、何も送らずに抜ける。
 func (c *Core) execute(ctx context.Context, b *switcher.Batch) {
-	var partial error // RestartMedia の失敗。続く Action が成功すれば Completed の Err になる
+	var partial error // RestartMedia と SetItemEnabled の最初の失敗。続く Action が成功すれば Completed の Err になる
 	for _, a := range b.Actions {
 		set, isSet := a.(switcher.SetScene)
 		var override switcher.Override = switcher.OverrideNone{}
@@ -47,9 +47,10 @@ func (c *Core) execute(ctx context.Context, b *switcher.Batch) {
 			return
 		}
 		var reqID int
+		var itemReq uint64
 		switch r := res.(type) {
 		case switcher.Proceed:
-			reqID = r.ReqID
+			reqID, itemReq = r.ReqID, r.ItemReqID
 		case switcher.Skip:
 			continue
 		default: // Reject、Replace（代わりのバッチは中核ループが列の先頭に入れている）
@@ -66,12 +67,22 @@ func (c *Core) execute(ctx context.Context, b *switcher.Batch) {
 				return
 			}
 		}
+		_, isItem := a.(switcher.SetItemEnabled)
+		if isItem {
+			// 結果は必ず返す（応答が来ないうちに接続が切れたときは、obs が ErrTimeout を返す）。
+			if !c.report(ctx, switcher.ItemRequestDone{At: c.now(), ReqID: itemReq, Result: obs.ClassifyItemResult(err)}) {
+				return
+			}
+		}
 		if err != nil {
 			err = fmt.Errorf("%s: %w", actionName(a), err)
 			c.log.Warn("OBS の操作に失敗", "batch", b.BatchID, "purpose", b.Purpose.String(), "error", err)
-			if _, isRestart := a.(switcher.RestartMedia); isRestart {
-				// 映像の再始動に失敗しても、待機画面からは戻す。
-				partial = err
+			_, isRestart := a.(switcher.RestartMedia)
+			if isRestart || isItem {
+				// 映像の再始動に失敗しても、待機画面からは戻す。項目の失敗も、打ち切らずに次の項目へ進む。
+				if partial == nil {
+					partial = err
+				}
 				continue
 			}
 			c.report(ctx, switcher.BatchDone{At: c.now(), BatchID: b.BatchID, Result: switcher.BatchFailed, Err: err})
@@ -99,13 +110,15 @@ func (c *Core) send(a switcher.Action) error {
 		return c.obs.StartStream()
 	case switcher.StopStream:
 		return c.obs.StopStream()
+	case switcher.SetItemEnabled:
+		return c.obs.SetSceneItemEnabled(a.SceneUUID, a.ItemID, a.Enabled)
 	}
 	return fmt.Errorf("未知の Action: %T", a)
 }
 
 // requestApproval は承認要求を中核ループに送り、応答を待つ。ctx が終われば ok=false。
 func (c *Core) requestApproval(ctx context.Context, b *switcher.Batch, a switcher.Action, o switcher.Override) (switcher.ApproveResult, bool) {
-	req := approveReq{batchID: b.BatchID, purpose: b.Purpose, badCamera: b.BadCamera, action: a, override: o, reply: make(chan switcher.ApproveResult, 1)}
+	req := approveReq{batchID: b.BatchID, purpose: b.Purpose, cameraID: b.CameraID, scope: b.RestoreScope, badCamera: b.BadCamera, action: a, override: o, reply: make(chan switcher.ApproveResult, 1)}
 	select {
 	case c.approvals <- req:
 	case <-ctx.Done():
@@ -181,6 +194,8 @@ func actionName(a switcher.Action) string {
 		return "StartStream"
 	case switcher.StopStream:
 		return "StopStream"
+	case switcher.SetItemEnabled:
+		return fmt.Sprintf("SetItemEnabled(%s,%d,%v)", a.SceneUUID, a.ItemID, a.Enabled)
 	}
 	return fmt.Sprintf("%T", a)
 }

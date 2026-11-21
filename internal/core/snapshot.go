@@ -1,6 +1,7 @@
 package core
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/teru358/irl-live-keeper/internal/switcher"
@@ -8,7 +9,6 @@ import (
 
 // Snapshot は status の JSON（9章）になる読み取り専用の状態。
 // キーは null のときも省かない。
-// カメラの spec 第9節の sources、hidden、user_shown、unusable と obs.studio_mode は、隠す・戻す（0b）で足す。
 type Snapshot struct {
 	Cameras   []CameraStatus `json:"cameras"` // 設定の順
 	OBS       OBSStatus      `json:"obs"`
@@ -27,6 +27,13 @@ type CameraStatus struct {
 	Online   bool       `json:"online"`
 	Protocol string     `json:"protocol"`
 	SRT      *SRTStatus `json:"srt"` // SRT のときだけ
+	// Sources はカメラのメディアソースの名前（地図から。なければ []）。
+	Sources []string `json:"sources"`
+	// Hidden は本体が隠している項目の数（今の接続先とシーンコレクションの記録。隠しかけと未決着を含む）。
+	Hidden int `json:"hidden"`
+	// UserShown は人が戻した印（印のある間は、本体は隠さない）。Unusable は隠す・戻す操作に続けて3回失敗したこと。
+	UserShown bool `json:"user_shown"`
+	Unusable  bool `json:"unusable"`
 }
 
 // SRTStatus は SRT 接続の表示用の統計。
@@ -45,7 +52,9 @@ type OBSStatus struct {
 	// SceneCameras は今のシーンに映るカメラの id（辞書順。空でも [] にする）。
 	SceneCameras []string `json:"scene_cameras"`
 	// SceneHealth は今のシーンの健康（OK / LOW / DOWN）。監視対象のシーンでなければ null。
-	SceneHealth *string       `json:"scene_health"`
+	SceneHealth *string `json:"scene_health"`
+	// StudioMode は OBS の Studio Mode がオンか。
+	StudioMode  bool          `json:"studio_mode"`
 	Standby     StandbyStatus `json:"standby"`
 	AutoEnabled bool          `json:"auto_enabled"`
 	Warnings    []string      `json:"warnings"` // 空でも [] にする
@@ -83,6 +92,7 @@ type CameraURLs struct {
 func (c *Core) publish() {
 	ms := c.m.Snapshot()
 	c.logStateChanges(ms)
+	c.onHiddenChanged(ms)
 	s := Snapshot{
 		Cameras: make([]CameraStatus, len(c.cams)),
 		OBS: OBSStatus{
@@ -91,6 +101,7 @@ func (c *Core) publish() {
 			Scene:        c.sceneLabel(ms.Scene, ms.SceneName),
 			SceneClass:   ms.Class.String(),
 			SceneCameras: append([]string{}, ms.VisibleCameras...),
+			StudioMode:   ms.Connected && ms.StudioMode,
 			Standby:      StandbyStatus{Owner: ms.Standby.Owner.String()},
 			AutoEnabled:  ms.AutoEnabled,
 			Warnings:     []string{},
@@ -101,6 +112,17 @@ func (c *Core) publish() {
 		cs := CameraStatus{
 			ID: cam.cfg.ID, Name: cam.cfg.Name, OnBad: string(cam.cfg.OnBad),
 			State: cam.judge.State().String(), Kbps: cam.sample.Kbps, Online: cam.sample.Online, Protocol: cam.sample.Protocol,
+			Sources: append([]string{}, c.sourceNames[cam.cfg.ID]...),
+		}
+		for _, h := range ms.HiddenEntries {
+			if h.CameraID == cam.cfg.ID {
+				cs.Hidden++
+			}
+		}
+		for _, ci := range ms.Cameras {
+			if ci.ID == cam.cfg.ID {
+				cs.UserShown, cs.Unusable = ci.UserShown, ci.Unusable
+			}
 		}
 		if st := cam.sample.SRT; st != nil {
 			cs.SRT = &SRTStatus{RTTMs: st.RTTMs, LossRate: st.LossRate, RecvMbps: st.RecvMbps}
@@ -124,6 +146,18 @@ func (c *Core) publish() {
 	}
 	if c.media != nil {
 		s.OBS.Warnings = append(s.OBS.Warnings, c.media.w.Warnings()...)
+	}
+	if w := c.warnStudioMode(ms); w != "" {
+		s.OBS.Warnings = append(s.OBS.Warnings, w)
+	}
+	if n := len(ms.RetainedEntries); ms.Connected && n > 0 {
+		s.OBS.Warnings = append(s.OBS.Warnings, fmt.Sprintf("別の OBS かシーンコレクションで隠した項目の記録が %d 件残っています（その OBS とコレクションにつなぐと戻します）", n))
+	}
+	if c.loadWarning != "" {
+		s.OBS.Warnings = append(s.OBS.Warnings, c.loadWarning)
+	}
+	if c.store != nil && c.store.failing.Load() {
+		s.OBS.Warnings = append(s.OBS.Warnings, "隠した項目の記録（state/hidden.json）を書けません。書けるまで一定の間隔で書き直します")
 	}
 	if c.mediamtx != nil {
 		st := c.mediamtx()

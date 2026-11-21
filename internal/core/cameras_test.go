@@ -148,9 +148,14 @@ func TestCameraChangedLog(t *testing.T) {
 
 // ---- 複数のカメラの切替 ----
 
+// twoStandbyCameras は main と sub のどちらも on_bad: standby（待機シーンへ送る）の2台。
+func twoStandbyCameras(_ *switcher.Config, d *Deps) {
+	d.Cameras = []Camera{testCamera(mainCam, "メイン", scenemap.MotionStandby), testCamera(subCam, "サブ", scenemap.MotionStandby)}
+}
+
 // 2台が映るシーンで悪い方が代表になり、scene switch に camera と、そのカメラの kbps が出る。
 func TestSceneSwitchLogsBadCamera(t *testing.T) {
-	h := newHarness(t, twoCameras)
+	h := newHarness(t, twoStandbyCameras)
 	h.start()
 	for range 5 {
 		h.sampleSet(goodKbps, goodKbps)
@@ -391,7 +396,7 @@ func TestDisconnectedMapAndItemEventsAreDropped(t *testing.T) {
 // AutoRecover の scene switch にも camera と kbps を出す。代表は、戻り先に映るカメラのうち、最後に OK になったもの
 // （回復のきっかけ。kbps の低さではない。カメラの spec v0.14 第4節、M-9 の F-6）。
 func TestAutoRecoverLogsLastRecoveredCamera(t *testing.T) {
-	h := newHarness(t, twoCameras)
+	h := newHarness(t, twoStandbyCameras)
 	h.start()
 	m := testMap()
 	m.Inputs["IRL2"] = scenemap.Input{Name: "IRL2", CameraID: subCam}

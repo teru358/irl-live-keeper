@@ -83,6 +83,8 @@ type fakeOBS struct {
 	onStart    func() error
 	onStop     func() error
 	onOverride func(scene string) (*int, bool, error)
+	// onItem は SetSceneItemEnabled の振る舞い。nil なら成功にする。
+	onItem func(scene string, id int, enabled bool) error
 }
 
 func newFakeOBS(clk *fakeClock) *fakeOBS {
@@ -156,9 +158,12 @@ func (f *fakeOBS) RestartMediaInputs(inputs []string) error {
 	return nil
 }
 
-// SetSceneItemEnabled は M-12 まで core が呼ばない。呼ばれたら記録して成功にする。
+// SetSceneItemEnabled は "item:<scene>:<id>:<enabled>" を記録する。
 func (f *fakeOBS) SetSceneItemEnabled(sceneUUID string, itemID int, enabled bool) error {
 	defer f.record(fmt.Sprintf("item:%s:%d:%v", sceneUUID, itemID, enabled))()
+	if f.onItem != nil {
+		return f.onItem(sceneUUID, itemID, enabled)
+	}
 	return nil
 }
 
