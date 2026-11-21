@@ -38,8 +38,17 @@ type pbatchRun struct {
 }
 
 type pevent struct {
-	at int
-	ev Event
+	at    int
+	ev    Event
+	human bool // 人の操作として偽の OBS が出したイベント（本体の要求の適用ではない）
+}
+
+// pscene は模型が持つ、本体が Proceed した SetScene の期待の台帳（Machine の Expectations は読まない）。
+type pscene struct {
+	to        string
+	reqID     int
+	responded bool
+	respAt    int
 }
 
 type pfake struct {
@@ -74,14 +83,18 @@ type pfake struct {
 	queue        []*pbatchRun
 	reqs         map[uint64]*preq
 	events       []pevent
-	sceneTo      map[int]string // 送った SetScene の ReqID → 切替先
+	humanHid     map[pkey]bool // 人が隠した項目（人の false のイベントを渡した）
+	scenePend    []pscene      // 独立の期待の台帳
+	trueUntil    map[pkey]int  // 本体の true の期待が残る時刻（応答 + 2秒。応答前は大きな値）。同じ値の人の操作と見分けられない間（M-9）
+	curHuman     bool
+	evAt         int
+	markHuman    bool
+	mode         int // 回復の区間の型
 	log          []string
 
 	// 判定用
-	needRecord   map[pkey]bool // 本体が false を送って、まだ true と決着していない項目（記録がなければ失敗）
-	strictHidden map[pkey]bool // 本体が false を送って、Timeout でない項目
-	ourTrue      map[pkey]int
-	trueAt       map[pkey]int    // 本体が true を送った時刻。応答期限のうちに届く同じ値の人の操作とは見分けられない（M-9 の既知制約）
+	needRecord   map[pkey]bool   // 本体が false を送って、まだ true と決着していない項目（記録がなければ失敗）
+	strictHidden map[pkey]bool   // 本体が false を送って、Timeout でない項目
 	interval     map[string]bool // 人が戻した、同じ不調の区間
 	stopped      bool
 }
@@ -151,11 +164,10 @@ func newPfake(t *testing.T, seed int64) *pfake {
 	f.studioHd = StudioHideStandby
 	f.cstates = map[string]scenemap.CameraState{camMain: OK, camSub: OK}
 	f.reqs = map[uint64]*preq{}
-	f.sceneTo = map[int]string{}
+	f.trueUntil = map[pkey]int{}
+	f.humanHid = map[pkey]bool{}
 	f.needRecord = map[pkey]bool{}
 	f.strictHidden = map[pkey]bool{}
-	f.ourTrue = map[pkey]int{}
-	f.trueAt = map[pkey]int{}
 	f.interval = map[string]bool{}
 	f.seen = map[pkey]bool{}
 	f.seenState = copyStates(f.cstates)
@@ -279,11 +291,19 @@ func (f *pfake) observe(ev Event) {
 	case ItemEnabledChanged:
 		k := pkey{ContainerUUID: e.SceneUUID, ItemID: e.ItemID}
 		f.seen[k] = e.Enabled
+		if f.curHuman {
+			if e.Enabled {
+				delete(f.humanHid, k)
+			} else {
+				f.humanHid[k] = true
+			}
+		} else {
+			delete(f.humanHid, k)
+		}
 		if e.Enabled {
-			if f.ourTrue[k] > 0 {
-				f.ourTrue[k]--
-			} else if f.needRecord[k] && f.now-f.trueAt[k] > 8000 {
-				// 本体が隠した項目を、人が戻した。同じ不調の区間なら印を立てる（oracle が独立に求める）。
+			if f.curHuman && f.needRecord[k] && f.evAt > f.trueUntil[k] {
+				// 本体が隠した項目を、人が戻した（模型が発生元を持つ）。本体の true の期待が残る間は、同じ値の人の操作と
+				// 見分けられない（M-9 の既知制約）ので除く。それ以外で、同じ不調の区間なら印を立てる。
 				c := f.cameraOfKey(k)
 				if c != "" && f.hideBad(c) {
 					f.interval[c] = true
@@ -305,12 +325,39 @@ func (f *pfake) observe(ev Event) {
 		f.seenStrm = e.Streaming
 		if !e.Streaming {
 			f.interval = map[string]bool{}
+			f.scenePend = nil
 		}
 	case StudioModeChanged:
 		f.seenStud = e.Enabled
 	case SceneChanged:
 		f.seenScene = e.SceneUUID
+		hit := -1
+		for i, p := range f.scenePend {
+			if p.to == e.SceneUUID {
+				hit = i
+				break
+			}
+		}
+		if hit < 0 {
+			f.scenePend = nil // 人の切替は、期待を全部消す
+		} else {
+			var kept []pscene
+			for _, p := range f.scenePend[hit+1:] {
+				if p.to != e.SceneUUID {
+					kept = append(kept, p)
+				}
+			}
+			f.scenePend = kept
+		}
+	case SceneRequestDone:
+		for i := range f.scenePend {
+			if f.scenePend[i].reqID == e.ReqID {
+				f.scenePend[i].responded = true
+				f.scenePend[i].respAt = f.evAt
+			}
+		}
 	case OBSDisconnected:
+		f.scenePend = nil
 	}
 }
 
@@ -399,21 +446,47 @@ func (f *pfake) check() {
 			f.fail("未送信の予約 %s に P の記録がない", pkeyName(k))
 		}
 	}
-	// HB-INV-01: 本体が false を送った項目は、true と決着するまで記録にある。
+	// HB-INV-01: 本体が false を送った項目は、true と決着するまで、正しい Z・入力 UUID の記録にある（Snapshot の写しで見る）。
 	for k := range f.needRecord {
-		if f.m.entryIdx(k) < 0 {
-			f.fail("HB-INV-01: %s に記録がない（本体が false を送った）", pkeyName(k))
+		f.wantRecorded(k, "記録がない（本体が false を送った）")
+	}
+}
+
+// protectedTargets は今のシーンと、模型の台帳にある Proceed 済みの切替先（応答から 300ms + 3秒を過ぎたものは除く）。
+func (f *pfake) protectedTargets() []string {
+	targets := []string{f.seenScene}
+	var kept []pscene
+	for _, p := range f.scenePend {
+		if p.responded && f.now > p.respAt+3300 {
+			continue
 		}
+		kept = append(kept, p)
+		targets = append(targets, p.to)
+	}
+	f.scenePend = kept
+	return targets
+}
+
+// onProceedScene は SetScene の Proceed の時点（適用の直後）の判定: 配信中の監視対象の切替先を空にしない。
+func (f *pfake) onProceedScene(to string, reqID int) {
+	f.t.Helper()
+	f.scenePend = append(f.scenePend, pscene{to: to, reqID: reqID})
+	if !f.seenStrm || to == standby {
+		return
+	}
+	plain := func(x pkey) bool { return f.seen[x] || f.needRecord[x] }
+	// 承認までに届いた人の非表示とのすれ違いで0になるものは、本体の操作の違反に数えない（既知の制約）。
+	hidden := func(x pkey) bool { return (f.seen[x] || f.humanHid[x]) && !f.strictHidden[x] }
+	if len(f.cameras(to, plain)) > 0 && len(f.cameras(to, hidden)) == 0 {
+		f.fail("HB-INV-02: SetScene(%s) の適用で実際の表示が空のシーンへ切り替わる", letter(to))
 	}
 }
 
 // onProceedFalse は false の Proceed の直前の判定（INV-01 の保存の時点、INV-02、INV-03）。
 func (f *pfake) onProceedFalse(b Batch, k pkey, p Proceed) {
 	f.t.Helper()
-	// INV-01: 実送信の前に、この項目の記録が一覧にある（送信前の保存障壁。最初の false は MustPersist）。
-	if f.m.entryIdx(k) < 0 {
-		f.fail("HB-INV-01: Proceed(false) の時点で %s に記録がない", pkeyName(k))
-	}
+	// INV-01: 実送信の前に、保存する一覧の写し（Snapshot）にこの項目の正しい記録がある（送信前の保存障壁）。
+	f.wantRecorded(k, "Proceed(false) の時点で記録がない")
 	// INV-03: 人が戻した区間では、新しい false を送らない。
 	if c := f.cameraOfKey(k); c != "" && f.interval[c] {
 		f.fail("HB-INV-03: 人が戻した区間（%s）で新しい false を送った %s", c, pkeyName(k))
@@ -432,11 +505,7 @@ func (f *pfake) onProceedFalse(b Batch, k pkey, p Proceed) {
 		return f.seen[x]
 	}
 	plain := func(x pkey) bool { return f.seen[x] || f.needRecord[x] }
-	targets := []string{f.seenScene}
-	// Proceed 済みで期待が残る切替先は、期待の台帳（Machine の持つ Expectation の切替先の列だけ）を読む。
-	for _, x := range f.m.st.Expectations {
-		targets = append(targets, x.Scene)
-	}
+	targets := f.protectedTargets()
 	for _, r := range targets {
 		if r == standby {
 			continue
@@ -476,7 +545,13 @@ func (f *pfake) schedule(afterMs int, ev Event) {
 		f.lastItemEvAt = at
 	}
 	f.logf("   予約 @%dms %T %s", at, ev, shortEv(ev))
-	f.events = append(f.events, pevent{at: at, ev: ev})
+	f.events = append(f.events, pevent{at: at, ev: ev, human: f.markHuman})
+}
+
+func (f *pfake) scheduleH(afterMs int, ev Event) {
+	f.markHuman = true
+	f.schedule(afterMs, ev)
+	f.markHuman = false
 }
 
 // deliver は期限の来たイベントを時刻の順に渡す。切断中のイベントは捨てる（OBSConnected が最新の値を運ぶ）。
@@ -495,13 +570,16 @@ func (f *pfake) deliver() {
 				}
 			}
 		}
+		f.curHuman = e.human
 		f.handleAt(e.ev, e.at)
+		f.curHuman = false
 	}
 }
 
 // handleAt は Event の時刻を at に直して渡す。
 func (f *pfake) handleAt(ev Event, atMs int) {
 	f.t.Helper()
+	f.evAt = atMs
 	switch e := ev.(type) {
 	case ItemEnabledChanged:
 		e.At = at(atMs)
@@ -528,6 +606,12 @@ func (f *pfake) handleAt(ev Event, atMs int) {
 	if e, ok := ev.(ItemRequestDone); ok {
 		if r, ok := f.reqs[e.ReqID]; ok {
 			delete(f.reqs, e.ReqID)
+			if r.value {
+				f.trueUntil[r.key] = atMs + 2000
+				if e.Result == ItemError || e.Result == ItemNotFound {
+					f.trueUntil[r.key] = atMs
+				}
+			}
 			if e.Result == ItemTimeout {
 				delete(f.strictHidden, r.key)
 			}
@@ -590,13 +674,30 @@ func (f *pfake) execStep(_ bool) {
 		case SetScene:
 			if f.connected {
 				f.scene = a.SceneUUID
-				f.sceneTo[r.ReqID] = a.SceneUUID
-				f.schedule(50+f.rng.Intn(400), SceneRequestDone{ReqID: r.ReqID, Result: RequestOK})
-				f.schedule(100+f.rng.Intn(400), SceneChanged{Scene: nameOf(a.SceneUUID), SceneUUID: a.SceneUUID})
+				f.onProceedScene(a.SceneUUID, r.ReqID)
+				f.adversary()
+				f.schedule(50+f.rng.Intn(1500), SceneRequestDone{ReqID: r.ReqID, Result: RequestOK})
+				f.schedule(100+f.rng.Intn(2500), SceneChanged{Scene: nameOf(a.SceneUUID), SceneUUID: a.SceneUUID})
 			}
 		case SetItemEnabled:
 			f.onItemProceed(run, a, r)
 		}
+	}
+}
+
+// adversary は SetScene を Proceed した直後に、カメラを不調にして Hide を誘い、その承認を先に進める（切替の期待が残る間の
+// 空の検査の窓を広げる）。
+func (f *pfake) adversary() {
+	f.t.Helper()
+	if f.rng.Intn(3) != 0 {
+		return
+	}
+	f.cstates[camSub] = DOWN
+	f.handle(CamerasChanged{At: f.at(), States: copyStates(f.cstates)})
+	for i := 0; i < 3 && len(f.queue) > 0; i++ {
+		last := len(f.queue) - 1
+		f.queue[0], f.queue[last] = f.queue[last], f.queue[0]
+		f.execStep(false)
 	}
 }
 
@@ -621,8 +722,7 @@ func (f *pfake) onItemProceed(run *pbatchRun, a SetItemEnabled, p Proceed) {
 		f.needRecord[k] = true
 		f.strictHidden[k] = true
 	} else {
-		f.ourTrue[k]++
-		f.trueAt[k] = f.now
+		f.trueUntil[k] = 1 << 60
 	}
 	res := ItemOK
 	apply := true
@@ -637,9 +737,6 @@ func (f *pfake) onItemProceed(run *pbatchRun, a SetItemEnabled, p Proceed) {
 	delay := 50 + f.rng.Intn(900)
 	rq := &preq{key: k, value: a.Enabled, batchID: run.b.BatchID, apply: apply, result: res}
 	f.reqs[p.ItemReqID] = rq
-	if res == ItemError && a.Enabled {
-		f.ourTrue[k]--
-	}
 	if apply && f.connected {
 		f.items[k] = a.Enabled
 		if f.items[k] != f.seen[k] {
@@ -649,9 +746,6 @@ func (f *pfake) onItemProceed(run *pbatchRun, a SetItemEnabled, p Proceed) {
 		f.items[k] = a.Enabled
 	}
 	f.schedule(delay, ItemRequestDone{ReqID: p.ItemReqID, Result: res})
-	if res == ItemTimeout && a.Enabled && !apply {
-		f.ourTrue[k]--
-	}
 }
 
 // ---- 入力の列 ----
@@ -680,14 +774,14 @@ func (f *pfake) randomStep(allowCmd bool) {
 		k := ks[f.rng.Intn(len(ks))]
 		f.items[k] = !f.items[k]
 		if f.connected {
-			f.schedule(f.rng.Intn(300), ItemEnabledChanged{SceneUUID: k.ContainerUUID, ItemID: k.ItemID, Enabled: f.items[k]})
+			f.scheduleH(f.rng.Intn(300), ItemEnabledChanged{SceneUUID: k.ContainerUUID, ItemID: k.ItemID, Enabled: f.items[k]})
 		}
 	case n < 72:
 		scs := []string{camera, camera2, deskScene, standby, talk, oUUID}
 		to := scs[f.rng.Intn(len(scs))]
 		if f.connected && to != f.scene {
 			f.scene = to
-			f.schedule(f.rng.Intn(300), SceneChanged{Scene: nameOf(to), SceneUUID: to})
+			f.scheduleH(f.rng.Intn(300), SceneChanged{Scene: nameOf(to), SceneUUID: to})
 		}
 	case n < 75:
 		f.streaming = !f.streaming
@@ -770,8 +864,25 @@ func (f *pfake) recoverPhase() {
 			f.handleAt(ItemRequestDone{ReqID: id, Result: ItemTimeout}, f.now)
 		}
 	}
-	f.cstates = map[string]scenemap.CameraState{camMain: OK, camSub: OK}
+	// 回復の型: 0 = 全カメラ OK。1 = 配信の停止、2 = auto=false、3 = on_bad=standby（どれもカメラは不良のまま）。
+	switch f.mode {
+	case 0:
+		f.cstates = map[string]scenemap.CameraState{camMain: OK, camSub: OK}
+	default:
+		f.cstates = map[string]scenemap.CameraState{camMain: DOWN, camSub: DOWN}
+	}
 	f.handle(CamerasChanged{At: f.at(), States: copyStates(f.cstates)})
+	switch f.mode {
+	case 1:
+		f.streaming = false
+		f.handleAt(StreamStateChanged{Streaming: false}, f.now)
+	case 2:
+		f.autoOn = false
+		f.handle(f.cfgEv())
+	case 3:
+		f.hide[camMain], f.hide[camSub] = false, false
+		f.handle(f.cfgEv())
+	}
 	// 残っている要求は成功として返す。
 	for _, r := range f.reqs {
 		f.items[r.key] = r.value
@@ -802,6 +913,7 @@ func (f *pfake) recoverPhase() {
 				switch a := a.(type) {
 				case SetScene:
 					f.scene = a.SceneUUID
+					f.onProceedScene(a.SceneUUID, r.ReqID)
 					f.handleAt(SceneRequestDone{ReqID: r.ReqID, Result: RequestOK}, f.now)
 					f.handleAt(SceneChanged{Scene: nameOf(a.SceneUUID), SceneUUID: a.SceneUUID}, f.now)
 				case SetItemEnabled:
@@ -811,8 +923,7 @@ func (f *pfake) recoverPhase() {
 						f.needRecord[k] = true
 						f.strictHidden[k] = true
 					} else {
-						f.ourTrue[k]++
-						f.trueAt[k] = f.now
+						f.trueUntil[k] = 1 << 60
 					}
 					f.items[k] = a.Enabled
 					f.handleAt(ItemRequestDone{ReqID: r.ItemReqID, Result: ItemOK}, f.now)
@@ -860,12 +971,44 @@ func TestHB性質_第5節の4つ(t *testing.T) {
 	}
 	for seed := first; seed <= int64(runs); seed++ {
 		f := newPfake(t, seed)
+		f.mode = int(seed % 4)
 		steps := 60 + f.rng.Intn(120)
 		for i := 0; i < steps; i++ {
 			f.randomStep(true)
 		}
 		f.recoverPhase()
 	}
+}
+
+// wantRecorded は Snapshot の一覧の写しに、k の記録が正しい接続先・コレクション・入力 UUID であることを確かめる。
+func (f *pfake) wantRecorded(k pkey, what string) {
+	f.t.Helper()
+	for _, e := range f.m.Snapshot().HiddenEntries {
+		if e.Key() != k {
+			continue
+		}
+		if e.Host != hbHost || e.Port != hbPort || e.Collection != collectionX {
+			f.fail("HB-INV-01: %s の記録の接続先・コレクションが違う: %s:%d %q", pkeyName(k), e.Host, e.Port, e.Collection)
+		}
+		if want := f.baseSource(k); e.SourceUUID != want {
+			f.fail("HB-INV-01: %s の記録の入力 UUID が違う: %q, want %q", pkeyName(k), e.SourceUUID, want)
+		}
+		return
+	}
+	f.fail("HB-INV-01: %s に%s", pkeyName(k), what)
+}
+
+func (f *pfake) baseSource(k pkey) string {
+	c, ok := f.base.Scenes[k.ContainerUUID]
+	if !ok {
+		c = f.base.Groups[k.ContainerUUID]
+	}
+	for _, it := range c.Items {
+		if it.ID == k.ItemID {
+			return it.SourceUUID
+		}
+	}
+	return ""
 }
 
 func (f *pfake) mapValue(k pkey) (bool, bool) {

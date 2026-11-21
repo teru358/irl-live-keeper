@@ -888,6 +888,10 @@ func (m *Machine) hideSuppressed() bool {
 // waitingHidden は戻り先 R が待っている隠した項目があるか: R に映る OK で使えるカメラのうち、一覧に地図で false の項目があるもの。
 func (m *Machine) waitingHidden(r string) bool {
 	s := &m.st
+	// 戻り先の実際に表示のカメラが0（本体が隠した項目だけで映っている。ignore の不良のカメラなど）なら、空の画面へ戻さない（INV-02）。
+	if len(m.cameraSet(r, false, nil)) > 0 && len(m.actualCameras(r, nil)) == 0 {
+		return true
+	}
 	for _, c := range m.cameraSet(r, false, nil) {
 		if s.CameraStates[c] != scenemap.StateOK || m.unusable(c) {
 			continue
