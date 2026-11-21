@@ -201,3 +201,45 @@ func TestPollerMultiPathAppears(t *testing.T) {
 		t.Errorf("cam2 = %+v", s)
 	}
 }
+
+// 接続の id が path の source.id と合わない（または source.id が空）ときは、path だけで選ぶ。
+func TestPollerMultiSRTPicksByPathWhenIDMismatch(t *testing.T) {
+	var m struct {
+		ItemCount int              `json:"itemCount"`
+		PageCount int              `json:"pageCount"`
+		Items     []map[string]any `json:"items"`
+	}
+	if err := json.Unmarshal(loadMulti(t, "srt_conns_list.json"), &m); err != nil {
+		t.Fatal(err)
+	}
+	for _, it := range m.Items {
+		it["id"] = "mismatch-" + it["id"].(string) // どの接続も source.id と当たらない
+	}
+	body, _ := json.Marshal(m)
+	_, p := newMulti(t, []reply{ok(loadMulti(t, "paths_list_3cams.json"))}, ok(body), cams3...)
+	set := p.Poll(nil2ctx(), at(0))
+	if s := set.Cameras[1]; s.SRT == nil || s.SRT.RTTMs != 20 {
+		t.Errorf("cam2 = %+v", s.SRT)
+	}
+	if s := set.Cameras[2]; s.SRT == nil || s.SRT.RTTMs != 30 {
+		t.Errorf("cam3 = %+v", s.SRT)
+	}
+}
+
+// 一覧から消えて戻ったカメラは、同じ source.id でも基準を取り直す（戻った回は Kbps 0）。
+func TestPollerMultiRebaseAfterMissing(t *testing.T) {
+	_, p := newMulti(t, []reply{
+		ok(loadMulti(t, "paths_list_3cams.json")),
+		listWith(t, map[string]pathEdit{"cam1": {drop: true}}),
+		listWith(t, map[string]pathEdit{"cam1": {bytes: 1000000 + 125000}}),
+		listWith(t, map[string]pathEdit{"cam1": {bytes: 1000000 + 250000}}),
+	}, ok(loadMulti(t, "srt_conns_list.json")), "cam1")
+	p.Poll(nil2ctx(), at(0))
+	p.Poll(nil2ctx(), at(1))
+	if s := p.Poll(nil2ctx(), at(2)).Cameras[0]; !s.Online || s.Kbps != 0 {
+		t.Errorf("戻った回 = %+v", s)
+	}
+	if s := p.Poll(nil2ctx(), at(3)).Cameras[0]; s.Kbps != 1000 {
+		t.Errorf("次の回 = %+v", s)
+	}
+}
