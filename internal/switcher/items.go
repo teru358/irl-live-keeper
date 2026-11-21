@@ -377,7 +377,12 @@ func (m *Machine) resplit() {
 	if s.Map == nil {
 		return
 	}
-	s.Z = zone{m.ep.Host, m.ep.Port, s.Map.Collection}
+	if z := (zone{m.ep.Host, m.ep.Port, s.Map.Collection}); z != s.Z {
+		// 予約（Unsent）と MA の確認待ちは旧い Z の記録のもの。Z が変わったら、別の Z の同じ鍵に及ばないよう捨てる。
+		clear(s.Unsent)
+		clear(s.MAConfirm)
+		s.Z = z
+	}
 	var hid, ret []HiddenEntry
 	moved := false
 	for _, e := range s.Hidden {
@@ -731,7 +736,7 @@ func (m *Machine) emitItem(p Purpose, camera string, items []pendItem, actions [
 	s.Pending[id] = PendingBatch{
 		BatchID: id, Purpose: p,
 		SceneEpoch: s.SceneEpoch, ConnEpoch: s.ConnEpoch, StreamEpoch: s.StreamEpoch, ConfigEpoch: s.ConfigEpoch,
-		CameraID: camera, Scope: scope, FromCommand: fromCmd, Items: items,
+		CameraID: camera, Z: s.Z, Scope: scope, FromCommand: fromCmd, Items: items,
 	}
 	bi := make([]BatchItem, len(items))
 	for i, it := range items {
@@ -1027,6 +1032,7 @@ func (m *Machine) onHiddenWriteFailed(e HiddenWriteFailed) {
 // rollbackBatch は、バッチが作った未送信の予約を予約前へ戻す。all なら送った分（保存に失敗した最初の false）の期待と台帳も戻す。
 func (m *Machine) rollbackBatch(pb *PendingBatch, all bool) {
 	s := &m.st
+	sameZ := pb.Z == s.Z
 	for i := range pb.Items {
 		pi := &pb.Items[i]
 		if pi.Sent && all {
@@ -1039,16 +1045,31 @@ func (m *Machine) rollbackBatch(pb *PendingBatch, all bool) {
 			if pb.Sent > 0 {
 				pb.Sent--
 			}
-			if pi.Created {
+			if pi.Created && sameZ {
 				s.Unsent[pi.Key] = pb.BatchID
 			}
 		}
-		if pi.Created {
+		if !pi.Created {
+			continue
+		}
+		if sameZ {
 			if bid, unsent := s.Unsent[pi.Key]; unsent && bid == pb.BatchID {
 				if ei := m.entryIdx(pi.Key); ei >= 0 && s.Hidden[ei].State == HiddenP {
 					m.removeEntry(ei)
 				}
 				delete(s.Unsent, pi.Key)
+			}
+			continue
+		}
+		// 旧い Z のバッチ: その Z の記録（Retained にある、送っていない予約の P）だけを外す。今の Z の記録には触らない。
+		if pi.Sent {
+			continue
+		}
+		for j, e := range s.Retained {
+			if e.Key() == pi.Key && entryZone(e) == pb.Z && e.SourceUUID == pi.Source && e.State == HiddenP {
+				s.Retained = slices.Delete(s.Retained, j, j+1)
+				m.touch()
+				break
 			}
 		}
 	}

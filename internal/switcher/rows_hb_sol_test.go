@@ -175,3 +175,52 @@ func descs2(bs []Batch) string {
 	}
 	return out
 }
+
+// terra: 旧い Z の予約（Unsent）と MA の確認待ちは、別の Z の同じ鍵の記録に及ばない。
+func TestHB旧いZの予約と確認待ちは別のZの記録に及ばない(t *testing.T) {
+	yMap := func(h *hb) *scenemap.Map {
+		y := cloneTestMap(h.mp)
+		y.Collection = "collection-y"
+		return y
+	}
+	yEntry := func(h *hb, k scenemap.ItemKey, st HiddenState) HiddenEntry {
+		e := h.entryOf(k, st)
+		e.Collection = "collection-y"
+		return e
+	}
+	connY := func(h *hb, y *scenemap.Map) {
+		h.ev(OBSConnected{At: at(7000), Streaming: true, Scene: nameOf(camera), SceneUUID: camera, TransitionMs: ip(300), Map: y})
+	}
+	for _, how := range []string{"Reject", "HiddenWriteFailed"} {
+		t.Run("予約の巻き戻し/"+how, func(t *testing.T) {
+			h := newHB(t)
+			b := h.hide(1000)
+			h.proceed(b, 1100, kx, false) // y は X の未送信 P
+			h.ev(OBSDisconnected{At: at(1300)})
+			h.m.st.Retained = append(h.m.st.Retained, yEntry(h, ky, HiddenP)) // Y の同じ鍵 y の P
+			connY(h, yMap(h))
+			if how == "HiddenWriteFailed" {
+				h.ev(HiddenWriteFailed{At: at(7100), BatchID: b.BatchID})
+			}
+			h.bdone(7200, b.BatchID, BatchRejected, nil)
+			if e := h.entry(ky); e == nil || e.Collection != "collection-y" {
+				t.Fatalf("Y の y の P が消えた: %q / %q", h.entries(), h.retained())
+			}
+		})
+	}
+	t.Run("MA の確認待ち", func(t *testing.T) {
+		h := newHB(t, hbNoY())
+		h.seedH(kx)
+		bs, _ := h.evErr(Command{At: at(1000), Kind: CmdShowAllCameras})
+		h.out(bs, "MA[x]")
+		h.proceed(bs[0], 1100, kx, true) // MAConfirm[x]（X）
+		h.ev(OBSDisconnected{At: at(1300)})
+		h.m.st.Retained = append(h.m.st.Retained, yEntry(h, kx, HiddenU)) // Y の x の U（地図 true）
+		y := yMap(h)
+		setItem(y, kx.ContainerUUID, kx.ItemID, true)
+		connY(h, y)
+		if e := h.entry(kx); e == nil || e.State != HiddenU || e.Collection != "collection-y" {
+			t.Fatalf("X の確認待ちが Y の U を消した: %q / %q", h.entries(), h.retained())
+		}
+	})
+}

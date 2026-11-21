@@ -635,7 +635,9 @@ type PendingBatch struct {
 	ConfigEpoch int
 	ReturnScene string
 	// 0b: 項目のバッチ。
-	CameraID       string
+	CameraID string
+	// Z はバッチを作った時の接続先とコレクション。巻き戻しは、この Z の記録だけに及ぶ。
+	Z              zone
 	Scope          RestoreScope
 	FromCommand    bool
 	Items          []pendItem
