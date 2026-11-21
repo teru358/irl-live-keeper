@@ -98,6 +98,9 @@ func route(path string) (switcher.CommandKind, string, bool) {
 		return switcher.CmdStandbyOn, http.MethodPost, true
 	case "/api/standby/off":
 		return switcher.CmdStandbyOff, http.MethodPost, true
+	case "/api/cameras/show-all":
+		// カメラのソースをすべて表示に戻す（0b）。OBS に未接続なら 503、終了中なら 409。
+		return switcher.CmdShowAllCameras, http.MethodPost, true
 	default:
 		return 0, "", false
 	}

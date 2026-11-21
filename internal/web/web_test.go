@@ -98,6 +98,7 @@ var commandPaths = []struct {
 	{"/api/stream/stop", switcher.CmdStreamStop},
 	{"/api/standby/on", switcher.CmdStandbyOn},
 	{"/api/standby/off", switcher.CmdStandbyOff},
+	{"/api/cameras/show-all", switcher.CmdShowAllCameras},
 }
 
 func TestCommandAccepted(t *testing.T) {
@@ -441,5 +442,38 @@ func TestStatusNilWarningsBecomesEmptyArray(t *testing.T) {
 	w := do(t, New(b, testPass), http.MethodGet, "/api/status", reqOpt{})
 	if !strings.Contains(w.Body.String(), `"warnings":[]`) {
 		t.Fatalf("body = %s", w.Body.String())
+	}
+}
+
+// すべて表示に戻す: OBS に未接続なら 503、終了中なら 409（理由つき）。独自ヘッダーがなければ 403。
+func TestShowAllErrors(t *testing.T) {
+	const path = "/api/cameras/show-all"
+	cases := []struct {
+		name string
+		err  error
+		want int
+	}{
+		{"未接続", switcher.ErrNotConnected{}, http.StatusServiceUnavailable},
+		{"終了中", switcher.ErrInvalidState{Reason: switcher.ReasonStopping}, http.StatusConflict},
+		{"同じ操作が実行待ち", switcher.ErrInvalidState{Reason: switcher.ReasonSamePending}, http.StatusConflict},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			b := &fakeBackend{err: c.err}
+			w := do(t, New(b, testPass), http.MethodPost, path, reqOpt{header: ok1})
+			if w.Code != c.want {
+				t.Fatalf("code = %d, want %d: %q", w.Code, c.want, w.Body.String())
+			}
+			if body := decodeBody(t, w); body["error"] == "" {
+				t.Errorf("error が空: %#v", body)
+			}
+		})
+	}
+	b := &fakeBackend{}
+	if w := do(t, New(b, testPass), http.MethodPost, path, reqOpt{}); w.Code != http.StatusForbidden || b.callCount() != 0 {
+		t.Errorf("ヘッダーなし: code = %d, calls = %d", w.Code, b.callCount())
+	}
+	if w := do(t, New(b, testPass), http.MethodGet, path, reqOpt{header: ok1}); w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("GET: code = %d", w.Code)
 	}
 }
