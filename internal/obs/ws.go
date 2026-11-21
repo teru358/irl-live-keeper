@@ -48,6 +48,10 @@ type Config struct {
 	MediaSource string
 	// Scenes は config で割り当てたシーン名。接続時に存在を確かめる。
 	Scenes []string
+	// Cameras は地図で、メディアソースの URL を照合するカメラ（設定の順）。
+	Cameras []CameraConfig
+	// RTSPPort は MediaMTX の RTSP のポート。メディアソースの URL のポートと照合する。
+	RTSPPort int
 }
 
 const (
@@ -95,7 +99,9 @@ type WS struct {
 	clock auxClock
 	// quiet と switchMax は、切替の途切れの長さ。テストで差し替える。
 	quiet, switchMax time.Duration
-	aux              *Aux
+	// backoffMin と backoffMax は再接続の待ち。テストで短くする。
+	backoffMin, backoffMax time.Duration
+	aux                    *Aux
 
 	// wg は goroutine を数える。stopped が true になったら、spawn は何も始めない。
 	spawnMu sync.Mutex
@@ -111,6 +117,9 @@ type WS struct {
 	switching bool      // シーンコレクションの切替中
 	legacy    bool      // 古い OBS（警告のため）
 	warnBase  []string
+	warnMap   string   // 地図を読めずに空の地図でつないだときの理由
+	warnCams  []string // 地図で見つからなかったカメラ
+	mapFails  int      // 続けて地図を読めなかった接続の数
 }
 
 var _ Client = (*WS)(nil)
@@ -123,6 +132,7 @@ func New(cfg Config, log *slog.Logger) *WS {
 	return &WS{
 		cfg: cfg, log: log, events: make(chan switcher.Event, eventBuffer), timeout: responseTimeout,
 		clock: realClock{}, quiet: quietAfterRemoved, switchMax: switchMax,
+		backoffMin: backoffMin, backoffMax: backoffMax,
 		aux: NewAux(cfg, log),
 	}
 }
@@ -144,6 +154,10 @@ func (w *WS) Warnings() []string {
 	if w.legacy {
 		out = append(out, legacyWarning)
 	}
+	if w.warnMap != "" {
+		out = append(out, "シーンの地図を読めないため、カメラの対応と項目を空にしています（理由: "+w.warnMap+"）")
+	}
+	out = append(out, w.warnCams...)
 	return append(out, w.warnBase...)
 }
 
@@ -167,21 +181,21 @@ func (w *WS) spawn(f func()) bool {
 // goobs の応答待ち + 1秒で待つのをやめて警告に出す。外から戻せない）。
 func (w *WS) Run(ctx context.Context) {
 	defer w.shutdown()
-	backoff := backoffMin
+	backoff := w.backoffMin
 	for ctx.Err() == nil {
 		connected := w.session(ctx)
 		if ctx.Err() != nil {
 			return
 		}
 		if connected {
-			backoff = backoffMin
+			backoff = w.backoffMin
 		}
 		select {
 		case <-ctx.Done():
 			return
 		case <-time.After(backoff):
 		}
-		backoff = min(backoff*2, backoffMax)
+		backoff = min(backoff*2, w.backoffMax)
 	}
 }
 

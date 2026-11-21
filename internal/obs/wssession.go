@@ -15,6 +15,7 @@ import (
 	"github.com/andreykaipov/goobs/api/requests/stream"
 	"github.com/andreykaipov/goobs/api/requests/transitions"
 
+	"github.com/teru358/irl-live-keeper/internal/scenemap"
 	"github.com/teru358/irl-live-keeper/internal/switcher"
 )
 
@@ -36,8 +37,10 @@ const (
 type reloadResult struct {
 	gen       int
 	legacy    bool
-	connected switcher.OBSConnected
-	err       error
+	connected switcher.OBSConnected // Map を含む
+	// emptyReason は、地図を読めずに空の地図（シーンの一覧だけ）にしたときの理由。
+	emptyReason string
+	err         error
 }
 
 // epoch は OBSConnected から OBSDisconnected までの間。この間だけ動く goroutine の ctx を持つ。
@@ -46,6 +49,8 @@ type epoch struct {
 	cancel context.CancelFunc
 	dead   bool // emitMu で守る
 	trans  chan struct{}
+	// refresher は地図の読み直し。
+	refresher *refresher
 }
 
 // heldEvent は、読み取りの最中に届いたイベント。読み取りのあと OBSConnected の次に流す。
@@ -68,6 +73,7 @@ type sess struct {
 	ep         *epoch
 	held       []heldEvent
 	heldTrans  bool
+	heldKick   bool // 読み取りの最中に、地図のイベントが届いた
 	reloadGen  int
 	reloadStop context.CancelFunc
 	reloadCh   chan reloadResult
@@ -149,7 +155,7 @@ func (s *sess) startReload() {
 	s.cancelReload()
 	s.state = stateReloading
 	s.quiet = nil
-	s.held, s.heldTrans = nil, false
+	s.held, s.heldTrans, s.heldKick = nil, false, false
 	s.reloadGen++
 	gen := s.reloadGen
 	rctx, cancel := context.WithCancel(s.ctx)
@@ -195,9 +201,49 @@ func (w *WS) reload(ctx context.Context, c *mainConn, gen int, first, legacy boo
 		res.err = err
 		return res
 	}
-	res.connected = conn
 	w.checkNames(ctx, c)
+	m, reason, err := w.readFirstMap(ctx, c, res.legacy)
+	if err != nil {
+		res.err = err
+		return res
+	}
+	conn.Map = m
+	res.connected, res.emptyReason = conn, reason
 	return res
+}
+
+// maxMapFailures は、地図を続けて読めなかったとき、空の地図でつなぐまでの失敗の数。
+const maxMapFailures = 3
+
+// readFirstMap は最初の地図を本来の接続で読む。読めなければ失敗（接続の失敗として試し直す）。
+// 続けて maxMapFailures 回失敗したら、シーンの一覧だけの空の地図を返す（reason に理由）。
+// 古い OBS では、読めても読めなくても、シーンの一覧（名前）だけ。
+func (w *WS) readFirstMap(ctx context.Context, c *mainConn, legacy bool) (m *scenemap.Map, reason string, err error) {
+	req := mainReq{w: w, ctx: ctx, c: c}
+	if legacy {
+		m, err = readSceneListOnly(ctx, req, true)
+		return m, "", err
+	}
+	m, err = readSceneMap(ctx, req, w.cameraIDs(), w.cfg.RTSPPort)
+	if err == nil {
+		return m, "", nil
+	}
+	if ctx.Err() != nil {
+		return nil, "", err
+	}
+	w.mu.Lock()
+	w.mapFails++
+	n := w.mapFails
+	w.mu.Unlock()
+	w.log.Warn("シーンの地図を読めない", "err", err, "failures", n)
+	if n < maxMapFailures {
+		return nil, "", fmt.Errorf("シーンの地図: %w", err)
+	}
+	m, err2 := readSceneListOnly(ctx, req, false)
+	if err2 != nil {
+		return nil, "", fmt.Errorf("シーンの一覧: %w", err2)
+	}
+	return m, err.Error(), nil
 }
 
 // connect は読み取りの結果で OBSConnected を流し、動作中に入る。session を続けられなければ false。
@@ -210,10 +256,13 @@ func (s *sess) connect(r reloadResult, addr string) bool {
 	s.curUUID = r.connected.SceneUUID
 	w.mu.Lock()
 	w.legacy = r.legacy
+	w.mapFails = 0
 	w.mu.Unlock()
+	w.setMapWarnings(r.connected.Map, r.emptyReason)
 
 	ctx, cancel := context.WithCancel(s.ctx)
 	s.ep = &epoch{ctx: ctx, cancel: cancel, trans: make(chan struct{}, 1)}
+	s.ep.refresher = newRefresher(w, s.ep, r.connected.Map, r.legacy)
 	s.state = stateRunning
 	w.setGate(c, true, false)
 	w.aux.SetMainConnected(true)
@@ -224,16 +273,21 @@ func (s *sess) connect(r reloadResult, addr string) bool {
 	w.log.Info("OBS に接続した", "addr", addr)
 	s.startEpoch()
 
-	held, heldTrans := s.held, s.heldTrans
-	s.held, s.heldTrans = nil, false
+	held, heldTrans, heldKick := s.held, s.heldTrans, s.heldKick
+	s.held, s.heldTrans, s.heldKick = nil, false, false
 	for _, h := range held {
 		if s.state != stateRunning {
 			break
 		}
 		s.handleRunning(h.ev, h.at)
 	}
-	if heldTrans && s.state == stateRunning {
-		s.kickTransition()
+	if s.state == stateRunning {
+		if heldTrans {
+			s.kickTransition()
+		}
+		if heldKick {
+			s.ep.refresher.kick()
+		}
 	}
 	return true
 }
@@ -241,6 +295,7 @@ func (s *sess) connect(r reloadResult, addr string) bool {
 func (s *sess) startEpoch() {
 	ep := s.ep
 	s.w.spawn(func() { s.w.runTransition(ep, s.conn) })
+	s.w.spawn(ep.refresher.run)
 }
 
 // endEpoch は動作中のエポックを終える。エポックの goroutine が OBSDisconnected のあとに
@@ -280,7 +335,7 @@ func (w *WS) emitEpoch(ep *epoch, e switcher.Event) bool {
 func (s *sess) beginSwitch(wait time.Duration) {
 	w := s.w
 	s.cancelReload()
-	s.held, s.heldTrans = nil, false
+	s.held, s.heldTrans, s.heldKick = nil, false, false
 	if s.state == stateRunning || s.ep != nil {
 		s.endEpoch()
 	}
@@ -332,8 +387,13 @@ func (s *sess) hold(ev any, at time.Time) {
 	switch ev.(type) {
 	case *events.CurrentSceneTransitionChanged:
 		s.heldTrans = true
-	case *events.CurrentProgramSceneChanged, *events.CurrentSceneTransitionDurationChanged, *events.StreamStateChanged:
+	case *events.CurrentProgramSceneChanged, *events.CurrentSceneTransitionDurationChanged, *events.StreamStateChanged,
+		*events.SceneItemEnableStateChanged:
 		s.held = append(s.held, heldEvent{ev, at})
+	case *events.SceneCreated, *events.SceneRemoved, *events.SceneNameChanged, *events.SceneItemCreated, *events.SceneItemRemoved,
+		*events.InputCreated, *events.InputRemoved, *events.InputNameChanged, *events.InputSettingsChanged:
+		// 読み取りの途中の変化は、読み取りの値に入っていないかもしれない。OBSConnected のあとに読み直す。
+		s.heldKick = true
 	}
 }
 
@@ -359,7 +419,20 @@ func (s *sess) handleRunning(ev any, at time.Time) {
 			// GUI の「複製」は Changing を出さずに、全部のシーンの SceneRemoved から始まる（M-0）。
 			w.log.Info("OBS の program のシーンが削除された。シーンコレクションの切替とみなす")
 			s.beginSwitch(w.quiet)
+			return
 		}
+		s.ep.refresher.kick()
+		return
+	case *events.SceneCreated, *events.SceneNameChanged, *events.SceneItemCreated, *events.SceneItemRemoved,
+		*events.InputCreated, *events.InputRemoved, *events.InputNameChanged:
+		s.ep.refresher.kick()
+		return
+	case *events.InputSettingsChanged:
+		s.ep.refresher.inputSettings(e.InputUuid, e.InputSettings)
+		return
+	case *events.SceneItemEnableStateChanged:
+		// 本来の接続のイベントを、表示・非表示の正とする。グループの中の項目は、グループの UUID で届く。
+		w.emit(s.ctx, switcher.ItemEnabledChanged{At: at, SceneUUID: s.sceneID(e.SceneUuid, e.SceneName), ItemID: e.SceneItemId, Enabled: e.SceneItemEnabled})
 		return
 	case *events.CurrentProgramSceneChanged:
 		s.curUUID = s.sceneID(e.SceneUuid, e.SceneName)

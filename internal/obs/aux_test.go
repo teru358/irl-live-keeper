@@ -33,6 +33,7 @@ type auxReply struct {
 	Delay time.Duration // 遅らせる
 	ID    string        // 空でなければ、この ID で返す（ID のずれ）
 	Data  string        // 応答の responseData（空なら {}）
+	Code  int           // 0 でなければ、この code の失敗で返す（例 600 は存在しない）
 }
 
 type auxServer struct {
@@ -140,9 +141,13 @@ func newAuxServer(t *testing.T) *auxServer {
 				if rep.Data != "" {
 					data = json.RawMessage(rep.Data)
 				}
+				status := map[string]any{"result": true, "code": 100}
+				if rep.Code != 0 {
+					status = map[string]any{"result": false, "code": rep.Code, "comment": "テストの失敗"}
+				}
 				resp := map[string]any{"op": 7, "d": map[string]any{
 					"requestType": d.Type, "requestId": id,
-					"requestStatus": map[string]any{"result": true, "code": 100},
+					"requestStatus": status,
 					"responseData":  data,
 				}}
 				if rep.Delay <= 0 {

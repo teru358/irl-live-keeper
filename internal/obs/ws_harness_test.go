@@ -26,6 +26,61 @@ type fakeOBS struct {
 	hook func(auxReq) (auxReply, bool)
 	// counts は要求の種類ごとの回数。
 	counts map[string]int
+
+	// 地図の読み取りの元。scenes が nil なら、今のシーン1つだけ（項目なし）。
+	collection string
+	scenes     []fakeScene
+	groups     map[string]fakeScene // 鍵はグループの UUID
+	inputs     []fakeInput
+}
+
+type fakeItem struct {
+	ID         int
+	SourceUUID string
+	SourceName string
+	Kind       string // "input" | "scene" | "group"
+	Enabled    bool
+}
+
+type fakeScene struct {
+	UUID, Name string
+	Items      []fakeItem
+}
+
+type fakeInput struct {
+	UUID, Name, Kind string
+	Settings         map[string]any
+}
+
+// rtspInput は URL がカメラに当たる ffmpeg_source。
+func rtspInput(uuid, name, url string) fakeInput {
+	return fakeInput{UUID: uuid, Name: name, Kind: "ffmpeg_source",
+		Settings: map[string]any{"input": url, "is_local_file": false}}
+}
+
+// update は世界の状態を、相手が応答するときと競合しないように書き換える。
+func (f *fakeOBS) update(fn func(*fakeOBS)) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	fn(f)
+}
+
+func (f *fakeOBS) sceneItemsJSON(items []fakeItem) string {
+	var out []map[string]any
+	for i, it := range items {
+		m := map[string]any{
+			"sceneItemId": it.ID, "sceneItemIndex": i, "sourceUuid": it.SourceUUID, "sourceName": it.SourceName,
+			"sceneItemEnabled": it.Enabled, "isGroup": it.Kind == "group",
+		}
+		switch it.Kind {
+		case "input":
+			m["sourceType"], m["inputKind"] = "OBS_SOURCE_TYPE_INPUT", "ffmpeg_source"
+		default:
+			m["sourceType"], m["inputKind"] = "OBS_SOURCE_TYPE_SCENE", nil
+		}
+		out = append(out, m)
+	}
+	return jsonString(map[string]any{"sceneItems": out})
 }
 
 func newFakeOBS() *fakeOBS {
@@ -90,7 +145,70 @@ func (f *fakeOBS) handle(r auxReq) auxReply {
 	case "GetCurrentSceneTransition":
 		return auxReply{Data: jsonString(map[string]any{"transitionName": "Fade", "transitionFixed": false, "transitionDuration": ms})}
 	case "GetSceneList":
-		return auxReply{Data: jsonString(map[string]any{"scenes": []map[string]any{{"sceneName": scene, "sceneUuid": uuid, "sceneIndex": 0}}})}
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		list := f.scenes
+		if list == nil {
+			list = []fakeScene{{UUID: uuid, Name: scene}}
+		}
+		var out []map[string]any
+		for i, sc := range list {
+			out = append(out, map[string]any{"sceneName": sc.Name, "sceneUuid": sc.UUID, "sceneIndex": i})
+		}
+		return auxReply{Data: jsonString(map[string]any{"scenes": out})}
+	case "GetSceneCollectionList":
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return auxReply{Data: jsonString(map[string]any{"currentSceneCollectionName": f.collection, "sceneCollections": []string{f.collection}})}
+	case "GetSceneItemList", "GetGroupSceneItemList":
+		var q struct {
+			SceneUUID string `json:"sceneUuid"`
+		}
+		_ = json.Unmarshal(r.Data, &q)
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		if r.Type == "GetGroupSceneItemList" {
+			if g, ok := f.groups[q.SceneUUID]; ok {
+				return auxReply{Data: f.sceneItemsJSON(g.Items)}
+			}
+			return auxReply{Code: 600}
+		}
+		for _, sc := range f.scenes {
+			if sc.UUID == q.SceneUUID {
+				return auxReply{Data: f.sceneItemsJSON(sc.Items)}
+			}
+		}
+		if f.scenes == nil && q.SceneUUID == uuid {
+			return auxReply{Data: f.sceneItemsJSON(nil)}
+		}
+		return auxReply{Code: 600}
+	case "GetInputList":
+		var q struct {
+			InputKind string `json:"inputKind"`
+		}
+		_ = json.Unmarshal(r.Data, &q)
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		var out []map[string]any
+		for _, in := range f.inputs {
+			if q.InputKind == "" || in.Kind == q.InputKind {
+				out = append(out, map[string]any{"inputUuid": in.UUID, "inputName": in.Name, "inputKind": in.Kind})
+			}
+		}
+		return auxReply{Data: jsonString(map[string]any{"inputs": out})}
+	case "GetInputSettings":
+		var q struct {
+			InputUUID string `json:"inputUuid"`
+		}
+		_ = json.Unmarshal(r.Data, &q)
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		for _, in := range f.inputs {
+			if in.UUID == q.InputUUID {
+				return auxReply{Data: jsonString(map[string]any{"inputKind": in.Kind, "inputSettings": in.Settings})}
+			}
+		}
+		return auxReply{Code: 600}
 	}
 	return auxReply{}
 }
