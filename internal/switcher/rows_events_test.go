@@ -9,7 +9,7 @@ import (
 
 func TestRowsScenesConfigured(t *testing.T) {
 	// 旧 Camera3 追加（監視対象の追加の設定変更）は、on_bad を standby から hide にする設定変更に置き換える（台帳）。
-	camera3 := withHide()
+	camera3 := withNoop()
 	rows := []evRow{
 		{name: "SCF-1", setup: func(s *state) { *s = newMachine().st }, ev: cfg(1000),
 			change: func(s *state) { applyCfg(s, cfgOf(0)) }},

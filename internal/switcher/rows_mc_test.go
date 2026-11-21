@@ -149,10 +149,7 @@ func TestMCHealth(t *testing.T) {
 		{name: "MC-H-6", base: baseMulti, setup: useMap(mm(itemsOf(camera, itmOff(1, inMain), itmOff(2, inSub)))),
 			ev: cc(1000, OK, OK, DOWN), change: statesTo(OK, OK, DOWN),
 			check: wantSnap(ClassOther, false, "", "")},
-		{name: "MC-H-7", base: baseMulti, setup: all(failed, func(s *state) {
-			s.Cameras = []CameraConfig{cam(camMain), {ID: camSub, OnBad: scenemap.MotionHide}, cam(camDesk)}
-		}), ev: cc(1000, OK, DOWN, OK), change: statesTo(OK, DOWN, OK), out: PurposeAutoFail, bad: camSub,
-			check: wantSnap(ClassMonitored, true, DOWN, camSub, camMain, camSub)},
+		// MC-H-7（hide の s が DOWN）は 0b で MC-H-7/0b に置き換わった（rows_hb_cc_test.go）。
 		{name: "MC-H-8", base: baseMulti, setup: all(useMap(mm(itemsOf(standby, itm(1, inMain)))), scn(standby)),
 			ev: cc(1000, DOWN, OK, OK), change: statesTo(DOWN, OK, OK),
 			check: wantSnap(ClassStandby, false, "", "", camMain)},
@@ -498,9 +495,7 @@ func TestMCConfigured(t *testing.T) {
 		{name: "MC-CFG-1", base: baseMulti, setup: all(states(DOWN, DOWN, OK), failed), ev: cfg(1000, reorder),
 			change: cfgChange(false, reorder), out: PurposeAutoFail, bad: camSub,
 			check: wantSnap(ClassMonitored, true, DOWN, camSub, camMain, camSub)},
-		{name: "MC-CFG-2", base: baseMulti, setup: all(states(OK, DOWN, OK), failed), ev: cfg(1000, subHide),
-			change: cfgChange(false, subHide), out: PurposeAutoFail, bad: camSub,
-			check: wantSnap(ClassMonitored, true, DOWN, camSub, camMain, camSub)},
+		// MC-CFG-2（s を hide にする設定変更）は 0b で MC-CFG-2/0b に置き換わった（rows_hb_conn_test.go）。
 		{name: "MC-CFG-3", base: baseMulti, setup: all(useMap(aOnlyS), own(OwnerAuto, camera), states(OK, LOW, OK)),
 			ev: cfg(1000, withCameras(cam(camMain), cam(camDesk))), change: cfgChange(true, withCameras(cam(camMain), cam(camDesk))),
 			check: func(t *testing.T, m *Machine) {

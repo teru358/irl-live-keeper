@@ -85,10 +85,7 @@ func TestMCSeq01(t *testing.T) {
 		q.epochDelta(e, 0, 0, 0, 0)
 	}
 	t.Run("MC-SQ-01", func(t *testing.T) { main(t) })
-	t.Run("MC-SQ-01/hide", func(t *testing.T) {
-		// s を hide 設定にして全手順を繰り返す。0a の結果・対象入力とも同じ。
-		main(t, withCameras(cam(camMain), CameraConfig{ID: camSub, OnBad: scenemap.MotionHide}, cam(camDesk)))
-	})
+	// MC-SQ-01/hide（s を hide にして同じ手順）は 0b で hide が Hide / Show の動きを持つため、HB-SQ-01 などに置き換わった。
 	t.Run("MC-SQ-01/main_only", func(t *testing.T) {
 		q := newSeq(t).multi(camera, true, [3]scenemap.CameraState{OK, OK, DOWN})
 		q.batchIn(cc(1000, DOWN, OK, DOWN), 1, af, standby, camera, nil, camMain)

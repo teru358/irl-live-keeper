@@ -525,7 +525,7 @@ func TestSeqStartSceneNoRetry(t *testing.T) {
 	t.Run("SQ-11b/config", func(t *testing.T) {
 		q := start(t)
 		e := q.epochs()
-		q.none(cfg(1100, withStart(opening), withHide()))
+		q.none(cfg(1100, withStart(opening), withNoop()))
 		q.epochDelta(e, 0, 0, 0, 1)
 		q.approve(1, set(opening), 1200, Reject{})
 		q.none(bd(1200, 1, BatchRejected))
@@ -606,7 +606,7 @@ func TestSeqConfigReclassifies(t *testing.T) {
 }
 
 func TestSeqConfigAndOwner(t *testing.T) {
-	camera3 := withHide() // 旧 Camera3 追加は、on_bad を hide にする設定変更に置き換える（台帳）
+	camera3 := withNoop() // 旧 Camera3 追加は、挙動に影響しない設定変更（withNoop）に置き換える（台帳。0b で hide が挙動を持つため hide から変更）
 	t.Run("SQ-14a", func(t *testing.T) {
 		q := newSeq(t).PA(camera)
 		e := q.epochs()
@@ -758,7 +758,7 @@ func TestSeqExpectationConfigEpoch(t *testing.T) {
 	t.Run("SQ-15d", func(t *testing.T) {
 		q := sent(t)
 		e := q.epochs()
-		q.none(cfg(1200, withHide()))
+		q.none(cfg(1200, withNoop()))
 		q.exps(standby, 1)
 		q.none(sc(1400, standby))
 		q.epochDelta(e, 0, 0, 0, 1)
@@ -774,7 +774,7 @@ func TestSeqExpectationConfigEpoch(t *testing.T) {
 		q.none(srd(1600, 2, RequestOK))
 		q.none(bd(1600, 2, BatchCompleted))
 		e := q.epochs()
-		q.none(cfg(1700, withHide()))
+		q.none(cfg(1700, withNoop()))
 		q.epochDelta(e, 0, 0, 0, 1)
 		q.owner(OwnerAuto, camera)
 		q.none(sc(1900, camera))
@@ -1539,6 +1539,8 @@ func TestSnapshot(t *testing.T) {
 	want := Snapshot{Connected: true, Streaming: true, Scene: standby, SceneName: "Standby", Class: ClassStandby,
 		Standby:     StandbyStatus{Owner: OwnerAuto, ReturnScene: camera, ReturnSceneName: "Camera"},
 		AutoEnabled: true}
+	// 0b で足した読み口（記録の写し、Studio Mode、カメラ別の状態）は別の行で確かめる。
+	s.HiddenEntries, s.RetainedEntries, s.HiddenRevision, s.StudioMode, s.Cameras = nil, nil, 0, false, nil
 	if !reflect.DeepEqual(s, want) {
 		t.Fatalf("Snapshot = %+v, want %+v", s, want)
 	}

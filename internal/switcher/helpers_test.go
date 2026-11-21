@@ -271,9 +271,10 @@ func withStart(uuid string) cfgMod {
 }
 func withStandby(uuid string) cfgMod { return func(c *ScenesConfigured) { c.Standby = nameOf(uuid) } }
 
-// withHide は main の on_bad を hide にする（0a の結果は standby と同じ）。設定の変更の行で使う。
-func withHide() cfgMod {
-	return func(c *ScenesConfigured) { c.Cameras = []CameraConfig{{ID: camMain, OnBad: scenemap.MotionHide}} }
+// withNoop は挙動に影響しない設定の変更（どのシーンにも映らないカメラを足す）。設定の変更の行で使う。
+// 0a までは main の on_bad を hide にする設定変更を使っていたが、0b では hide が挙動を持つため、この中立な変更に置き換えた（意図は同じ）。
+func withNoop() cfgMod {
+	return func(c *ScenesConfigured) { c.Cameras = append(append([]CameraConfig(nil), c.Cameras...), cam("extra")) }
 }
 
 // withCameras は設定のカメラの一覧を差し替える。
@@ -381,6 +382,11 @@ func diffState(got, want state) string {
 	gv, wv := reflect.ValueOf(g), reflect.ValueOf(w)
 	var b strings.Builder
 	for i := 0; i < gv.NumField(); i++ {
+		// 0b の内部の帳簿（接続先の Z と、HiddenRestored の受付済みの印）は、行の「状態の変化」の欄にない。
+		// 0a 以前の行の比較からは除く（0b の行は、記録・期待・台帳・u・f・送出時刻を別に確かめる）。
+		if n := gv.Type().Field(i).Name; n == "Z" || n == "HiddenRestoredDone" {
+			continue
+		}
 		if !reflect.DeepEqual(gv.Field(i).Interface(), wv.Field(i).Interface()) {
 			fmt.Fprintf(&b, "\n  %s: got %s, want %s", gv.Type().Field(i).Name,
 				show(gv.Field(i).Interface()), show(wv.Field(i).Interface()))
