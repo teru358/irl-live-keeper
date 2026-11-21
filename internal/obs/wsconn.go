@@ -90,7 +90,9 @@ type extConn struct {
 }
 
 // pre は送る直前の確かめ。門が閉じたか、世代が変わっていたら、送らずに失敗する。
-// 門を閉じる処理（setGate）は同じ mutex を取るので、閉じ終えたあとの要求は必ず止まる。
+// 門を閉じる処理（setGate）は同じ mutex を取るので、閉じ終えたあとに確かめる要求は必ず止まる。
+// 既知の制約: 確かめてから goobs に書くまでの間に門が閉じられると、その要求は「閉じる時点で送信中だった
+// 要求」と同じ扱いになる（goobs は送信の順番を見せないので、排他にできない）。
 func (w *WS) pre(e extConn) func() error {
 	return func() error {
 		w.mu.RLock()

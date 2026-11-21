@@ -77,6 +77,40 @@ type evq struct {
 	max    int
 	sig    chan struct{} // 容量1。列に入れた、閉じた、とき
 	n      atomic.Uint64 // 読んだ数
+
+	// pump が、門を先に閉じるために持つ、今の program のシーン（SceneRemoved の判定）。
+	curMu  sync.Mutex
+	cur    string
+	curSeq uint64
+	legacy atomic.Bool // 古い OBS では、シーンの識別に名前を使う
+}
+
+func (q *evq) sceneID(uuid, name string) string {
+	if q.legacy.Load() {
+		return name
+	}
+	return uuid
+}
+
+func (q *evq) setCur(id string, seq uint64) {
+	q.curMu.Lock()
+	q.cur, q.curSeq = id, seq
+	q.curMu.Unlock()
+}
+
+// initCur は読み取りの結果の program のシーンを入れる。pump がもっと新しい変化を読んでいたら入れない。
+func (q *evq) initCur(id string, snapshotSeq uint64) {
+	q.curMu.Lock()
+	if q.curSeq <= snapshotSeq {
+		q.cur = id
+	}
+	q.curMu.Unlock()
+}
+
+func (q *evq) isCur(id string) bool {
+	q.curMu.Lock()
+	defer q.curMu.Unlock()
+	return q.cur != "" && q.cur == id
 }
 
 func newEvq(max int) *evq { return &evq{max: max, sig: make(chan struct{}, 1)} }
@@ -127,6 +161,8 @@ func (q *evq) pop() (e queued, ok, closed bool) {
 // mark は「いま、読んだイベントの数」（goobs の列に残っているものも数える）。状態を読む要求の応答の
 // 直後に呼ぶと、その応答より前に届いたイベントの数になる（goobs は届いた順に、イベントを列へ、応答を
 // 応答の列へ入れる）。
+// 既知の制約: goobs は応答とイベントの順番を見せないので、応答を受けてから mark を取るまでの数十
+// マイクロ秒の窓に届いたイベントや、pump が列から取り出した直後のイベントは、境界がずれうる。
 func (q *evq) mark(cli *goobs.Client) uint64 { return q.n.Load() + uint64(len(cli.IncomingEvents)) }
 
 // pump は goobs のイベントを読んで evq に入れる。Client を捨てたら終わる。
@@ -141,11 +177,30 @@ func (w *WS) pump(c *mainConn, q *evq) {
 				return
 			}
 			seq := q.n.Add(1)
+			// session が core への送信で止まっていても、門はここですぐ閉じる。core への通知
+			// （OBSDisconnected など）は、session が列の順に流す。
+			w.closeGateEarly(c, q, ev, seq)
 			if !q.push(queued{ev: ev, at: time.Now(), seq: seq}) {
 				w.log.Warn("OBS のイベントが core へ流れず、取っておく上限を超えた。接続を捨てて読み直す", "max", q.max)
+				w.setGate(c, false, true)
 				c.kill(errEventOverflow)
 				return
 			}
+		}
+	}
+}
+
+// closeGateEarly は、コレクションの切替の始まり（Changing と、今の program のシーンの SceneRemoved）を
+// 読んだ時点で、外からの要求の門を閉じる。
+func (w *WS) closeGateEarly(c *mainConn, q *evq, ev any, seq uint64) {
+	switch e := ev.(type) {
+	case *events.CurrentSceneCollectionChanging:
+		w.setGate(c, false, true)
+	case *events.CurrentProgramSceneChanged:
+		q.setCur(q.sceneID(e.SceneUuid, e.SceneName), seq)
+	case *events.SceneRemoved:
+		if !e.IsGroup && q.isCur(q.sceneID(e.SceneUuid, e.SceneName)) {
+			w.setGate(c, false, true)
 		}
 	}
 }
@@ -169,6 +224,7 @@ type sess struct {
 	ctx  context.Context
 	conn *mainConn
 	q    *evq
+	bnd  *boundaries // 今の接続の、読んだ状態の境界。列から取り出す動作中のイベントにも当てはめる
 
 	state      sessState
 	announced  bool // 最後に流したのが OBSConnected
@@ -365,6 +421,9 @@ func (s *sess) connect(r reloadResult, addr string) bool {
 	}
 	s.first = false
 	s.legacy = r.legacy
+	s.bnd = &r.bnd
+	s.q.legacy.Store(r.legacy)
+	s.q.initCur(r.connected.SceneUUID, r.bnd.scene)
 	c.legacy.Store(r.legacy)
 	s.curUUID = r.connected.SceneUUID
 	w.mu.Lock()
@@ -513,6 +572,10 @@ func (s *sess) onEvent(qe queued) {
 	case stateReloading:
 		s.hold(ev, at, qe.seq)
 	case stateRunning:
+		// 読み取りの完了と列が同時に準備できたとき、列に残っている、読んだ状態より古いイベントは流さない。
+		if s.bnd != nil && !s.afterSnapshot(heldEvent{ev, at, qe.seq}, s.bnd) {
+			return
+		}
 		s.handleRunning(ev, at)
 	}
 }

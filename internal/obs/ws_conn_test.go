@@ -511,6 +511,8 @@ func TestRunLeavesNothingBehind(t *testing.T) {
 	}
 	h.awaitConnected(3)
 	waitFor(t, "補助の接続が開き直る", func() bool { return s.accepted() >= 5 })
+	// 認証の途中で止めると、goobs.New が内部の goroutine を残す（goobs の制約）ので、使える状態まで待つ。
+	waitFor(t, "補助の接続が使える", func() bool { _, err := h.w.Aux().GetSceneList(); return err == nil })
 
 	h.stop()
 	n := s.accepted()

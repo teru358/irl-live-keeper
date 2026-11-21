@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/andreykaipov/goobs/api/events"
+
 	"github.com/teru358/irl-live-keeper/internal/switcher"
 )
 
@@ -186,5 +188,74 @@ func TestEventQueueOverflowDiscardsConnectionAndReconnects(t *testing.T) {
 	h.awaitConnected(2)
 	if n := len(h.s.requestsOf("GetStreamStatus")); n < 2 {
 		t.Fatalf("つなぎ直して読み直していない: %d", n)
+	}
+}
+
+// stallSession は、core が w.events を読まず、session が core への送信で止まった状態を作る。
+func stallSession(h *wsHarness) {
+	h.paused.Store(true)
+	sendItemEvents(h, 1, 150) // w.events（64）を満たして、session が送信待ちになる
+	time.Sleep(300 * time.Millisecond)
+}
+
+func requireGateClosed(t *testing.T, h *wsHarness) {
+	t.Helper()
+	before := len(h.s.requestsOf("SetCurrentProgramScene"))
+	if err := h.w.SetScene("X"); !errors.Is(err, errSwitching) && !errors.Is(err, errConnDropped) && !errors.Is(err, errNotConnected) {
+		t.Fatalf("門が閉じているはずが %v", err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if n := len(h.s.requestsOf("SetCurrentProgramScene")); n != before {
+		t.Fatal("門が閉じているのに、外からの要求が相手に届いた")
+	}
+}
+
+// core が詰まって session が送信待ちでも、pump が Changing を読んだ時点で門が閉じる。
+func TestGateClosesAtOnceWhenChangingIsReadWhileSessionIsStalled(t *testing.T) {
+	h := newMapHarness(t, nil)
+	h.awaitConnected(1)
+	stallSession(h)
+	h.s.sendEvent(1, "CurrentSceneCollectionChanging", map[string]any{"sceneCollectionName": "Old"})
+	time.Sleep(200 * time.Millisecond)
+	requireGateClosed(t, h)
+	h.paused.Store(false)
+	h.awaitDisconnected(1) // 通知は順に流れる
+}
+
+func TestGateClosesAtOnceWhenProgramSceneIsRemovedWhileSessionIsStalled(t *testing.T) {
+	h := newMapHarness(t, nil)
+	h.awaitConnected(1)
+	stallSession(h)
+	h.s.sendEvent(1, "SceneRemoved", map[string]any{"sceneName": "Live", "sceneUuid": "uuid-live"})
+	time.Sleep(200 * time.Millisecond)
+	requireGateClosed(t, h)
+	h.paused.Store(false)
+	h.awaitDisconnected(1)
+}
+
+// あふれて接続を捨てるときも、門はすぐ閉じる。
+func TestGateClosesAtOnceOnQueueOverflowWhileSessionIsStalled(t *testing.T) {
+	h := newMapHarness(t, func(w *WS) { w.eventQueueMax = 20 })
+	h.awaitConnected(1)
+	h.paused.Store(true)
+	sendItemEvents(h, 1, 300)
+	time.Sleep(400 * time.Millisecond)
+	requireGateClosed(t, h)
+	h.paused.Store(false)
+	h.awaitDisconnected(1)
+}
+
+// 読み取りの完了と同時に、境界より古いイベントが列に残っていても、動作中に取り出したときに流さない。
+func TestRunningEventOlderThanSnapshotIsDroppedWhenPopped(t *testing.T) {
+	w := New(Config{}, nil)
+	s := &sess{w: w, ctx: t.Context(), state: stateRunning, bnd: &boundaries{scene: 5, stream: 5, trans: 5, items: map[string]uint64{"uuid-live": 5}}}
+	s.onEvent(queued{ev: &events.CurrentProgramSceneChanged{SceneName: "B", SceneUuid: "uuid-b"}, seq: 3, at: time.Now()})
+	s.onEvent(queued{ev: &events.SceneItemEnableStateChanged{SceneUuid: "uuid-live", SceneItemId: 1}, seq: 4, at: time.Now()})
+	if len(w.events) != 0 {
+		t.Fatalf("境界より古いイベントを流した: %d 件", len(w.events))
+	}
+	s.onEvent(queued{ev: &events.CurrentProgramSceneChanged{SceneName: "D", SceneUuid: "uuid-d"}, seq: 6, at: time.Now()})
+	if len(w.events) != 1 {
+		t.Fatalf("境界より新しいイベントは流す: %d 件", len(w.events))
 	}
 }
