@@ -143,7 +143,7 @@ type OBSConnected struct {
 	SceneUUID string
 	// Map は最初のシーンの地図。読み終えてから流す。流したあとは変更しない。
 	Map *scenemap.Map
-	// StudioMode は接続した時点の Studio Mode（GetStudioModeEnabled）。読めなければ false。
+	// StudioMode は接続した時点の Studio Mode（GetStudioModeEnabled）。読めなければ OBSConnected を流さず、接続の失敗としてつなぎ直す。
 	StudioMode bool
 }
 

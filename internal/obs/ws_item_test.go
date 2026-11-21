@@ -329,3 +329,42 @@ func TestStudioModeChangedDuringReloadIsHeld(t *testing.T) {
 		t.Fatalf("順序: %v", order)
 	}
 }
+
+// GetStudioModeEnabled の応答より前に届いた StudioModeStateChanged は、読んだ値に含まれるので流さない。
+// 応答より後に届いたものは、OBSConnected のあとに流す。
+func TestStudioModeChangedBeforeAndAfterSnapshot(t *testing.T) {
+	s := newAuxServer(t)
+	f := newFakeOBS()
+	f.studio = true
+	s.setHandler(f.handle)
+	f.setHook(func(r auxReq) (auxReply, bool) {
+		if r.Conn != 1 {
+			return auxReply{}, false
+		}
+		switch r.Type {
+		case "GetStudioModeEnabled":
+			// 応答より前にイベントを送る（同じ接続で、イベント、応答の順に届く）
+			s.sendEvent(1, "StudioModeStateChanged", map[string]any{"studioModeEnabled": true})
+		case "GetCurrentSceneTransition":
+			// Studio Mode の応答より後
+			s.sendEvent(1, "StudioModeStateChanged", map[string]any{"studioModeEnabled": false})
+		}
+		return auxReply{}, false
+	})
+	h := startWSHarness(t, s, f, nil)
+	h.awaitConnected(1)
+	h.await("応答より後の変化", func(evs []switcher.Event) bool { return countOf[switcher.StudioModeChanged](evs) >= 1 })
+	time.Sleep(200 * time.Millisecond) // 余分な変化が流れないことを見る
+	var order []string
+	for _, e := range h.events() {
+		switch v := e.(type) {
+		case switcher.OBSConnected:
+			order = append(order, fmt.Sprint("connected studio=", v.StudioMode))
+		case switcher.StudioModeChanged:
+			order = append(order, fmt.Sprint("changed=", v.Enabled))
+		}
+	}
+	if fmt.Sprint(order) != "[connected studio=true changed=false]" {
+		t.Fatalf("順序: %v", order)
+	}
+}
