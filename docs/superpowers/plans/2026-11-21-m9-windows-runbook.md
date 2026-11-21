@@ -37,7 +37,7 @@
 | # | 確かめること | 結果 |
 |---|---|---|
 | R-1 | W1（ポートの事前確認）、W4（ログ、パスワードが出ない）、W5・W7・W8（終わり方で MediaMTX が残らない） | |
-| R-2 | T-8〜T-11（IRL Link からの切替、回線が悪いときの戻り先、トランジション） | T-8 2026-11-21: 合格。待機中（戻り先 Camera）に IRL Link で Camera2 → 0.3秒で待機へ戻され、戻り先 Camera2（owner auto）→ スマホを再開、OK の1秒後に Camera2 へ（owner none）。本体を先に起動したこの回は、メディアソースの見張りは入れ直さなかった（OBS が2秒ごとに自分で試し直していた）。T-9 2026-11-21: 合格（一部）。待機中に IRL Link で Talk → owner none、戻り先なし。Talk のままスマホを再開 → LOW まで（OK になる前に止めたので、OK のときに Talk に残ることは今回は見ていない。owner none なので戻す動きはない）。回線が悪いまま Talk から Camera を選ぶ → すぐ待機へ（戻り先 Camera、owner auto）。OBS → 本体の順のこの回も、見張りが入れ直して映った（17:02:52） |
+| R-2 | T-8〜T-11（IRL Link からの切替、回線が悪いときの戻り先、トランジション） | T-8 2026-11-21: 合格。待機中（戻り先 Camera）に IRL Link で Camera2 → 0.3秒で待機へ戻され、戻り先 Camera2（owner auto）→ スマホを再開、OK の1秒後に Camera2 へ（owner none）。本体を先に起動したこの回は、メディアソースの見張りは入れ直さなかった（OBS が2秒ごとに自分で試し直していた）。T-9 2026-11-21: 合格（一部）。待機中に IRL Link で Talk → owner none、戻り先なし。Talk のままスマホを再開 → LOW まで（OK になる前に止めたので、OK のときに Talk に残ることは今回は見ていない。owner none なので戻す動きはない）。回線が悪いまま Talk から Camera を選ぶ → すぐ待機へ（戻り先 Camera、owner auto）。OBS → 本体の順のこの回も、見張りが入れ直して映った（17:02:52）。T-9 の残り 2026-11-21: 合格。OK のときに Camera から Talk → 12秒 Talk のまま。T-10 2026-11-21: 合格。OK のときに Talk から待機シーン → 10秒そのまま（owner none）。そのあと人が Camera へ |
 | R-3 | 回線が悪い → 待機 → 戻る、のログに `camera changed` と `scene switch`（`camera`、`kbps`）が出る | 2026-11-21: 合格。スマホを止める → 2秒で `camera changed OK→DOWN` と `scene switch reason=down camera=main kbps=0`（owner auto、戻り先 Camera）→ 再開 → LOW → OK のあと1秒で `scene switch reason=ok`（owner none） |
 
 ## 2. 第1段階の残り
@@ -66,6 +66,7 @@
 | # | 見つけたこと | 直し | 結果 |
 |---|---|---|---|
 | F-1 | OBS を本体より先に起動すると、メディアソースが黒いまま戻らない（起動の直後に1回だけ開こうとして失敗し、試し直さない。`mediastatus` は `PLAYING` で位置が 0 のまま）。RESTART では戻らず、設定の入れ直し（`ctl.exe setinput`）で戻る。一度つながったあとの切断では、OBS が自分で試し直す | メディアソースの見張り（spec v0.13 第3節。f56b2f3）。カメラが届き始めて5秒後に位置が進んでいなければ、設定を入れ直す | 2026-11-21: 合格。OBS → 本体の順に起動し、スマホを送り始める（16:47:45 に受信）→ 16:47:50 に `media source refreshed`（`IRL` と `メディア`）→ OBS は 16:47:54 に `Reconnected`、16:47:56 に回復で Camera へ。映像が問題なく映ることを目で確かめた。そのあとスマホを止めて再開したときは、本体は入れ直さず（ログなし）、OBS が自分で試し直して 16:48:51 に `Reconnected` |
+| F-3 | 17:07 の回（192.168.1.11 のスマホ、約 3.8 Mbps）で、MediaMTX が OBS の2つの読み手について `reader is too slow, discarding N frames` を毎秒出し続けた（OK になって5秒後から、配信の終わりまで）。2 Mbps の別のスマホ（192.168.1.17）の回では出ていない。OBS のメディアソースはハードウェアデコードが切れていた（`is_hw_decoding: no`） | 調べ中 | |
 | F-2 | ログの kbps が長い小数で読みにくい | 小数1桁に丸める（568cd6b） | 2026-11-21: 合格（`kbps=1827.7`） |
 
 ## 4. 終わったら
