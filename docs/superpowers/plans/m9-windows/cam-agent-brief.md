@@ -42,7 +42,7 @@ PowerShell で、試験のフォルダから進める。
 4. `test-original.json` がすでにあれば、前の試験が戻っていない。進めずにユーザーに知らせる
 5. 試験だけの配信先を裏で起動し（`.\mediamtx.exe .\dest.yml`）、PID を控える。`Get-NetTCPConnection -LocalPort 21935 -State Listen` で確かめる
 6. `.\ctl.exe scenes` の1行目が `test用` であることを確かめる（違えば進めずにユーザーに知らせる）。`.\ctl.exe test setup`。出力の「元のプロファイル」「シーンコレクション」「シーン」を控える。`.\ctl.exe scenes` に `T-A`、`T-B`、`T-Sub` が出ること。失敗したら、出力をそのままユーザーに見せ、`test-original.json` があれば `test restore` を試す
-7. 見張りを裏で始める: `powershell -ExecutionPolicy Bypass -File .\watch-status.ps1 -Log .\status-cam.txt` と `.\ctl.exe watch 3600 > .\obs-cam.txt`
+7. 見張りを裏で始める: `powershell -ExecutionPolicy Bypass -File .\watch-status.ps1 -Log .\status-cam.txt` と `.\ctl.exe watch 3600 .\obs-cam.txt`（ファイルを引数で渡す。`>` で書くと、止めたときに最後が欠ける）
 8. ユーザーに、2台とも送信を始めてもらう。`status-cam.txt` で `main` と `sub` がどちらも OK になるのを待つ（最大60秒）。`.\ctl.exe inputs` で2つのソースが `PLAYING` で cursor が進むこと（2回読んで比べる）。ならなければ、ユーザーに OBS の画面を見てもらう
 9. `.\ctl.exe profile` が `IRLKeeper-Test` を出すことを確かめてから `.\ctl.exe scene T-B` → `.\ctl.exe stream start`。`streaming=True scene=T-B health=OK owner=none` になること
 
