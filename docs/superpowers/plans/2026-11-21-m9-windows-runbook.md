@@ -25,7 +25,10 @@
    2台目を足すときは、`- id: sub`、`name: サブカメラ`、`on_bad: standby` を続けて書く（0a では `hide` も `standby` と同じ動き）。送信用 URL は、起動の表示にカメラごとに出る
 3. 起動して、起動の表示にカメラごとの URL が出ることと、エラーで止まらないことを確かめる
 4. OBS（33.0.1。30.1 以降なら対応）: カメラごとにメディアソース（「ローカルファイル」を外し、`input` に起動の表示の OBS 用 URL）を作る。「ハードウェアデコードを使用」を入れる。メディアソースの名前は自由（本体は URL で見分ける）
-5. 管理 API で状態を見る: `curl.exe -u admin:<パスワード> http://127.0.0.1:8787/api/status`（`cameras`、`scene_cameras`、`scene_health` が出る）
+5. 見張りの窓を2つ開く（どちらも試験のフォルダで。Ctrl+C で止める）
+   - **窓 B（本体の状態）**: `powershell -ExecutionPolicy Bypass -File .\watch-status.ps1`（`-Log .\status-c1.txt` でファイルにも残す）。パスワードは同じフォルダの `config.yaml` の `admin.password` を読む。0.5秒ごとに、カメラごとの状態と kbps、配信、シーン、分類、健康、映るカメラ、待機の持ち主と戻り先、警告の数を1行で出す
+   - **窓 C（OBS のイベント）**: `powershell -ExecutionPolicy Bypass -File .\watch-obs.ps1 -Out .\watch-c1.txt`（`-Seconds 600` で見張る長さ）。初回は OBS の WebSocket のパスワードを聞かれ、`ws-password.txt` に書く（試験が終わったら消す）。中で `OBS_WS_ADDR` と `OBS_WS_PASSWORD_FILE` を設定して `ctl.exe watch` を動かす
+   - 手で一度だけ見るなら: `curl.exe -u admin:<パスワード> http://127.0.0.1:8787/api/status`
 
 ## 1. 第1段階の確認のやり直し（カメラ1台）
 
@@ -61,5 +64,5 @@
 ## 4. 終わったら
 
 - 本体を Ctrl+C で止め、`Get-Process mediamtx -ErrorAction SilentlyContinue` に何も出ないことを確かめる
-- `config.yaml` には OBS のパスワードが入っているので、共有しない
+- `config.yaml` には OBS のパスワードが、`ws-password.txt` には OBS の WebSocket のパスワードが入っているので、共有しない。`ws-password.txt` は消す
 - 結果をこの手順書の「結果」の欄に書き、気になる動きはメモに残す
