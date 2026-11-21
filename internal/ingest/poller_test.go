@@ -57,7 +57,12 @@ type reply struct {
 
 func ok(body []byte) reply { return reply{status: 200, body: body} }
 
-// fakeServer は paths/get を順番に、srt/conns/list を固定で返す。
+// pl は paths/get の1本の応答を、1台だけの /v3/paths/list の応答に包む。
+func pl(item []byte) reply {
+	return ok([]byte(`{"itemCount":1,"pageCount":1,"items":[` + string(item) + `]}`))
+}
+
+// fakeServer は paths/list を順番に、srt/conns/list を固定で返す。
 type fakeServer struct {
 	*httptest.Server
 	mu       sync.Mutex
@@ -76,7 +81,7 @@ func newFake(t *testing.T, paths []reply, conns reply) *fakeServer {
 		f.auths = append(f.auths, user+":"+pass)
 		var rep reply
 		switch r.URL.Path {
-		case "/v3/paths/get/live":
+		case "/v3/paths/list":
 			if f.pathReqs < len(f.paths) {
 				rep = f.paths[f.pathReqs]
 			} else {
@@ -105,16 +110,19 @@ var t0 = time.Date(2026, 11, 19, 12, 0, 0, 0, time.UTC)
 
 func at(sec int) time.Time { return t0.Add(time.Duration(sec) * time.Second) }
 
+// first は1台の形の組から、その1台の Sample を取り出す。
+func first(set SampleSet) Sample { return set.Cameras[0] }
+
 func poll(f *fakeServer, p *Poller, secs ...int) []Sample {
 	var out []Sample
 	for _, s := range secs {
-		out = append(out, p.Poll(nil2ctx(), at(s)))
+		out = append(out, first(p.Poll(nil2ctx(), at(s))))
 	}
 	return out
 }
 
 func newP(f *fakeServer) *Poller {
-	return NewPoller(f.URL, "api", "secret", "live", f.Client())
+	return NewPoller(f.URL, "api", "secret", []string{"live"}, f.Client())
 }
 
 func wantKbps(t *testing.T, got []Sample, want ...float64) {
@@ -134,8 +142,8 @@ const (
 // P1: 起動後の最初は基準を取るだけ。b1（RTMP）の inboundBytes を 0 と 87,500 に差し替えた写し。
 func TestPollerP1(t *testing.T) {
 	f := newFake(t, []reply{
-		ok(derive(t, "b1_rtmp_paths_get.json", 0, "")),
-		ok(derive(t, "b1_rtmp_paths_get.json", 87500, "")),
+		pl(derive(t, "b1_rtmp_paths_get.json", 0, "")),
+		pl(derive(t, "b1_rtmp_paths_get.json", 87500, "")),
 	}, reply{})
 	got := poll(f, newP(f), 0, 1)
 	wantKbps(t, got, 0, 700)
@@ -150,9 +158,9 @@ func TestPollerP1(t *testing.T) {
 // P2: 失敗の回は基準を変えず、次は2秒分を2秒で割る。
 func TestPollerP2(t *testing.T) {
 	f := newFake(t, []reply{
-		ok(derive(t, "b1_rtmp_paths_get.json", 0, "")),
+		pl(derive(t, "b1_rtmp_paths_get.json", 0, "")),
 		{status: 500, body: loadFixture(t, "a2_paths_get_unknown.json")},
-		ok(derive(t, "b1_rtmp_paths_get.json", 175000, "")),
+		pl(derive(t, "b1_rtmp_paths_get.json", 175000, "")),
 	}, reply{})
 	got := poll(f, newP(f), 0, 1, 2)
 	wantKbps(t, got, 0, 0, 700)
@@ -167,9 +175,9 @@ func TestPollerP2(t *testing.T) {
 // P3: 識別子が変わった回は 0 で、そこを新しい基準にする。
 func TestPollerP3(t *testing.T) {
 	f := newFake(t, []reply{
-		ok(derive(t, "b1_rtmp_paths_get.json", 500000, idA)),
-		ok(derive(t, "b1_rtmp_paths_get.json", 600000, idB)),
-		ok(derive(t, "b1_rtmp_paths_get.json", 687500, idB)),
+		pl(derive(t, "b1_rtmp_paths_get.json", 500000, idA)),
+		pl(derive(t, "b1_rtmp_paths_get.json", 600000, idB)),
+		pl(derive(t, "b1_rtmp_paths_get.json", 687500, idB)),
 	}, reply{})
 	wantKbps(t, poll(f, newP(f), 0, 1, 2), 0, 0, 700)
 }
@@ -177,9 +185,9 @@ func TestPollerP3(t *testing.T) {
 // P4: inboundBytes が減ったら 0 で再基準。
 func TestPollerP4(t *testing.T) {
 	f := newFake(t, []reply{
-		ok(derive(t, "b1_rtmp_paths_get.json", 500000, "")),
-		ok(derive(t, "b1_rtmp_paths_get.json", 20000, "")),
-		ok(derive(t, "b1_rtmp_paths_get.json", 107500, "")),
+		pl(derive(t, "b1_rtmp_paths_get.json", 500000, "")),
+		pl(derive(t, "b1_rtmp_paths_get.json", 20000, "")),
+		pl(derive(t, "b1_rtmp_paths_get.json", 107500, "")),
 	}, reply{})
 	wantKbps(t, poll(f, newP(f), 0, 1, 2), 0, 0, 700)
 }
@@ -187,9 +195,9 @@ func TestPollerP4(t *testing.T) {
 // 識別子なし（offline の a）から識別子あり（b1）への変化は再基準。
 func TestPollerNullToPresentRebases(t *testing.T) {
 	f := newFake(t, []reply{
-		ok(loadFixture(t, "a_paths_get_offline.json")),
-		ok(derive(t, "b1_rtmp_paths_get.json", 187791, "")),
-		ok(derive(t, "b1_rtmp_paths_get.json", 187791+87500, "")),
+		pl(loadFixture(t, "a_paths_get_offline.json")),
+		pl(derive(t, "b1_rtmp_paths_get.json", 187791, "")),
+		pl(derive(t, "b1_rtmp_paths_get.json", 187791+87500, "")),
 	}, reply{})
 	got := poll(f, newP(f), 0, 1, 2)
 	wantKbps(t, got, 0, 0, 700)
@@ -201,8 +209,8 @@ func TestPollerNullToPresentRebases(t *testing.T) {
 // 実物の b1 → b2 は差分から求めた値になる。
 func TestPollerRecordedRTMP(t *testing.T) {
 	f := newFake(t, []reply{
-		ok(loadFixture(t, "b1_rtmp_paths_get.json")),
-		ok(loadFixture(t, "b2_rtmp_paths_get_1s_later.json")),
+		pl(loadFixture(t, "b1_rtmp_paths_get.json")),
+		pl(loadFixture(t, "b2_rtmp_paths_get_1s_later.json")),
 	}, reply{})
 	got := poll(f, newP(f), 0, 1)
 	var b1, b2 struct {
@@ -219,8 +227,8 @@ func TestPollerRecordedRTMP(t *testing.T) {
 // offline の応答は Online false、Kbps 0。
 func TestPollerOffline(t *testing.T) {
 	f := newFake(t, []reply{
-		ok(loadFixture(t, "a_paths_get_offline.json")),
-		ok(loadFixture(t, "a_paths_get_offline.json")),
+		pl(loadFixture(t, "a_paths_get_offline.json")),
+		pl(loadFixture(t, "a_paths_get_offline.json")),
 	}, reply{})
 	got := poll(f, newP(f), 0, 1)
 	for i, s := range got {
@@ -240,7 +248,7 @@ func TestPollerFailures(t *testing.T) {
 	for name, rep := range cases {
 		t.Run(name, func(t *testing.T) {
 			f := newFake(t, []reply{rep}, reply{})
-			s := newP(f).Poll(nil2ctx(), at(0))
+			s := first(newP(f).Poll(nil2ctx(), at(0)))
 			if s.Err == nil || s.Kbps != 0 || s.Online || s.Protocol != "" {
 				t.Errorf("sample = %+v", s)
 			}
@@ -251,12 +259,12 @@ func TestPollerFailures(t *testing.T) {
 // 失敗の Err に応答の本文を含めない（RTMP の conns API はパスワードを返す）。
 func TestPollerErrorHasNoBody(t *testing.T) {
 	f := newFake(t, []reply{{status: 500, body: []byte("SECRET-BODY")}}, reply{})
-	s := newP(f).Poll(nil2ctx(), at(0))
+	s := first(newP(f).Poll(nil2ctx(), at(0)))
 	if s.Err == nil || contains(s.Err.Error(), "SECRET-BODY") {
 		t.Errorf("Err = %v", s.Err)
 	}
 	f2 := newFake(t, []reply{ok([]byte(`SECRET-BODY`))}, reply{})
-	s = newP(f2).Poll(nil2ctx(), at(0))
+	s = first(newP(f2).Poll(nil2ctx(), at(0)))
 	if s.Err == nil || contains(s.Err.Error(), "SECRET-BODY") {
 		t.Errorf("Err = %v", s.Err)
 	}
@@ -265,8 +273,8 @@ func TestPollerErrorHasNoBody(t *testing.T) {
 // SRT: e3 の統計を取り出す。e1 → e2 の1秒後で Kbps も出る。
 func TestPollerSRT(t *testing.T) {
 	f := newFake(t, []reply{
-		ok(loadFixture(t, "e1_srt_paths_get.json")),
-		ok(loadFixture(t, "e2_srt_paths_get_1s_later.json")),
+		pl(loadFixture(t, "e1_srt_paths_get.json")),
+		pl(loadFixture(t, "e2_srt_paths_get_1s_later.json")),
 	}, ok(loadFixture(t, "e3_srt_conns_list.json")))
 	got := poll(f, newP(f), 0, 1)
 	s := got[1]
@@ -311,16 +319,16 @@ func TestPollerSRTPicksPublisher(t *testing.T) {
 		mk(e1id, "publish", "live", 4),
 	}
 	body, _ := json.Marshal(m)
-	f := newFake(t, []reply{ok(loadFixture(t, "e1_srt_paths_get.json"))}, ok(body))
-	s := newP(f).Poll(nil2ctx(), at(0))
+	f := newFake(t, []reply{pl(loadFixture(t, "e1_srt_paths_get.json"))}, ok(body))
+	s := first(newP(f).Poll(nil2ctx(), at(0)))
 	if s.SRT == nil || s.SRT.RTTMs != 4 {
 		t.Errorf("SRT = %+v", s.SRT)
 	}
 	// id が一致するものがなければ publish かつ path 一致の先頭
 	m["items"] = []any{mk("x1", "read", "live", 1), mk("x3", "publish", "live", 3)}
 	body, _ = json.Marshal(m)
-	f = newFake(t, []reply{ok(loadFixture(t, "e1_srt_paths_get.json"))}, ok(body))
-	s = newP(f).Poll(nil2ctx(), at(0))
+	f = newFake(t, []reply{pl(loadFixture(t, "e1_srt_paths_get.json"))}, ok(body))
+	s = first(newP(f).Poll(nil2ctx(), at(0)))
 	if s.SRT == nil || s.SRT.RTTMs != 3 {
 		t.Errorf("SRT = %+v", s.SRT)
 	}
@@ -335,8 +343,8 @@ func TestPollerSRTConnsFailureOnly(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newFake(t, []reply{
-				ok(loadFixture(t, "e1_srt_paths_get.json")),
-				ok(loadFixture(t, "e2_srt_paths_get_1s_later.json")),
+				pl(loadFixture(t, "e1_srt_paths_get.json")),
+				pl(loadFixture(t, "e2_srt_paths_get_1s_later.json")),
 			}, conns)
 			got := poll(f, newP(f), 0, 1)
 			if got[1].SRT != nil || got[1].Err != nil || got[1].Kbps <= 0 || got[1].Protocol != "srt" {
@@ -348,16 +356,16 @@ func TestPollerSRTConnsFailureOnly(t *testing.T) {
 
 // RTMP のときは接続一覧を読まない。
 func TestPollerRTMPSkipsConns(t *testing.T) {
-	f := newFake(t, []reply{ok(loadFixture(t, "b1_rtmp_paths_get.json"))}, reply{})
-	newP(f).Poll(nil2ctx(), at(0))
+	f := newFake(t, []reply{pl(loadFixture(t, "b1_rtmp_paths_get.json"))}, reply{})
+	first(newP(f).Poll(nil2ctx(), at(0)))
 	if f.connReqs != 0 {
 		t.Errorf("conns requests = %d", f.connReqs)
 	}
 }
 
 func TestPollerBasicAuth(t *testing.T) {
-	f := newFake(t, []reply{ok(loadFixture(t, "e1_srt_paths_get.json"))}, ok(loadFixture(t, "e3_srt_conns_list.json")))
-	newP(f).Poll(nil2ctx(), at(0))
+	f := newFake(t, []reply{pl(loadFixture(t, "e1_srt_paths_get.json"))}, ok(loadFixture(t, "e3_srt_conns_list.json")))
+	first(newP(f).Poll(nil2ctx(), at(0)))
 	if len(f.auths) != 2 {
 		t.Fatalf("requests = %d", len(f.auths))
 	}
@@ -371,9 +379,9 @@ func TestPollerBasicAuth(t *testing.T) {
 // 失敗の Interval は前回の Sample からのまま。
 func TestPollerIntervalAcrossFailure(t *testing.T) {
 	f := newFake(t, []reply{
-		ok(loadFixture(t, "a_paths_get_offline.json")),
+		pl(loadFixture(t, "a_paths_get_offline.json")),
 		{status: 500},
-		ok(loadFixture(t, "a_paths_get_offline.json")),
+		pl(loadFixture(t, "a_paths_get_offline.json")),
 	}, reply{})
 	got := poll(f, newP(f), 0, 1, 3)
 	if got[0].Interval != 0 || got[1].Interval != time.Second || got[2].Interval != 2*time.Second {
@@ -386,15 +394,15 @@ func TestPollerIntervalAcrossFailure(t *testing.T) {
 
 func TestPollerRun(t *testing.T) {
 	f := newFake(t, []reply{
-		ok(loadFixture(t, "a_paths_get_offline.json")),
-		ok(loadFixture(t, "a_paths_get_offline.json")),
+		pl(loadFixture(t, "a_paths_get_offline.json")),
+		pl(loadFixture(t, "a_paths_get_offline.json")),
 	}, reply{})
 	ctx, cancel := ctxCancel()
-	out := make(chan Sample) // 受け手がいない状態でも止まれること
+	out := make(chan SampleSet) // 受け手がいない状態でも止まれること
 	done := make(chan struct{})
 	go func() { newP(f).Run(ctx, 10*time.Millisecond, out); close(done) }()
-	s := <-out
-	if s.Interval != 0 {
+	set := <-out
+	if s := first(set); s.Interval != 0 || !s.At.Equal(set.At) {
 		t.Errorf("first Interval = %v", s.Interval)
 	}
 	time.Sleep(50 * time.Millisecond) // 次の送信で詰まらせる

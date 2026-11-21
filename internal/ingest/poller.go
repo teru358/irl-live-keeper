@@ -16,45 +16,57 @@ import (
 // requestTimeout は API の各リクエストのタイムアウト。
 const requestTimeout = 500 * time.Millisecond
 
-// Poller は MediaMTX の API を読んで Sample を作る。
+// Poller は MediaMTX の API を1秒ごとなどに読んで、全カメラの Sample を1組にして作る。
 // API の応答の本文は、ログにもエラーにも含めない（RTMP の接続一覧はパスワードを返すため）。
 type Poller struct {
-	baseURL  string
-	apiUser  string
-	apiPass  string
-	pathName string
-	client   *http.Client
+	baseURL string
+	apiUser string
+	apiPass string
+	ids     []string // カメラの id（= path 名）。設定の順
+	client  *http.Client
 
-	mu       sync.Mutex
-	hasBase  bool // 基準があるか（最後に path の API を読めた回）
-	baseByte int64
-	baseTime time.Time
-	baseID   string // publisher の識別子。なければ空
-	hasLast  bool
-	lastAt   time.Time
+	mu      sync.Mutex
+	bases   []base // ids と同じ順
+	hasLast bool
+	lastAt  time.Time
 }
 
-// NewPoller は Poller を作る。client が nil なら http.DefaultClient を使う。
-func NewPoller(baseURL, apiUser, apiPass, pathName string, client *http.Client) *Poller {
+// base はカメラごとの基準。
+type base struct {
+	has  bool // 基準があるか（最後に path の一覧を読めた回に、その path が一覧にあったか、で決まる）
+	byte int64
+	time time.Time
+	id   string // publisher の識別子。なければ空
+}
+
+// NewPoller は Poller を作る。ids はカメラの id（path 名）の列で、設定の順。
+// client が nil なら http.DefaultClient を使う。
+func NewPoller(baseURL, apiUser, apiPass string, ids []string, client *http.Client) *Poller {
 	if client == nil {
 		client = http.DefaultClient
 	}
 	return &Poller{
-		baseURL:  strings.TrimRight(baseURL, "/"),
-		apiUser:  apiUser,
-		apiPass:  apiPass,
-		pathName: pathName,
-		client:   client,
+		baseURL: strings.TrimRight(baseURL, "/"),
+		apiUser: apiUser,
+		apiPass: apiPass,
+		ids:     append([]string(nil), ids...),
+		client:  client,
+		bases:   make([]base, len(ids)),
 	}
 }
 
-type pathResponse struct {
-	Online       bool  `json:"online"`
-	InboundBytes int64 `json:"inboundBytes"`
+type pathItem struct {
+	Name         string `json:"name"`
+	Online       bool   `json:"online"`
+	InboundBytes int64  `json:"inboundBytes"`
 	Source       *struct {
 		Type string `json:"type"`
 		ID   string `json:"id"`
 	} `json:"source"`
+}
+
+type pathsListResponse struct {
+	Items []pathItem `json:"items"`
 }
 
 type srtConnsResponse struct {
@@ -100,81 +112,112 @@ func (p *Poller) get(ctx context.Context, path string, out any) error {
 	return nil
 }
 
-// Poll は時刻 at での1回の読み取りを行い Sample を返す。
-func (p *Poller) Poll(ctx context.Context, at time.Time) Sample {
+// Poll は時刻 at での1回の読み取りを行い、全カメラの Sample を1組にして返す。
+func (p *Poller) Poll(ctx context.Context, at time.Time) SampleSet {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	s := Sample{At: at}
+	var interval time.Duration
 	if p.hasLast {
-		s.Interval = at.Sub(p.lastAt)
+		interval = at.Sub(p.lastAt)
 	}
 	p.hasLast = true
 	p.lastAt = at
 
-	var pr pathResponse
-	if err := p.get(ctx, "/v3/paths/get/"+url.PathEscape(p.pathName), &pr); err != nil {
+	set := SampleSet{At: at, Cameras: make([]Sample, len(p.ids))}
+	for i, id := range p.ids {
+		set.Cameras[i] = Sample{Camera: id, At: at, Interval: interval}
+	}
+
+	var pl pathsListResponse
+	if err := p.get(ctx, "/v3/paths/list", &pl); err != nil {
 		// 失敗した回は基準を変えない
-		s.Err = err
-		return s
-	}
-
-	var srcType, srcID string
-	if pr.Source != nil {
-		srcType, srcID = pr.Source.Type, pr.Source.ID
-	}
-	s.Online = pr.Online
-
-	// 基準からのビットレート。最初の読み取り、識別子の変化、減少のときは 0 で再基準
-	if s.Online && p.hasBase && srcID == p.baseID && pr.InboundBytes >= p.baseByte {
-		if sec := at.Sub(p.baseTime).Seconds(); sec > 0 {
-			s.Kbps = float64(pr.InboundBytes-p.baseByte) * 8 / 1000 / sec
+		for i := range set.Cameras {
+			set.Cameras[i].Err = err
 		}
+		return set
 	}
-	p.hasBase = true
-	p.baseByte, p.baseTime, p.baseID = pr.InboundBytes, at, srcID
+	byName := make(map[string]*pathItem, len(pl.Items))
+	for i := range pl.Items {
+		byName[pl.Items[i].Name] = &pl.Items[i]
+	}
 
-	if !s.Online {
-		return s
-	}
-	switch srcType {
-	case "rtmpConn":
-		s.Protocol = "rtmp"
-	case "srtConn":
-		s.Protocol = "srt"
-		s.SRT = p.readSRT(ctx, srcID)
-	}
-	return s
-}
-
-// readSRT は publish 中の SRT 接続の統計を読む。失敗や該当なしは nil。
-func (p *Poller) readSRT(ctx context.Context, sourceID string) *SRTStats {
-	var cr srtConnsResponse
-	if err := p.get(ctx, "/v3/srt/conns/list", &cr); err != nil {
-		return nil
-	}
-	pick := -1
-	for i, c := range cr.Items {
-		if c.State != "publish" || c.Path != p.pathName {
+	needSRT := false
+	for i, id := range p.ids {
+		s := &set.Cameras[i]
+		b := &p.bases[i]
+		it := byName[id]
+		if it == nil {
+			// 一覧にない path: オフライン扱い。基準は取り直す
+			*b = base{}
 			continue
 		}
-		if sourceID != "" && c.ID == sourceID {
-			pick = i
-			break
+		var srcType, srcID string
+		if it.Source != nil {
+			srcType, srcID = it.Source.Type, it.Source.ID
 		}
-		if pick < 0 {
-			pick = i
+		s.Online = it.Online
+
+		// 基準からのビットレート。最初の読み取り、識別子の変化、減少のときは 0 で再基準
+		if s.Online && b.has && srcID == b.id && it.InboundBytes >= b.byte {
+			if sec := at.Sub(b.time).Seconds(); sec > 0 {
+				s.Kbps = float64(it.InboundBytes-b.byte) * 8 / 1000 / sec
+			}
+		}
+		*b = base{has: true, byte: it.InboundBytes, time: at, id: srcID}
+
+		if !s.Online {
+			continue
+		}
+		switch srcType {
+		case "rtmpConn":
+			s.Protocol = "rtmp"
+		case "srtConn":
+			s.Protocol = "srt"
+			needSRT = true
 		}
 	}
-	if pick < 0 {
-		return nil
+
+	if needSRT {
+		p.fillSRT(ctx, &set, byName)
 	}
-	c := cr.Items[pick]
-	return &SRTStats{RTTMs: c.RTT, LossRate: c.LossRate, RecvMbps: c.RecvMbps}
+	return set
 }
 
-// Run は interval ごとに Poll して out へ送る。ctx が終わると戻る。
-func (p *Poller) Run(ctx context.Context, interval time.Duration, out chan<- Sample) {
+// fillSRT は SRT のカメラに、publish 中の接続の統計を振り分ける。一覧の失敗や該当なしは nil。
+func (p *Poller) fillSRT(ctx context.Context, set *SampleSet, byName map[string]*pathItem) {
+	var cr srtConnsResponse
+	if err := p.get(ctx, "/v3/srt/conns/list", &cr); err != nil {
+		return
+	}
+	for i := range set.Cameras {
+		s := &set.Cameras[i]
+		if s.Protocol != "srt" {
+			continue
+		}
+		sourceID := byName[s.Camera].Source.ID
+		pick := -1
+		for j, c := range cr.Items {
+			if c.State != "publish" || c.Path != s.Camera {
+				continue
+			}
+			if sourceID != "" && c.ID == sourceID {
+				pick = j
+				break
+			}
+			if pick < 0 {
+				pick = j
+			}
+		}
+		if pick >= 0 {
+			c := cr.Items[pick]
+			s.SRT = &SRTStats{RTTMs: c.RTT, LossRate: c.LossRate, RecvMbps: c.RecvMbps}
+		}
+	}
+}
+
+// Run は interval ごとに Poll して組を out へ送る。ctx が終わると戻る。
+func (p *Poller) Run(ctx context.Context, interval time.Duration, out chan<- SampleSet) {
 	tk := time.NewTicker(interval)
 	defer tk.Stop()
 	for {

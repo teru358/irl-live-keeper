@@ -141,8 +141,9 @@ func run(ctx context.Context, base string, stdout, stderr io.Writer) int {
 
 	sup := supervisor.New(cfg, binPath, base, log)
 	apiUser, apiPass := sup.APICredentials()
-	poller := ingest.NewPoller(fmt.Sprintf("http://127.0.0.1:%d", cfg.MediaMTX.APIPort), apiUser, apiPass, cfg.Cameras[0].ID, nil)
-	samples := make(chan ingest.Sample)
+	poller := ingest.NewPoller(fmt.Sprintf("http://127.0.0.1:%d", cfg.MediaMTX.APIPort), apiUser, apiPass, cameraIDs(cfg), nil)
+	sets := make(chan ingest.SampleSet)
+	samples := make(chan ingest.Sample) // つなぎ: core には先頭のカメラの Sample だけを渡す（M-8 で1組にする）
 	obsClient := obs.New(obsConfig(cfg), log)
 
 	deps := coreDeps(cfg, urls)
@@ -156,7 +157,8 @@ func run(ctx context.Context, base string, stdout, stderr io.Writer) int {
 	c := core.New(deps)
 
 	wg.Go(func() { sup.Run(runCtx) })
-	wg.Go(func() { poller.Run(runCtx, pollInterval, samples) })
+	wg.Go(func() { poller.Run(runCtx, pollInterval, sets) })
+	wg.Go(func() { forwardFirstCamera(runCtx, sets, samples) })
 	wg.Go(func() { obsClient.Run(runCtx) })
 	wg.Go(func() { c.Run(runCtx) })
 

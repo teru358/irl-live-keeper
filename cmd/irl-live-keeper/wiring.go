@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"path/filepath"
 	"slices"
 	"time"
@@ -99,4 +100,36 @@ func buildURLs(cfg *config.Config, publishHost string) core.URLs {
 		PublishRTMP: pub.RTMP,
 		OBSRead:     supervisor.ReadURLs(cfg, obsHost).RTSP,
 	}
+}
+
+// forwardFirstCamera は Poller の組から先頭のカメラの Sample だけを core へ渡す（M-8 まで）。
+// in が閉じるか ctx が終わると戻る。
+func forwardFirstCamera(ctx context.Context, in <-chan ingest.SampleSet, out chan<- ingest.Sample) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case set, ok := <-in:
+			if !ok {
+				return
+			}
+			if len(set.Cameras) == 0 {
+				continue
+			}
+			select {
+			case out <- set.Cameras[0]:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}
+}
+
+// cameraIDs は設定の順のカメラの id の列。
+func cameraIDs(cfg *config.Config) []string {
+	ids := make([]string, len(cfg.Cameras))
+	for i, c := range cfg.Cameras {
+		ids[i] = c.ID
+	}
+	return ids
 }
