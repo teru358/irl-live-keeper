@@ -272,7 +272,7 @@ func TestMCSceneMapChanged(t *testing.T) {
 			}},
 		{name: "MC-MAP-8", base: baseMulti, setup: all(useMap(aOnlyM), own(OwnerManual, camera)), ev: smcMap(1000, aNone),
 			change: toMap(aNone), check: func(t *testing.T, m *Machine) {
-				b, err := m.Handle(cmd(2000, CmdStandbyOff))
+				b, err := handle1(m, cmd(2000, CmdStandbyOff))
 				if err != nil || b == nil || b.Purpose != PurposeStandbyOffOther || !reflect.DeepEqual(b.Actions, []Action{set(camera)}) {
 					t.Errorf("次の Off は Other: got %+v %v", b, err)
 				}
@@ -316,7 +316,7 @@ func TestMCSceneMapChanged(t *testing.T) {
 		{name: "MC-MAP-RX", base: baseMulti, setup: all(own(OwnerAuto, camera), p(2, PurposeAutoRecover, ""), x(1, camera, PurposeAutoRecover, "")),
 			ev: smcMap(1000, aNone), change: all(toMap(aNone), clearOwner), check: func(t *testing.T, m *Machine) {
 				e := m.st.SceneEpoch
-				b, err := m.Handle(sc(1100, camera))
+				b, err := handle1(m, sc(1100, camera))
 				if b != nil || err != nil || m.st.SceneEpoch != e || m.st.Scene != camera || len(m.st.Expectations) != 0 {
 					t.Errorf("続く SceneChanged(A): batch=%+v err=%v epoch=%d→%d expectations=%d", b, err, e, m.st.SceneEpoch, len(m.st.Expectations))
 				}
@@ -373,7 +373,7 @@ func TestMCItemEnabledChanged(t *testing.T) {
 			change: itemTo(camera, 2, false), out: PurposeAutoRecover, in: []string{inMain}},
 		{name: "MC-ITEM-6", base: baseMulti, setup: all(useMap(aOnlyM), own(OwnerManual, camera)), ev: item(1000, camera, 1, false),
 			change: itemTo(camera, 1, false), check: func(t *testing.T, m *Machine) {
-				b, err := m.Handle(cmd(2000, CmdStandbyOff))
+				b, err := handle1(m, cmd(2000, CmdStandbyOff))
 				if err != nil || b == nil || b.Purpose != PurposeStandbyOffOther {
 					t.Errorf("Off は Other: got %+v %v", b, err)
 				}
@@ -402,7 +402,7 @@ func TestMCItemEnabledChanged(t *testing.T) {
 		{name: "MC-ITEM-RX", base: baseMulti, setup: all(useMap(aOnlyM), own(OwnerAuto, camera), p(2, PurposeAutoRecover, ""), x(1, camera, PurposeAutoRecover, "")),
 			ev: item(1000, camera, 1, false), change: all(itemTo(camera, 1, false), clearOwner), check: func(t *testing.T, m *Machine) {
 				e := m.st.SceneEpoch
-				b, err := m.Handle(sc(1100, camera))
+				b, err := handle1(m, sc(1100, camera))
 				if b != nil || err != nil || m.st.SceneEpoch != e || len(m.st.Expectations) != 0 {
 					t.Errorf("到着した A: batch=%+v err=%v", b, err)
 				}
@@ -536,7 +536,7 @@ func TestMCConfigured(t *testing.T) {
 				if m.st.StandbyOwner != OwnerAuto {
 					t.Fatalf("切断中に C した")
 				}
-				m.Handle(connM(2000, true, standby, aOnlyS))
+				handle1(m, connM(2000, true, standby, aOnlyS))
 				if m.st.StandbyOwner != OwnerNone {
 					t.Errorf("再接続で C するはず")
 				}
@@ -605,7 +605,7 @@ func TestMCApprove(t *testing.T) {
 			action: set(standby), atMs: 1000, res: Reject{}},
 		{name: "MC-AP-8", base: baseMulti, setup: all(p(1, PurposeStandbyOn, camera), useMap(standbyMoved)),
 			action: set(standby), atMs: 1000, res: Reject{}, check: func(t *testing.T, m *Machine) {
-				m.Handle(bd(1100, 1, BatchRejected))
+				handle1(m, bd(1100, 1, BatchRejected))
 				if m.st.LastError == nil {
 					t.Errorf("BD-R-2 に従い BatchDone で LastError を記録するはず")
 				}
@@ -650,7 +650,7 @@ func initial0a(t *testing.T) {
 		t.Fatalf("New 直後の状態 = %+v", s)
 	}
 	// 最初の ScenesConfigured 後: 各カメラ DOWN、設定の名前を保持、ConfigEpoch=1。地図がないので UUID は空、分類は不明、健康なし。
-	if b, err := m.Handle(cfg(0, withMulti())); b != nil || err != nil {
+	if b, err := handle1(m, cfg(0, withMulti())); b != nil || err != nil {
 		t.Fatalf("batch %+v err %v", b, err)
 	}
 	s = m.st
@@ -662,10 +662,10 @@ func initial0a(t *testing.T) {
 		t.Fatalf("設定後の Snapshot = %+v", snap)
 	}
 	// 切断では地図を消すが、カメラ状態は DOWN に戻さない。切断中に組が変われば保存し、Action は出さない。
-	m.Handle(cc(1, OK, OK, OK))
-	m.Handle(connM(2, true, camera, multiMap()))
-	m.Handle(disc(3))
-	if b, _ := m.Handle(cc(4, LOW, OK, OK)); b != nil {
+	handle1(m, cc(1, OK, OK, OK))
+	handle1(m, connM(2, true, camera, multiMap()))
+	handle1(m, disc(3))
+	if b, _ := handle1(m, cc(4, LOW, OK, OK)); b != nil {
 		t.Fatalf("切断中に Action を出した: %+v", b)
 	}
 	if m.st.Map != nil || m.st.CameraStates[camMain] != LOW || m.st.PrevConnScene != camera || m.st.PrevConnCollection != collectionX {
@@ -683,7 +683,7 @@ func TestLastErrorUsesMapName(t *testing.T) {
 		addExpWithDeadline := answered(waiting(&m.st, 1, opening, PurposeStartScene, ""), RequestOK, 0, 500)
 		m.st.Expectations = []Expectation{addExpWithDeadline}
 		mk(m)
-		m.Handle(tick(1000))
+		handle1(m, tick(1000))
 		if m.st.LastError == nil {
 			t.Fatalf("LastError なし")
 		}
@@ -707,9 +707,9 @@ func withGroup(m *scenemap.Map) {
 func TestEventOwnership(t *testing.T) {
 	t.Run("OBSConnected", func(t *testing.T) {
 		m := newMachine()
-		m.Handle(cfg(0, withMulti()))
+		handle1(m, cfg(0, withMulti()))
 		mp := mm(withGroup)
-		m.Handle(connM(1, true, camera, mp))
+		handle1(m, connM(1, true, camera, mp))
 		before := cloneState(m.st)
 		mp.Groups[groupUUID].Items[0].Enabled = false
 		mp.Collection = "changed"
@@ -721,10 +721,10 @@ func TestEventOwnership(t *testing.T) {
 	})
 	t.Run("SceneMapChanged", func(t *testing.T) {
 		m := newMachine()
-		m.Handle(cfg(0, withMulti()))
-		m.Handle(connM(1, true, camera, multiMap()))
+		handle1(m, cfg(0, withMulti()))
+		handle1(m, connM(1, true, camera, multiMap()))
 		mp := mm(renamed(camera, "Camera-renamed"), withGroup)
-		m.Handle(smcMap(2, mp))
+		handle1(m, smcMap(2, mp))
 		before := cloneState(m.st)
 		mp.Groups[groupUUID].Items[0].Enabled = false
 		mp.Scenes[camera].Items[0].Enabled = false
@@ -735,9 +735,9 @@ func TestEventOwnership(t *testing.T) {
 	})
 	t.Run("CamerasChanged", func(t *testing.T) {
 		m := newMachine()
-		m.Handle(cfg(0, withMulti()))
+		handle1(m, cfg(0, withMulti()))
 		states := map[string]scenemap.CameraState{camMain: OK, camSub: LOW, camDesk: OK}
-		m.Handle(CamerasChanged{At: at(1), States: states})
+		handle1(m, CamerasChanged{At: at(1), States: states})
 		before := cloneState(m.st)
 		states[camSub] = DOWN
 		if d := diffState(m.st, before); d != "" {
@@ -746,9 +746,9 @@ func TestEventOwnership(t *testing.T) {
 	})
 	t.Run("Snapshot", func(t *testing.T) {
 		m := newMachine()
-		m.Handle(cfg(0, withMulti()))
-		m.Handle(cc(1, OK, OK, OK))
-		m.Handle(connM(2, true, camera, multiMap()))
+		handle1(m, cfg(0, withMulti()))
+		handle1(m, cc(1, OK, OK, OK))
+		handle1(m, connM(2, true, camera, multiMap()))
 		s := m.Snapshot()
 		s.VisibleCameras[0] = "changed"
 		if got := m.Snapshot().VisibleCameras[0]; got != camMain {

@@ -87,7 +87,7 @@ func TestRowsScenesConfigured(t *testing.T) {
 
 	t.Run("SCF-1/epoch_becomes_1", func(t *testing.T) {
 		m := newMachine()
-		m.Handle(cfg(0))
+		handle1(m, cfg(0))
 		if m.st.ConfigEpoch != 1 {
 			t.Fatalf("ConfigEpoch = %d, want 1", m.st.ConfigEpoch)
 		}
@@ -106,7 +106,7 @@ func TestRowsScenesConfigured(t *testing.T) {
 	t.Run("SCF-2/copied_input", func(t *testing.T) {
 		m := newMachine()
 		c := cfgOf(0, withStart(opening))
-		m.Handle(c)
+		handle1(m, c)
 		c.Cameras[0].ID = "X"
 		*c.StartScene = "Y"
 		if m.st.Cameras[0].ID != camMain || *m.st.StartScene != nameOf(opening) {
@@ -377,10 +377,10 @@ func TestRowsTransitionChanged(t *testing.T) {
 		baseState(&m.st)
 		m.st.CameraStates[camMain] = LOW
 		m.st.Expectations = []Expectation{waiting(&m.st, 1, standby, PurposeAutoFail, camera)}
-		if b, _ := m.Handle(tc(500, ip(5000))); b != nil {
+		if b, _ := handle1(m, tc(500, ip(5000))); b != nil {
 			t.Fatalf("batch %s", showBatch(b))
 		}
-		m.Handle(srd(1000, 1, RequestOK))
+		handle1(m, srd(1000, 1, RequestOK))
 		if got := m.st.Expectations[0].Deadline; !got.Equal(at(4300)) {
 			t.Fatalf("deadline = %s, want t0+4.3s", show(got))
 		}
@@ -476,7 +476,7 @@ func TestRowsDeadline(t *testing.T) {
 			e := waiting(&m.st, 1, standby, PurposeAutoFail, camera)
 			e.Override, e.TransitionMs = c.ov, c.tr
 			m.st.Expectations = []Expectation{e}
-			m.Handle(srd(2000, 1, RequestOK))
+			handle1(m, srd(2000, 1, RequestOK))
 			if got := m.st.Expectations[0].Deadline; !got.Equal(at(c.dlMs)) {
 				t.Fatalf("deadline = %s, want %s", show(got), show(at(c.dlMs)))
 			}
@@ -554,7 +554,7 @@ func TestRowsBatchDone(t *testing.T) {
 		if !m.st.Pending[1].ManualRejected {
 			t.Fatalf("ManualRejected が付いていない")
 		}
-		m.Handle(bd(1000, 1, BatchRejected))
+		handle1(m, bd(1000, 1, BatchRejected))
 		if m.st.LastError != nil {
 			t.Fatalf("LastError = %s, want none", show(m.st.LastError))
 		}

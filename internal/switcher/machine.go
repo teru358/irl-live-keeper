@@ -80,38 +80,48 @@ func (m *Machine) nameInMap(uuid string) string {
 	return m.st.Map.Scenes[uuid].Name
 }
 
-// Handle は Event を1つ処理する。返すバッチは多くても1本。
-// cmdErr は Command を受け付けられないときだけ返す。
-func (m *Machine) Handle(ev Event) (*Batch, error) {
+// Handle は Event を1つ処理する。返すバッチは列で、非 Command ではシーン切替→ShowCamera→HideCamera の順。
+// 空は nil。cmdErr は Command を受け付けられないときだけ返す。
+func (m *Machine) Handle(ev Event) ([]Batch, error) {
 	at := ev.eventAt()
 	m.expire(at)
+	one := func(b *Batch) ([]Batch, error) {
+		if b == nil {
+			return nil, nil
+		}
+		return []Batch{*b}, nil
+	}
 	switch e := ev.(type) {
 	case ScenesConfigured:
-		return m.onConfigured(e), nil
+		return one(m.onConfigured(e))
 	case CamerasChanged:
-		return m.onCamerasChanged(e), nil
+		return one(m.onCamerasChanged(e))
 	case SceneMapChanged:
-		return m.onMapChanged(e), nil
+		return one(m.onMapChanged(e))
 	case ItemEnabledChanged:
-		return m.onItemEnabled(e), nil
+		return one(m.onItemEnabled(e))
 	case OBSConnected:
-		return m.onConnected(e), nil
+		return one(m.onConnected(e))
 	case OBSDisconnected:
 		m.onDisconnected()
 	case SceneChanged:
-		return m.onSceneChanged(e), nil
+		return one(m.onSceneChanged(e))
 	case TransitionChanged:
 		m.st.TransitionMs = copyInt(e.TransitionMs)
 	case StreamStateChanged:
-		return m.onStreamState(e), nil
+		return one(m.onStreamState(e))
 	case SceneRequestDone:
 		m.onRequestDone(e)
 	case BatchDone:
 		m.onBatchDone(e)
 	case Tick:
-		return m.judge(at, true), nil
+		return one(m.judge(at, true))
 	case Command:
-		return m.onCommand(e)
+		b, err := m.onCommand(e)
+		if err != nil {
+			return nil, err
+		}
+		return one(b)
 	}
 	return nil, nil
 }

@@ -354,9 +354,9 @@ func (c *Core) handle(ev switcher.Event) error {
 			c.media.cancelAll()
 		}
 	}
-	b, cmdErr := c.m.Handle(ev)
-	if b != nil {
-		c.queue = append(c.queue, b)
+	bs, cmdErr := c.m.Handle(ev)
+	for i := range bs {
+		c.queue = append(c.queue, &bs[i])
 	}
 	if bd, ok := ev.(switcher.BatchDone); ok {
 		c.logBatchDone(bd)

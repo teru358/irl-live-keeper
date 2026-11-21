@@ -119,8 +119,8 @@ func TestRows0aCamerasChanged(t *testing.T) {
 func afterResolvedTick(id int) func(t *testing.T, m *Machine) {
 	return func(t *testing.T, m *Machine) {
 		t.Helper()
-		m.Handle(BatchDone{At: at(1500), BatchID: id, Result: BatchCompleted})
-		b, _ := m.Handle(tick(2000))
+		handle1(m, BatchDone{At: at(1500), BatchID: id, Result: BatchCompleted})
+		b, _ := handle1(m, tick(2000))
 		if b == nil || b.Purpose != PurposeAutoFail || b.BadCamera != camSub {
 			t.Errorf("抑止の解除後の Tick: got %+v, want AutoFail(bad=sub)", b)
 		}

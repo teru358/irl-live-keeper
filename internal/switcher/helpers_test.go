@@ -172,6 +172,19 @@ func resolveNames(s *state) {
 	}
 }
 
+// handle1 は Handle を呼び、返った列が高々1本なら *Batch に戻す（形の変更だけのための包み）。
+func handle1(m *Machine, ev Event) (*Batch, error) {
+	bs, err := m.Handle(ev)
+	switch len(bs) {
+	case 0:
+		return nil, err
+	case 1:
+		b := bs[0]
+		return &b, err
+	}
+	panic(fmt.Sprintf("handle1: %d batches", len(bs)))
+}
+
 func newMachine() *Machine { return New(Config{RestartWait: W}) }
 
 func ip(v int) *int       { return &v }
@@ -542,7 +555,7 @@ func runEvRows(t *testing.T, rows []evRow) {
 				r.setup(&m.st)
 			}
 			before := cloneState(m.st)
-			got, err := m.Handle(r.ev)
+			got, err := handle1(m, r.ev)
 			checkErr(t, err, r.err, r.reason)
 			want := cloneState(before)
 			if r.change != nil {
@@ -749,7 +762,7 @@ func (q *seq) standbyOnFrom(ret string) {
 // none は Event を流し、バッチも cmdErr も返らないことを確かめる。
 func (q *seq) none(ev Event) {
 	q.t.Helper()
-	b, err := q.m.Handle(ev)
+	b, err := handle1(q.m, ev)
 	if err != nil || b != nil {
 		q.t.Fatalf("%T at %s: got batch %s err %v, want none", ev, show(ev.eventAt()), showBatch(b), err)
 	}
@@ -765,7 +778,7 @@ func showBatch(b *Batch) string {
 // batch は Event を流し、id と Purpose、切替先 to、戻り先 ret のバッチが返ることを確かめる。
 func (q *seq) batch(ev Event, id int, p Purpose, to, ret string) *Batch {
 	q.t.Helper()
-	b, err := q.m.Handle(ev)
+	b, err := handle1(q.m, ev)
 	if err != nil {
 		q.t.Fatalf("%T at %s: cmdErr %v", ev, show(ev.eventAt()), err)
 	}
@@ -804,7 +817,7 @@ func (q *seq) checkBatchIn(b *Batch, id int, p Purpose, to, ret string, inputs [
 // batchIn は batch と同じだが、再起動の対象と AutoFail の悪い代表も確かめる（複数のカメラの列）。
 func (q *seq) batchIn(ev Event, id int, p Purpose, to, ret string, inputs []string, bad string) *Batch {
 	q.t.Helper()
-	b, err := q.m.Handle(ev)
+	b, err := handle1(q.m, ev)
 	if err != nil {
 		q.t.Fatalf("%T at %s: cmdErr %v", ev, show(ev.eventAt()), err)
 	}
@@ -816,7 +829,7 @@ func (q *seq) batchIn(ev Event, id int, p Purpose, to, ret string, inputs []stri
 func (q *seq) cmdErr(ev Event, want error) {
 	q.t.Helper()
 	before := cloneState(q.m.st)
-	b, err := q.m.Handle(ev)
+	b, err := handle1(q.m, ev)
 	if b != nil {
 		q.t.Fatalf("got batch %s, want none", showBatch(b))
 	}

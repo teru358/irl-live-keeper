@@ -22,7 +22,7 @@ func TestM10新しいEventはMachineが捨てる(t *testing.T) {
 		ItemRequestDone{At: at(100), ReqID: 7, Result: ItemNotFound},
 	} {
 		q, ref := build(), build()
-		b, err := q.m.Handle(ev)
+		b, err := handle1(q.m, ev)
 		if b != nil || err != nil {
 			t.Fatalf("%T: batch=%s err=%v, want none", ev, showBatch(b), err)
 		}
@@ -43,7 +43,7 @@ func TestM10OBSConnectedのStudioModeは動きを変えない(t *testing.T) {
 		q.none(lc(0, OK))
 		c := conn(0, true, camera, ip(300)).(OBSConnected)
 		c.StudioMode = studio
-		b, err := q.m.Handle(c)
+		b, err := handle1(q.m, c)
 		if err != nil {
 			t.Fatal(err)
 		}
