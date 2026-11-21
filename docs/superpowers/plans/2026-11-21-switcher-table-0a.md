@@ -40,7 +40,7 @@ LastError の切替先の文には現在の地図の名前を使い、名前が�
 
 I(R) が空なら RestartMedia の Action 自体を省く。SetScene の前の待ちもない。
 特記がなければ、接続・配信中、自動有効、持ち主 none、X なし、未完了・期待なし。
-カメラは m、s、d の順ですべて standby。初期の状態は列ごとに書く。hide に置き換えても0aの結果は同じ。
+カメラは m、s、d の順ですべて standby。初期の状態は、列に書いていなければ**すべて OK**とする。不良の状態から始める列は、その状態に至る前提（たとえば「前の F は失敗済み」）を列に書く。hide に置き換えても0aの結果は同じ。
 地図には S、S2（名前 Standby2、カメラなし）、A、B、D、T、O があり、A は m と s、B は m、D は d が映る。
 待機 S はカメラが映っていても待機分類。列ごとの変更はその場に書く。
 
@@ -176,7 +176,7 @@ Snapshot も内部の地図・状態の map を外へ直接公開しない。
 
 ## 3. 分類と健康の計算
 
-地図を入れるときと設定を入れるとき、設定にない CameraID を空にした計算用の地図 CalcMap を作る。分類・健康・I(R) はすべて CalcMap で計算する。同値比較は受け取った元の Map で行う。
+地図を入れるときと設定を入れるとき、設定にない CameraID を空にした計算用の地図 CalcMap を作る。分類・健康・I(R) はすべて CalcMap で計算する。同値比較は受け取った元の Map で行う。`ItemEnabledChanged` で既知の項目の表示を変えたときは、元の Map と CalcMap の両方の同じ項目を書き換える（CalcMap を別に持つなら両方、元の Map から毎回作るなら作り直す。どちらにしても、計算はいつも最新の表示の状態で行う）。
 Health の motions には設定の全カメラの鍵を入れる（0a では hide も standby）。鍵が欠けると黙って OK になるため、省略しない。
 MC-H は Health の直接呼出しでなく Machine を通す。現在 A（MC-H-8 は S）に対する変更 Event で、MC-H-2/3/4/7 は F(A)、ほかは —（不良の準備では前 F 失敗済み、未完了・期待なし）。Snapshot の分類・HasHealth・Health・VisibleCameras・BadCamera と、F の Batch.BadCamera が表の値と一致することを検証する。
 
@@ -645,7 +645,7 @@ U-15 の Link=DOWN は設定後の CameraStates[main]=DOWN に置換する。
 | 所有権検査を移植 | SCF-2/copied_input | Monitored のコピー検証を Cameras のコピー検証に置換。StartScene のコピー検証は維持 |
 
 テスト定数 standby、camera 等の名前と、lc、sc、conn、set、restart、P、PA、PM の呼び方（引数）を変えず、補助の内部で UUID・Map・全状態を作る。cfgOf、withStandby、withStart は UUID から設定名へ直す（Standby2 も同様）。withMonitored は Monitored とともに廃止し、この台帳に従い入口を分離する。
-実装時の検収では git diff で rows_*_test.go と seq_test.go の差分がこの台帳の行だけであることを確かめる。機械的な型・UUID 変換は補助の中で行い、行・列の期待値変更を隠さない。
+実装時の検収では git diff で rows_*_test.go と seq_test.go の差分を2つに分けて確かめる。(1) **意味の変更**（入力・期待値・出力の有無が変わる行）は、この台帳の行だけであること。(2) **機械的な変更**（`LinkChanged` を `CamerasChanged` に、`RestartMedia{Wait}` を `RestartMedia{Inputs, Wait}` に、シーン名を UUID の定数に、など型と Action の形だけを変えるもの）は、全行に及んでよいが、期待する Purpose、切替先、持ち主、戻り先、cmdErr、出力の有無を変えないこと。機械的な変更は、できるだけ補助（`lc`、`restart` など）の中に閉じ、行・列の期待値の変更を隠さない。
 
 将来の実装検証は switcher と scenemap のテスト、続いて obs/core の連携テストで行う。
 この文書だけの変更で、既存コードのテスト結果を0aの実装完了の証拠にはしない。
