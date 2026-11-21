@@ -454,7 +454,13 @@ func (c *Core) approve(req approveReq) switcher.ApproveResult {
 	case switcher.Proceed:
 		if set, ok := req.action.(switcher.SetScene); ok {
 			attrs := []any{"from", c.sceneName(from), "to", c.sceneName(set.SceneUUID), "reason", c.reason(req.purpose, req.badCamera)}
-			if cam := c.camByID(req.badCamera); cam != nil {
+			// camera と kbps の代表: AutoFail は悪い代表のカメラ。AutoRecover は戻り先に映るカメラのうち kbps がいちばん低いもの
+			// （同じなら設定の順で先。承認の時点の地図で）。
+			rep := req.badCamera
+			if req.purpose == switcher.PurposeAutoRecover {
+				rep = c.lowestVisibleCamera(set.SceneUUID)
+			}
+			if cam := c.camByID(rep); cam != nil {
 				attrs = append(attrs, "camera", cam.cfg.ID, "kbps", cam.sample.Kbps)
 			}
 			c.log.Info("scene switch", append(attrs, "purpose", req.purpose.String())...)
@@ -472,6 +478,27 @@ func (c *Core) approve(req approveReq) switcher.ApproveResult {
 		c.observe(approval{BatchID: req.batchID, Action: req.action, Result: res})
 	}
 	return res
+}
+
+// lowestVisibleCamera は、sceneUUID に映るカメラのうち kbps がいちばん低いものの id（なければ空）。同じなら設定の順で先。
+func (c *Core) lowestVisibleCamera(sceneUUID string) string {
+	if c.mapCopy == nil {
+		return ""
+	}
+	visible := scenemap.CamerasIn(*c.mapCopy, sceneUUID, nil, true)
+	var best *camState
+	for _, cam := range c.cams {
+		if !slices.Contains(visible, cam.cfg.ID) {
+			continue
+		}
+		if best == nil || cam.sample.Kbps < best.sample.Kbps {
+			best = cam
+		}
+	}
+	if best == nil {
+		return ""
+	}
+	return best.cfg.ID
 }
 
 // reason は切替の理由。AutoFail は悪い代表のカメラの受信状態（low / down）、AutoRecover は ok、

@@ -387,3 +387,112 @@ func TestDisconnectedMapAndItemEventsAreDropped(t *testing.T) {
 	h.obsEvent(switcher.OBSConnected{At: h.clk.Now(), Scene: camera, SceneUUID: camera, Map: testMap()})
 	h.waitSnap("つなぎ直し", func(s Snapshot) bool { return s.OBS.Connected && len(s.OBS.SceneCameras) == 1 })
 }
+
+// AutoRecover の scene switch にも camera と kbps を出す。代表は、戻り先に映るカメラのうち kbps がいちばん低いもの。
+func TestAutoRecoverLogsLowestVisibleCamera(t *testing.T) {
+	h := newHarness(t, twoCameras)
+	h.start()
+	m := testMap()
+	m.Inputs["IRL2"] = scenemap.Input{Name: "IRL2", CameraID: subCam}
+	c := m.Scenes[camera]
+	c.Items = append(c.Items, scenemap.Item{ID: 2, SourceUUID: "IRL2", SourceKind: scenemap.InputSource, Enabled: true})
+	m.Scenes[camera] = c
+	for range 5 {
+		h.sampleSet(goodKbps, goodKbps)
+	}
+	h.waitSnap("2台とも OK", func(s Snapshot) bool { return s.Cameras[0].State == "OK" && s.Cameras[1].State == "OK" })
+	h.obsEvent(switcher.OBSConnected{At: h.clk.Now(), Streaming: true, Scene: camera, SceneUUID: camera, Map: m})
+	h.waitSnap("camera", sceneIs(camera))
+	for range 3 {
+		h.sampleSet(goodKbps, 0)
+	}
+	h.waitSeen("AutoFail の BatchDone", isBatchDone(switcher.BatchCompleted))
+	h.waitSnap("自動の待機", both(sceneIs(standby), standbyIs("auto", camera)))
+	for range 5 { // 回復。sub の方が低い
+		h.sampleSet(goodKbps, 2500)
+	}
+	h.waitSeen("AutoRecover の BatchDone", isBatchDone(switcher.BatchCompleted))
+	want := `msg="scene switch" from=Standby to=Camera reason=ok camera=sub kbps=2500`
+	if out := h.log.String(); !strings.Contains(out, want) {
+		t.Errorf("ログに %q がない:\n%s", want, out)
+	}
+}
+
+// groupMap は testMap に、グループ G（項目 1 = IRL）を足し、Camera の項目をグループ G だけにした地図。
+func groupMap(inGroup ...scenemap.Item) *scenemap.Map {
+	m := testMap()
+	m.Groups["G"] = scenemap.Container{Name: "G", Items: inGroup}
+	m.Scenes[camera] = scenemap.Container{Name: camera, Items: []scenemap.Item{
+		{ID: 1, SourceUUID: "G", SourceKind: scenemap.GroupSource, Enabled: true}}}
+	return m
+}
+
+func irlItem(id int, enabled bool) scenemap.Item {
+	return scenemap.Item{ID: id, SourceUUID: "IRL", SourceKind: scenemap.InputSource, Enabled: enabled}
+}
+
+// 地図にない同じ項目への false → true は、最後の true が勝つ（読み直しの地図が false で届いても）。
+func TestUnknownItemLastValueWins(t *testing.T) {
+	h := newHarness(t)
+	h.start()
+	h.connect(false, camera)
+	h.waitSnap("camera", sceneIs(camera))
+	h.item(talk, 3, false)
+	h.item(talk, 3, true)
+	m := testMap()
+	tk := m.Scenes[talk]
+	tk.Items = []scenemap.Item{irlItem(3, false)}
+	m.Scenes[talk] = tk
+	h.mapChanged(m)
+	got := lastMap(h.settle())
+	if en, found := enabledOf(got, talk, 3); !found || !en {
+		t.Errorf("渡した地図の項目3 = %v（found=%v）, want 最後の値 true", en, found)
+	}
+	// Machine の側でも Talk にカメラが映る。
+	h.obsEvent(switcher.SceneChanged{At: h.clk.Now(), Scene: talk, SceneUUID: talk})
+	h.waitSnap("talk にカメラ", func(s Snapshot) bool { return s.OBS.Scene == talk && len(s.OBS.SceneCameras) == 1 })
+}
+
+// グループの中の項目でも、既知の項目と新しい項目の両方で引き継ぎが効く。
+func TestGroupItemsCarryOver(t *testing.T) {
+	h := newHarness(t)
+	h.start()
+	h.obsEvent(switcher.OBSConnected{At: h.clk.Now(), Scene: camera, SceneUUID: camera, Map: groupMap(irlItem(1, true))})
+	h.waitSnap("camera", func(s Snapshot) bool { return sceneIs(camera)(s) && len(s.OBS.SceneCameras) == 1 })
+
+	// 既知の項目: グループの項目1を人が隠す。古い読み取り（表示）が来ても隠れたまま。
+	h.item("G", 1, false)
+	h.waitSnap("映るカメラなし", func(s Snapshot) bool { return len(s.OBS.SceneCameras) == 0 })
+	h.mapChanged(groupMap(irlItem(1, true)))
+	got := lastMap(h.settle())
+	if en, found := func() (bool, bool) {
+		for _, it := range got.Groups["G"].Items {
+			if it.ID == 1 {
+				return it.Enabled, true
+			}
+		}
+		return false, false
+	}(); !found || en {
+		t.Errorf("グループの既知の項目1 = %v（found=%v）, want false", en, found)
+	}
+	if s := h.core.Snapshot(); len(s.OBS.SceneCameras) != 0 {
+		t.Errorf("既知: scene_cameras = %v, want なし", s.OBS.SceneCameras)
+	}
+
+	// 新しい項目: グループの項目2は地図にまだない。false を覚えてから、読み取りが true で届く。項目1は表示に戻す。
+	h.item("G", 2, false)
+	h.item("G", 1, true)
+	h.waitSnap("項目1が映る", func(s Snapshot) bool { return len(s.OBS.SceneCameras) == 1 })
+	h.item("G", 1, false)
+	h.waitSnap("また隠れる", func(s Snapshot) bool { return len(s.OBS.SceneCameras) == 0 })
+	h.mapChanged(groupMap(irlItem(2, true)))
+	got = lastMap(h.settle())
+	for _, it := range got.Groups["G"].Items {
+		if it.ID == 2 && it.Enabled {
+			t.Errorf("グループの新しい項目2 = true, want 覚えた値 false")
+		}
+	}
+	if s := h.core.Snapshot(); len(s.OBS.SceneCameras) != 0 {
+		t.Errorf("新しい項目: scene_cameras = %v, want なし（項目2は false）", s.OBS.SceneCameras)
+	}
+}

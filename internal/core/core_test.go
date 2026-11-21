@@ -70,7 +70,7 @@ func TestRecoveryRestartsMediaThenReturnScene(t *testing.T) {
 	if reqDone < 0 || reqDone >= len(seen)-1 {
 		t.Errorf("SceneRequestDone{OK} が BatchDone より前にない: %#v", seen)
 	}
-	if !strings.Contains(h.log.String(), `msg="scene switch" from=Standby to=Camera reason=ok`) {
+	if !strings.Contains(h.log.String(), `msg="scene switch" from=Standby to=Camera reason=ok camera=main kbps=3000`) {
 		t.Errorf("復帰の切替のログがない:\n%s", h.log.String())
 	}
 }
