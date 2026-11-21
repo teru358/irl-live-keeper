@@ -37,7 +37,7 @@
 | # | 確かめること | 結果 |
 |---|---|---|
 | R-1 | W1（ポートの事前確認）、W4（ログ、パスワードが出ない）、W5・W7・W8（終わり方で MediaMTX が残らない） | |
-| R-2 | T-8〜T-11（IRL Link からの切替、回線が悪いときの戻り先、トランジション） | T-8 2026-11-21: 合格。待機中（戻り先 Camera）に IRL Link で Camera2 → 0.3秒で待機へ戻され、戻り先 Camera2（owner auto）→ スマホを再開、OK の1秒後に Camera2 へ（owner none）。本体を先に起動したこの回は、メディアソースの見張りは入れ直さなかった（OBS が2秒ごとに自分で試し直していた） |
+| R-2 | T-8〜T-11（IRL Link からの切替、回線が悪いときの戻り先、トランジション） | T-8 2026-11-21: 合格。待機中（戻り先 Camera）に IRL Link で Camera2 → 0.3秒で待機へ戻され、戻り先 Camera2（owner auto）→ スマホを再開、OK の1秒後に Camera2 へ（owner none）。本体を先に起動したこの回は、メディアソースの見張りは入れ直さなかった（OBS が2秒ごとに自分で試し直していた）。T-9 2026-11-21: 合格（一部）。待機中に IRL Link で Talk → owner none、戻り先なし。Talk のままスマホを再開 → LOW まで（OK になる前に止めたので、OK のときに Talk に残ることは今回は見ていない。owner none なので戻す動きはない）。回線が悪いまま Talk から Camera を選ぶ → すぐ待機へ（戻り先 Camera、owner auto）。OBS → 本体の順のこの回も、見張りが入れ直して映った（17:02:52） |
 | R-3 | 回線が悪い → 待機 → 戻る、のログに `camera changed` と `scene switch`（`camera`、`kbps`）が出る | 2026-11-21: 合格。スマホを止める → 2秒で `camera changed OK→DOWN` と `scene switch reason=down camera=main kbps=0`（owner auto、戻り先 Camera）→ 再開 → LOW → OK のあと1秒で `scene switch reason=ok`（owner none） |
 
 ## 2. 第1段階の残り
