@@ -150,15 +150,16 @@ func TestHeldItemEventsOlderThanItemListAreDropped(t *testing.T) {
 	waitFor(t, "読み取りが始まる", func() bool { return h.f.count("GetStreamStatus") == 2 })
 	h.s.sendEvent(1, "SceneItemEnableStateChanged", map[string]any{"sceneUuid": "uuid-live", "sceneItemId": 1, "sceneItemEnabled": false})
 	h.s.sendEvent(1, "SceneItemEnableStateChanged", map[string]any{"sceneUuid": "uuid-live", "sceneItemId": 1, "sceneItemEnabled": true})
-	waitFor(t, "uuid-wait の項目の読み取りが届く", func() bool {
+	waitFor(t, "読み直しの uuid-wait の項目の読み取りが届く", func() bool {
+		n := 0
 		for _, r := range h.s.requestsOf("GetSceneItemList") {
 			var d map[string]any
 			_ = json.Unmarshal(r.Data, &d)
-			if d["sceneUuid"] == "uuid-wait" && r.Conn == 1 && h.f.count("GetSceneItemList") > 2 {
-				return true
+			if d["sceneUuid"] == "uuid-wait" {
+				n++
 			}
 		}
-		return false
+		return n == 2 // 最初の接続と、読み直し
 	})
 	h.s.sendEvent(1, "SceneItemEnableStateChanged", map[string]any{"sceneUuid": "uuid-live", "sceneItemId": 1, "sceneItemEnabled": false})
 	h.awaitConnected(2)
