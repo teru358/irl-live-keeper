@@ -31,7 +31,7 @@ func (c *Core) execute(ctx context.Context, b *switcher.Batch) {
 		set, isSet := a.(switcher.SetScene)
 		var override switcher.Override = switcher.OverrideNone{}
 		if isSet {
-			name := set.Scene
+			name := set.SceneUUID
 			r, ok := callOBS(ctx, func() overrideResult {
 				ms, has, err := c.obs.SceneTransitionOverride(name)
 				return overrideResult{ms, has, err}
@@ -90,9 +90,16 @@ func (c *Core) execute(ctx context.Context, b *switcher.Batch) {
 func (c *Core) send(a switcher.Action) error {
 	switch a := a.(type) {
 	case switcher.SetScene:
-		return c.obs.SetScene(a.Scene)
+		return c.obs.SetScene(a.SceneUUID)
 	case switcher.RestartMedia:
-		return c.obs.RestartMedia(c.mediaSource)
+		// Inputs の入力に順に送る。1つ失敗しても残りに送り、最初の失敗を返す。待ちは呼び出し側が最後に1回行う。
+		var first error
+		for _, in := range a.Inputs {
+			if err := c.obs.RestartMedia(in); err != nil && first == nil {
+				first = err
+			}
+		}
+		return first
 	case switcher.StartStream:
 		return c.obs.StartStream()
 	case switcher.StopStream:
@@ -172,7 +179,7 @@ func requestResult(err error) switcher.RequestResult {
 func actionName(a switcher.Action) string {
 	switch a := a.(type) {
 	case switcher.SetScene:
-		return "SetScene(" + a.Scene + ")"
+		return "SetScene(" + a.SceneUUID + ")"
 	case switcher.RestartMedia:
 		return "RestartMedia"
 	case switcher.StartStream:

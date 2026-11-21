@@ -2,6 +2,7 @@ package switcher
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/teru358/irl-live-keeper/internal/scenemap"
@@ -619,4 +620,63 @@ func TestApproveMultiHealth(t *testing.T) {
 		{name: "AP-SOFFM-4/0a/multi", base: baseMulti, setup: all(autoOff, own(OwnerManual, camera), states(LOW, OK, OK), p(1, PurposeStandbyOffMonitored, "")),
 			action: set(camera), atMs: 1000, res: Proceed{}, register: true},
 	})
+}
+
+// ---- U-15/0a: 初期値 ----
+
+func TestInitial0a(t *testing.T) {
+	m := newMachine()
+	s := m.st
+	if s.Connected || s.Map != nil || len(s.CameraStates) != 0 || len(s.Cameras) != 0 || s.Streaming || s.PrevConnStreaming ||
+		s.Scene != "" || s.PrevConnScene != "" || s.PrevConnCollection != "" ||
+		s.SceneEpoch != 0 || s.ConnEpoch != 0 || s.StreamEpoch != 0 || s.ConfigEpoch != 0 ||
+		s.StandbyOwner != OwnerNone || s.ReturnScene != "" || len(s.Expectations) != 0 || len(s.Pending) != 0 || len(s.LastAutoSent) != 0 {
+		t.Fatalf("New 直後の状態 = %+v", s)
+	}
+	// 最初の ScenesConfigured 後: 各カメラ DOWN、設定の名前を保持、ConfigEpoch=1。地図がないので UUID は空、分類は不明、健康なし。
+	if b, err := m.Handle(cfg(0, withMulti())); b != nil || err != nil {
+		t.Fatalf("batch %+v err %v", b, err)
+	}
+	s = m.st
+	want := map[string]scenemap.CameraState{camMain: DOWN, camSub: DOWN, camDesk: DOWN}
+	if !reflect.DeepEqual(s.CameraStates, want) || s.ConfigEpoch != 1 || s.Standby != "Standby" || s.StandbyUUID != "" {
+		t.Fatalf("設定後の状態 = %+v", s)
+	}
+	if snap := m.Snapshot(); snap.Class != ClassUnknown || snap.HasHealth {
+		t.Fatalf("設定後の Snapshot = %+v", snap)
+	}
+	// 切断では地図を消すが、カメラ状態は DOWN に戻さない。切断中に組が変われば保存し、Action は出さない。
+	m.Handle(cc(1, OK, OK, OK))
+	m.Handle(connM(2, true, camera, multiMap()))
+	m.Handle(disc(3))
+	if b, _ := m.Handle(cc(4, LOW, OK, OK)); b != nil {
+		t.Fatalf("切断中に Action を出した: %+v", b)
+	}
+	if m.st.Map != nil || m.st.CameraStates[camMain] != LOW || m.st.PrevConnScene != camera || m.st.PrevConnCollection != collectionX {
+		t.Fatalf("切断後の状態 = %+v", m.st)
+	}
+}
+
+// 0章: LastError の切替先の文には現在の地図の名前を使い、名前がなければ UUID を使う。
+func TestLastErrorUsesMapName(t *testing.T) {
+	expire := func(t *testing.T, mk func(m *Machine)) string {
+		m := newMachine()
+		baseState(&m.st)
+		m.st.StartScene = sp("Opening")
+		resolveNames(&m.st)
+		addExpWithDeadline := answered(waiting(&m.st, 1, opening, PurposeStartScene, ""), RequestOK, 0, 500)
+		m.st.Expectations = []Expectation{addExpWithDeadline}
+		mk(m)
+		m.Handle(tick(1000))
+		if m.st.LastError == nil {
+			t.Fatalf("LastError なし")
+		}
+		return m.st.LastError.Msg
+	}
+	if msg := expire(t, func(m *Machine) {}); !strings.Contains(msg, "Opening") || strings.Contains(msg, opening) {
+		t.Errorf("名前を使う: %q", msg)
+	}
+	if msg := expire(t, func(m *Machine) { m.st.Map = nil }); !strings.Contains(msg, opening) {
+		t.Errorf("名前がなければ UUID: %q", msg)
+	}
 }

@@ -12,6 +12,7 @@ import (
 
 	"github.com/teru358/irl-live-keeper/internal/ingest"
 	"github.com/teru358/irl-live-keeper/internal/obs"
+	"github.com/teru358/irl-live-keeper/internal/scenemap"
 	"github.com/teru358/irl-live-keeper/internal/supervisor"
 	"github.com/teru358/irl-live-keeper/internal/switcher"
 )
@@ -54,6 +55,9 @@ type Core struct {
 	judge       *ingest.Judge
 	obs         obs.Client
 	mediaSource string
+	standby     string
+	monitored   []string
+	startScene  *string
 	samples     <-chan ingest.Sample
 	mediamtx    func() supervisor.Status
 	warnings    func() []string
@@ -115,6 +119,7 @@ func New(d Deps) *Core {
 	}
 	c := &Core{
 		m: d.Machine, judge: d.Judge, obs: d.OBS, mediaSource: d.MediaSource,
+		standby: d.StandbyScene, monitored: slices.Clone(d.MonitoredScenes),
 		samples: d.Samples, mediamtx: d.MediaMTX, warnings: d.Warnings,
 		urls: d.URLs, log: d.Log, tick: d.Tick, now: d.Now,
 		batches:   make(chan *switcher.Batch),
@@ -128,11 +133,14 @@ func New(d Deps) *Core {
 		v := *d.StartScene
 		start = &v
 	}
+	c.startScene = start
 	// ループを始める前の最初の Event。チャネルは通さない。
+	// 第1段階の設定（監視対象のシーンの名前と1本のメディアソース）を、カメラ1台 legacyCamera の設定に読み替える。
+	// 本格的な配線（複数のカメラの設定と OBS の地図）は M-8 で行う。
 	c.handle(switcher.ScenesConfigured{
 		At:          c.now(),
 		Standby:     d.StandbyScene,
-		Monitored:   slices.Clone(d.MonitoredScenes),
+		Cameras:     []switcher.CameraConfig{{ID: legacyCamera, OnBad: scenemap.MotionStandby}},
 		AutoEnabled: d.AutoEnabled,
 		StartScene:  start,
 	})
@@ -231,11 +239,65 @@ func (c *Core) onSample(s ingest.Sample) {
 		return
 	}
 	c.log.Info("link changed", "from", before.String(), "to", after.String(), "kbps", s.Kbps)
-	c.handle(switcher.LinkChanged{At: s.At, State: after})
+	c.handle(switcher.CamerasChanged{At: s.At, States: map[string]scenemap.CameraState{legacyCamera: cameraState(after)}})
+}
+
+// legacyCamera は、第1段階の設定（メディアソース1本）を読み替えたカメラ1台の id。
+const legacyCamera = "main"
+
+func cameraState(l ingest.LinkState) scenemap.CameraState {
+	switch l {
+	case ingest.LinkOK:
+		return scenemap.StateOK
+	case ingest.LinkLow:
+		return scenemap.StateLow
+	}
+	return scenemap.StateDown
+}
+
+// bridge は obs から届いた Event を、地図と UUID を持つ形に読み替える（M-8 までのつなぎ）。
+// obs がまだ UUID と地図を流さない間は、シーン名を UUID の代わりに使い（古い OBS と同じ）、設定のシーンとメディアソースから
+// 地図を作る: 待機・開始時・監視対象のシーンを登録し、監視対象のシーンにだけメディアソース（カメラ legacyCamera）を置く。
+func (c *Core) bridge(ev switcher.Event) switcher.Event {
+	switch e := ev.(type) {
+	case switcher.OBSConnected:
+		if e.SceneUUID == "" {
+			e.SceneUUID = e.Scene
+		}
+		if e.Map == nil {
+			e.Map = c.legacyMap()
+		}
+		return e
+	case switcher.SceneChanged:
+		if e.SceneUUID == "" {
+			e.SceneUUID = e.Scene
+		}
+		return e
+	}
+	return ev
+}
+
+// legacyMap は設定から作る地図。UUID はシーン名・入力名そのもの。
+func (c *Core) legacyMap() *scenemap.Map {
+	m := &scenemap.Map{
+		Scenes: map[string]scenemap.Container{},
+		Groups: map[string]scenemap.Container{},
+		Inputs: map[string]scenemap.Input{c.mediaSource: {Name: c.mediaSource, CameraID: legacyCamera}},
+	}
+	m.Scenes[c.standby] = scenemap.Container{Name: c.standby}
+	if c.startScene != nil {
+		m.Scenes[*c.startScene] = scenemap.Container{Name: *c.startScene}
+	}
+	for _, name := range c.monitored {
+		m.Scenes[name] = scenemap.Container{Name: name, Items: []scenemap.Item{
+			{ID: 1, SourceUUID: c.mediaSource, SourceKind: scenemap.InputSource, Enabled: true}}}
+	}
+	return m
 }
 
 // handle は Event を Machine に渡し、返ったバッチを実行待ちの列の後ろに足す。
 func (c *Core) handle(ev switcher.Event) error {
+	ev = c.bridge(ev)
 	b, cmdErr := c.m.Handle(ev)
 	if b != nil {
 		c.queue = append(c.queue, b)
@@ -257,7 +319,7 @@ func (c *Core) approve(req approveReq) switcher.ApproveResult {
 	case switcher.Proceed:
 		if set, ok := req.action.(switcher.SetScene); ok {
 			c.log.Info("scene switch",
-				"from", from, "to", set.Scene,
+				"from", from, "to", set.SceneUUID,
 				"reason", c.reason(req.purpose), "kbps", c.sample.Kbps, "purpose", req.purpose.String())
 		}
 	case switcher.Replace:

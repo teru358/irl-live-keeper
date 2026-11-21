@@ -153,7 +153,7 @@ func TestApproveRejectsWhenLinkDropsDuringRestart(t *testing.T) {
 	rejected := slices.ContainsFunc(seen, func(v any) bool {
 		a, ok := v.(approval)
 		_, rej := a.Result.(switcher.Reject)
-		return ok && rej && a.Action == switcher.SetScene{Scene: camera}
+		return ok && rej && a.Action == switcher.SetScene{SceneUUID: camera}
 	})
 	if !rejected {
 		t.Errorf("SetScene(Camera) の承認が却下されていない: %#v", seen)
@@ -344,8 +344,8 @@ func TestSetSceneFailureEndToEnd(t *testing.T) {
 func TestExecutorBatchRules(t *testing.T) {
 	boom := errors.New("boom")
 	timeout := fmt.Errorf("%w: deadline", obs.ErrTimeout)
-	setFail := switcher.SetScene{Scene: standby}
-	restart := switcher.RestartMedia{Wait: time.Millisecond}
+	setFail := switcher.SetScene{SceneUUID: standby}
+	restart := switcher.RestartMedia{Inputs: []string{"IRL"}, Wait: time.Millisecond}
 	cases := []struct {
 		name      string
 		actions   []switcher.Action
@@ -486,7 +486,7 @@ func TestExecutorPassesOverride(t *testing.T) {
 		h := newHarness(t)
 		h.obs.onOverride = func(string) (*int, bool, error) { return tc.ms, tc.has, tc.err }
 		ctx, cancel := context.WithCancel(context.Background())
-		go h.core.execute(ctx, &switcher.Batch{BatchID: 1, Actions: []switcher.Action{switcher.SetScene{Scene: camera}}})
+		go h.core.execute(ctx, &switcher.Batch{BatchID: 1, Actions: []switcher.Action{switcher.SetScene{SceneUUID: camera}}})
 		select {
 		case req := <-h.core.approvals:
 			if !reflect.DeepEqual(req.override, tc.want) {
