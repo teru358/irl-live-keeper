@@ -234,6 +234,9 @@ func (p *persister) submit(rev int, data []byte) {
 	}
 }
 
+// run は管理の goroutine。ディスクへの書き込み（取り消せない）は別の worker goroutine で行い、run は
+// ctx が終わったら、worker の終わりを待たずに戻る。ディスクが固まっていれば worker だけが、ディスクの
+// 応答まで残る（既知の制約。Run と本体の終了は止めない）。worker は同時に1つだけ。
 func (p *persister) run(ctx context.Context) {
 	var retry <-chan time.Time
 	var timer *time.Timer
@@ -242,12 +245,37 @@ func (p *persister) run(ctx context.Context) {
 			timer.Stop()
 		}
 	}()
+	var inflight chan error // 書き込み中の worker の結果（容量1。run が戻っても worker は詰まらない）
+	var started *persistReq
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-p.wake:
 		case <-retry:
+		case err := <-inflight:
+			inflight = nil
+			if err != nil {
+				if timer == nil {
+					timer = time.NewTimer(p.retry)
+				} else {
+					timer.Reset(p.retry)
+				}
+				retry = timer.C
+				continue
+			}
+			p.mu.Lock()
+			if p.latest == started {
+				p.latest = nil
+			}
+			again := p.latest != nil
+			p.mu.Unlock()
+			if !again {
+				continue
+			}
+		}
+		if inflight != nil {
+			continue // 書き込み中。終わったら最新の中身を見直す
 		}
 		retry = nil
 		p.mu.Lock()
@@ -256,26 +284,8 @@ func (p *persister) run(ctx context.Context) {
 		if req == nil {
 			continue
 		}
-		if err := p.store.put(req.rev, req.data); err != nil {
-			if timer == nil {
-				timer = time.NewTimer(p.retry)
-			} else {
-				timer.Reset(p.retry)
-			}
-			retry = timer.C
-			continue
-		}
-		p.mu.Lock()
-		if p.latest == req {
-			p.latest = nil
-		}
-		again := p.latest != nil
-		p.mu.Unlock()
-		if again {
-			select {
-			case p.wake <- struct{}{}:
-			default:
-			}
-		}
+		started = req
+		inflight = make(chan error, 1)
+		go func(ch chan error) { ch <- p.store.put(req.rev, req.data) }(inflight)
 	}
 }

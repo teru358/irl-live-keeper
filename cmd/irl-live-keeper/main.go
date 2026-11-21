@@ -33,11 +33,18 @@ const (
 	// restartWait は RestartMedia の送出から切替までの待ち時間。Windows と Linux の OBS で、RESTART から
 	// 再生開始まで約 1.02秒だった。切替のトランジションの時間も加わるので、1秒で戻った瞬間に映像が出る。
 	restartWait = time.Second
-	// shutdownTimeout は管理 API の HTTP サーバーの終了を待つ上限。
-	shutdownTimeout = 5 * time.Second
+	// shutdownTimeout は管理 API の HTTP サーバーの終了を待つ上限。終わる道全体（Stopping 2秒 + これ + 部品の待ち）を、
+	// Windows のコンソールを閉じるときの猶予（数秒）に収めるため短くする。
+	shutdownTimeout = time.Second
 	// stateDirName は hidden.json などの状態を置くフォルダ（config.yaml のあるフォルダの下）。
 	stateDirName = "state"
 )
+
+// partsContext は部品用の context。親（シグナルの ctx）の値は引き継ぐが、親の取り消しは伝えない。
+// 止めるのは返す cancel だけ。
+func partsContext(parent context.Context) (context.Context, context.CancelFunc) {
+	return context.WithCancel(context.WithoutCancel(parent))
+}
 
 // hiddenPath は隠した項目の記録 hidden.json のパス。`--dir` ができたら、その下になる（今は base）。
 func hiddenPath(base string) string {
@@ -142,7 +149,9 @@ func run(ctx context.Context, base string, stdout, stderr io.Writer) int {
 	fmt.Fprint(stdout, startupBanner(info))
 
 	// 部品を動かす
-	runCtx, cancel := context.WithCancel(ctx)
+	// 部品の context はシグナルの ctx から独立させる。シグナルは終わる手順（shutdown）の開始の合図にだけ使い、
+	// Stopping と HTTP の停止のあとで、shutdown が cancel を呼ぶ。
+	runCtx, cancel := partsContext(ctx)
 	defer cancel()
 	var wg sync.WaitGroup
 

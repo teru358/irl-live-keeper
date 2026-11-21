@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -763,3 +764,33 @@ func TestHideDoesNotLeakOnShutdown(t *testing.T) {
 }
 
 var _ = ingest.SampleSet{}
+
+// 非同期の保存が止まったままでも、取り消したあと Run は期限の内に戻る（ディスクの処理だけが残る）。
+func TestRunReturnsWhenAsyncWriteIsStuck(t *testing.T) {
+	var n atomic.Int32
+	block := make(chan struct{})
+	h, path := hideHarness(t, withHiddenWrite(func(p string, b []byte) error {
+		if n.Add(1) > 1 { // 最初の同期の保存だけ通し、あとの非同期の保存は止める
+			<-block
+		}
+		return atomicWrite(p, b)
+	}))
+	t.Cleanup(func() { close(block) })
+	_ = path
+	h.itemWorld()
+	h.start()
+	h.mainOKSubDown()
+	h.connectMap(true, camera, hideMap())
+	h.waitCall("item:Camera:2:false")
+	h.waitSnap("隠した", func(s Snapshot) bool { return s.Cameras[1].Hidden == 1 })
+	deadline := time.Now().Add(wait)
+	for n.Load() < 2 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	h.cancel()
+	select {
+	case <-h.runDone:
+	case <-time.After(1500 * time.Millisecond):
+		t.Fatal("非同期の保存が止まっていると Run が戻らない")
+	}
+}

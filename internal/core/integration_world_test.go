@@ -94,7 +94,7 @@ type world struct {
 
 	pending []pendEv
 	late    []lateApply
-	hung    []chan struct{}
+	hung    []hungReq
 
 	// 本体が最後に true→false にした項目（人が触れば外れる）。
 	appOwned map[ik]bool
@@ -206,11 +206,31 @@ func (w *world) close() {
 	w.mu.Unlock()
 }
 
+type hungReq struct {
+	ch  chan struct{}
+	due time.Time
+}
+
 func (w *world) releaseHungLocked() {
-	for _, ch := range w.hung {
-		close(ch)
+	for _, h := range w.hung {
+		close(h.ch)
 	}
 	w.hung = nil
+}
+
+// releaseHungDue は、応えない要求を、OBS の応答待ちの上限（5秒。obs は ErrTimeout を返す）で解く。
+func (w *world) releaseHungDue(now time.Time) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	var rest []hungReq
+	for _, h := range w.hung {
+		if h.due.After(now) {
+			rest = append(rest, h)
+		} else {
+			close(h.ch)
+		}
+	}
+	w.hung = rest
 }
 
 // ---- 地図と「映る」（独立の計算） ----
@@ -329,13 +349,16 @@ func (w *world) deliverDue(all bool) {
 		p := w.pending[0]
 		w.pending = w.pending[1:]
 		ch, gd := w.evCh, w.genDone
-		if p.human && p.ev != nil {
-			if ie, ok := p.ev.(switcher.ItemEnabledChanged); ok && ie.Enabled {
-				w.onHumanTrueDeliveredLocked(p.key)
-			}
-		}
 		w.mu.Unlock()
 		w.send(ch, gd, p.ev)
+		// 印は、本体の中核ループがイベントを受け取ったあとに立てる（受け取る前に承認された要求は、人の操作を知らない）。
+		if p.human && p.ev != nil {
+			if ie, ok := p.ev.(switcher.ItemEnabledChanged); ok && ie.Enabled {
+				w.mu.Lock()
+				w.onHumanTrueDeliveredLocked(p.key)
+				w.mu.Unlock()
+			}
+		}
 	}
 }
 

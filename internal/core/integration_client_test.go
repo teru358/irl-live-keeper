@@ -90,6 +90,7 @@ func (g *genClient) SetSceneUUID(name string) error {
 	}
 	g.w.program = name
 	g.w.logf("本体: シーンを %s に切替", name)
+	g.w.checkNotEmptyLocked("本体の SetScene の適用直後", nil)
 	ev := switcher.SceneChanged{At: g.w.clk.Now(), Scene: name, SceneUUID: name}
 	sync := g.w.benign || g.w.rng.Intn(2) == 0
 	if !sync {
@@ -197,7 +198,7 @@ func (g *genClient) SetSceneItemEnabled(scene string, id int, en bool) error {
 		w.stats.timeouts++
 		w.markUncertainLocked(k, en)
 		ch := make(chan struct{})
-		w.hung = append(w.hung, ch)
+		w.hung = append(w.hung, hungReq{ch: ch, due: w.clk.Now().Add(5 * time.Second)})
 		apply := w.rng.Intn(2) == 0
 		w.mu.Unlock()
 		select {
@@ -240,6 +241,7 @@ func (w *world) applyLocked(k ik, v bool, by string, dropEvent bool) (switcher.E
 	} else {
 		w.stats.appTrue++
 	}
+	was := w.visibleLocked(w.program, false, nil)
 	it.enabled = v
 	if v {
 		delete(w.appOwned, k)
@@ -247,6 +249,9 @@ func (w *world) applyLocked(k ik, v bool, by string, dropEvent bool) (switcher.E
 		w.appOwned[k] = true
 	}
 	w.logf("%s: 項目 %v を %v に（適用）", by, k, v)
+	if !v && len(was) > 0 {
+		w.checkNotEmptyLocked("本体の false の適用直後", nil)
+	}
 	if dropEvent {
 		return nil, true
 	}
@@ -254,7 +259,7 @@ func (w *world) applyLocked(k ik, v bool, by string, dropEvent bool) (switcher.E
 }
 
 func (w *world) markUncertainLocked(k ik, en bool) {
-	if !en {
+	if !en && w.uncertain[k] == nil { // すでにある印（cleared を含む）は替えない。古い要求の遅れた適用も同じ扱いにするため
 		cleared := false
 		w.uncertain[k] = &cleared
 	}
@@ -297,6 +302,21 @@ func (w *world) checkFalseIssueLocked(k ik, it *wItem) {
 	}
 }
 
+// checkNotEmptyLocked は INV-02 の適用点の判定。配信中で、本体から見て監視対象（本体が隠した項目を表示と
+// 数えれば映るカメラがある）の今のシーンの、実際に表示されているカメラが0なら違反。人の操作が未着のとき、
+// 障害列では見ない。独立に木をたどる（Machine の分類は使わない）。
+func (w *world) checkNotEmptyLocked(where string, _ map[ik]bool) {
+	if w.faulty || !w.streaming || !w.connected || w.humanPendingLocked() {
+		return
+	}
+	if len(w.visibleLocked(w.program, true, nil)) == 0 {
+		return
+	}
+	if len(w.visibleLocked(w.program, false, nil)) == 0 {
+		w.violate("INV-02: %s、配信中の今のシーン %s に表示されているカメラがない", where, w.program)
+	}
+}
+
 // checkFalseApplyLocked は、本体の false が適用される（true→false）瞬間の判定（INV-01）。
 // 偽の OBS が記録した事実と、hidden.json のファイルの中身だけを使う。
 func (w *world) checkFalseApplyLocked(k ik, it *wItem, by string) {
@@ -314,15 +334,15 @@ func (w *world) checkFalseApplyLocked(k ik, it *wItem, by string) {
 	w.violate("INV-01: 本体の false（%s）で項目 %v（ソース %s）が非表示になったが、その瞬間の hidden.json に記録がない: %+v", by, k, it.source, es)
 }
 
-// persistentCheckLocked は、静かな時点の判定: 本体が隠した項目（人が触っていない）は、hidden.json にある（INV-01）。
-func (w *world) persistentCheckLocked() {
+// persistentProblemLocked は、静かな時点の判定: 本体が隠した項目（人が触っていない）は、hidden.json にある（INV-01）。
+// 問題があれば文を返す。hidden.json の書き直しは非同期なので、呼び出し側は少し待って見直してから違反にする。
+func (w *world) persistentProblemLocked() string {
 	if w.faulty {
-		return
+		return ""
 	}
 	es, err := readHiddenFileRaw(w.hiddenPath)
 	if err != nil {
-		w.violate("INV-01: hidden.json を読めない: %v", err)
-		return
+		return fmt.Sprintf("INV-01: hidden.json を読めない: %v", err)
 	}
 	for k := range w.appOwned {
 		it := w.cont[k.c].find(k.id)
@@ -332,9 +352,10 @@ func (w *world) persistentCheckLocked() {
 		if !slices.ContainsFunc(es, func(e fileEntry) bool {
 			return e.Container == k.c && e.Item == k.id && e.Collection == testCollection
 		}) {
-			w.violate("INV-01: 本体が隠した項目 %v が、静かな時点の hidden.json にない: %+v", k, es)
+			return fmt.Sprintf("INV-01: 本体が隠した項目 %v が、静かな時点の hidden.json にない: %+v", k, es)
 		}
 	}
+	return ""
 }
 
 func readHiddenFileRaw(path string) ([]fileEntry, error) {

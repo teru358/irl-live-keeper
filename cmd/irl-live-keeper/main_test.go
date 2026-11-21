@@ -508,3 +508,37 @@ func TestRunは壊れたhidden_jsonを警告して残す(t *testing.T) {
 		t.Errorf("元の hidden.json が残っている（空で始めたのだから、読み直されないよう名前を替えるはず）")
 	}
 }
+
+// 部品の context はシグナルの ctx から独立している: 親を取り消しても、Stopping と HTTP の停止の前に
+// 部品へ取り消しが伝わらない（RestoreAll を送れるように）。部品を止めるのは cancel だけ。
+func TestPartsContextはシグナルの取り消しで止まらない(t *testing.T) {
+	parent, stop := context.WithCancel(context.Background())
+	parts, cancel := partsContext(parent)
+	defer cancel()
+	stop()
+	time.Sleep(20 * time.Millisecond)
+	if parts.Err() != nil {
+		t.Fatalf("親の取り消しが部品の context に伝わった: %v", parts.Err())
+	}
+	cancel()
+	if parts.Err() == nil {
+		t.Fatal("cancel しても部品の context が止まらない")
+	}
+}
+
+// 終わる道全体は、Windows のコンソールを閉じるときの猶予（数秒）に収まる。Stopping も HTTP の停止も止まったままでも。
+func TestShutdown全体は数秒に収まる(t *testing.T) {
+	hang := &hangRecorder{}
+	var wg sync.WaitGroup
+	start := time.Now()
+	shutdown(hang, hang, func() {}, &wg)
+	if d := time.Since(start); d > 3500*time.Millisecond {
+		t.Fatalf("終わる道が %v かかった（Stopping 2秒 + HTTP 1秒 + 余裕のはず）", d)
+	}
+}
+
+type hangRecorder struct{}
+
+func (hangRecorder) Stopping(ctx context.Context)       { <-ctx.Done() }
+func (hangRecorder) Shutdown(ctx context.Context) error { <-ctx.Done(); return ctx.Err() }
+func (hangRecorder) Close() error                       { return nil }
