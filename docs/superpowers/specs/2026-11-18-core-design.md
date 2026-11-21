@@ -1,7 +1,8 @@
 # irl-live-keeper 設計 — 全体構成と第1段階（コア）
 
 - 作成日: 2026-11-18
-- 版: v2.14（変更は末尾の変更履歴を参照）
+- 版: v2.15（変更は末尾の変更履歴を参照）
+- **複数のカメラ（v2.15）**: 4章〜10章の一部（1本の path と1つの受信状態、`stream.name`、`obs.media_source`、`obs.monitored_scenes`、`LinkChanged`、分類、AutoFail と AutoRecover の条件など）は、`docs/superpowers/specs/2026-11-21-multi-camera-design.md`（第2段階の区切り0）で置き換える。置き換える箇所はその文書の第8節の表。食い違うときはその文書を優先する
 - 状態: ユーザー承認済みの設計（セクション1〜5）を文書化したもの。v2.0 でシーンのモデルを 2026-11-19 のユーザーの裁定に合わせて書き直した（6章の末尾に「実装前に決めたこと」がある）
 - 対象バージョン: MediaMTX v1.21.4（2026-11-15 リリース）、obs-websocket v5
 
@@ -782,3 +783,4 @@ goobs のラッパーは実際の OBS を相手に手動で確かめる。自動
 | 2026-11-20 | v2.12 | 4章に `gui.close_action` と、`Validate` が項目ごとの理由を返すことを足した。6章の V-01、V-07 の見直しの結果（そのままにする）を書いた。8章の Job Object で、ブラウザとフォルダを開く子だけ breakaway を許した。GUI の版の MediaMTX に `CREATE_NO_WINDOW` を付ける。api の資格情報と送信用の host の決め直しを、第2段階の世代と設定の反映に合わせた。9章の `WWW-Authenticate` を、`Authorization` ヘッダーがあるときだけにした。シーンの設定を送る経路と、できごとの購読を第2段階の spec に結んだ。10章で、日付が変わったときにもログを消す。10章に、第2段階の `--dir`、systemd から起動したときに起動の表示のパスワードを伏せること、動作中に変えたパスワードを置き換えの対象に足すことへの参照を足した。13章の MediaMTX の設定を「再起動して反映」にした。どれも第2段階の spec v0.2 に合わせた | Fable と codex sol の設計レビュー 1 周目（Fable: Critical 2 / Important 14 / Minor 13、sol: Critical 0 / Important 17 / Minor 2）と、2026-11-20 のユーザーの裁定 | この版の commit |
 | 2026-11-20 | v2.13 | `admin.listen` を `admin.port`（既定 8787）と `admin.lan`（既定 false。false は `127.0.0.1` だけ、true はすべてのインターフェース）に分け、ひな形、検証、`Warnings` の文、古い `admin.listen` の扱いを直した（2章、4章）。中継 PC では `admin.lan` も true にする（1章）。9章の中核ループの `select` が受けるものと、容量1の応答用チャネルに、設定の差し替えの要求を足した。API の確かめる順に、第2段階の 429 と `/api/login` の独自ヘッダーへの参照を足した。待ち受けのアドレスを `admin.port` と `admin.lan` で書いた。10章の `InitJob` はプロセスの寿命のもので窓の前に1回、起動の表示は最初の世代でだけ、`mediamtx.binary` が空のときの場所を書いた。13章の LAN 公開のリスクを、第2段階でできること（すべてのパスワードの表示、設定の変更）と、`mediamtx.binary` と `log.dir` を同じ PC からだけ変えられることに合わせて書き直した。どれも第2段階の spec v0.3 に合わせた | Fable と codex sol の設計レビュー 2 周目（Fable: Critical 0 / Important 9 / Minor 12、sol: Critical 0 / Important 8 / Minor 1）と、2026-11-20 のユーザーの裁定 | この版の commit |
 | 2026-11-20 | v2.14 | 2章の古い文を直した（生成物の置き場所に `history/`、`sources.yaml`、`--dir` を足し、部品の図の「オーバーレイ」を「ソースのページ」に） | 第2段階の task 表を作る中で見つかった | この版の commit |
+| 2026-11-21 | v2.15 | 冒頭に、複数のカメラの spec（2026-11-21-multi-camera-design.md v0.1）で置き換える箇所への参照を足した（本文は変えず、その文書の第8節の表で置き換える） | 2026-11-21 のユーザーの裁定（複数のカメラを第2段階に入れる） | この版の commit |
