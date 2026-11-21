@@ -22,7 +22,11 @@ if (-not (Test-Path $PasswordFile)) {
   Write-Output "パスワードを $PasswordFile に書きました（試験が終わったら消してください）"
 }
 
+# ctl.exe は UTF-8 で書き出すので、画面とファイルを UTF-8 で読む（Windows PowerShell 5.1 の既定は Shift-JIS で、日本語が化ける）
+[Console]::OutputEncoding = [Text.Encoding]::UTF8
+$OutputEncoding = [Text.Encoding]::UTF8
+
 $env:OBS_WS_ADDR = $Addr
 $env:OBS_WS_PASSWORD_FILE = (Resolve-Path $PasswordFile).Path
 $ctl = Join-Path $PSScriptRoot "ctl.exe"
-& $ctl watch $Seconds | Tee-Object -FilePath $Out
+& $ctl watch $Seconds | Tee-Object -FilePath $Out -Encoding utf8
