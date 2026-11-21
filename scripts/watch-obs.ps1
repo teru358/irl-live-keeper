@@ -29,4 +29,5 @@ $OutputEncoding = [Text.Encoding]::UTF8
 $env:OBS_WS_ADDR = $Addr
 $env:OBS_WS_PASSWORD_FILE = (Resolve-Path $PasswordFile).Path
 $ctl = Join-Path $PSScriptRoot "ctl.exe"
-& $ctl watch $Seconds | Tee-Object -FilePath $Out -Encoding utf8
+# Tee-Object は Windows PowerShell 5.1 では -Encoding を持たない（ファイルは UTF-16 で書かれ、化けない）
+& $ctl watch $Seconds | Tee-Object -FilePath $Out
