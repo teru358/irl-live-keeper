@@ -314,7 +314,7 @@ func TestRestartFailureContinuesToSetScene(t *testing.T) {
 	if got := callsSince(h.obs, n); !reflect.DeepEqual(got, want) {
 		t.Errorf("calls = %v, want %v", got, want)
 	}
-	s := h.waitSnap("camera", sceneIs(camera))
+	s := h.waitSnap("camera と last_error", func(s Snapshot) bool { return sceneIs(camera)(s) && s.LastError != nil })
 	if e := s.LastError; e == nil || e.Source != SourceSwitcher || !strings.Contains(e.Message, "input not found") {
 		t.Errorf("last_error = %+v", e)
 	}
