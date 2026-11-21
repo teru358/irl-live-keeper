@@ -16,6 +16,7 @@ import (
 	"github.com/andreykaipov/goobs/api/requests/scenes"
 	"github.com/andreykaipov/goobs/api/requests/stream"
 	"github.com/andreykaipov/goobs/api/requests/transitions"
+	"github.com/andreykaipov/goobs/api/requests/ui"
 
 	"github.com/teru358/irl-live-keeper/internal/scenemap"
 	"github.com/teru358/irl-live-keeper/internal/switcher"
@@ -206,8 +207,8 @@ func (w *WS) closeGateEarly(c *mainConn, q *evq, ev any, seq uint64) {
 
 // boundaries は、状態を読む要求の応答の時点の evq.mark。これ以前に届いたイベントは、読んだ状態に含まれる。
 type boundaries struct {
-	scene, stream, trans uint64
-	items                map[string]uint64 // シーンかグループの UUID（古い OBS では空）
+	scene, stream, trans, studio uint64
+	items                        map[string]uint64 // シーンかグループの UUID（古い OBS では空）
 }
 
 // heldEvent は、読み取りの最中に届いたイベント。読み取りのあと OBSConnected の次に流す。
@@ -477,6 +478,8 @@ func (s *sess) afterSnapshot(h heldEvent, b *boundaries) bool {
 		return h.seq > b.stream
 	case *events.CurrentSceneTransitionDurationChanged:
 		return h.seq > b.trans
+	case *events.StudioModeStateChanged:
+		return h.seq > b.studio
 	case *events.SceneItemEnableStateChanged:
 		if at, ok := b.items[s.sceneID(e.SceneUuid, e.SceneName)]; ok {
 			return h.seq > at
@@ -585,7 +588,7 @@ func (s *sess) hold(ev any, at time.Time, seq uint64) {
 	case *events.CurrentSceneTransitionChanged:
 		s.heldTrans = true
 	case *events.CurrentProgramSceneChanged, *events.CurrentSceneTransitionDurationChanged, *events.StreamStateChanged,
-		*events.SceneItemEnableStateChanged:
+		*events.SceneItemEnableStateChanged, *events.StudioModeStateChanged:
 		s.held = append(s.held, heldEvent{ev, at, seq})
 	case *events.SceneCreated, *events.SceneRemoved, *events.SceneNameChanged, *events.SceneItemCreated, *events.SceneItemRemoved,
 		*events.InputCreated, *events.InputRemoved, *events.InputNameChanged, *events.InputSettingsChanged:
@@ -709,6 +712,14 @@ func (w *WS) fetchConnected(ctx context.Context, c *mainConn, legacy bool, now f
 	if legacy {
 		uuid = name
 	}
+	// Studio Mode。読めなければ、GetStreamStatus などと同じに接続の失敗にする（つなぎ直す）。
+	sm, err := mcall(w, ctx, c, "GetStudioModeEnabled", func(cli *goobs.Client) (*ui.GetStudioModeEnabledResponse, error) {
+		return cli.Ui.GetStudioModeEnabled()
+	})
+	if err != nil {
+		return switcher.OBSConnected{}, fmt.Errorf("GetStudioModeEnabled: %w", err)
+	}
+	bnd.studio = now()
 	// 長さが取れなくても接続は成り立つ。nil にする。
 	ms, err := w.currentTransitionMs(ctx, c)
 	if err == nil {
@@ -727,6 +738,7 @@ func (w *WS) fetchConnected(ctx context.Context, c *mainConn, legacy bool, now f
 		Scene:        name,
 		SceneUUID:    uuid,
 		TransitionMs: ms,
+		StudioMode:   sm.StudioModeEnabled,
 	}, nil
 }
 

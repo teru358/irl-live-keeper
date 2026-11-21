@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"regexp"
 	"strings"
 
 	"github.com/teru358/irl-live-keeper/internal/switcher"
@@ -88,4 +89,24 @@ func transitionMs(fixed bool, durationMs float64) *int {
 	}
 	v := int(math.Round(durationMs))
 	return &v
+}
+
+// goobs は OBS の失敗の応答を、型を持たない文 "request <名前>: <状態の名前> (<コード>)[: <コメント>]" で返す
+// （goobs v1.11.1 の api.Client.SendRequest。状態コードを取り出す型や関数はない）。
+// ResourceNotFound は状態コード 600。
+var notFoundRe = regexp.MustCompile(`request \w+: ResourceNotFound \(600\)`)
+
+// ClassifyItemResult は SetSceneItemEnabled のエラーを switcher.ItemResult に分ける。
+// nil は OK、応答待ちの超過と ID のずれ（ErrTimeout）は Timeout、OBS の状態コード 600（ResourceNotFound）は
+// NotFound、それ以外（OBS の失敗、送れなかった）は Error。状態コードは goobs のエラーの文から読む。
+func ClassifyItemResult(err error) switcher.ItemResult {
+	switch {
+	case err == nil:
+		return switcher.ItemOK
+	case errors.Is(err, ErrTimeout):
+		return switcher.ItemTimeout
+	case notFoundRe.MatchString(err.Error()):
+		return switcher.ItemNotFound
+	}
+	return switcher.ItemError
 }

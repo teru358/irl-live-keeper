@@ -44,6 +44,12 @@ func TestValidate(t *testing.T) {
 		{"srt_port 65536 落ちる", func(c *Config) { c.MediaMTX.SRTPort = 65536 }, "mediamtx.srt_port"},
 		{"rtsp_port 負 落ちる", func(c *Config) { c.MediaMTX.RTSPPort = -1 }, "mediamtx.rtsp_port"},
 		{"api_port 0 落ちる", func(c *Config) { c.MediaMTX.APIPort = 0 }, "mediamtx.api_port"},
+		{"studio_mode_hide standby 通る", func(c *Config) { c.OBS.StudioModeHide = "standby" }, ""},
+		{"studio_mode_hide ignore 通る", func(c *Config) { c.OBS.StudioModeHide = "ignore" }, ""},
+		{"studio_mode_hide hide 通る", func(c *Config) { c.OBS.StudioModeHide = "hide" }, ""},
+		{"studio_mode_hide 空 落ちる", func(c *Config) { c.OBS.StudioModeHide = "" }, "obs.studio_mode_hide"},
+		{"studio_mode_hide Hide 落ちる", func(c *Config) { c.OBS.StudioModeHide = "Hide" }, "obs.studio_mode_hide"},
+		{"studio_mode_hide off 落ちる", func(c *Config) { c.OBS.StudioModeHide = "off" }, "obs.studio_mode_hide"},
 		{"obs.port 0 落ちる", func(c *Config) { c.OBS.Port = 0 }, "obs.port"},
 		{"mediamtx 同士の重複 落ちる", func(c *Config) { c.MediaMTX.SRTPort = c.MediaMTX.RTMPPort }, "mediamtx.srt_port"},
 		{"admin.port 1 通る", func(c *Config) { c.Admin.Port = 1 }, ""},
@@ -456,4 +462,64 @@ func TestLoadの古いadmin_listen(t *testing.T) {
 	if err == nil || strings.Contains(err.Error(), "admin.port") {
 		t.Fatalf("err=%v", err)
 	}
+}
+
+func TestStudioModeHideの既定とエラー文(t *testing.T) {
+	const minimal = "admin:\n  password: adminpass\nstream:\n  publish_pass: publishpass\n  read_pass: readpass1\ncameras:\n  - id: main\n    name: メイン\n    on_bad: standby\n"
+	cfg, err := parse([]byte(minimal))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.OBS.StudioModeHide != "standby" {
+		t.Fatalf("既定 = %q, want standby", cfg.OBS.StudioModeHide)
+	}
+	for _, v := range []string{"standby", "ignore", "hide"} {
+		cfg, err := parse([]byte(minimal + "obs:\n  studio_mode_hide: " + v + "\n"))
+		if err != nil {
+			t.Fatalf("%s: %v", v, err)
+		}
+		if cfg.OBS.StudioModeHide != v {
+			t.Fatalf("%s を読んだ結果 = %q", v, cfg.OBS.StudioModeHide)
+		}
+	}
+	_, err = parse([]byte(minimal + "obs:\n  studio_mode_hide: nope\n"))
+	var ve *ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("ValidationError のはずが %v", err)
+	}
+	msg := ve.ByField()["obs.studio_mode_hide"]
+	for _, want := range []string{"standby", "ignore", "hide", `"nope"`} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("エラー文 %q に %q がない", msg, want)
+		}
+	}
+}
+
+func Testひな形にStudioModeHideのコメントがある(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if _, err := Generate(path); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("ひな形が検証を通らない: %v", err)
+	}
+	if loaded.OBS.StudioModeHide != "standby" {
+		t.Fatalf("ひな形の値 = %q", loaded.OBS.StudioModeHide)
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		if strings.Contains(line, "studio_mode_hide:") {
+			for _, want := range []string{"standby", "ignore", "hide", "シーンを複製"} {
+				if !strings.Contains(line, want) {
+					t.Errorf("ひな形のコメントに %q がない: %s", want, line)
+				}
+			}
+			return
+		}
+	}
+	t.Fatal("ひな形に studio_mode_hide の行がない")
 }

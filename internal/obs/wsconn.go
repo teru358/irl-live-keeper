@@ -12,6 +12,7 @@ import (
 
 	"github.com/andreykaipov/goobs"
 	"github.com/andreykaipov/goobs/api/requests/mediainputs"
+	"github.com/andreykaipov/goobs/api/requests/sceneitems"
 	"github.com/andreykaipov/goobs/api/requests/scenes"
 )
 
@@ -277,6 +278,25 @@ func (w *WS) SetSceneUUID(uuid string) error {
 func (w *WS) setScene(e extConn, p *scenes.SetCurrentProgramSceneParams) error {
 	_, err := mcallPre(w, context.Background(), e.c, "SetCurrentProgramScene", w.pre(e), func(cli *goobs.Client) (*scenes.SetCurrentProgramSceneResponse, error) {
 		return cli.Scenes.SetCurrentProgramScene(p)
+	})
+	return err
+}
+
+// SetSceneItemEnabled は項目の表示・非表示を sceneUuid で送る（古い OBS では名前）。グループの中の項目は、
+// グループの UUID を渡す（グループはシーンとして扱える）。応答待ちの超過は ErrTimeout で返す。
+func (w *WS) SetSceneItemEnabled(sceneUUID string, itemID int, enabled bool) error {
+	e, err := w.client()
+	if err != nil {
+		return err
+	}
+	p := sceneitems.NewSetSceneItemEnabledParams().WithSceneItemId(itemID).WithSceneItemEnabled(enabled)
+	if e.c.legacy.Load() {
+		p.WithSceneName(sceneUUID)
+	} else {
+		p.WithSceneUuid(sceneUUID)
+	}
+	_, err = mcallPre(w, context.Background(), e.c, "SetSceneItemEnabled", w.pre(e), func(cli *goobs.Client) (*sceneitems.SetSceneItemEnabledResponse, error) {
+		return cli.SceneItems.SetSceneItemEnabled(p)
 	})
 	return err
 }

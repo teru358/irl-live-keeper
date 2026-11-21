@@ -18,7 +18,7 @@ import (
 // Client は OBS への操作とイベントの受け口。中核ループはこれだけに依存する。
 type Client interface {
 	// Events は OBSConnected / OBSDisconnected / SceneChanged / TransitionChanged /
-	// StreamStateChanged を流す。閉じられない。
+	// StreamStateChanged / StudioModeChanged を流す。閉じられない。
 	Events() <-chan switcher.Event
 	StartStream() error
 	StopStream() error
@@ -32,6 +32,9 @@ type Client interface {
 	SceneTransitionOverrideUUID(uuid string) (ms *int, has bool, err error)
 	// RestartMediaInputs は、入力の UUID の列の順に、TriggerMediaInputAction（RESTART）を inputUuid で送る。
 	RestartMediaInputs(inputUUIDs []string) error
+	// SetSceneItemEnabled は SetSceneItemEnabled を sceneUuid で送る。グループの中の項目は、グループの UUID を渡す。
+	// 応答待ちの超過は ErrTimeout で返す。結果は ClassifyItemResult で分ける。
+	SetSceneItemEnabled(sceneUUID string, itemID int, enabled bool) error
 }
 
 // Config は OBS への接続設定と、存在を確かめる名前。

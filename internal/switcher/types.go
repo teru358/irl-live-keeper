@@ -143,6 +143,8 @@ type OBSConnected struct {
 	SceneUUID string
 	// Map は最初のシーンの地図。読み終えてから流す。流したあとは変更しない。
 	Map *scenemap.Map
+	// StudioMode は接続した時点の Studio Mode（GetStudioModeEnabled）。読めなければ false。
+	StudioMode bool
 }
 
 // OBSDisconnected は OBS との切断。
@@ -250,6 +252,48 @@ type SceneRequestDone struct {
 	Result RequestResult
 }
 
+// StudioModeChanged は OBS の Studio Mode のオン・オフの変化（StudioModeStateChanged）。
+// 接続した時点の値は OBSConnected.StudioMode にある。
+type StudioModeChanged struct {
+	At      time.Time
+	Enabled bool
+}
+
+// ItemResult は送った SetItemEnabled の応答の結果。
+type ItemResult int
+
+const (
+	// ItemOK は OBS が成功を返した。
+	ItemOK ItemResult = iota + 1
+	// ItemTimeout は応答待ちの超過（ID の合わない応答を含む）。適用されたかわからない。
+	ItemTimeout
+	// ItemError は OBS が失敗を返した（NotFound 以外）、または送れなかった。
+	ItemError
+	// ItemNotFound は OBS が状態コード 600（ResourceNotFound）を返した。項目かシーンがもうない。
+	ItemNotFound
+)
+
+func (r ItemResult) String() string {
+	switch r {
+	case ItemOK:
+		return "OK"
+	case ItemTimeout:
+		return "Timeout"
+	case ItemError:
+		return "Error"
+	case ItemNotFound:
+		return "NotFound"
+	}
+	return "ItemResult?"
+}
+
+// ItemRequestDone は送った SetItemEnabled の応答。ReqID の型と、番号を誰が振るかは core の実行役（M-12）で決める。
+type ItemRequestDone struct {
+	At     time.Time
+	ReqID  uint64
+	Result ItemResult
+}
+
 // BatchResult はバッチの終わり方。
 type BatchResult int
 
@@ -280,6 +324,8 @@ func (e TransitionChanged) eventAt() time.Time  { return e.At }
 func (e SceneMapChanged) eventAt() time.Time    { return e.At }
 func (e ItemEnabledChanged) eventAt() time.Time { return e.At }
 func (e StreamStateChanged) eventAt() time.Time { return e.At }
+func (e StudioModeChanged) eventAt() time.Time  { return e.At }
+func (e ItemRequestDone) eventAt() time.Time    { return e.At }
 func (e ScenesConfigured) eventAt() time.Time   { return e.At }
 func (e Command) eventAt() time.Time            { return e.At }
 func (e SceneRequestDone) eventAt() time.Time   { return e.At }
@@ -306,16 +352,25 @@ type RestartMedia struct {
 	Wait   time.Duration
 }
 
+// SetItemEnabled はシーン項目の表示・非表示を切り替える（0b）。SceneUUID はシーンかグループの UUID
+// （古い OBS では名前）。グループの中の項目は、グループの UUID で送る。今は Machine は出さない。
+type SetItemEnabled struct {
+	SceneUUID string
+	ItemID    int
+	Enabled   bool
+}
+
 // StartStream は配信を始める。
 type StartStream struct{}
 
 // StopStream は配信を止める。
 type StopStream struct{}
 
-func (SetScene) isAction()     {}
-func (RestartMedia) isAction() {}
-func (StartStream) isAction()  {}
-func (StopStream) isAction()   {}
+func (SetScene) isAction()       {}
+func (RestartMedia) isAction()   {}
+func (SetItemEnabled) isAction() {}
+func (StartStream) isAction()    {}
+func (StopStream) isAction()     {}
 
 // Batch は Handle が返す Action の列。作った時点の4つの Epoch を持つ。
 // 待機シーンへ切り替えるバッチ（AutoFail、StandbyOn）は、戻り先のシーンの UUID ReturnScene も持つ。

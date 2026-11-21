@@ -130,7 +130,16 @@ type OBS struct {
 	Password string `yaml:"password"`
 	// StandbyScene は回線が悪い間に出す待機シーン名（1つ）。
 	StandbyScene string `yaml:"standby_scene"`
+	// StudioModeHide は、Studio Mode がオンの間の、on_bad: hide のカメラの動き。standby / ignore / hide。
+	StudioModeHide string `yaml:"studio_mode_hide"`
 }
+
+// obs.studio_mode_hide に書ける値。
+const (
+	StudioHideStandby = "standby"
+	StudioHideIgnore  = "ignore"
+	StudioHideHide    = "hide"
+)
 
 // OnStreamStart は配信開始時の切替（安全機能）の設定。
 type OnStreamStart struct {
@@ -163,7 +172,7 @@ func defaults() *Config {
 		},
 		Stream: Stream{PublishUser: "irl", ReadUser: "obs"},
 		OBS: OBS{
-			Host: "127.0.0.1", Port: 4455, StandbyScene: "Standby",
+			Host: "127.0.0.1", Port: 4455, StandbyScene: "Standby", StudioModeHide: StudioHideStandby,
 		},
 		Switch: Switch{AutoEnabled: true, FailKbps: 800, LowSec: 5, RecoverKbps: 1500, RecoverSec: 10, DownSec: 2},
 		Log:    Log{Dir: "logs", KeepDays: 14},
@@ -258,6 +267,7 @@ obs:
   port: 4455
   password: ""               # 空なら認証なしで接続する（OBS 側で認証を無効にしている場合）
   standby_scene: Standby     # 待機シーン（1つ）。回線が悪い間に出す OBS のシーン名。既定値は Standby。カメラのメディアソースは OBS から自動で調べる（cameras の id ごとに、URL が rtsp://…/<id> のメディアソースを作る）
+  studio_mode_hide: standby   # Studio Mode がオンの間の、on_bad: hide のカメラの動き。standby（既定）: 隠す代わりに待機シーンへ送る / ignore: 何もしない（乱れた映像が出ることがある） / hide: 隠す（OBS の「シーンを複製」を切っているときだけ配信に効く）
 
 on_stream_start:             # 配信開始時の切替（安全機能）
   enabled: false             # true にすると、配信が始まったときに scene へ切り替える
@@ -472,6 +482,12 @@ func (c *Config) Validate() error {
 	}
 	if c.Log.KeepDays < 0 {
 		add("log.keep_days", fmt.Sprintf("0 以上にしてください（現在 %d）", c.Log.KeepDays))
+	}
+
+	switch c.OBS.StudioModeHide {
+	case StudioHideStandby, StudioHideIgnore, StudioHideHide:
+	default:
+		add("obs.studio_mode_hide", fmt.Sprintf("standby、ignore、hide のどれかにしてください（現在 %q）", c.OBS.StudioModeHide))
 	}
 
 	// GUI

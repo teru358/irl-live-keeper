@@ -3,6 +3,7 @@ package core
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
@@ -152,6 +153,12 @@ func (f *fakeOBS) RestartMediaInputs(inputs []string) error {
 	if f.onRestart != nil {
 		return f.onRestart(in)
 	}
+	return nil
+}
+
+// SetSceneItemEnabled は M-12 まで core が呼ばない。呼ばれたら記録して成功にする。
+func (f *fakeOBS) SetSceneItemEnabled(sceneUUID string, itemID int, enabled bool) error {
+	defer f.record(fmt.Sprintf("item:%s:%d:%v", sceneUUID, itemID, enabled))()
 	return nil
 }
 

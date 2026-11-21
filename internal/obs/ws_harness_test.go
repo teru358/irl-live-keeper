@@ -23,6 +23,7 @@ type fakeOBS struct {
 	sceneUUID string
 	transMs   float64
 	version   string
+	studio    bool // Studio Mode
 	// hook は、既定の応答より先に呼ばれる。ok が true ならその応答を使う。
 	hook func(auxReq) (auxReply, bool)
 	// counts は要求の種類ごとの回数。
@@ -102,6 +103,12 @@ func (f *fakeOBS) setScene(name, uuid string) {
 	f.mu.Unlock()
 }
 
+func (f *fakeOBS) setStudio(v bool) {
+	f.mu.Lock()
+	f.studio = v
+	f.mu.Unlock()
+}
+
 func (f *fakeOBS) setTransMs(ms float64) {
 	f.mu.Lock()
 	f.transMs = ms
@@ -124,7 +131,7 @@ func (f *fakeOBS) handle(r auxReq) auxReply {
 	f.mu.Lock()
 	f.counts[r.Type]++
 	hook := f.hook
-	scene, uuid, ms, version := f.scene, f.sceneUUID, f.transMs, f.version
+	scene, uuid, ms, version, studio := f.scene, f.sceneUUID, f.transMs, f.version, f.studio
 	f.mu.Unlock()
 	if hook != nil {
 		f.hookMu.Lock()
@@ -137,6 +144,10 @@ func (f *fakeOBS) handle(r auxReq) auxReply {
 	switch r.Type {
 	case "GetVersion":
 		return auxReply{Data: jsonString(map[string]any{"obsWebSocketVersion": version, "rpcVersion": 1})}
+	case "GetStudioModeEnabled":
+		return auxReply{Data: jsonString(map[string]any{"studioModeEnabled": studio})}
+	case "SetSceneItemEnabled":
+		return auxReply{} // 成功。状態コード 600 などは hook で返す
 	case "GetStreamStatus":
 		return auxReply{Data: jsonString(map[string]any{"outputActive": false, "outputReconnecting": false})}
 	case "GetCurrentProgramScene":

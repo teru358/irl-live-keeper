@@ -113,10 +113,13 @@ cameras:
 | `stream.publish_rtmp_port` / `publish_srt_port` | `0` / `0` | 送信用 URL に出す RTMP と SRT のポート。0 なら受信のポート（`mediamtx.rtmp_port` / `srt_port`）と同じ。ルーターのポート転送で外側のポートを変えたときに書く |
 | `admin.port` / `admin.lan` | `8787` / `false` | 管理 API のポートと、LAN に公開するか。false なら `127.0.0.1` だけで待ち受ける。別の PC から操作するときと、LAN の中継 PC に置くときだけ true にする |
 | `obs.standby_scene` | `Standby` | 回線が悪い間に出す待機シーン |
+| `obs.studio_mode_hide` | `standby` | OBS の Studio Mode がオンの間の、`on_bad: hide` のカメラの動き。`standby`（隠す代わりに待機シーンへ送る）/ `ignore`（何もしない。乱れた映像が出ることがある）/ `hide`（隠す。OBS の「シーンを複製」を切っているときだけ配信に効く） |
 | `cameras` | `main` の1台 | カメラの一覧（`id`、`name`、`on_bad`、省略可の `switch`）。上の「複数のカメラ」 |
 | `mediamtx.rtmp_enabled` / `srt_enabled` | `true` / `true` | RTMP と SRT の受付。使わない方を止められる（再起動で反映） |
 | `switch.auto_enabled` | `true` | 自動切替の ON/OFF |
 | `on_stream_start.enabled` / `scene` | `false` / 空 | 配信開始時に切り替えるか、どのシーンへ |
+
+`on_bad: hide` と Studio Mode: OBS の既定（「シーンを複製」がオン）では、Studio Mode の間は program のシーンの項目を隠しても配信の画面に効かず、次のシーンの遷移で効きます。本ツールは OBS からこの設定を読めないので、Studio Mode がオンの間の `hide` のカメラの動きを `obs.studio_mode_hide` で選びます。既定の `standby` は待機シーンへ送るので安全です。`hide` は、OBS の「シーンを複製」を切っているときだけ選んでください。Studio Mode がオフのときは、どの値でもふだんの「隠す」の動きです（隠す・戻すは次の段階で入ります）。
 
 全項目は、初回に作られる `config.yaml` のコメントを見てください。
 

@@ -25,6 +25,8 @@ func mapEvent(ev any, at time.Time) (out switcher.Event, ok bool) {
 			return nil, false
 		}
 		return switcher.StreamStateChanged{At: at, Streaming: streaming}, true
+	case *events.StudioModeStateChanged:
+		return switcher.StudioModeChanged{At: at, Enabled: e.StudioModeEnabled}, true
 	}
 	return nil, false
 }
