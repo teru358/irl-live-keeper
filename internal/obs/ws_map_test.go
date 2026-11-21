@@ -501,13 +501,13 @@ func TestItemEnabledChangedDuringReloadIsHeld(t *testing.T) {
 	h := newMapHarness(t, nil)
 	h.awaitConnected(1)
 	h.f.setHook(func(r auxReq) (auxReply, bool) {
-		if r.Conn == 1 && r.Type == "GetSceneItemList" {
-			return auxReply{Delay: 150 * time.Millisecond}, true
+		if r.Conn == 1 && r.Type == "GetInputList" {
+			return auxReply{Delay: 150 * time.Millisecond}, true // 項目の一覧を読んだあと
 		}
 		return auxReply{}, false
 	})
 	h.s.sendEvent(1, "CurrentSceneCollectionChanged", map[string]any{"sceneCollectionName": "New"})
-	waitFor(t, "読み取りが始まる", func() bool { return h.f.count("GetSceneItemList") >= 3 })
+	waitFor(t, "項目の一覧のあとの読み取りが届く", func() bool { return h.f.count("GetInputList") == 2 })
 	h.s.sendEvent(1, "SceneItemEnableStateChanged", map[string]any{"sceneUuid": "uuid-live", "sceneItemId": 1, "sceneItemEnabled": false})
 	h.awaitConnected(2)
 	h.await("取っておいた変化が流れる", func(evs []switcher.Event) bool { return countOf[switcher.ItemEnabledChanged](evs) == 1 })

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -224,6 +225,8 @@ type wsHarness struct {
 
 	mu  sync.Mutex
 	evs []switcher.Event
+	// paused が true の間、集める goroutine は Events を読まない（core が詰まった状態）。
+	paused atomic.Bool
 }
 
 // newWSHarness は WS を作って Run する。tune は Run の前に WS を調整する。
@@ -250,11 +253,20 @@ func startWSHarness(t *testing.T, s *auxServer, f *fakeOBS, tune func(*WS)) *wsH
 	go func() { w.Run(ctx); close(h.done) }()
 	go func() {
 		for {
+			if h.paused.Load() {
+				select {
+				case <-time.After(2 * time.Millisecond):
+					continue
+				case <-h.done:
+					return
+				}
+			}
 			select {
 			case e := <-w.Events():
 				h.mu.Lock()
 				h.evs = append(h.evs, e)
 				h.mu.Unlock()
+			case <-time.After(2 * time.Millisecond):
 			case <-h.done:
 				return
 			}

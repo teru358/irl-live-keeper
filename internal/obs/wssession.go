@@ -2,9 +2,12 @@ package obs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"strconv"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/andreykaipov/goobs"
@@ -41,6 +44,7 @@ type reloadResult struct {
 	// emptyReason は、地図を読めずに空の地図（シーンの一覧だけ）にしたときの理由。
 	emptyReason string
 	err         error
+	bnd         boundaries
 }
 
 // epoch は OBSConnected から OBSDisconnected までの間。この間だけ動く goroutine の ctx を持つ。
@@ -53,10 +57,110 @@ type epoch struct {
 	refresher *refresher
 }
 
+// errEventOverflow は、core へ流すのが遅れて、取っておくイベントが上限を超えたこと。
+var errEventOverflow = errors.New("OBS のイベントの列があふれた")
+
+// queued は、goobs から読んだイベント1つ。seq は読んだ順の通し番号（1 から）。
+type queued struct {
+	ev  any
+	at  time.Time
+	seq uint64
+}
+
+// evq は goobs の IncomingEvents を読む goroutine（pump）と、session の goroutine の間の、順を保つ列。
+// session が core への送信で止まっても、pump は読み続ける（goobs の列は容量100で、あふれると古いものを
+// 捨てるため）。列は max 件まで。超えたら pump が Client を捨てる（取りこぼした状態で動き続けない）。
+type evq struct {
+	mu     sync.Mutex
+	items  []queued
+	closed bool
+	max    int
+	sig    chan struct{} // 容量1。列に入れた、閉じた、とき
+	n      atomic.Uint64 // 読んだ数
+}
+
+func newEvq(max int) *evq { return &evq{max: max, sig: make(chan struct{}, 1)} }
+
+func (q *evq) wake() {
+	select {
+	case q.sig <- struct{}{}:
+	default:
+	}
+}
+
+// push は列に足す。上限なら false。
+func (q *evq) push(e queued) bool {
+	q.mu.Lock()
+	if len(q.items) >= q.max {
+		q.mu.Unlock()
+		return false
+	}
+	q.items = append(q.items, e)
+	q.mu.Unlock()
+	q.wake()
+	return true
+}
+
+func (q *evq) close() {
+	q.mu.Lock()
+	q.closed = true
+	q.mu.Unlock()
+	q.wake()
+}
+
+// pop は先頭を1つ取る。なければ ok=false（closed は goobs の列が閉じられたこと）。
+// まだ残りがあるか、閉じられていれば、もう一度 sig を立てる。
+func (q *evq) pop() (e queued, ok, closed bool) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if len(q.items) > 0 {
+		e, q.items = q.items[0], q.items[1:]
+		ok = true
+	}
+	closed = q.closed
+	if len(q.items) > 0 || q.closed {
+		q.wake()
+	}
+	return e, ok, closed && !ok
+}
+
+// mark は「いま、読んだイベントの数」（goobs の列に残っているものも数える）。状態を読む要求の応答の
+// 直後に呼ぶと、その応答より前に届いたイベントの数になる（goobs は届いた順に、イベントを列へ、応答を
+// 応答の列へ入れる）。
+func (q *evq) mark(cli *goobs.Client) uint64 { return q.n.Load() + uint64(len(cli.IncomingEvents)) }
+
+// pump は goobs のイベントを読んで evq に入れる。Client を捨てたら終わる。
+func (w *WS) pump(c *mainConn, q *evq) {
+	for {
+		select {
+		case <-c.dead:
+			return
+		case ev, ok := <-c.cli.IncomingEvents:
+			if !ok {
+				q.close()
+				return
+			}
+			seq := q.n.Add(1)
+			if !q.push(queued{ev: ev, at: time.Now(), seq: seq}) {
+				w.log.Warn("OBS のイベントが core へ流れず、取っておく上限を超えた。接続を捨てて読み直す", "max", q.max)
+				c.kill(errEventOverflow)
+				return
+			}
+		}
+	}
+}
+
+// boundaries は、状態を読む要求の応答の時点の evq.mark。これ以前に届いたイベントは、読んだ状態に含まれる。
+type boundaries struct {
+	scene, stream, trans uint64
+	items                map[string]uint64 // シーンかグループの UUID（古い OBS では空）
+}
+
 // heldEvent は、読み取りの最中に届いたイベント。読み取りのあと OBSConnected の次に流す。
 type heldEvent struct {
-	ev any
-	at time.Time
+	ev  any
+	at  time.Time
+	seq uint64
 }
 
 // sess は1回の接続（goobs の Client 1本）の状態。session の goroutine だけが持つ。
@@ -64,6 +168,7 @@ type sess struct {
 	w    *WS
 	ctx  context.Context
 	conn *mainConn
+	q    *evq
 
 	state      sessState
 	announced  bool // 最後に流したのが OBSConnected
@@ -96,7 +201,8 @@ func (w *WS) session(ctx context.Context) (connected bool) {
 	w.mu.Unlock()
 	defer w.dropConn(c, errWSStopped)
 
-	s := &sess{w: w, ctx: ctx, conn: c, first: true, reloadCh: make(chan reloadResult)}
+	s := &sess{w: w, ctx: ctx, conn: c, q: newEvq(w.eventQueueMax), first: true, reloadCh: make(chan reloadResult)}
+	w.spawn(func() { w.pump(c, s.q) })
 	defer func() {
 		s.cancelReload()
 		s.endEpoch()
@@ -125,12 +231,14 @@ func (s *sess) run(addr string) {
 		case <-c.dead:
 			w.log.Warn("OBS の接続を捨てた", "reason", c.reason)
 			return
-		case ev, ok := <-c.cli.IncomingEvents:
-			if !ok {
+		case <-s.q.sig:
+			qe, ok, closed := s.q.pop()
+			if ok {
+				s.onEvent(qe)
+			} else if closed {
 				w.log.Warn("OBS との接続が切れた")
 				return
 			}
-			s.onEvent(ev)
 		case r := <-s.reloadCh:
 			if r.gen != s.reloadGen {
 				continue
@@ -162,7 +270,7 @@ func (s *sess) startReload() {
 	s.reloadStop = cancel
 	first, legacy := s.first, s.legacy
 	if !s.w.spawn(func() {
-		res := s.w.reload(rctx, s.conn, gen, first, legacy)
+		res := s.w.reload(rctx, s.conn, s.q, gen, first, legacy)
 		select {
 		case s.reloadCh <- res:
 		case <-rctx.Done():
@@ -181,7 +289,7 @@ func (s *sess) cancelReload() {
 }
 
 // reload は接続直後の状態を読む。読み取りの goroutine が呼ぶ。
-func (w *WS) reload(ctx context.Context, c *mainConn, gen int, first, legacy bool) reloadResult {
+func (w *WS) reload(ctx context.Context, c *mainConn, q *evq, gen int, first, legacy bool) reloadResult {
 	res := reloadResult{gen: gen, legacy: legacy}
 	if first {
 		v, err := mcall(w, ctx, c, "GetVersion", func(cli *goobs.Client) (*general.GetVersionResponse, error) {
@@ -196,13 +304,15 @@ func (w *WS) reload(ctx context.Context, c *mainConn, gen int, first, legacy boo
 			w.log.Warn("OBS の obs-websocket が古い（5.4.0 未満）。UUID が使えないので、名前で扱い、地図は空にする", "version", v.ObsWebSocketVersion)
 		}
 	}
-	conn, err := w.fetchConnected(ctx, c, res.legacy)
+	now := func() uint64 { return q.mark(c.cli) }
+	res.bnd.items = map[string]uint64{}
+	conn, err := w.fetchConnected(ctx, c, res.legacy, now, &res.bnd)
 	if err != nil {
 		res.err = err
 		return res
 	}
 	w.checkNames(ctx, c)
-	m, reason, err := w.readFirstMap(ctx, c, res.legacy)
+	m, reason, err := w.readFirstMap(ctx, c, res.legacy, now, &res.bnd)
 	if err != nil {
 		res.err = err
 		return res
@@ -218,8 +328,8 @@ const maxMapFailures = 3
 // readFirstMap は最初の地図を本来の接続で読む。読めなければ失敗（接続の失敗として試し直す）。
 // 続けて maxMapFailures 回失敗したら、シーンの一覧だけの空の地図を返す（reason に理由）。
 // 古い OBS では、読めても読めなくても、シーンの一覧（名前）だけ。
-func (w *WS) readFirstMap(ctx context.Context, c *mainConn, legacy bool) (m *scenemap.Map, reason string, err error) {
-	req := mainReq{w: w, ctx: ctx, c: c}
+func (w *WS) readFirstMap(ctx context.Context, c *mainConn, legacy bool, now func() uint64, bnd *boundaries) (m *scenemap.Map, reason string, err error) {
+	req := mainReq{w: w, ctx: ctx, c: c, now: now, bnd: bnd}
 	if legacy {
 		m, err = readSceneListOnly(ctx, req, true)
 		return m, "", err
@@ -282,6 +392,9 @@ func (s *sess) connect(r reloadResult, addr string) bool {
 		if s.state != stateRunning {
 			break
 		}
+		if !s.afterSnapshot(h, &r.bnd) {
+			continue // 読んだ状態に含まれる変化。流すと、接続時点より古い状態に戻してしまう
+		}
 		s.handleRunning(h.ev, h.at)
 	}
 	if s.state == stateRunning {
@@ -291,6 +404,24 @@ func (s *sess) connect(r reloadResult, addr string) bool {
 		// 空の地図でつないだときは、補助の接続での読み直しで、本当の地図を早く読む。
 		if heldKick || r.emptyReason != "" {
 			s.ep.refresher.kick()
+		}
+	}
+	return true
+}
+
+// afterSnapshot は、取っておいたイベントが、その状態を読んだ要求の応答より後に届いたものか。
+// 前に届いたものは、読んだ状態に含まれる。
+func (s *sess) afterSnapshot(h heldEvent, b *boundaries) bool {
+	switch e := h.ev.(type) {
+	case *events.CurrentProgramSceneChanged:
+		return h.seq > b.scene
+	case *events.StreamStateChanged:
+		return h.seq > b.stream
+	case *events.CurrentSceneTransitionDurationChanged:
+		return h.seq > b.trans
+	case *events.SceneItemEnableStateChanged:
+		if at, ok := b.items[s.sceneID(e.SceneUuid, e.SceneName)]; ok {
+			return h.seq > at
 		}
 	}
 	return true
@@ -360,8 +491,8 @@ func (s *sess) armQuiet() {
 }
 
 // onEvent は goobs のイベント1つを扱う。
-func (s *sess) onEvent(ev any) {
-	at := time.Now()
+func (s *sess) onEvent(qe queued) {
+	ev, at := qe.ev, qe.at
 	w := s.w
 	switch ev.(type) {
 	case *events.CurrentSceneCollectionChanging:
@@ -380,20 +511,20 @@ func (s *sess) onEvent(ev any) {
 	case statePaused:
 		s.armQuiet()
 	case stateReloading:
-		s.hold(ev, at)
+		s.hold(ev, at, qe.seq)
 	case stateRunning:
 		s.handleRunning(ev, at)
 	}
 }
 
 // hold は読み取りの最中に届いたイベントを、OBSConnected のあとに流すために取っておく。
-func (s *sess) hold(ev any, at time.Time) {
+func (s *sess) hold(ev any, at time.Time, seq uint64) {
 	switch ev.(type) {
 	case *events.CurrentSceneTransitionChanged:
 		s.heldTrans = true
 	case *events.CurrentProgramSceneChanged, *events.CurrentSceneTransitionDurationChanged, *events.StreamStateChanged,
 		*events.SceneItemEnableStateChanged:
-		s.held = append(s.held, heldEvent{ev, at})
+		s.held = append(s.held, heldEvent{ev, at, seq})
 	case *events.SceneCreated, *events.SceneRemoved, *events.SceneNameChanged, *events.SceneItemCreated, *events.SceneItemRemoved,
 		*events.InputCreated, *events.InputRemoved, *events.InputNameChanged, *events.InputSettingsChanged:
 		// 読み取りの途中の変化は、読み取りの値に入っていないかもしれない。OBSConnected のあとに読み直す。
@@ -490,19 +621,21 @@ func (w *WS) currentTransitionMs(ctx context.Context, c *mainConn) (*int, error)
 }
 
 // fetchConnected は接続直後の状態を取得して OBSConnected を作る。
-func (w *WS) fetchConnected(ctx context.Context, c *mainConn, legacy bool) (switcher.OBSConnected, error) {
+func (w *WS) fetchConnected(ctx context.Context, c *mainConn, legacy bool, now func() uint64, bnd *boundaries) (switcher.OBSConnected, error) {
 	st, err := mcall(w, ctx, c, "GetStreamStatus", func(cli *goobs.Client) (*stream.GetStreamStatusResponse, error) {
 		return cli.Stream.GetStreamStatus()
 	})
 	if err != nil {
 		return switcher.OBSConnected{}, fmt.Errorf("GetStreamStatus: %w", err)
 	}
+	bnd.stream = now()
 	sc, err := mcall(w, ctx, c, "GetCurrentProgramScene", func(cli *goobs.Client) (*scenes.GetCurrentProgramSceneResponse, error) {
 		return cli.Scenes.GetCurrentProgramScene()
 	})
 	if err != nil {
 		return switcher.OBSConnected{}, fmt.Errorf("GetCurrentProgramScene: %w", err)
 	}
+	bnd.scene = now()
 	name := sc.SceneName
 	if name == "" {
 		name = sc.CurrentProgramSceneName
@@ -516,6 +649,9 @@ func (w *WS) fetchConnected(ctx context.Context, c *mainConn, legacy bool) (swit
 	}
 	// 長さが取れなくても接続は成り立つ。nil にする。
 	ms, err := w.currentTransitionMs(ctx, c)
+	if err == nil {
+		bnd.trans = now()
+	}
 	if err != nil {
 		if sessionLost(err) || ctx.Err() != nil {
 			return switcher.OBSConnected{}, fmt.Errorf("GetCurrentSceneTransition: %w", err)

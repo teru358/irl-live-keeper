@@ -69,18 +69,42 @@ func (w *WS) dropConn(c *mainConn, reason error) {
 }
 
 // client は外からの要求を送る Client。門が閉じている間は送らずに失敗する。
-func (w *WS) client() (*mainConn, error) {
+func (w *WS) client() (extConn, error) {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 	switch {
 	case w.cur == nil:
-		return nil, errNotConnected
+		return extConn{}, errNotConnected
 	case !w.open && w.switching:
-		return nil, errSwitching
+		return extConn{}, errSwitching
 	case !w.open:
-		return nil, errNotConnected
+		return extConn{}, errNotConnected
 	}
-	return w.cur, nil
+	return extConn{c: w.cur, gen: w.gen}, nil
+}
+
+// extConn は、外からの要求を受け付けたときの Client と、門の世代。
+type extConn struct {
+	c   *mainConn
+	gen uint64
+}
+
+// pre は送る直前の確かめ。門が閉じたか、世代が変わっていたら、送らずに失敗する。
+// 門を閉じる処理（setGate）は同じ mutex を取るので、閉じ終えたあとの要求は必ず止まる。
+func (w *WS) pre(e extConn) func() error {
+	return func() error {
+		w.mu.RLock()
+		defer w.mu.RUnlock()
+		switch {
+		case w.cur != e.c || w.gen != e.gen:
+			return errConnDropped
+		case !w.open && w.switching:
+			return errSwitching
+		case !w.open:
+			return errNotConnected
+		}
+		return nil
+	}
 }
 
 // setGate は門を開け閉めする。c が今の Client のときだけ。
@@ -89,6 +113,9 @@ func (w *WS) setGate(c *mainConn, open, switching bool) {
 	defer w.mu.Unlock()
 	if w.cur != c {
 		return
+	}
+	if open && !w.open {
+		w.gen++
 	}
 	w.open, w.switching = open, switching
 }
@@ -107,6 +134,13 @@ type callResult[T any] struct {
 // fn の結果は channel だけで受け取る（呼び出し側が戻ったあとも fn の goroutine は残りうる）。
 // 送らなかった要求は、ErrTimeout にしない（適用されていないので）。
 func mcall[T any](w *WS, ctx context.Context, c *mainConn, op string, fn func(*goobs.Client) (T, error)) (T, error) {
+	return mcallPre(w, ctx, c, op, nil, fn)
+}
+
+// mcallPre は mcall に、送る直前の確かめ pre を足したもの。外からの要求は、受け付けたときの門の世代を
+// 持ち、gate を取って goobs に渡す直前に、門が開いていて世代が同じことを確かめる（待っている間に
+// コレクションの切替が始まっていたら送らない）。pre が nil なら確かめない（内部の読み取り）。
+func mcallPre[T any](w *WS, ctx context.Context, c *mainConn, op string, pre func() error, fn func(*goobs.Client) (T, error)) (T, error) {
 	var zero T
 	wait := time.NewTimer(w.timeout)
 	defer wait.Stop()
@@ -128,6 +162,13 @@ func mcall[T any](w *WS, ctx context.Context, c *mainConn, op string, fn func(*g
 
 	res := make(chan callResult[T], 1)
 	if !w.spawn(func() {
+		if pre != nil {
+			if err := pre(); err != nil {
+				<-c.gate
+				res <- callResult[T]{zero, fmt.Errorf("%w: %s", err, op)}
+				return
+			}
+		}
 		v, err := fn(c.cli)
 		err = classifyError(err)
 		if errors.Is(err, ErrTimeout) {
@@ -192,30 +233,30 @@ func leadingInt(s string) (int, bool) {
 // SceneTransitionOverride は切替先シーンのトランジションの上書きを読む。
 // 上書きなしは has=false。長さがなければ ms=nil で has=true。
 func (w *WS) SceneTransitionOverride(scene string) (ms *int, has bool, err error) {
-	c, err := w.client()
+	e, err := w.client()
 	if err != nil {
 		return nil, false, err
 	}
-	return w.transitionOverride(c, scenes.NewGetSceneSceneTransitionOverrideParams().WithSceneName(scene))
+	return w.transitionOverride(e, scenes.NewGetSceneSceneTransitionOverrideParams().WithSceneName(scene))
 }
 
 // SceneTransitionOverrideUUID は sceneUuid で読む（古い OBS では名前）。
 func (w *WS) SceneTransitionOverrideUUID(uuid string) (ms *int, has bool, err error) {
-	c, err := w.client()
+	e, err := w.client()
 	if err != nil {
 		return nil, false, err
 	}
 	p := scenes.NewGetSceneSceneTransitionOverrideParams()
-	if c.legacy.Load() {
+	if e.c.legacy.Load() {
 		p.WithSceneName(uuid)
 	} else {
 		p.WithSceneUuid(uuid)
 	}
-	return w.transitionOverride(c, p)
+	return w.transitionOverride(e, p)
 }
 
-func (w *WS) transitionOverride(c *mainConn, p *scenes.GetSceneSceneTransitionOverrideParams) (*int, bool, error) {
-	r, err := mcall(w, context.Background(), c, "GetSceneSceneTransitionOverride", func(cli *goobs.Client) (*scenes.GetSceneSceneTransitionOverrideResponse, error) {
+func (w *WS) transitionOverride(e extConn, p *scenes.GetSceneSceneTransitionOverrideParams) (*int, bool, error) {
+	r, err := mcallPre(w, context.Background(), e.c, "GetSceneSceneTransitionOverride", w.pre(e), func(cli *goobs.Client) (*scenes.GetSceneSceneTransitionOverrideResponse, error) {
 		return cli.Scenes.GetSceneSceneTransitionOverride(p)
 	})
 	if err != nil {
@@ -227,30 +268,30 @@ func (w *WS) transitionOverride(c *mainConn, p *scenes.GetSceneSceneTransitionOv
 
 // SetScene は program のシーンを名前で切り替える。応答待ちの超過は ErrTimeout。
 func (w *WS) SetScene(name string) error {
-	c, err := w.client()
+	e, err := w.client()
 	if err != nil {
 		return err
 	}
-	return w.setScene(c, scenes.NewSetCurrentProgramSceneParams().WithSceneName(name))
+	return w.setScene(e, scenes.NewSetCurrentProgramSceneParams().WithSceneName(name))
 }
 
 // SetSceneUUID は program のシーンを sceneUuid で切り替える（古い OBS では名前）。
 func (w *WS) SetSceneUUID(uuid string) error {
-	c, err := w.client()
+	e, err := w.client()
 	if err != nil {
 		return err
 	}
 	p := scenes.NewSetCurrentProgramSceneParams()
-	if c.legacy.Load() {
+	if e.c.legacy.Load() {
 		p.WithSceneName(uuid)
 	} else {
 		p.WithSceneUuid(uuid)
 	}
-	return w.setScene(c, p)
+	return w.setScene(e, p)
 }
 
-func (w *WS) setScene(c *mainConn, p *scenes.SetCurrentProgramSceneParams) error {
-	_, err := mcall(w, context.Background(), c, "SetCurrentProgramScene", func(cli *goobs.Client) (*scenes.SetCurrentProgramSceneResponse, error) {
+func (w *WS) setScene(e extConn, p *scenes.SetCurrentProgramSceneParams) error {
+	_, err := mcallPre(w, context.Background(), e.c, "SetCurrentProgramScene", w.pre(e), func(cli *goobs.Client) (*scenes.SetCurrentProgramSceneResponse, error) {
 		return cli.Scenes.SetCurrentProgramScene(p)
 	})
 	return err
@@ -260,11 +301,11 @@ const restartAction = "OBS_WEBSOCKET_MEDIA_INPUT_ACTION_RESTART"
 
 // RestartMedia はメディアソースに RESTART を送る。
 func (w *WS) RestartMedia(input string) error {
-	c, err := w.client()
+	e, err := w.client()
 	if err != nil {
 		return err
 	}
-	return w.restart(c, mediainputs.NewTriggerMediaInputActionParams().WithInputName(input).WithMediaAction(restartAction))
+	return w.restart(e, mediainputs.NewTriggerMediaInputActionParams().WithInputName(input).WithMediaAction(restartAction))
 }
 
 // RestartMediaInputs は入力の UUID の列の順に RESTART を送る（古い OBS では名前）。
@@ -273,17 +314,17 @@ func (w *WS) RestartMedia(input string) error {
 func (w *WS) RestartMediaInputs(inputUUIDs []string) error {
 	var first error
 	for _, id := range inputUUIDs {
-		c, err := w.client()
+		e, err := w.client()
 		if err != nil {
 			return err
 		}
 		p := mediainputs.NewTriggerMediaInputActionParams().WithMediaAction(restartAction)
-		if c.legacy.Load() {
+		if e.c.legacy.Load() {
 			p.WithInputName(id)
 		} else {
 			p.WithInputUuid(id)
 		}
-		if err := w.restart(c, p); err != nil {
+		if err := w.restart(e, p); err != nil {
 			if first == nil {
 				first = err
 			}
@@ -301,8 +342,8 @@ func sessionLost(err error) bool {
 		errors.Is(err, errConnDropped) || errors.Is(err, errWSStopped)
 }
 
-func (w *WS) restart(c *mainConn, p *mediainputs.TriggerMediaInputActionParams) error {
-	_, err := mcall(w, context.Background(), c, "TriggerMediaInputAction", func(cli *goobs.Client) (*mediainputs.TriggerMediaInputActionResponse, error) {
+func (w *WS) restart(e extConn, p *mediainputs.TriggerMediaInputActionParams) error {
+	_, err := mcallPre(w, context.Background(), e.c, "TriggerMediaInputAction", w.pre(e), func(cli *goobs.Client) (*mediainputs.TriggerMediaInputActionResponse, error) {
 		return cli.MediaInputs.TriggerMediaInputAction(p)
 	})
 	return err
@@ -310,11 +351,11 @@ func (w *WS) restart(c *mainConn, p *mediainputs.TriggerMediaInputActionParams) 
 
 // StartStream は配信を始める。
 func (w *WS) StartStream() error {
-	c, err := w.client()
+	e, err := w.client()
 	if err != nil {
 		return err
 	}
-	_, err = mcall(w, context.Background(), c, "StartStream", func(cli *goobs.Client) (struct{}, error) {
+	_, err = mcallPre(w, context.Background(), e.c, "StartStream", w.pre(e), func(cli *goobs.Client) (struct{}, error) {
 		_, err := cli.Stream.StartStream()
 		return struct{}{}, err
 	})
@@ -323,11 +364,11 @@ func (w *WS) StartStream() error {
 
 // StopStream は配信を止める。
 func (w *WS) StopStream() error {
-	c, err := w.client()
+	e, err := w.client()
 	if err != nil {
 		return err
 	}
-	_, err = mcall(w, context.Background(), c, "StopStream", func(cli *goobs.Client) (struct{}, error) {
+	_, err = mcallPre(w, context.Background(), e.c, "StopStream", w.pre(e), func(cli *goobs.Client) (struct{}, error) {
 		_, err := cli.Stream.StopStream()
 		return struct{}{}, err
 	})

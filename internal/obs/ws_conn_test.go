@@ -226,14 +226,14 @@ func TestCollectionChangeHoldsEventsAfterChanged(t *testing.T) {
 	h.awaitDisconnected(1)
 	h.s.sendEvent(1, "CurrentProgramSceneChanged", map[string]any{"sceneName": "Junk", "sceneUuid": "uuid-junk"})
 	h.f.setHook(func(r auxReq) (auxReply, bool) {
-		if r.Type == "GetStreamStatus" {
-			return auxReply{Delay: 150 * time.Millisecond}, true // 読み取りの間に次のイベントが来る
+		if r.Type == "GetCurrentSceneTransition" {
+			return auxReply{Delay: 150 * time.Millisecond}, true // シーンを読んだあと、読み取りの間に次のイベントが来る
 		}
 		return auxReply{}, false
 	})
 	h.f.setScene("Second", "uuid-2")
 	h.s.sendEvent(1, "CurrentSceneCollectionChanged", map[string]any{"sceneCollectionName": "New"})
-	waitFor(t, "読み取りが始まる", func() bool { return h.f.count("GetStreamStatus") == 2 })
+	waitFor(t, "シーンの読み取りのあとのトランジションの読み取りが届く", func() bool { return h.f.count("GetCurrentSceneTransition") == 2 })
 	h.s.sendEvent(1, "CurrentProgramSceneChanged", map[string]any{"sceneName": "Third", "sceneUuid": "uuid-3"})
 	evs := h.await("つなぎ直したあとの SceneChanged", func(evs []switcher.Event) bool {
 		return countOf[switcher.OBSConnected](evs) == 2 && countOf[switcher.SceneChanged](evs) >= 1

@@ -59,6 +59,8 @@ const (
 	backoffMin      = 1 * time.Second
 	backoffMax      = 5 * time.Second
 	eventBuffer     = 64
+	// eventQueueMax は、goobs から読んだイベントを core へ流すまで取っておく件数の上限。
+	eventQueueMax = 4096
 	// callMargin は、要求を goobs に渡したあと、goobs の応答待ち（timeout）に足す余裕。goobs は
 	// 受け手のいない応答で止まると、応答待ちの期限も効かないまま戻らないことがある（M-6 で確かめた）ので、
 	// 呼び出し側でも期限を持つ。
@@ -101,7 +103,9 @@ type WS struct {
 	quiet, switchMax time.Duration
 	// backoffMin と backoffMax は再接続の待ち。テストで短くする。
 	backoffMin, backoffMax time.Duration
-	aux                    *Aux
+	// eventQueueMax は、goobs から読んだイベントを core へ流すまで取っておく上限。
+	eventQueueMax int
+	aux           *Aux
 
 	// wg は goroutine を数える。stopped が true になったら、spawn は何も始めない。
 	spawnMu sync.Mutex
@@ -116,6 +120,7 @@ type WS struct {
 	open      bool      // 外からの要求を受けるか（門）
 	switching bool      // シーンコレクションの切替中
 	legacy    bool      // 古い OBS（警告のため）
+	gen       uint64    // 門が開くたびに進む世代
 	warnBase  []string
 	warnMap   string   // 地図を読めずに空の地図でつないだときの理由
 	warnCams  []string // 地図で見つからなかったカメラ
@@ -132,7 +137,7 @@ func New(cfg Config, log *slog.Logger) *WS {
 	return &WS{
 		cfg: cfg, log: log, events: make(chan switcher.Event, eventBuffer), timeout: responseTimeout,
 		clock: realClock{}, quiet: quietAfterRemoved, switchMax: switchMax,
-		backoffMin: backoffMin, backoffMax: backoffMax,
+		backoffMin: backoffMin, backoffMax: backoffMax, eventQueueMax: eventQueueMax,
 		aux: NewAux(cfg, log),
 	}
 }

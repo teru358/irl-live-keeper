@@ -41,6 +41,15 @@ type mainReq struct {
 	w   *WS
 	ctx context.Context
 	c   *mainConn
+	// now と bnd は、項目の一覧の応答の時点を記録する（取っておいた ItemEnabledChanged の新旧の境）。nil なら記録しない。
+	now func() uint64
+	bnd *boundaries
+}
+
+func (r mainReq) markItems(uuid string) {
+	if r.bnd != nil && r.now != nil {
+		r.bnd.items[uuid] = r.now()
+	}
 }
 
 func (r mainReq) GetSceneCollectionList() (*config.GetSceneCollectionListResponse, error) {
@@ -56,12 +65,28 @@ func (r mainReq) GetSceneList() (*scenes.GetSceneListResponse, error) {
 }
 
 func (r mainReq) GetSceneItemList(uuid string) (*sceneitems.GetSceneItemListResponse, error) {
+	res, err := r.getSceneItemList(uuid)
+	if err == nil {
+		r.markItems(uuid)
+	}
+	return res, err
+}
+
+func (r mainReq) getSceneItemList(uuid string) (*sceneitems.GetSceneItemListResponse, error) {
 	return mcall(r.w, r.ctx, r.c, "GetSceneItemList", func(c *goobs.Client) (*sceneitems.GetSceneItemListResponse, error) {
 		return c.SceneItems.GetSceneItemList(sceneitems.NewGetSceneItemListParams().WithSceneUuid(uuid))
 	})
 }
 
 func (r mainReq) GetGroupSceneItemList(uuid string) (*sceneitems.GetGroupSceneItemListResponse, error) {
+	res, err := r.getGroupSceneItemList(uuid)
+	if err == nil {
+		r.markItems(uuid)
+	}
+	return res, err
+}
+
+func (r mainReq) getGroupSceneItemList(uuid string) (*sceneitems.GetGroupSceneItemListResponse, error) {
 	return mcall(r.w, r.ctx, r.c, "GetGroupSceneItemList", func(c *goobs.Client) (*sceneitems.GetGroupSceneItemListResponse, error) {
 		return c.SceneItems.GetGroupSceneItemList(sceneitems.NewGetGroupSceneItemListParams().WithSceneUuid(uuid))
 	})
