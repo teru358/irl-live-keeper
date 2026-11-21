@@ -1,7 +1,7 @@
 # irl-live-keeper 設計 — 複数のカメラ（第2段階 区切り0）
 
 - 作成日: 2026-11-21
-- 版: v0.12（変更は末尾の変更履歴を参照）
+- 版: v0.13（変更は末尾の変更履歴を参照）
 - 状態: 2026-11-21 の brainstorming でユーザーが節ごとに承認した内容を文書化したもの。v0.2〜v0.4 で設計レビュー1周目（Fable、codex sol）と閉鎖確認2回（codex terra）の指摘を、v0.5 で M-0 の spike の結果と設計レビュー2周目（Fable）の指摘を反映し、作りを減らした（コレクションの切替を切断として扱う、要求を UUID で送る、古い OBS は空の地図、守ることを先に書き細部は M-7 の表へ）
 - 前提: コアの spec `docs/superpowers/specs/2026-11-18-core-design.md`（v2.15。以下「コアの spec」）と第2段階の spec `docs/superpowers/specs/2026-11-20-stage2-design.md`（v0.6。以下「第2段階の spec」）。この文書は両者の一部を置き換える（第10節の表）。食い違うときはこの文書を優先する
 
@@ -128,6 +128,16 @@ mediamtx:
 - **シーンコレクションの切替は、切断とつなぎ直しとして扱う**: `CurrentSceneCollectionChanging` を受けたら、obs のラッパーが要求の門を閉じ（以後の要求は送らずに失敗を返す）、`OBSDisconnected` を流す（切替の間に要求を送ると OBS が落ちうる。goobs の説明）。`CurrentSceneCollectionChanged` のあとに、つないだときと同じ読み取り（配信状態、今のシーン、トランジション、最初の地図）をして `OBSConnected` を流す。`Changed` が来ないまま、イベントが30秒途切れたときも、同じ読み取りをして `OBSConnected` を流す（保険。M-6 で足した）。切替の間（`Changing` から `Changed` まで）に届いたイベントは捨てる（読み取りの結果が新しい状態になるため）。`ConnEpoch` が進むので、実行待ちのバッチは今の規則で却下され、期待も消える。Command は切替の間 `ErrNotConnected` になる（status の `warnings` に「OBS のシーンコレクションを切り替え中」）
 - GUI の「複製」では `CurrentSceneCollectionChanging` が出ないまま、全部のシーンの `SceneRemoved` が続く（M-0）。そこで、**今の program のシーンの `SceneRemoved`** を受けたときも、切替の始まりと同じに門を閉じて `OBSDisconnected` を流し、`CurrentSceneCollectionChanged` か、イベントが2秒途切れたときに、つないだときと同じ読み取りをして `OBSConnected` を流す
 - 切断（コレクションの切替を含む）の前に、一覧の項目のうち今のコレクションのものは、そのまま一覧に残す（第7節。次の地図との照合で決める）
+
+### メディアソースの見張り（0a。M-9 の Windows の確認で見つけた）
+
+OBS のメディアソース（`ffmpeg_source`）は、OBS の起動の直後に1回だけ開こうとし、そのとき受付（MediaMTX の RTSP）がまだないと、試し直さずに止まる（黒いまま）。一度つながったあとの切断では、自分で試し直す。止まったソースは、`GetMediaInputStatus` が `OBS_MEDIA_STATE_PLAYING` を返すのに、再生の位置（`mediaCursor`）が 0 のまま進まない。RESTART（`TriggerMediaInputAction`）では戻らず、設定の入れ直し（`SetInputSettings`。プロパティの OK と同じ）で戻る（2026-11-21 に Windows の OBS 33.0.1 で確かめた）。
+
+- **見張るとき**: カメラの受信が「届いていない」から「届いている」（Sample の `Online` が false → true）に変わったとき。と、OBS につながったとき（`OBSConnected`）に、そのとき届いているカメラについて
+- **見張り方**: 5秒待ってから、補助の接続で、そのカメラのメディアソース（地図で見つけたもの）それぞれについて `GetMediaInputStatus` を1秒あけて2回読む。「`PLAYING` で、位置が進んでいる」なら何もしない
+- **入れ直し**: そうでなければ（位置が進まない、`PLAYING` 以外のまま）、`GetInputSettings` で今の `input` を読み、同じ値を `SetInputSettings`（overlay）で入れ直す。ログに `media source refreshed`（`camera`、`source`〔ソースの名前〕）。10秒たっても同じなら、もう1回だけ入れ直す。それでも同じなら、status の `warnings` に「<ソースの名前> が映っていない可能性があります」を出し、そのカメラが次に「届いている」に変わるまで出したままにする
+- 中核ループは止まらない（見張りは別の goroutine。core は止まらずに頼むだけ）。同じソースの見張りが重なったら、新しい方だけにする。OBS とつながっていない間と、補助の接続が使えない間は見張らない（次の `OBSConnected` で見張る）
+- 映っているソースには触れない（位置が進んでいれば何もしない）ので、配信中でも見張ってよい
 
 ## 4. 回線の判定とシーンの健康
 
@@ -347,4 +357,5 @@ mediamtx:
 | 2026-11-21 | v0.9 | W-01 のシーン一覧保持、W-02 の整える手順と期待の所有権、W-04 の接続先変更による世代更新、W-05 の States 正規化と計算用地図を明記 | M-7 表の Fable レビューと指揮者の決定 | 31de82e |
 | 2026-11-21 | v0.10 | 第3節「接続の扱い」の goobs の止まり方を、M-6 で再現した形（遅れた応答で受け口が止まり、イベントと次の要求と `Disconnect` が止まる）に直し、本体の側の期限と片づけの上限を書いた。コレクションの切替で `Changed` が来ないときの30秒の保険と、切替の間のイベントを捨てることを足した | M-6 の実装 | a3fe192 |
 | 2026-11-21 | v0.11 | 既知の制約に、配信開始の直後の約0.3秒の人の切替を足した | M-9 の Linux の確認 | 87fca65 |
-| 2026-11-21 | v0.12 | Studio Mode の間の hide のカメラの動きを、設定 `obs.studio_mode_hide`（`standby` 既定 / `ignore` / `hide`）で選ぶ形にした（第1節、第2節の検証と反映の区分、第4節の健康、第6節、第9節の README） | 2026-11-21 のユーザーの裁定 | この版の commit |
+| 2026-11-21 | v0.12 | Studio Mode の間の hide のカメラの動きを、設定 `obs.studio_mode_hide`（`standby` 既定 / `ignore` / `hide`）で選ぶ形にした（第1節、第2節の検証と反映の区分、第4節の健康、第6節、第9節の README） | 2026-11-21 のユーザーの裁定 | 818dedb |
+| 2026-11-21 | v0.13 | 第3節に「メディアソースの見張り」を足した（OBS を先に起動すると止まるメディアソースを、カメラが届き始めたときに見つけて設定を入れ直す） | M-9 の Windows の確認（ユーザーと一緒に原因を絞り込んだ） | この版の commit |
