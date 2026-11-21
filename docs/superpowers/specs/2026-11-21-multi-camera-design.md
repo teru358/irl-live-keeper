@@ -268,7 +268,7 @@ OBS のメディアソース（`ffmpeg_source`）は、OBS の起動の直後に
 
 ### 記録
 
-- ログ: `camera hidden`（`camera`、`items`、`reason`〔`low` / `down`〕）、`camera shown`（`camera`、`items`、`reason`〔`ok` / `stream_stop` / `auto_off` / `config` / `studio_mode` / `shutdown` / `restore`〕）、`camera changed`（`camera`、`from`、`to`、`kbps`。今の `link changed` を置き換える）、`hidden item dropped`
+- ログ: `camera hidden`（`camera`、`items`、`reason`〔`low` / `down`〕）、`camera shown`（`camera`、`items`、`reason`〔`ok` / `stream_stop` / `auto_off` / `config` / `studio_mode` / `shutdown` / `restore` / `manual_all`〕。`restore` は、`hidden.json` から照合した記録のうち、設定にないカメラの項目を戻したとき。設定にあるカメラの記録は、起動し直したあとも、ふだんの理由〔OK なら `ok`〕で戻す。悪い hide のカメラの項目は、今いないシーンのものも含めて隠す〔M-13 の Linux で確かめた〕）、`camera changed`（`camera`、`from`、`to`、`kbps`。今の `link changed` を置き換える）、`hidden item dropped`
 - できごと（第2段階の spec 8章の一覧に足す）: `camera_hidden`、`camera_shown`（値はログと同じ）
 
 ## 8. OBS の動きの確かめ
