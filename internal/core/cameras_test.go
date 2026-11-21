@@ -388,8 +388,9 @@ func TestDisconnectedMapAndItemEventsAreDropped(t *testing.T) {
 	h.waitSnap("つなぎ直し", func(s Snapshot) bool { return s.OBS.Connected && len(s.OBS.SceneCameras) == 1 })
 }
 
-// AutoRecover の scene switch にも camera と kbps を出す。代表は、戻り先に映るカメラのうち kbps がいちばん低いもの。
-func TestAutoRecoverLogsLowestVisibleCamera(t *testing.T) {
+// AutoRecover の scene switch にも camera と kbps を出す。代表は、戻り先に映るカメラのうち、最後に OK になったもの
+// （回復のきっかけ。kbps の低さではない。カメラの spec v0.14 第4節、M-9 の F-6）。
+func TestAutoRecoverLogsLastRecoveredCamera(t *testing.T) {
 	h := newHarness(t, twoCameras)
 	h.start()
 	m := testMap()
@@ -408,11 +409,11 @@ func TestAutoRecoverLogsLowestVisibleCamera(t *testing.T) {
 	}
 	h.waitSeen("AutoFail の BatchDone", isBatchDone(switcher.BatchCompleted))
 	h.waitSnap("自動の待機", both(sceneIs(standby), standbyIs("auto", camera)))
-	for range 5 { // 回復。sub の方が低い
-		h.sampleSet(goodKbps, 2500)
+	for range 5 { // 回復のきっかけは sub（main は OK のまま）。main の方が kbps は低い
+		h.sampleSet(2500, goodKbps)
 	}
 	h.waitSeen("AutoRecover の BatchDone", isBatchDone(switcher.BatchCompleted))
-	want := `msg="scene switch" from=Standby to=Camera reason=ok camera=sub kbps=2500`
+	want := `msg="scene switch" from=Standby to=Camera reason=ok camera=sub kbps=3000`
 	if out := h.log.String(); !strings.Contains(out, want) {
 		t.Errorf("ログに %q がない:\n%s", want, out)
 	}

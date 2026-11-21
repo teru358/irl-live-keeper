@@ -72,6 +72,7 @@ type camState struct {
 	cfg    Camera
 	judge  *ingest.Judge
 	sample ingest.Sample // 最後の Sample
+	okSeq  uint64        // 最後に OK になった順番（0 はまだ OK になっていない）。回復のログの代表を決める
 }
 
 // itemKey は項目の識別（持ち主のシーンかグループの UUID と、項目の ID）。
@@ -79,6 +80,7 @@ type itemKey = scenemap.ItemKey
 
 // Core は状態を1か所で持つ中核ループと、OBS の操作を行う実行役。
 type Core struct {
+	okSeq    uint64 // カメラが OK になるたびに増やす（camState.okSeq に写す）
 	m        *switcher.Machine
 	obs      obs.Client
 	cams     []*camState
@@ -296,6 +298,10 @@ func (c *Core) onSamples(set ingest.SampleSet) {
 			continue
 		}
 		changed = true
+		if after == ingest.LinkOK {
+			c.okSeq++
+			cam.okSeq = c.okSeq
+		}
 		c.log.Info("camera changed", "camera", cam.cfg.ID, "from", before.String(), "to", after.String(), "kbps", roundKbps(s.Kbps))
 	}
 	if !changed {
@@ -520,11 +526,11 @@ func (c *Core) approve(req approveReq) switcher.ApproveResult {
 	case switcher.Proceed:
 		if set, ok := req.action.(switcher.SetScene); ok {
 			attrs := []any{"from", c.sceneName(from), "to", c.sceneName(set.SceneUUID), "reason", c.reason(req.purpose, req.badCamera)}
-			// camera と kbps の代表: AutoFail は悪い代表のカメラ。AutoRecover は戻り先に映るカメラのうち kbps がいちばん低いもの
-			// （同じなら設定の順で先。承認の時点の地図で）。
+			// camera と kbps の代表: AutoFail は悪い代表のカメラ。AutoRecover は戻り先に映るカメラのうち、最後に OK に
+			// なったもの（回復のきっかけ。承認の時点の地図で。カメラの spec v0.14 第4節）。
 			rep := req.badCamera
 			if req.purpose == switcher.PurposeAutoRecover {
-				rep = c.lowestVisibleCamera(set.SceneUUID)
+				rep = c.lastOKVisibleCamera(set.SceneUUID)
 			}
 			if cam := c.camByID(rep); cam != nil {
 				attrs = append(attrs, "camera", cam.cfg.ID, "kbps", roundKbps(cam.sample.Kbps))
@@ -546,8 +552,9 @@ func (c *Core) approve(req approveReq) switcher.ApproveResult {
 	return res
 }
 
-// lowestVisibleCamera は、sceneUUID に映るカメラのうち kbps がいちばん低いものの id（なければ空）。同じなら設定の順で先。
-func (c *Core) lowestVisibleCamera(sceneUUID string) string {
+// lastOKVisibleCamera は、sceneUUID に映るカメラのうち、最後に OK になったものの id（なければ空）。
+// どれもまだ OK になっていなければ、設定の順で先のもの。
+func (c *Core) lastOKVisibleCamera(sceneUUID string) string {
 	if c.mapCopy == nil {
 		return ""
 	}
@@ -557,7 +564,7 @@ func (c *Core) lowestVisibleCamera(sceneUUID string) string {
 		if !slices.Contains(visible, cam.cfg.ID) {
 			continue
 		}
-		if best == nil || cam.sample.Kbps < best.sample.Kbps {
+		if best == nil || cam.okSeq > best.okSeq {
 			best = cam
 		}
 	}
