@@ -2,6 +2,7 @@ package switcher
 
 import (
 	"errors"
+	"reflect"
 	"testing"
 )
 
@@ -524,7 +525,7 @@ func TestSeqStartSceneNoRetry(t *testing.T) {
 	t.Run("SQ-11b/config", func(t *testing.T) {
 		q := start(t)
 		e := q.epochs()
-		q.none(cfg(1100, withStart(opening), withMonitored(camera, camera2, "Camera3")))
+		q.none(cfg(1100, withStart(opening), withHide()))
 		q.epochDelta(e, 0, 0, 0, 1)
 		q.approve(1, set(opening), 1200, Reject{})
 		q.none(bd(1200, 1, BatchRejected))
@@ -594,22 +595,22 @@ func TestSeqConfigReclassifies(t *testing.T) {
 	t.Run("SQ-13a", func(t *testing.T) {
 		q := newSeq(t).P(talk, true, LOW)
 		q.none(tick(1000))
-		q.batch(cfg(2000, withMonitored(camera, camera2, talk)), 1, af, standby, talk)
+		q.batch(smc(2000, camera, camera2, talk), 1, af, standby, talk)
 	})
 	t.Run("SQ-13b", func(t *testing.T) {
 		q := newSeq(t).P(camera, true, OK)
-		q.none(cfg(1000, withMonitored(camera2)))
+		q.none(smc(1000, camera2))
 		q.none(lc(2000, LOW))
 		q.none(tick(10000))
 	})
 }
 
 func TestSeqConfigAndOwner(t *testing.T) {
-	camera3 := withMonitored(camera, camera2, "Camera3")
+	camera3 := withHide() // 旧 Camera3 追加は、on_bad を hide にする設定変更に置き換える（台帳）
 	t.Run("SQ-14a", func(t *testing.T) {
 		q := newSeq(t).PA(camera)
 		e := q.epochs()
-		q.none(cfg(1000, withStandby("Standby2")))
+		q.none(cfg(1000, withStandby(standby2)))
 		q.epochDelta(e, 0, 0, 0, 1)
 		q.owner(OwnerNone, "")
 		q.scene(standby)
@@ -617,21 +618,21 @@ func TestSeqConfigAndOwner(t *testing.T) {
 	})
 	t.Run("SQ-14b", func(t *testing.T) {
 		q := newSeq(t).PM(camera, OK)
-		q.none(cfg(1000, withStandby("Standby2")))
+		q.none(cfg(1000, withStandby(standby2)))
 		q.owner(OwnerNone, "")
 		q.scene(standby)
 		q.cmdErr(cmd(2000, CmdStandbyOff), invalid)
 	})
 	t.Run("SQ-14c", func(t *testing.T) {
 		q := newSeq(t).PA(camera)
-		q.none(cfg(1000, withMonitored(camera2)))
+		q.none(smc(1000, camera2))
 		q.owner(OwnerNone, "")
 		q.scene(standby)
 		q.none(lc(2000, OK))
 	})
 	t.Run("SQ-14d", func(t *testing.T) {
 		q := newSeq(t).PM(camera, LOW)
-		q.none(cfg(1000, withMonitored(camera2)))
+		q.none(smc(1000, camera2))
 		q.owner(OwnerManual, camera)
 		q.batch(cmd(2000, CmdStandbyOff), 2, sfo, camera, "")
 	})
@@ -721,7 +722,7 @@ func TestSeqExpectationConfigEpoch(t *testing.T) {
 	t.Run("SQ-15a", func(t *testing.T) {
 		q := sent(t)
 		e := q.epochs()
-		q.batch(cfg(1200, withStandby("Standby2")), 2, af, "Standby2", camera)
+		q.batch(cfg(1200, withStandby(standby2)), 2, af, standby2, camera)
 		q.epochDelta(e, 0, 0, 0, 1)
 		q.exps(standby, 1)
 		q.owner(OwnerNone, "")
@@ -729,7 +730,7 @@ func TestSeqExpectationConfigEpoch(t *testing.T) {
 		q.epochDelta(e, 0, 0, 0, 1)
 		q.owner(OwnerNone, "")
 		q.exps()
-		q.approve(2, set("Standby2"), 1500, Reject{})
+		q.approve(2, set(standby2), 1500, Reject{})
 		q.none(bd(1500, 2, BatchRejected))
 		q.noErr()
 		q.none(lc(2000, OK))
@@ -749,15 +750,15 @@ func TestSeqExpectationConfigEpoch(t *testing.T) {
 	t.Run("SQ-15c", func(t *testing.T) {
 		q := sent(t)
 		e := q.epochs()
-		q.none(cfg(1200, withMonitored(camera2)))
+		q.none(smc(1200, camera2)) // 分類の変更は地図の入口。ConfigEpoch は進まない
 		q.none(sc(1400, standby))
-		q.epochDelta(e, 0, 0, 0, 1)
+		q.epochDelta(e, 0, 0, 0, 0)
 		q.owner(OwnerNone, "")
 	})
 	t.Run("SQ-15d", func(t *testing.T) {
 		q := sent(t)
 		e := q.epochs()
-		q.none(cfg(1200, withMonitored(camera, camera2, "Camera3")))
+		q.none(cfg(1200, withHide()))
 		q.exps(standby, 1)
 		q.none(sc(1400, standby))
 		q.epochDelta(e, 0, 0, 0, 1)
@@ -773,7 +774,7 @@ func TestSeqExpectationConfigEpoch(t *testing.T) {
 		q.none(srd(1600, 2, RequestOK))
 		q.none(bd(1600, 2, BatchCompleted))
 		e := q.epochs()
-		q.none(cfg(1700, withMonitored(camera, camera2, "Camera3")))
+		q.none(cfg(1700, withHide()))
 		q.epochDelta(e, 0, 0, 0, 1)
 		q.owner(OwnerAuto, camera)
 		q.none(sc(1900, camera))
@@ -997,17 +998,17 @@ func TestSeqMultipleExpectations(t *testing.T) {
 		q.approve(1, set(standby), 1000, Proceed{ReqID: 1})
 		q.none(srd(1100, 1, RequestOK))
 		q.none(bd(1100, 1, BatchCompleted))
-		q.batch(cfg(1200, withStandby("Standby2")), 2, af, "Standby2", camera)
-		q.approve(2, set("Standby2"), 1200, Proceed{ReqID: 2})
+		q.batch(cfg(1200, withStandby(standby2)), 2, af, standby2, camera)
+		q.approve(2, set(standby2), 1200, Proceed{ReqID: 2})
 		q.none(srd(1300, 2, RequestOK))
 		q.none(bd(1300, 2, BatchCompleted))
-		q.exps(standby, 1, "Standby2", 2)
+		q.exps(standby, 1, standby2, 2)
 		return q
 	}
 	t.Run("SQ-20a", func(t *testing.T) {
 		q := two(t)
 		e := q.epochs()
-		q.none(sc(1600, "Standby2"))
+		q.none(sc(1600, standby2))
 		q.exps()
 		q.owner(OwnerAuto, camera)
 		q.epochDelta(e, 0, 0, 0, 0)
@@ -1015,9 +1016,9 @@ func TestSeqMultipleExpectations(t *testing.T) {
 	t.Run("SQ-20b", func(t *testing.T) {
 		q := two(t)
 		q.none(sc(1600, standby))
-		q.exps("Standby2", 2)
+		q.exps(standby2, 2)
 		q.owner(OwnerNone, "")
-		q.none(sc(1900, "Standby2"))
+		q.none(sc(1900, standby2))
 		q.owner(OwnerAuto, camera)
 	})
 	t.Run("SQ-20c", func(t *testing.T) {
@@ -1521,8 +1522,11 @@ func TestSnapshot(t *testing.T) {
 	q := newSeq(t)
 	q.none(cfg(0))
 	s := q.m.Snapshot()
-	if s.Class != ClassUnknown || s.Connected || !s.AutoEnabled || s.Standby.Owner != OwnerNone || s.Link != DOWN {
+	if s.Class != ClassUnknown || s.Connected || !s.AutoEnabled || s.Standby.Owner != OwnerNone || s.HasHealth {
 		t.Fatalf("初期の Snapshot = %+v", s)
+	}
+	if got := q.m.st.CameraStates[camMain]; got != DOWN {
+		t.Fatalf("設定後の main = %v, want DOWN", got)
 	}
 	q.none(lc(0, OK))
 	q.none(conn(0, true, camera, ip(300)))
@@ -1532,9 +1536,10 @@ func TestSnapshot(t *testing.T) {
 	q.none(bd(100, 1, BatchCompleted))
 	q.none(sc(500, standby))
 	s = q.m.Snapshot()
-	want := Snapshot{Connected: true, Streaming: true, Scene: standby, Class: ClassStandby,
-		Standby: StandbyStatus{Owner: OwnerAuto, ReturnScene: camera}, AutoEnabled: true, Link: LOW}
-	if s != want {
+	want := Snapshot{Connected: true, Streaming: true, Scene: standby, SceneName: "Standby", Class: ClassStandby,
+		Standby:     StandbyStatus{Owner: OwnerAuto, ReturnScene: camera, ReturnSceneName: "Camera"},
+		AutoEnabled: true}
+	if !reflect.DeepEqual(s, want) {
 		t.Fatalf("Snapshot = %+v, want %+v", s, want)
 	}
 	for _, c := range []struct {
@@ -1546,8 +1551,12 @@ func TestSnapshot(t *testing.T) {
 			t.Errorf("Class(%q) = %v, want %v", c.scene, got, c.want)
 		}
 	}
+	q.m.st.Scene = camera
+	if s := q.m.Snapshot(); !s.HasHealth || s.Health != LOW || s.BadCamera != camMain || !reflect.DeepEqual(s.VisibleCameras, []string{camMain}) {
+		t.Fatalf("監視対象の Snapshot = %+v", s)
+	}
 	q.none(disc(1000))
-	if s := q.m.Snapshot(); s.Class != ClassUnknown || s.Connected {
+	if s := q.m.Snapshot(); s.Class != ClassUnknown || s.Connected || s.HasHealth {
 		t.Fatalf("切断後の Snapshot = %+v", s)
 	}
 	q.m.st.LastError = &ErrorInfo{At: at(1), Msg: "x"}

@@ -2,8 +2,6 @@ package switcher
 
 import (
 	"time"
-
-	"github.com/teru358/irl-live-keeper/internal/ingest"
 )
 
 // Approve は実行役が Action を送る直前に呼び、その時点の状態でバッチの有効条件を確かめる。
@@ -26,10 +24,14 @@ func (m *Machine) Approve(batchID int, action Action, override Override, at time
 		return Reject{}
 	}
 	set, isSet := action.(SetScene)
-	if isSet && pb.Purpose != PurposeStandbyOn && s.Scene == set.Scene {
+	if isSet && pb.Purpose != PurposeStandbyOn && s.Scene == set.SceneUUID {
 		return Skip{}
 	}
-	switch m.purposeValid(pb.Purpose) {
+	target := ""
+	if isSet {
+		target = set.SceneUUID
+	}
+	switch m.purposeValid(pb.Purpose, isSet, target) {
 	case verdictProceed:
 	case verdictReplace:
 		// 受信状態だけが悪くなった。その場で持ち主を auto にし、回復したら AutoRecover で戻す。
@@ -50,7 +52,7 @@ func (m *Machine) Approve(batchID int, action Action, override Override, at time
 	s.NextReqID++
 	s.Expectations = append(s.Expectations, Expectation{
 		ReqID:        id,
-		Scene:        set.Scene,
+		Scene:        set.SceneUUID,
 		Purpose:      pb.Purpose,
 		ReturnScene:  pb.ReturnScene,
 		ConfigEpoch:  s.ConfigEpoch,
@@ -79,8 +81,10 @@ const (
 	verdictReplace
 )
 
-// purposeValid は Purpose ごとの有効条件を今の状態で確かめる。
-func (m *Machine) purposeValid(p Purpose) verdict {
+// purposeValid は Purpose ごとの有効条件を今の状態（地図・健康・待機 UUID）で確かめる。
+// SetScene の Action では、バッチを作ったときに固定した切替先 target が、今の待機・戻り先と一致することも確かめる
+// （地図の変更は ConfigEpoch を進めないので、承認で古い切替先を止める。W-02）。
+func (m *Machine) purposeValid(p Purpose, isSet bool, target string) verdict {
 	s := &m.st
 	ok := func(c bool) verdict {
 		if c {
@@ -88,23 +92,27 @@ func (m *Machine) purposeValid(p Purpose) verdict {
 		}
 		return verdictReject
 	}
-	inStandby := s.Scene == s.Standby
+	inStandby := s.StandbyUUID != "" && s.Scene == s.StandbyUUID
 	switch p {
 	case PurposeAutoFail, PurposeAutoRecover:
-		need, _ := m.autoNeed()
-		return ok(need == p)
+		need, to := m.autoNeed()
+		return ok(need == p && (!isSet || target == to))
 	case PurposeStandbyOn:
-		return ok(s.Streaming && s.StandbyOwner == OwnerNone && !inStandby)
+		return ok(s.Streaming && s.StandbyOwner == OwnerNone && !inStandby && (!isSet || target == s.StandbyUUID))
 	case PurposeStandbyOffMonitored:
-		if !s.Streaming || s.StandbyOwner != OwnerManual || !inStandby {
+		// 戻り先が監視対象でなくなっていたら押し直しで目的を選び直す。
+		if !s.Streaming || s.StandbyOwner != OwnerManual || !inStandby || !m.isMonitored(s.ReturnScene) ||
+			(isSet && target != s.ReturnScene) {
 			return verdictReject
 		}
-		if s.AutoEnabled && s.Link != ingest.LinkOK {
+		if h, _, has := m.healthOf(s.ReturnScene); s.AutoEnabled && isBad(h, has) {
+			// 戻り先の健康だけが悪くなった。その場で持ち主を auto にし、回復したら AutoRecover で戻す。
 			return verdictReplace
 		}
 		return verdictProceed
 	case PurposeStandbyOffOther:
-		return ok(s.Streaming && s.StandbyOwner == OwnerManual && inStandby)
+		return ok(s.Streaming && s.StandbyOwner == OwnerManual && inStandby && !m.isMonitored(s.ReturnScene) &&
+			(!isSet || target == s.ReturnScene))
 	case PurposeStartScene:
 		return ok(s.Streaming)
 	case PurposeStartStream:

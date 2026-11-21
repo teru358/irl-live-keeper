@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/teru358/irl-live-keeper/internal/ingest"
+	"github.com/teru358/irl-live-keeper/internal/scenemap"
 )
 
 // テストの時刻はすべて t0 からのミリ秒で書く。
@@ -20,33 +20,176 @@ func at(ms int) time.Time { return t0.Add(time.Duration(ms) * time.Millisecond) 
 // W は RestartMedia.Wait。テストでは 0.5秒とする。
 const W = 500 * time.Millisecond
 
+// 受信状態（カメラの状態）の短い名前。
 const (
-	OK   = ingest.LinkOK
-	LOW  = ingest.LinkLow
-	DOWN = ingest.LinkDown
+	OK   = scenemap.StateOK
+	LOW  = scenemap.StateLow
+	DOWN = scenemap.StateDown
 )
 
-// 例に使うシーン名。待機シーン、監視対象2つ、管理外2つ。
+// 例に使うシーンの UUID（表の S、S2、A、B、T、O、D）。名前は sceneNames で別に持つ（UUID と名前は違う文字列）。
 const (
-	standby = "Standby"
-	camera  = "Camera"
-	camera2 = "Camera2"
-	talk    = "Talk"
-	opening = "Opening"
+	standby   = "uuid-standby"
+	standby2  = "uuid-standby2"
+	camera    = "uuid-camera"
+	camera2   = "uuid-camera2"
+	talk      = "uuid-talk"
+	opening   = "uuid-opening"
+	deskScene = "uuid-desk"
 )
+
+// カメラの id（表の m、s、d）と入力の UUID（im、is、id）。
+const (
+	camMain = "main"
+	camSub  = "sub"
+	camDesk = "desk"
+	inMain  = "in-main"
+	inMain2 = "in-main2"
+	inSub   = "in-sub"
+	inDesk  = "in-desk"
+)
+
+const collectionX = "collection-x"
+
+var sceneNames = map[string]string{
+	standby: "Standby", standby2: "Standby2", camera: "Camera", camera2: "Camera2",
+	talk: "Talk", opening: "Opening", deskScene: "Desk",
+}
+
+// nameOf は例のシーンの UUID から設定名・表示名を返す。
+func nameOf(uuid string) string {
+	if n, ok := sceneNames[uuid]; ok {
+		return n
+	}
+	return uuid
+}
+
+// 単独のカメラ（main）の既定の地図。S、S2、A、B、T、O、D を登録し、visible のシーンにだけ main の入力の項目を置く。
+func testMap(visible ...string) *scenemap.Map {
+	m := &scenemap.Map{
+		Collection: collectionX,
+		Scenes:     map[string]scenemap.Container{},
+		Groups:     map[string]scenemap.Container{},
+		Inputs:     map[string]scenemap.Input{inMain: {Name: "main-src", CameraID: camMain}},
+	}
+	for uuid, name := range sceneNames {
+		m.Scenes[uuid] = scenemap.Container{Name: name}
+	}
+	for _, v := range visible {
+		c := m.Scenes[v]
+		c.Items = []scenemap.Item{{ID: 1, SourceUUID: inMain, SourceKind: scenemap.InputSource, Enabled: true}}
+		m.Scenes[v] = c
+	}
+	return m
+}
+
+// 複数のカメラの地図（別の fixture）。A は m と s、B は m、D は d が映る。S、S2、T、O はカメラなし。
+func multiMap() *scenemap.Map {
+	m := testMap()
+	m.Inputs = map[string]scenemap.Input{
+		inMain: {Name: "main-src", CameraID: camMain},
+		inSub:  {Name: "sub-src", CameraID: camSub},
+		inDesk: {Name: "desk-src", CameraID: camDesk},
+	}
+	item := func(id int, in string) scenemap.Item {
+		return scenemap.Item{ID: id, SourceUUID: in, SourceKind: scenemap.InputSource, Enabled: true}
+	}
+	put := func(scene string, items ...scenemap.Item) {
+		c := m.Scenes[scene]
+		c.Items = items
+		m.Scenes[scene] = c
+	}
+	put(camera, item(1, inMain), item(2, inSub))
+	put(camera2, item(1, inMain))
+	put(deskScene, item(1, inDesk))
+	return m
+}
+
+// editMap は地図の複製に edit を当てて返す。
+func editMap(m *scenemap.Map, edit func(m *scenemap.Map)) *scenemap.Map {
+	c := cloneTestMap(m)
+	edit(c)
+	return c
+}
+
+// setItem は scene の項目 id の Enabled を変える。
+func setItem(m *scenemap.Map, container string, id int, enabled bool) {
+	c := m.Scenes[container]
+	if _, ok := m.Scenes[container]; !ok {
+		c = m.Groups[container]
+	}
+	items := append([]scenemap.Item(nil), c.Items...)
+	for i := range items {
+		if items[i].ID == id {
+			items[i].Enabled = enabled
+		}
+	}
+	c.Items = items
+	if _, ok := m.Scenes[container]; ok {
+		m.Scenes[container] = c
+	} else {
+		m.Groups[container] = c
+	}
+}
+
+func cloneTestMap(m *scenemap.Map) *scenemap.Map {
+	if m == nil {
+		return nil
+	}
+	c := &scenemap.Map{Collection: m.Collection,
+		Scenes: map[string]scenemap.Container{}, Groups: map[string]scenemap.Container{}, Inputs: map[string]scenemap.Input{}}
+	for k, v := range m.Scenes {
+		v.Items = slices.Clone(v.Items)
+		c.Scenes[k] = v
+	}
+	for k, v := range m.Groups {
+		v.Items = slices.Clone(v.Items)
+		c.Groups[k] = v
+	}
+	for k, v := range m.Inputs {
+		c.Inputs[k] = v
+	}
+	return c
+}
+
+// resolveNames は期待の状態の StandbyUUID と StartSceneUUID を、地図の名前から引き直す。
+func resolveNames(s *state) {
+	find := func(name string) string {
+		if s.Map == nil {
+			return ""
+		}
+		for uuid, c := range s.Map.Scenes {
+			if c.Name == name {
+				return uuid
+			}
+		}
+		return ""
+	}
+	s.StandbyUUID = find(s.Standby)
+	s.StartSceneUUID = ""
+	if s.StartScene != nil {
+		s.StartSceneUUID = find(*s.StartScene)
+	}
+}
 
 func newMachine() *Machine { return New(Config{RestartWait: W}) }
 
 func ip(v int) *int       { return &v }
 func sp(v string) *string { return &v }
 
-// actsFor は Purpose と切替先ごとの Action の列（期待値）。
-func actsFor(p Purpose, to string) []Action {
+// actsFor は Purpose と切替先ごとの Action の列（期待値）。再起動の対象は main の入力だけ。
+func actsFor(p Purpose, to string) []Action { return actsForIn(p, to, []string{inMain}) }
+
+// actsForIn は再起動の対象を指定する actsFor。
+func actsForIn(p Purpose, to string, inputs []string) []Action {
 	switch p {
 	case PurposeAutoFail, PurposeStandbyOn, PurposeStandbyOffOther, PurposeStartScene:
-		return []Action{SetScene{Scene: to}}
+		return []Action{SetScene{SceneUUID: to}}
 	case PurposeAutoRecover, PurposeStandbyOffMonitored:
-		return []Action{RestartMedia{Wait: W}, SetScene{Scene: to}}
+		if len(inputs) == 0 {
+			return []Action{SetScene{SceneUUID: to}}
+		}
+		return []Action{RestartMedia{Inputs: inputs, Wait: W}, SetScene{SceneUUID: to}}
 	case PurposeStartStream:
 		return []Action{StartStream{}}
 	case PurposeStopStream:
@@ -55,21 +198,49 @@ func actsFor(p Purpose, to string) []Action {
 	panic("unknown purpose")
 }
 
-func set(scene string) Action { return SetScene{Scene: scene} }
+func set(scene string) Action { return SetScene{SceneUUID: scene} }
 
-var restart Action = RestartMedia{Wait: W}
+var restart Action = RestartMedia{Inputs: []string{inMain}, Wait: W}
+
+// restartOf は再起動の対象を指定した RestartMedia。
+func restartOf(inputs ...string) Action { return RestartMedia{Inputs: inputs, Wait: W} }
 
 // ---- Event の短い書き方 ----
 
-func lc(ms int, s ingest.LinkState) Event { return LinkChanged{At: at(ms), State: s} }
-func sc(ms int, scene string) Event       { return SceneChanged{At: at(ms), Scene: scene} }
-func tick(ms int) Event                   { return Tick{At: at(ms)} }
-func ssc(ms int, v bool) Event            { return StreamStateChanged{At: at(ms), Streaming: v} }
-func disc(ms int) Event                   { return OBSDisconnected{At: at(ms)} }
-func cmd(ms int, k CommandKind) Event     { return Command{At: at(ms), Kind: k} }
-func tc(ms int, tr *int) Event            { return TransitionChanged{At: at(ms), TransitionMs: tr} }
+// lc は単独のカメラ main の状態の組（全カメラの組）。
+func lc(ms int, s scenemap.CameraState) Event {
+	return CamerasChanged{At: at(ms), States: map[string]scenemap.CameraState{camMain: s}}
+}
+
+// cc は複数のカメラ m、s、d の状態の組。
+func cc(ms int, m, s, d scenemap.CameraState) Event {
+	return CamerasChanged{At: at(ms), States: map[string]scenemap.CameraState{camMain: m, camSub: s, camDesk: d}}
+}
+func sc(ms int, scene string) Event {
+	return SceneChanged{At: at(ms), Scene: nameOf(scene), SceneUUID: scene}
+}
+func tick(ms int) Event               { return Tick{At: at(ms)} }
+func ssc(ms int, v bool) Event        { return StreamStateChanged{At: at(ms), Streaming: v} }
+func disc(ms int) Event               { return OBSDisconnected{At: at(ms)} }
+func cmd(ms int, k CommandKind) Event { return Command{At: at(ms), Kind: k} }
+func tc(ms int, tr *int) Event        { return TransitionChanged{At: at(ms), TransitionMs: tr} }
 func conn(ms int, streaming bool, scene string, tr *int) Event {
-	return OBSConnected{At: at(ms), Streaming: streaming, Scene: scene, TransitionMs: tr}
+	return OBSConnected{At: at(ms), Streaming: streaming, Scene: nameOf(scene), SceneUUID: scene, TransitionMs: tr,
+		Map: testMap(camera, camera2)}
+}
+
+// connM は複数のカメラの地図 m つきの OBSConnected。
+func connM(ms int, streaming bool, scene string, m *scenemap.Map) Event {
+	return OBSConnected{At: at(ms), Streaming: streaming, Scene: nameOf(scene), SceneUUID: scene, TransitionMs: ip(300), Map: m}
+}
+
+// smc は地図の差し替え。visible のシーンにだけ main の項目を置いた単独のカメラの地図にする。
+func smc(ms int, visible ...string) Event {
+	return SceneMapChanged{At: at(ms), Map: testMap(visible...)}
+}
+func smcMap(ms int, m *scenemap.Map) Event { return SceneMapChanged{At: at(ms), Map: m} }
+func item(ms int, scene string, id int, enabled bool) Event {
+	return ItemEnabledChanged{At: at(ms), SceneUUID: scene, ItemID: id, Enabled: enabled}
 }
 func srd(ms, req int, r RequestResult) Event {
 	return SceneRequestDone{At: at(ms), ReqID: req, Result: r}
@@ -79,12 +250,31 @@ func bd(ms, id int, r BatchResult) Event { return BatchDone{At: at(ms), BatchID:
 // cfgMod は設定 CFG の1項目を変える。
 type cfgMod func(*ScenesConfigured)
 
-func withAuto(v bool) cfgMod           { return func(c *ScenesConfigured) { c.AutoEnabled = v } }
-func withStart(s string) cfgMod        { return func(c *ScenesConfigured) { c.StartScene = sp(s) } }
-func withStandby(s string) cfgMod      { return func(c *ScenesConfigured) { c.Standby = s } }
-func withMonitored(s ...string) cfgMod { return func(c *ScenesConfigured) { c.Monitored = s } }
+func withAuto(v bool) cfgMod { return func(c *ScenesConfigured) { c.AutoEnabled = v } }
+
+// withStart と withStandby は UUID から設定の名前に直す。
+func withStart(uuid string) cfgMod {
+	return func(c *ScenesConfigured) { c.StartScene = sp(nameOf(uuid)) }
+}
+func withStandby(uuid string) cfgMod { return func(c *ScenesConfigured) { c.Standby = nameOf(uuid) } }
+
+// withHide は main の on_bad を hide にする（0a の結果は standby と同じ）。設定の変更の行で使う。
+func withHide() cfgMod {
+	return func(c *ScenesConfigured) { c.Cameras = []CameraConfig{{ID: camMain, OnBad: scenemap.MotionHide}} }
+}
+
+// withCameras は設定のカメラの一覧を差し替える。
+func withCameras(cams ...CameraConfig) cfgMod {
+	return func(c *ScenesConfigured) { c.Cameras = cams }
+}
+
+func cam(id string) CameraConfig { return CameraConfig{ID: id, OnBad: scenemap.MotionStandby} }
+
+// withMulti は複数のカメラ m、s、d の設定にする。
+func withMulti() cfgMod { return withCameras(cam(camMain), cam(camSub), cam(camDesk)) }
+
 func cfgOf(ms int, mods ...cfgMod) ScenesConfigured {
-	c := ScenesConfigured{At: at(ms), Standby: standby, Monitored: []string{camera, camera2}, AutoEnabled: true}
+	c := ScenesConfigured{At: at(ms), Standby: "Standby", Cameras: []CameraConfig{cam(camMain)}, AutoEnabled: true}
 	for _, f := range mods {
 		f(&c)
 	}
@@ -96,12 +286,17 @@ func cfg(ms int, mods ...cfgMod) Event { return cfgOf(ms, mods...) }
 
 func cloneState(s state) state {
 	c := s
-	c.Monitored = slices.Clone(s.Monitored)
+	c.Cameras = slices.Clone(s.Cameras)
 	if s.StartScene != nil {
 		c.StartScene = sp(*s.StartScene)
 	}
 	if s.TransitionMs != nil {
 		c.TransitionMs = ip(*s.TransitionMs)
+	}
+	c.Map = cloneTestMap(s.Map)
+	c.CameraStates = make(map[string]scenemap.CameraState, len(s.CameraStates))
+	for k, v := range s.CameraStates {
+		c.CameraStates[k] = v
 	}
 	c.Expectations = slices.Clone(s.Expectations)
 	c.Pending = make(map[int]PendingBatch, len(s.Pending))
@@ -114,7 +309,6 @@ func cloneState(s state) state {
 	}
 	return c
 }
-
 func normState(s state) state {
 	c := cloneState(s)
 	if len(c.Expectations) == 0 {
@@ -154,6 +348,11 @@ func show(v any) string {
 			return "nil"
 		}
 		return fmt.Sprintf("&{%s %q}", show(x.At), x.Msg)
+	case *scenemap.Map:
+		if x == nil {
+			return "nil"
+		}
+		return fmt.Sprintf("%+v", *x)
 	case time.Time:
 		if x.IsZero() {
 			return "zero"
@@ -184,20 +383,23 @@ func showExp(e Expectation) string {
 
 // ---- 状態を直接作る仕組み ----
 
-// baseState は既定の前提の状態: 設定 CFG、接続、配信中、Camera（Monitored）、OK、持ち主 none、
-// 未完了なし、期待なし。Epoch と通し番号は 0 / 1 以外にしておき、動いたかがわかるようにする。
+// baseState は既定の前提の状態: 設定 CFG（カメラ main 1台）、接続、配信中、地図 testMap(A, B)、現在 A（Monitored）、
+// main=OK、持ち主 none、未完了なし、期待なし。Epoch と通し番号は 0 / 1 以外にしておき、動いたかがわかるようにする。
 func baseState(s *state) {
-	s.Standby = standby
-	s.Monitored = []string{camera, camera2}
+	s.Standby = "Standby"
+	s.Cameras = []CameraConfig{cam(camMain)}
 	s.AutoEnabled = true
 	s.StartScene = nil
 	s.ConfigEpoch = 5
+	s.Map = testMap(camera, camera2)
+	resolveNames(s)
+	s.CameraStates = map[string]scenemap.CameraState{camMain: OK}
 	s.Connected = true
 	s.Streaming = true
 	s.Scene = camera
 	s.PrevConnScene = talk
 	s.PrevConnStreaming = false
-	s.Link = OK
+	s.PrevConnCollection = collectionX
 	s.TransitionMs = ip(300)
 	s.SceneEpoch = 3
 	s.ConnEpoch = 2
@@ -206,9 +408,18 @@ func baseState(s *state) {
 	s.NextReqID = 20
 }
 
+// baseMulti は複数のカメラ（m、s、d）の既定の状態: 地図 multiMap、現在 A、全カメラ OK。ほかは baseState と同じ。
+func baseMulti(s *state) {
+	baseState(s)
+	s.Cameras = []CameraConfig{cam(camMain), cam(camSub), cam(camDesk)}
+	s.Map = multiMap()
+	resolveNames(s)
+	s.CameraStates = map[string]scenemap.CameraState{camMain: OK, camSub: OK, camDesk: OK}
+}
+
 // inStandby は待機シーンにいて、持ち主 o、戻り先 ret の状態にする。
 func inStandby(s *state, o Owner, ret string) {
-	s.Scene = s.Standby
+	s.Scene = s.StandbyUUID
 	s.StandbyOwner = o
 	s.ReturnScene = ret
 }
@@ -255,7 +466,8 @@ func manualChange(s *state, scene string) {
 }
 
 // wantB はバッチを出したときの共通の変化を期待の状態に当てはめ、返るべきバッチを返す。
-func wantB(s *state, p Purpose, to, ret string, atT time.Time) *Batch {
+// inputs は再起動の対象（nil なら main の入力）、bad は AutoFail の悪い代表（空なら main）。
+func wantB(s *state, p Purpose, to, ret string, atT time.Time, inputs []string, bad string) *Batch {
 	id := s.NextBatchID
 	s.NextBatchID++
 	s.Pending[id] = PendingBatch{BatchID: id, Purpose: p, SceneEpoch: s.SceneEpoch, ConnEpoch: s.ConnEpoch,
@@ -263,8 +475,16 @@ func wantB(s *state, p Purpose, to, ret string, atT time.Time) *Batch {
 	if p.IsAuto() {
 		s.LastAutoSent[p] = atT
 	}
+	if inputs == nil {
+		inputs = []string{inMain}
+	}
+	if p != PurposeAutoFail {
+		bad = ""
+	} else if bad == "" {
+		bad = camMain
+	}
 	return &Batch{BatchID: id, Purpose: p, SceneEpoch: s.SceneEpoch, ConnEpoch: s.ConnEpoch,
-		StreamEpoch: s.StreamEpoch, ConfigEpoch: s.ConfigEpoch, ReturnScene: ret, Actions: actsFor(p, to)}
+		StreamEpoch: s.StreamEpoch, ConfigEpoch: s.ConfigEpoch, ReturnScene: ret, BadCamera: bad, Actions: actsForIn(p, to, inputs)}
 }
 
 // defaultTarget は、行が切替先と戻り先を書かないときの既定値。
@@ -272,7 +492,7 @@ func defaultTarget(s *state, p Purpose, to, ret string) (string, string) {
 	switch p {
 	case PurposeAutoFail, PurposeStandbyOn:
 		if to == "" {
-			to = s.Standby
+			to = s.StandbyUUID
 		}
 		if ret == "" {
 			ret = s.Scene
@@ -283,7 +503,7 @@ func defaultTarget(s *state, p Purpose, to, ret string) (string, string) {
 		}
 	case PurposeStartScene:
 		if to == "" {
-			to = *s.StartScene
+			to = s.StartSceneUUID
 		}
 	}
 	return to, ret
@@ -293,15 +513,19 @@ func defaultTarget(s *state, p Purpose, to, ret string) (string, string) {
 
 type evRow struct {
 	name   string
+	base   func(s *state) // 空なら baseState
 	setup  func(s *state)
 	ev     Event
-	err    error   // 返るべき cmdErr（型だけ比べる）
-	reason string  // 返るべき理由の文（空なら比べない）
-	out    Purpose // 0 ならバッチなし
-	to     string  // バッチの SetScene の切替先（空なら既定値）
-	ret    string  // バッチの戻り先（空なら既定値）
+	err    error    // 返るべき cmdErr（型だけ比べる）
+	reason string   // 返るべき理由の文（空なら比べない）
+	out    Purpose  // 0 ならバッチなし
+	to     string   // バッチの SetScene の切替先（空なら既定値）
+	ret    string   // バッチの戻り先（空なら既定値）
+	in     []string // バッチの RestartMedia の対象（nil なら main の入力）
+	bad    string   // AutoFail の悪い代表（空なら main）
 	change func(s *state)
-	recErr bool // LastError を記録する
+	recErr bool                           // LastError を記録する
+	check  func(t *testing.T, m *Machine) // Event のあとの Machine を追加で確かめる
 }
 
 func runEvRows(t *testing.T, rows []evRow) {
@@ -309,7 +533,11 @@ func runEvRows(t *testing.T, rows []evRow) {
 	for _, r := range rows {
 		t.Run(r.name, func(t *testing.T) {
 			m := newMachine()
-			baseState(&m.st)
+			if r.base != nil {
+				r.base(&m.st)
+			} else {
+				baseState(&m.st)
+			}
 			if r.setup != nil {
 				r.setup(&m.st)
 			}
@@ -322,7 +550,7 @@ func runEvRows(t *testing.T, rows []evRow) {
 			}
 			if r.out != 0 {
 				to, ret := defaultTarget(&want, r.out, r.to, r.ret)
-				wb := wantB(&want, r.out, to, ret, r.ev.eventAt())
+				wb := wantB(&want, r.out, to, ret, r.ev.eventAt(), r.in, r.bad)
 				if !reflect.DeepEqual(got, wb) {
 					t.Errorf("batch: got %+v, want %+v", got, wb)
 				}
@@ -332,6 +560,9 @@ func runEvRows(t *testing.T, rows []evRow) {
 			checkRecErr(t, m, &want, before.LastError, r.recErr, r.ev.eventAt())
 			if d := diffState(m.st, want); d != "" {
 				t.Errorf("state differs:%s", d)
+			}
+			if r.check != nil {
+				r.check(t, m)
 			}
 		})
 	}
@@ -378,6 +609,7 @@ func checkRecErr(t *testing.T, m *Machine, want *state, before *ErrorInfo, rec b
 
 type apRow struct {
 	name     string
+	base     func(s *state) // 空なら baseState
 	setup    func(s *state) // 未完了のバッチは id=1 で足す
 	action   Action
 	override Override
@@ -386,6 +618,7 @@ type apRow struct {
 	register bool          // Proceed で期待を登録する
 	change   func(s *state)
 	recErr   bool
+	check    func(t *testing.T, m *Machine) // Approve のあとの Machine を追加で確かめる
 }
 
 func runApRows(t *testing.T, rows []apRow) {
@@ -393,7 +626,11 @@ func runApRows(t *testing.T, rows []apRow) {
 	for _, r := range rows {
 		t.Run(r.name, func(t *testing.T) {
 			m := newMachine()
-			baseState(&m.st)
+			if r.base != nil {
+				r.base(&m.st)
+			} else {
+				baseState(&m.st)
+			}
 			r.setup(&m.st)
 			before := cloneState(m.st)
 			atT := at(r.atMs)
@@ -418,7 +655,7 @@ func runApRows(t *testing.T, rows []apRow) {
 					}
 					pb := before.Pending[1]
 					want.Expectations = append(want.Expectations, Expectation{
-						ReqID: before.NextReqID, Scene: r.action.(SetScene).Scene, Purpose: pb.Purpose,
+						ReqID: before.NextReqID, Scene: r.action.(SetScene).SceneUUID, Purpose: pb.Purpose,
 						ReturnScene: pb.ReturnScene, ConfigEpoch: before.ConfigEpoch, RegisteredAt: atT,
 						Override: ov, TransitionMs: before.TransitionMs})
 					want.NextReqID++
@@ -434,6 +671,9 @@ func runApRows(t *testing.T, rows []apRow) {
 			if d := diffState(m.st, want); d != "" {
 				t.Errorf("state differs:%s", d)
 			}
+			if r.check != nil {
+				r.check(t, m)
+			}
 		})
 	}
 }
@@ -448,7 +688,7 @@ type seq struct {
 func newSeq(t *testing.T) *seq { return &seq{t: t, m: newMachine()} }
 
 // prep は準備 P(シーン, 配信, 受信状態) を、全体の長さ tr で行う。
-func (q *seq) prep(scene string, streaming bool, link ingest.LinkState, tr *int, mods ...cfgMod) *seq {
+func (q *seq) prep(scene string, streaming bool, link scenemap.CameraState, tr *int, mods ...cfgMod) *seq {
 	q.t.Helper()
 	q.none(cfg(0, mods...))
 	q.none(lc(0, link))
@@ -456,8 +696,17 @@ func (q *seq) prep(scene string, streaming bool, link ingest.LinkState, tr *int,
 	return q
 }
 
+// multi は複数のカメラ m、s、d の準備: 設定（standby の3台）、全カメラの状態 st、複数のカメラの地図で接続する。
+func (q *seq) multi(scene string, streaming bool, st [3]scenemap.CameraState, mods ...cfgMod) *seq {
+	q.t.Helper()
+	q.none(cfg(0, append([]cfgMod{withMulti()}, mods...)...))
+	q.none(cc(0, st[0], st[1], st[2]))
+	q.none(connM(0, streaming, scene, multiMap()))
+	return q
+}
+
 // P は準備 P(シーン, 配信, 受信状態)。
-func (q *seq) P(scene string, streaming bool, link ingest.LinkState, mods ...cfgMod) *seq {
+func (q *seq) P(scene string, streaming bool, link scenemap.CameraState, mods ...cfgMod) *seq {
 	q.t.Helper()
 	return q.prep(scene, streaming, link, ip(300), mods...)
 }
@@ -476,7 +725,7 @@ func (q *seq) PA(ret string) *seq {
 }
 
 // PM は準備 PM(R, 受信状態): 手動の待機。結果は持ち主 manual、戻り先 R。
-func (q *seq) PM(ret string, link ingest.LinkState, mods ...cfgMod) *seq {
+func (q *seq) PM(ret string, link scenemap.CameraState, mods ...cfgMod) *seq {
 	q.t.Helper()
 	q.P(ret, true, OK, mods...)
 	q.standbyOnFrom(ret)
@@ -526,10 +775,22 @@ func (q *seq) batch(ev Event, id int, p Purpose, to, ret string) *Batch {
 
 func (q *seq) checkBatch(b *Batch, id int, p Purpose, to, ret string) {
 	q.t.Helper()
+	q.checkBatchIn(b, id, p, to, ret, []string{inMain}, camMain)
+}
+
+// checkBatchIn は再起動の対象 inputs と AutoFail の悪い代表 bad も確かめる。
+func (q *seq) checkBatchIn(b *Batch, id int, p Purpose, to, ret string, inputs []string, bad string) {
+	q.t.Helper()
 	if b == nil {
 		q.t.Fatalf("got no batch, want %v#%d", p, id)
 	}
-	want := actsFor(p, to)
+	want := actsForIn(p, to, inputs)
+	if p == PurposeAutoFail && b.BadCamera != bad {
+		q.t.Fatalf("BadCamera: got %q, want %q", b.BadCamera, bad)
+	}
+	if p != PurposeAutoFail && b.BadCamera != "" {
+		q.t.Fatalf("BadCamera: got %q, want empty", b.BadCamera)
+	}
 	if b.BatchID != id || b.Purpose != p || !reflect.DeepEqual(b.Actions, want) || b.ReturnScene != ret {
 		q.t.Fatalf("got %s, want %v#%d%+v ret=%q", showBatch(b), p, id, want, ret)
 	}
@@ -538,6 +799,17 @@ func (q *seq) checkBatch(b *Batch, id int, p Purpose, to, ret string) {
 		q.t.Fatalf("batch epochs %d/%d/%d/%d, state %d/%d/%d/%d", b.SceneEpoch, b.ConnEpoch, b.StreamEpoch, b.ConfigEpoch,
 			s.SceneEpoch, s.ConnEpoch, s.StreamEpoch, s.ConfigEpoch)
 	}
+}
+
+// batchIn は batch と同じだが、再起動の対象と AutoFail の悪い代表も確かめる（複数のカメラの列）。
+func (q *seq) batchIn(ev Event, id int, p Purpose, to, ret string, inputs []string, bad string) *Batch {
+	q.t.Helper()
+	b, err := q.m.Handle(ev)
+	if err != nil {
+		q.t.Fatalf("%T at %s: cmdErr %v", ev, show(ev.eventAt()), err)
+	}
+	q.checkBatchIn(b, id, p, to, ret, inputs, bad)
+	return b
 }
 
 // cmdErr は Command を流し、その型の cmdErr が返り状態が変わらないことを確かめる。

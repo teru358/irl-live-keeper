@@ -3,7 +3,7 @@ package switcher
 import (
 	"time"
 
-	"github.com/teru358/irl-live-keeper/internal/ingest"
+	"github.com/teru358/irl-live-keeper/internal/scenemap"
 )
 
 // SceneClass は現在のシーンを、その時点のシーンの設定で分けたもの。
@@ -125,10 +125,11 @@ type Event interface {
 	eventAt() time.Time
 }
 
-// LinkChanged は受信状態の変化。
-type LinkChanged struct {
-	At    time.Time
-	State ingest.LinkState
+// CamerasChanged は全カメラの受信状態の組（Judge 済みの OK / LOW / DOWN）。差分ではなく全カメラの組を持つ。
+// 設定にない id は無視し、足りない id は DOWN に整えてから、今の組と比べる。通常の core は設定済みの全 id を渡す。
+type CamerasChanged struct {
+	At     time.Time
+	States map[string]scenemap.CameraState
 }
 
 // OBSConnected は OBS への接続。接続した時点の配信状態、program のシーン、
@@ -138,6 +139,10 @@ type OBSConnected struct {
 	Streaming    bool
 	Scene        string
 	TransitionMs *int
+	// SceneUUID は program のシーンの UUID。古い OBS（obs-websocket 5.4.0 未満）では名前を入れる。
+	SceneUUID string
+	// Map は最初のシーンの地図。読み終えてから流す。流したあとは変更しない。
+	Map *scenemap.Map
 }
 
 // OBSDisconnected は OBS との切断。
@@ -149,6 +154,25 @@ type OBSDisconnected struct {
 type SceneChanged struct {
 	At    time.Time
 	Scene string
+	// SceneUUID は切り替わったシーンの UUID。古い OBS（obs-websocket 5.4.0 未満）では名前を入れる。
+	SceneUUID string
+}
+
+// SceneMapChanged はシーンの地図の読み直しの結果（obs は補助の接続で読む）。Map は流したあと変更しない。
+// 今の地図にある項目の表示・非表示は、読み取りの時刻の値で、本来の接続のイベントより古いことがある。
+// 受け取る側は、今の地図にすでにある項目の Enabled を今の値で引き継ぐ（カメラの spec 第3節）。
+type SceneMapChanged struct {
+	At  time.Time
+	Map *scenemap.Map
+}
+
+// ItemEnabledChanged はシーン項目の表示・非表示の変化（SceneItemEnableStateChanged）。
+// グループの中の項目は、グループの UUID で届く。古い OBS では SceneUUID に名前を入れる。
+type ItemEnabledChanged struct {
+	At        time.Time
+	SceneUUID string
+	ItemID    int
+	Enabled   bool
 }
 
 // TransitionChanged は全体のトランジションまたはその長さの変更。
@@ -163,12 +187,19 @@ type StreamStateChanged struct {
 	Streaming bool
 }
 
-// ScenesConfigured はシーンの設定。StartScene は配信開始時の切替が無効なら nil。
+// CameraConfig はカメラ1台の設定。OnBad は回線が悪いときの動き（0a では hide も standby と同じに扱う）。
+type CameraConfig struct {
+	ID    string
+	OnBad scenemap.Motion
+}
+
+// ScenesConfigured はシーンとカメラの設定。Standby と StartScene は OBS のシーン名で、現在の地図から UUID を引く。
+// StartScene は配信開始時の切替が無効なら nil。Cameras は設定の順（同じ悪さのときの代表の選択に使う）。
 // 検証は送る側が済ませる。
 type ScenesConfigured struct {
 	At          time.Time
 	Standby     string
-	Monitored   []string
+	Cameras     []CameraConfig
 	AutoEnabled bool
 	StartScene  *string
 }
@@ -241,11 +272,13 @@ type Tick struct {
 	At time.Time
 }
 
-func (e LinkChanged) eventAt() time.Time        { return e.At }
+func (e CamerasChanged) eventAt() time.Time     { return e.At }
 func (e OBSConnected) eventAt() time.Time       { return e.At }
 func (e OBSDisconnected) eventAt() time.Time    { return e.At }
 func (e SceneChanged) eventAt() time.Time       { return e.At }
 func (e TransitionChanged) eventAt() time.Time  { return e.At }
+func (e SceneMapChanged) eventAt() time.Time    { return e.At }
+func (e ItemEnabledChanged) eventAt() time.Time { return e.At }
 func (e StreamStateChanged) eventAt() time.Time { return e.At }
 func (e ScenesConfigured) eventAt() time.Time   { return e.At }
 func (e Command) eventAt() time.Time            { return e.At }
@@ -260,14 +293,17 @@ type Action interface {
 	isAction()
 }
 
-// SetScene は program のシーンを切り替える。Scene は OBS のシーン名そのもの。
+// SetScene は program のシーンを切り替える。SceneUUID は切替先の UUID（バッチを作った時点で固定する。
+// 古い OBS では名前が入る）。
 type SetScene struct {
-	Scene string
+	SceneUUID string
 }
 
-// RestartMedia はメディアソースに RESTART を送り、Wait だけ待ってから次の Action に進む。
+// RestartMedia は Inputs の入力（UUID）に順に RESTART を送り、最後に1回だけ Wait 待ってから次の Action に進む。
+// Inputs は作った時点で固定する。
 type RestartMedia struct {
-	Wait time.Duration
+	Inputs []string
+	Wait   time.Duration
 }
 
 // StartStream は配信を始める。
@@ -282,7 +318,8 @@ func (StartStream) isAction()  {}
 func (StopStream) isAction()   {}
 
 // Batch は Handle が返す Action の列。作った時点の4つの Epoch を持つ。
-// 待機シーンへ切り替えるバッチ（AutoFail、StandbyOn）は、戻り先のシーン名 ReturnScene も持つ。
+// 待機シーンへ切り替えるバッチ（AutoFail、StandbyOn）は、戻り先のシーンの UUID ReturnScene も持つ。
+// AutoFail は、作ったときの悪い代表のカメラ BadCamera も固定して持つ（ログの kbps と camera に使う）。
 type Batch struct {
 	BatchID     int
 	Purpose     Purpose
@@ -291,6 +328,7 @@ type Batch struct {
 	StreamEpoch int
 	ConfigEpoch int
 	ReturnScene string
+	BadCamera   string
 	Actions     []Action
 }
 
@@ -368,6 +406,8 @@ const (
 	ReasonNotManual       = "手動の待機中でない"
 	ReasonSamePending     = "同じ操作が実行待ち"
 	ReasonSwitchInProcess = "切替の実行中"
+	// ReasonStandbyNotFound は待機シーンの設定名が OBS の地図で引けないこと。
+	ReasonStandbyNotFound = "待機シーンが OBS にない"
 )
 
 // ErrorInfo は記録したエラー（時刻と文）。status の last_error になる。
@@ -381,9 +421,9 @@ type ErrorInfo struct {
 // Expectation は送った SetScene の期待。
 type Expectation struct {
 	ReqID        int
-	Scene        string
+	Scene        string // 切替先の UUID
 	Purpose      Purpose
-	ReturnScene  string // AutoFail、StandbyOn だけ。ほかは空
+	ReturnScene  string // 戻り先の UUID。AutoFail、StandbyOn だけ。ほかは空
 	ConfigEpoch  int
 	RegisteredAt time.Time
 	Override     Override
@@ -407,45 +447,62 @@ type PendingBatch struct {
 	ManualRejected bool // StartScene を手動の切替のために却下した。却下を記録しない
 }
 
-// state は Machine の状態。シーンの設定（Standby から ConfigEpoch まで）も含む。
-// ConfigEpoch が 0 の間は、シーンの設定をまだ受けていない。
+// state は Machine の状態。シーンとカメラの設定（Standby から ConfigEpoch まで）も含む。
+// ConfigEpoch が 0 の間は、設定をまだ受けていない。
+// 分類と健康は保存せず、Map と CameraStates から必要なときに計算する。
 type state struct {
-	Standby     string
-	Monitored   []string
+	Standby     string // 設定の名前
+	Cameras     []CameraConfig
 	AutoEnabled bool
 	StartScene  *string
 	ConfigEpoch int
 
-	Connected         bool
-	Streaming         bool
-	Scene             string
-	PrevConnScene     string
-	PrevConnStreaming bool
-	Link              ingest.LinkState
-	StandbyOwner      Owner
-	ReturnScene       string
-	Expectations      []Expectation
-	Pending           map[int]PendingBatch
-	LastAutoSent      map[Purpose]time.Time
-	SceneEpoch        int
-	ConnEpoch         int
-	StreamEpoch       int
-	TransitionMs      *int
-	LastError         *ErrorInfo
-	NextBatchID       int
-	NextReqID         int
+	// StandbyUUID と StartSceneUUID は、設定の名前を今の地図で引いた UUID。引けなければ空。
+	StandbyUUID    string
+	StartSceneUUID string
+	// Map は今の地図（所有する複製）。未接続なら nil。
+	Map *scenemap.Map
+	// CameraStates は設定の全カメラの id → 状態。接続の有無によらず保つ。
+	CameraStates map[string]scenemap.CameraState
+
+	Connected          bool
+	Streaming          bool
+	Scene              string // program の UUID
+	PrevConnScene      string
+	PrevConnStreaming  bool
+	PrevConnCollection string
+	StandbyOwner       Owner
+	ReturnScene        string // 戻り先の UUID
+	Expectations       []Expectation
+	Pending            map[int]PendingBatch
+	LastAutoSent       map[Purpose]time.Time
+	SceneEpoch         int
+	ConnEpoch          int
+	StreamEpoch        int
+	TransitionMs       *int
+	LastError          *ErrorInfo
+	NextBatchID        int
+	NextReqID          int
 }
 
-// Snapshot は status に出す読み取り専用の状態。
+// Snapshot は status に出す読み取り専用の状態。シーンと戻り先は UUID（名前は SceneName などに持つ）。
 type Snapshot struct {
-	Connected   bool
-	Streaming   bool
-	Scene       string
+	Connected bool
+	Streaming bool
+	Scene     string
+	// SceneName は現在のシーンの今の地図での名前（地図になければ空）。
+	SceneName   string
 	Class       SceneClass
 	Standby     StandbyStatus
 	AutoEnabled bool
-	Link        ingest.LinkState
-	LastError   *ErrorInfo
+	// Health は現在のシーンの健康。HasHealth が false（監視対象でない）なら意味を持たない。
+	Health    scenemap.CameraState
+	HasHealth bool
+	// VisibleCameras は現在のシーンに映るカメラの id（辞書順）。地図がなければ空。
+	VisibleCameras []string
+	// BadCamera は現在のシーンの悪い代表のカメラ（なければ空）。
+	BadCamera string
+	LastError *ErrorInfo
 	// SceneEpoch は人の切替（本体の期待に当たらないシーンの変化）とみなした回数。
 	// 増えたことで、core は人の切替があったと知る。
 	SceneEpoch int
@@ -455,4 +512,6 @@ type Snapshot struct {
 type StandbyStatus struct {
 	Owner       Owner
 	ReturnScene string
+	// ReturnSceneName は戻り先の今の地図での名前（地図になければ空）。
+	ReturnSceneName string
 }

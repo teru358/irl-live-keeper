@@ -8,29 +8,37 @@ import (
 )
 
 func TestRowsScenesConfigured(t *testing.T) {
-	camera3 := withMonitored(camera, camera2, "Camera3")
+	// 旧 Camera3 追加（監視対象の追加の設定変更）は、on_bad を standby から hide にする設定変更に置き換える（台帳）。
+	camera3 := withHide()
 	rows := []evRow{
 		{name: "SCF-1", setup: func(s *state) { *s = newMachine().st }, ev: cfg(1000),
 			change: func(s *state) { applyCfg(s, cfgOf(0)) }},
 		{name: "SCF-2/same", ev: cfg(1000)},
-		{name: "SCF-2/order", ev: cfg(1000, withMonitored(camera2, camera))},
 		{name: "SCF-2/start", setup: startAt(opening), ev: cfg(1000, withStart(opening))},
-		{name: "SCF-3", setup: all(scn(talk), link(LOW)), ev: cfg(1000, withMonitored(camera, camera2, talk)),
-			change: cfgChange(false, withMonitored(camera, camera2, talk)), out: PurposeAutoFail, ret: talk},
-		{name: "SCF-4", setup: scn(talk), ev: cfg(1000, withMonitored(camera, camera2, talk)),
-			change: cfgChange(false, withMonitored(camera, camera2, talk))},
-		{name: "SCF-5", setup: link(LOW), ev: cfg(1000, withMonitored(camera2)),
-			change: cfgChange(false, withMonitored(camera2))},
-		{name: "SCF-6", setup: own(OwnerAuto, camera), ev: cfg(1000, withStandby("Standby2")),
-			change: cfgChange(true, withStandby("Standby2"))},
-		{name: "SCF-7", setup: own(OwnerManual, camera), ev: cfg(1000, withStandby("Standby2")),
-			change: cfgChange(true, withStandby("Standby2"))},
-		{name: "SCF-8", setup: link(LOW), ev: cfg(1000, withStandby("Standby2")),
-			change: cfgChange(false, withStandby("Standby2")), out: PurposeAutoFail, to: "Standby2", ret: camera},
-		{name: "SCF-9", setup: own(OwnerAuto, camera), ev: cfg(1000, withMonitored(camera2)),
-			change: cfgChange(true, withMonitored(camera2))},
-		{name: "SCF-10", setup: own(OwnerManual, camera), ev: cfg(1000, withMonitored(camera2)),
-			change: cfgChange(false, withMonitored(camera2))},
+		// SCF-3、4、5、9、10 は分類の変更なので、入口を設定から地図へ移す（出力・持ち主は同じ。ConfigEpoch は進まない）。
+		{name: "SCF-3", setup: all(scn(talk), link(LOW)), ev: smc(1000, camera, camera2, talk),
+			change: mapChange(false, camera, camera2, talk), out: PurposeAutoFail, ret: talk},
+		{name: "SCF-4", setup: scn(talk), ev: smc(1000, camera, camera2, talk),
+			change: mapChange(false, camera, camera2, talk)},
+		{name: "SCF-5", setup: link(LOW), ev: smc(1000, camera2),
+			change: mapChange(false, camera2)},
+		{name: "SCF-6", setup: own(OwnerAuto, camera), ev: cfg(1000, withStandby(standby2)),
+			change: cfgChange(true, withStandby(standby2))},
+		{name: "SCF-7", setup: own(OwnerManual, camera), ev: cfg(1000, withStandby(standby2)),
+			change: cfgChange(true, withStandby(standby2))},
+		// 期待値が変わる行（台帳）: S に m=DOWN が映る追加の列は、C のあと F(S)、切替先 S2、戻り先 S。
+		{name: "SCF-6/0a/bad-camera", setup: all(useMap(testMap(camera, camera2, standby)), link(DOWN), own(OwnerAuto, camera)),
+			ev: cfg(1000, withStandby(standby2)), change: cfgChange(true, withStandby(standby2)),
+			out: PurposeAutoFail, to: standby2, ret: standby},
+		{name: "SCF-7/0a/bad-camera", setup: all(useMap(testMap(camera, camera2, standby)), link(DOWN), own(OwnerManual, camera)),
+			ev: cfg(1000, withStandby(standby2)), change: cfgChange(true, withStandby(standby2)),
+			out: PurposeAutoFail, to: standby2, ret: standby},
+		{name: "SCF-8", setup: link(LOW), ev: cfg(1000, withStandby(standby2)),
+			change: cfgChange(false, withStandby(standby2)), out: PurposeAutoFail, to: standby2, ret: camera},
+		{name: "SCF-9", setup: own(OwnerAuto, camera), ev: smc(1000, camera2),
+			change: mapChange(true, camera2)},
+		{name: "SCF-10", setup: own(OwnerManual, camera), ev: smc(1000, camera2),
+			change: mapChange(false, camera2)},
 		{name: "SCF-11", setup: own(OwnerAuto, camera), ev: cfg(1000, withAuto(false)),
 			change: cfgChange(true, withAuto(false))},
 		{name: "SCF-12", setup: own(OwnerManual, camera), ev: cfg(1000, withAuto(false)),
@@ -57,23 +65,23 @@ func TestRowsScenesConfigured(t *testing.T) {
 		{name: "SCF-17/stop_stream_and_standby_on", setup: all(link(LOW), p(1, PurposeStopStream, ""), x(1, standby, PurposeStandbyOn, camera)),
 			ev: cfg(1000, withAuto(false)), change: cfgChange(false, withAuto(false))},
 		{name: "SCF-18/pending", setup: all(scn(talk), link(LOW), p(1, PurposeStandbyOn, talk)),
-			ev: cfg(1000, withMonitored(camera, camera2, talk)), change: cfgChange(false, withMonitored(camera, camera2, talk))},
+			ev: smc(1000, camera, camera2, talk), change: mapChange(false, camera, camera2, talk)},
 		{name: "SCF-18/expectation", setup: all(scn(talk), link(LOW), x(1, standby, PurposeStandbyOn, talk)),
-			ev: cfg(1000, withMonitored(camera, camera2, talk)), change: cfgChange(false, withMonitored(camera, camera2, talk))},
-		{name: "SCF-19", setup: all(link(LOW), x(1, standby, PurposeAutoFail, camera)), ev: cfg(1000, withStandby("Standby2")),
-			change: cfgChange(false, withStandby("Standby2")), out: PurposeAutoFail, to: "Standby2", ret: camera},
+			ev: smc(1000, camera, camera2, talk), change: mapChange(false, camera, camera2, talk)},
+		{name: "SCF-19", setup: all(link(LOW), x(1, standby, PurposeAutoFail, camera)), ev: cfg(1000, withStandby(standby2)),
+			change: cfgChange(false, withStandby(standby2)), out: PurposeAutoFail, to: standby2, ret: camera},
 		{name: "SCF-20", setup: all(link(LOW), x(1, standby, PurposeAutoFail, camera)), ev: cfg(1000, camera3),
 			change: cfgChange(false, camera3)},
-		{name: "SCF-21/auto_rename", setup: all(own(OwnerAuto, camera), disconnected), ev: cfg(1000, withStandby("Standby2")),
-			change: cfgChange(true, withStandby("Standby2"))},
-		{name: "SCF-21/manual_rename", setup: all(own(OwnerManual, camera), disconnected), ev: cfg(1000, withStandby("Standby2")),
-			change: cfgChange(true, withStandby("Standby2"))},
+		{name: "SCF-21/auto_rename", setup: all(own(OwnerAuto, camera), disconnected), ev: cfg(1000, withStandby(standby2)),
+			change: cfgChange(true, withStandby(standby2))},
+		{name: "SCF-21/manual_rename", setup: all(own(OwnerManual, camera), disconnected), ev: cfg(1000, withStandby(standby2)),
+			change: cfgChange(true, withStandby(standby2))},
 		{name: "SCF-21/auto_keep", setup: all(own(OwnerAuto, camera), link(OK), disconnected), ev: cfg(1000, camera3),
 			change: cfgChange(false, camera3)},
-		{name: "SCF-22/add", setup: all(notStreaming, scn(talk), link(LOW)), ev: cfg(1000, withMonitored(camera, camera2, talk)),
-			change: cfgChange(false, withMonitored(camera, camera2, talk))},
-		{name: "SCF-22/rename", setup: all(notStreaming, scn(standby)), ev: cfg(1000, withStandby("Standby2")),
-			change: cfgChange(false, withStandby("Standby2"))},
+		{name: "SCF-22/add", setup: all(notStreaming, scn(talk), link(LOW)), ev: smc(1000, camera, camera2, talk),
+			change: mapChange(false, camera, camera2, talk)},
+		{name: "SCF-22/rename", setup: all(notStreaming, scn(standby)), ev: cfg(1000, withStandby(standby2)),
+			change: cfgChange(false, withStandby(standby2))},
 	}
 	runEvRows(t, rows)
 
@@ -86,12 +94,12 @@ func TestRowsScenesConfigured(t *testing.T) {
 	})
 	t.Run("SCF-4/judged_as_monitored", func(t *testing.T) {
 		q := newSeq(t).P(talk, true, OK)
-		q.none(cfg(1000, withMonitored(camera, camera2, talk)))
+		q.none(smc(1000, camera, camera2, talk))
 		q.batch(lc(2000, LOW), 1, PurposeAutoFail, standby, talk)
 	})
 	t.Run("SCF-5/judged_as_other", func(t *testing.T) {
 		q := newSeq(t).P(camera, true, OK)
-		q.none(cfg(1000, withMonitored(camera2)))
+		q.none(smc(1000, camera2))
 		q.none(lc(2000, LOW))
 		q.none(tick(10000))
 	})
@@ -99,10 +107,10 @@ func TestRowsScenesConfigured(t *testing.T) {
 		m := newMachine()
 		c := cfgOf(0, withStart(opening))
 		m.Handle(c)
-		c.Monitored[0] = "X"
+		c.Cameras[0].ID = "X"
 		*c.StartScene = "Y"
-		if m.st.Monitored[0] != camera || *m.st.StartScene != opening {
-			t.Fatalf("設定が呼び出し側の値を共有している: %v %v", m.st.Monitored, *m.st.StartScene)
+		if m.st.Cameras[0].ID != camMain || *m.st.StartScene != nameOf(opening) {
+			t.Fatalf("設定が呼び出し側の値を共有している: %v %v", m.st.Cameras, *m.st.StartScene)
 		}
 	})
 }
@@ -161,9 +169,11 @@ func connected(streaming bool, scene string, tr *int) func(s *state) {
 		if streaming != s.PrevConnStreaming {
 			s.StreamEpoch++
 		}
-		if streaming != s.PrevConnStreaming || scene != s.PrevConnScene {
+		if streaming != s.PrevConnStreaming || scene != s.PrevConnScene || s.PrevConnCollection != collectionX {
 			clearOwner(s)
 		}
+		s.Map = testMap(camera, camera2)
+		resolveNames(s)
 		s.Connected = true
 		s.Streaming = streaming
 		s.Scene = scene
@@ -217,11 +227,8 @@ func TestRowsOBSConnected(t *testing.T) {
 
 // disconnectedChange は OBSDisconnected の共通の変化。
 func disconnectedChange(s *state) {
-	s.Connected = false
+	disconnected(s)
 	s.ConnEpoch++
-	s.Expectations = nil
-	s.PrevConnScene = s.Scene
-	s.PrevConnStreaming = s.Streaming
 }
 
 func TestRowsOBSDisconnected(t *testing.T) {
@@ -368,7 +375,7 @@ func TestRowsTransitionChanged(t *testing.T) {
 	t.Run("TC-3", func(t *testing.T) {
 		m := newMachine()
 		baseState(&m.st)
-		m.st.Link = LOW
+		m.st.CameraStates[camMain] = LOW
 		m.st.Expectations = []Expectation{waiting(&m.st, 1, standby, PurposeAutoFail, camera)}
 		if b, _ := m.Handle(tc(500, ip(5000))); b != nil {
 			t.Fatalf("batch %s", showBatch(b))
