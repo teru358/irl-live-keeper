@@ -1,16 +1,16 @@
 # switcher「入口 × 状態」の差分表 — 区切り0b（M-11）
 
-- 対象: カメラの spec `../specs/2026-11-21-multi-camera-design.md` v0.14 全体。
+- 対象: カメラの spec `../specs/2026-11-21-multi-camera-design.md` v0.15 全体。
 - 基準: `2026-11-21-switcher-table-0a.md`（以下「0a の表」）。
 - シーンの期待、E/C/X/B は `2026-11-19-switcher-table.md` とコア spec 第6章を継承。
-- 状態: 実装前のレビュー用。H 番号の案は spec の確定事項と区別する。
+- 状態: レビュー反映済みの実装用期待値。H 番号は第7章の決定を表す。
 - コード、既存の表、spec は変更しない。M-10 の型追加と M-11 実装の接続案を含む。
 - 新しい行は `HB-`、列は `HB-SQ-`。タグ T は全行 `SW`。
 - 置換行は既存の名前の末尾へ `/0b` を付ける（`MC-H-7/0b` など）。
 - 0a 側の名前に `/0a` があれば、それも保持して `/0b` を付ける。
 - 本文に置換を指定しない行は **0a の表のまま**。
 - hide のない fixture の既存テストの意味は変えない。
-- H 案に依存するテストには番号を添え、採否で変更する範囲を追えるようにする。
+- H の決定に依存するテストには番号を添え、反映範囲を追えるようにする。
 
 ## 0. 差分の読み方と表記
 
@@ -19,11 +19,11 @@ E は全 Handle/Approve の入口で先に行う。拒否する Command も例�
 項目の E は2秒の期限と、隠しかけの10秒の掃除を追加する（H-03）。
 C は持ち主と戻り先だけを消し、項目の一覧・期待を消さない。
 X はシーンの自動切替の抑止。Hide/Show は X を参照しない。
-ただし Hide は StartScene が未完了なら出さない。
+ただし Hide は StartScene が未完了か、その期待が残る間は出さない。
 B は列に含まれる各バッチごとに行う。ID は列の順に採番する。
 「変化なし」「—」は E 後。明記しない状態と Epoch は保つ。
 「Jb」は更新後の整える手順→シーン判定→Show→Hide の判断を表す。
-「Jb」と書いた出力は、条件が成立する候補だけの列で、空なら `[]`。
+各行の出力は Jb の計算結果を具体的な列で記す。
 Command は Jb を行わず、その Command のバッチだけを返す。
 
 | 記号 | 意味 |
@@ -50,7 +50,7 @@ Command は Jb を行わず、その Command のバッチだけを返す。
 
 各行の既定: 接続・配信中、自動有効、Studio Mode オフ、Stopping=false。
 現在 A、m=s=OK、owner=none、一覧・期待・未完了なし、再送時刻なし。
-S/A/B/D/T と im/is は地図にある。項目の Enabled は true。
+S/A/B/D/T と im/is は地図にある。項目の Enabled は true。ただし H の項目は、明記がなければ地図 false。単独の P/H/U は x のみ、y は地図 false の一覧外項目とする。x/y と書く行は両方を追跡する。
 表の出力は「バッチ」であり、送信は各 Action の承認後。
 Hc/Sc が出ても、この時点では項目の Enabled を書き換えない。
 
@@ -58,7 +58,7 @@ Hc/Sc が出ても、この時点では項目の Enabled を書き換えない�
 
 ### 1.1 入口
 
-M-10 の型名をそのまま使う。以下のコードは署名の案で、製品コードではない。
+M-10 の型名をそのまま使う。以下のコードは署名の契約で、製品コードではない。
 全入口は `At time.Time` を持つ（`Stopping{}` 等の略記にも At を含む）。
 
 | 型 | 内容・責務 |
@@ -72,7 +72,7 @@ M-10 の型名をそのまま使う。以下のコードは署名の案で、製
 | Command | `Kind=CmdShowAllCameras` を追加。API は `/api/cameras/show-all` |
 | ScenesConfigured | `StudioModeHide` を追加。standby/ignore/hide、既定 standby |
 
-`HiddenEntry` 案（H-01、H-02）:
+`HiddenEntry` の契約（H-01、H-02）:
 
 | フィールド | 型・意味 |
 |---|---|
@@ -86,61 +86,56 @@ M-10 の型名をそのまま使う。以下のコードは署名の案で、製
 | WrittenAt | time.Time。ディスクへ書いた時刻 |
 
 読み込む slice とその要素は Machine が複製する。破損ファイルの退避は core の責務。
-接続先は Config に Endpoint を追加して Machine へ渡す案。接続先変更は新世代。
+接続先は Config に Endpoint を追加して Machine へ渡す。接続先変更は新世代。
 M-10 の ItemResult と別の RequestResult を混用しない。
 
 ### 1.2 出力と承認
 
-- `Handle(Event) ([]Batch, error)` を採用する案（空は nil でもよい）。
+- `Handle(Event) ([]Batch, error)` を採用する（空は nil でもよい）。
 - 非 Command の列順はシーン切替→ShowCamera→HideCamera。
 - 同種のカメラ順は設定順、設定外は id 辞書順（H-01）。
 - 項目順は ContainerUUID 辞書順→ItemID 昇順。項目鍵を重複させない。
 - Batch に CameraID、固定した項目と SourceUUID、送出理由を追加する。
 - Purpose に HideCamera/ShowCamera/RestoreAll を追加。
-- 手動 MA も RestoreAll とし `FromCommand` と `RestoreScope=AllCameraItems` で識別する案。
+- 手動 MA も RestoreAll とし `FromCommand` と `RestoreScope=AllCameraItems` で識別する。
 - 停止用は `RestoreScope=TrackedItems`。MA と RA を同じ未完了条件で混同しない。
 - Action は M-10 の `SetItemEnabled{SceneUUID, ItemID, Enabled}`。
 - SceneUUID は項目を所有するコンテナの UUID。program UUID とは限らない。
 - 承認はバッチ全体で1回ではなく、各 Action の直前に1回ずつ行う。
 - Skip はその Action のみ送らず、次へ進む。期待も ReqID も作らない。
 - Reject は残りの Action を捨て、BatchDone{Rejected} を1回返す。
-- SetItemEnabled の要求失敗は後続を続け、最終的に Completed+Err。
-- RestartMedia の失敗でも後続の true を試す案（H-04）。
+- Hc/Sc の SetItemEnabled と RestartMedia の要求失敗は後続を続け、最終的に Completed+Err。
+- Hc/Sc に BatchDone{Failed} は来ない契約。第1段階の失敗で残りを捨てる実行とは目的別に分け、M-12 が担う（M-8）。
+- RestartMedia の失敗でも後続の true を試す（H-04）。
 - Completed は「全 Action を走査した」であって、全要求の成功ではない。
 
-### 1.3 ReqID と保存の順（H-01 の提案）
+### 1.3 ReqID と保存の順（H-01 決定）
 
-既存のシーン要求は Machine が ReqID int を発行している。
-項目要求は実行役が送信前に uint64 の番号を確保する方式を採る。
-番号の所有者を2者にしない。項目のカウンタは世代内で単調増加し、再利用しない。
-シーンの番号とは別領域。結果 Event の型で区別する。
+既存の `Approve(batchID, action, override, at)` を広げる。項目専用 API は作らない。
+Machine が項目用 uint64 カウンタを持ち、Proceed に ReqID と MustPersist を載せる。
+シーンの int の採番と別領域で、世代内では再利用しない。同じバッチの Action で対象を一意に引ける。
 
-1. 実行役は Action を識別する index と項目 ReqID を確保する。
-2. core 経由の `ApproveItem(batchID,index,reqID,at)` で Machine を直列に呼ぶ。
-3. Proceed のとき Machine は送信前に Q を登録する。未応答には期限がまだない。
-4. 最初の false なら、同時に全項目を P へ予約し、HiddenRevision を進める。
-5. core は候補 Proceed をまだ実行役へ返さず、一覧を atomic write する。
-6. 保存成功なら Proceed を実行役へ返す。失敗なら HiddenWriteFailed を流して Reject。
-7. 実行役は同じ reqID を obs の要求と結果の対応に使う。
-8. 要求が送れなかった場合も ItemError を返し、応答を永久に待たない。
-9. Skip/Reject の確保済み番号は欠番としてよい。
+1. 実行役は各 Action の直前に core を介して Approve を呼ぶ。
+2. Machine は Proceed のときだけ採番し、Q と切断をまたぐ ItemReceipts を登録する。
+3. 最初の有効な false では全固定対象を P に予約し、予約前の H/U を巻き戻し台帳に保存する。
+4. この承認の Proceed に MustPersist=true を付ける。core は一覧を同期で atomic write する。
+5. 保存中は中核ループへの割り込みを許さない。上限1秒（超過も失敗）。成功後にだけ実行役へ Proceed を返す。
+6. 失敗なら HiddenWriteFailed を Handle へ渡し、予約と Q を巻き戻して実行役には Reject を返す。
+7. 実行役は Proceed.ReqID をそのまま ItemRequestDone に載せる。送信前の失敗は ItemError。
+8. 送信後、応答前に切断された要求は必ず ItemTimeout を返す。切断通知より後の結果も台帳で解く。
+9. 通常の OBS 応答は internal/obs の SetSceneItemEnabled と ClassifyItemResult を使う。切断時の未応答要求の Timeout 化は実行役の責務。
 
-既存 Approve のシーン API は保持し、項目専用 API を足す方が移行範囲を小さくできる。
-Proceed に返す項目番号は入力と同じ。Machine が二重採番しない。
-保存中は中核ループで他の入口を割り込ませない案。I/O の失敗には必ず上限を置く。
-保存の直後に状況が変わる場合は、後続 Action の承認で判断し直す。
+旧案の実行役採番・項目専用承認は、採番主体の二重化を避けるため撤回した（I-9）。
 
-### 1.4 一覧変更の出力（H-01）
+### 1.4 一覧の読み口と保存
 
-Snapshot に `HiddenEntries []HiddenEntry` と `RetainedEntries []HiddenEntry`、
-`HiddenRevision uint64`、`StudioMode`、カメラ別 hidden/user_shown/unusable を追加する案。
-内部 slice/map を公開せず複製し、出力順を固定する。
-core は Handle と Approve の両方の直後に Revision を比較する。
-差があれば新 Snapshot を保存する。最初の Hide の承認は送信前の保存障壁。
-それ以外の変更も保存するが、同一バッチの初回予約は1回だけ。
-以後のイベントで H になったことや削除したことの書き直しは別の変更である。
-停止完了通知は最終保存後。ファイル I/O を Machine の中へ入れない。
-初回予約以外の書き直し失敗は警告・再保存対象として残す案（H-06）。
+Snapshot に HiddenEntries / RetainedEntries / HiddenRevision / StudioMode とカメラ別状態を載せる。
+Snapshot と Revision は一覧の写しを読むためだけに使い、保存障壁の判定には使わない。
+core は Revision が変わったときに永続内容の写しを読み、順序を固定して保存する。
+送信前保存の必要性は Proceed.MustPersist だけが伝える。初回予約は1バッチ1回。
+H への更新や削除も別の変更として保存する。通常更新の保存失敗は警告と再保存対象を残す。
+停止完了は最終保存後。ファイル I/O は core が担い、Machine に持ち込まない。
+写しは slice と要素を複製し、外から内部を変更できない。Revision だけで保存の種類を推測する旧案は撤回した。
 
 ## 2. 内部状態の差分
 
@@ -173,10 +168,10 @@ Hide/Show は同一カメラのどちらかが Pending にある間はどちら�
 
 | 入口 | 一覧・残した記録 | 期待・未完了 | 印・回数・時刻 |
 |---|---|---|---|
-| OBSDisconnected | P/H/U を保つ | Q は消す。Pending は残し ConnEpoch で却下 | 保つ |
-| 配信停止 | 全て保ち、表示へ向かう | 項目 Q は保つ。シーン期待だけ従来どおり消す | u は全消去。回数・時刻は保つ案 |
+| OBSDisconnected | P/H/U を保つ | Q は消す。送信台帳は保つ。Pending は残し ConnEpoch で却下 | 保つ |
+| 配信停止 | 全て保ち、表示へ向かう | 項目 Q は保つ。シーン期待だけ従来どおり消す | u は全消去。回数・時刻は保つ（M-3: 即時解除案は採らず、最大5秒の再送待ちを維持） |
 | OBSConnected 同 Z | 地図で照合。P は即時削除しない | 旧 Pending は ConnEpoch 不一致 | StudioMode を導入、回数は保つ |
-| OBSConnected 別 Z | 旧一覧を Retained、新 Z だけ照合 | 旧 Q は切断で消去済み | カメラの印・時刻は保持案（H-05） |
+| OBSConnected 別 Z | 旧一覧を Retained、新 Z だけ照合 | 旧 Q は切断で消去済み | カメラの印・時刻は保持（H-05） |
 | ScenesConfigured on_bad 変更 | 記録を消さず、standby へ変えた分を戻す | Q/Pending は保持。最新条件で承認 | 回数は受信状態変更でないので保持 |
 | ScenesConfigured auto=false | 記録を保って戻す | 項目 Q は消さない | u は保持、Hide は auto 条件で停止 |
 | studio_mode_hide 変更 | 新設定の有効動作を再計算 | Q は保持、以後の承認に新設定 | 印・回数は保持 |
@@ -189,12 +184,13 @@ Hide/Show には SceneEpoch/ConfigEpoch と X を掛けない。
 Hide/Show の共通条件は接続・ConnEpoch・StreamEpoch。停止 RA は接続・ConnEpoch だけ。
 配信停止前の Show の後続も StreamEpoch で却下され、新バッチで再判断する。
 ScenesConfigured で StudioModeHide のみ違う場合も ConfigEpoch+1。
+カメラ削除時は u/f/送出時刻を捨て、一覧は復旧まで保持する（M-7）。
 
 ## 3. 計算規則の差分
 
 ### 3.1 健康と実際の表示を分ける
 
-0a の nil hiddenByTool を、Z と SourceUUID の同一性を確かめる述語に置換する。
+0a の nil hiddenByTool を、Z と SourceUUID に加え、その入力の今の CameraID が記録の CameraID と一致する述語に置換する。
 `Classify` は内部で nil を使うため、一覧を反映した V(R) から分類する必要がある。
 一覧の H を無視して Other に落とすと auto の戻り先が消えるので禁止。
 
@@ -221,10 +217,10 @@ U を表示扱いにするのは末端だけで、親の false を乗り越え�
 | on / ignore | 悪いと数えない | 出さない | Studio Mode だけを理由に戻さない | 含めない |
 | on / hide | 普段の hide | 条件成立なら出す | 普段の条件 | 含めない |
 
-ignore でも配信停止・auto=false・on_bad=standby は戻す理由になる案（H-07）。
+ignore でも OK・配信停止・auto=false・on_bad=standby は戻す理由になる（H-07）。戻す対象は本体の一覧だけ。
 ignore しか映らないシーンの健康は OK。無視を全 hide 不良判定へ再投入しない。
 現在の scenemap.Health は Studio Mode を bool で standby 化するだけである。
-0b 実装では有効動作への変換または Health 拡張が必要。現関数をそのまま呼ばない。
+0b では呼ぶ側で有効 Motion に変換する。standby は MotionStandby、ignore は集合から除かず不良を数えない MotionIgnore を追加して Health に渡す。Machine.classOf は ClassifyWithMap の直接使用をやめ、一覧を反映した V(R) で分類する（M-5）。
 
 | # | 前提 | 分類・健康 / 出力 |
 |---|---|---|
@@ -247,8 +243,8 @@ OffMonitored は Command 時に auto=true なら待ちでも auto/R にして200
 auto=false なら健康・待ちで止めない。
 Show が Pending でも非表示が解消すれば、次の判断で戻れる。
 
-空にしない検査は、候補 c の送信対象を false とした仮の A(now) が空かを見る。
-他バッチですでに Proceed した false も仮の地図へ重ねる。
+空にしない検査は、現在シーンと Proceed 済み SetScene の期待が残る切替先のうち監視対象の各 R で、候補 c の送信対象を false とした仮の A(R) が空かを見る。
+他バッチですでに Proceed した false と、同じ Handle 内で先に候補にした Hc の全項目も仮の地図へ重ねる。
 同じ入れ子の末端 k を通る経路は、全て同時に失われる。
 経路数をカメラ台数として数えず、カメラ id の集合の大きさを見る。
 生成時と各 false の承認時の両方で検査する。
@@ -258,7 +254,7 @@ SceneChanged(S) を受けて初めて待機として隠せる。
 
 ## 4. 入口ごとの表
 
-全行 E 後。出力の Hc/Sc は B!、F/R/M/RA/MA は B を含む。
+全行 E 後。出力の Hc/Sc は B!、F/R/M/RA/MA は B を含む。MA は送出時刻を更新しない（I-6）。
 Jb は同一カメラ未完了・項目期待・5秒の制限を常に含む。
 再送条件を満たさない行は列の他の候補だけが出る。
 
@@ -272,19 +268,19 @@ Jb は同一カメラ未完了・項目期待・5秒の制限を常に含む。
 | HB-CC-04 | SW | L(s)=H、Hide 未完了中に s OK | [] | Show は BatchDone 後、5秒経過で出る |
 | HB-CC-05 | SW | A、m LOW、s DOWN へ一括変化 | [F(A),Hc(s)] | m が残るので空にならない。健康 LOW |
 | HB-CC-06 | SW | D、s DOWN へ | [F(D)] | Hide は空にするため出ない |
-| HB-CC-07 | SW | m=s=hide、両 DOWN へ | [F(A)] | 各カメラの全対象で空にしない検査（H-09） |
+| HB-CC-07 | SW | m=s=hide、両 DOWN へ | [F(A),Hc(m)] | m の候補を重ね、最後の s は隠さない（H-09） |
 | HB-CC-08 | SW | 未接続で s の状態変化 | [] | 状態・回数のみ更新 |
 | HB-CC-09 | SW | 配信停止中、L(s)=H、s LOW→DOWN | [Sc(s)] | Restart なし。停止中なので戻せる |
 | HB-CC-10 | SW | 自動無効、L(s)=H、s DOWN→LOW | [Sc(s)] | 同上 |
 | HB-CC-11 | SW | 同値の組、再送時刻を過ぎている | [] | E のみ。Jb なし |
 | HB-TK-01 | SW | 前回 Hc/Sc 送出から4.999秒 | [] | 再送しない |
-| HB-TK-02 | SW | 5秒ちょうど、未完了・Q なし、条件継続 | [該当 Hc/Sc] | B!、時刻更新 |
+| HB-TK-02 | SW | s DOWN、x/y true、前回送出から5秒ちょうど、未完了・Q なし | [Hc(s)] | B!、時刻更新 |
 | HB-TK-03 | SW | 5秒経過、同項目の Q あり | [] | Q がある対象へ送らない |
 | HB-TK-04 | SW | Sc の失敗が3回、条件継続 | [Sc(s)] | unusable でも戻す試行は続ける（H-04） |
-| HB-TK-05 | SW | P、決着から10秒、地図 true | Jb | P の削除境界は H-03 |
-| HB-TK-06 | SW | U、決着から10秒以上、地図 true | Jb | U を削除しない |
+| HB-TK-05 | SW | s DOWN、P(x)、決着から10秒ちょうど、地図 true、Hc 未完了 | [] | P 保持。掃除は10秒超過だけ |
+| HB-TK-06 | SW | s OK、U(x)、決着から10秒超、地図 true | [] | U 保持、表示項目なので Sc なし |
 
-HB-CC-07 は、まず F だけを期待する保守的案 H-09 に依存する。
+HB-CC-07 は設定順 m,s で候補を重ねる。m を隠す候補の後、s は最後の1台なので残す。
 一般の mixed standby/hide は「悪い hide がある」だけで待機へ送らない。
 LC の全 standby 行・同値・正規化は 0a の表のまま。
 
@@ -292,33 +288,34 @@ LC の全 standby 行・同値・正規化は 0a の表のまま。
 
 処理順: 接続確認→イベント受信印→Q 照合→Timeout 記憶→人の判定→地図更新→整える→Jb。
 Q は同じ Z、鍵、Enabled で先頭から照合する。
-シーンと同様に一致以前を整理するが、**同じ項目内だけ**に限定する案（H-03）。
+照合範囲は同じ項目内だけ。Q は一致でも消さず SawEvent を立て、応答から2秒を超えるまで保つ（Error/NotFound は即時消去）。
 別項目の期待を消すと一括 hide の後続イベントを人と誤認するため。
 応答前の一致でも一覧を変更し、後着の結果は送信台帳で解釈する。
 
 | # | T | 前の状態 → イベント | 出す列 | 状態の変化 |
 |---|---|---|---|---|
-| HB-IE-01 | SW | P、Q(x,false,r) → x false | Jb | Q 照合、P→H、地図 false |
-| HB-IE-02 | SW | H、Q(x,true,r) → x true | Jb | Q 照合、x を一覧から外す、地図 true |
-| HB-IE-03 | SW | H、Q なし、s DOWN → x true | Jb | x を外し u(s)=true、同じ不調中の Hide なし |
-| HB-IE-04 | SW | H、Q なし、s OK → x true | Jb | x を外し u は付けない |
-| HB-IE-05 | SW | H、Q なし、配信停止中 → x true | Jb | x を外し u は付けない |
-| HB-IE-06 | SW | 一覧なし → 既知 x false | Jb | 地図だけ。人の非表示を一覧へ加えない |
-| HB-IE-07 | SW | 一覧なし → 既知 x true | Jb | 地図だけ。悪い hide なら通常条件で Hc 候補 |
-| HB-IE-08 | SW | U、Q なし → x false | Jb | 遅れた本体の false として U→H |
-| HB-IE-09 | SW | U、Q なし → x true | Jb | H-02 案で U を保持、人の印は条件次第 |
-| HB-IE-10 | SW | false 応答前に x false | Jb | P→H、Q を照合、後着 OK で期待を復活しない |
-| HB-IE-11 | SW | true 応答前に x true | Jb | 一覧を外す、後着 OK で再追加しない |
-| HB-IE-12 | SW | Q(x,false)、一覧あり → x true | Jb | 不一致なので人扱い。以後の false を同じ不調で再送しない |
+| HB-IE-01 | SW | s DOWN、Hc(s) 未完了、Proceed 済み P(x)、Q(x,false,r) → x false | [] | Q 照合、P→H、地図 false |
+| HB-IE-02 | SW | s DOWN、自動無効、Sc(s) 未完了、H(x)、Q(x,true,r) → x true | [] | Q 照合、x を一覧から外す、地図 true |
+| HB-IE-03 | SW | s DOWN、Hc(s) 未完了、H、Q なし、s DOWN → x true | [] | x を外し u(s)=true、同じ不調中の Hide なし |
+| HB-IE-04 | SW | s OK、Sc(s) 未完了、H(x)、Q なし → x true | [] | x を外し u は付けない |
+| HB-IE-05 | SW | s DOWN、Hc(s) 未完了、H、Q なし、配信停止中 → x true | [] | x を外し u は付けない |
+| HB-IE-06 | SW | s DOWN、Hc(s) 未完了、一覧なし → 既知 x false | [] | 地図だけ。人の非表示を一覧へ加えない |
+| HB-IE-07 | SW | s DOWN、Hc(s) 未完了、一覧なし → 既知 x true | [] | 地図だけ。未完了 Hc により重ねない |
+| HB-IE-08 | SW | s DOWN、Hc(s) 未完了、U、Q なし → x false | [] | 遅れた本体の false として U→H |
+| HB-IE-09 | SW | s DOWN、U(x)、Q なし、x false→true | [] | U 保持、u(s)=true |
+| HB-IE-10 | SW | s DOWN、Hc 未完了、送信済み P(x)、応答前 x false | [] | P→H、Q 維持、SawEvent=true。後着 OK から2秒保つ |
+| HB-IE-11 | SW | s DOWN、自動無効、Sc(s) 未完了、true 応答前に x true | [] | 一覧を外す、後着 OK で再追加しない |
+| HB-IE-12 | SW | s DOWN、Q(x,false)、送信済み P(x) → x true | [] | u=true、一覧と Q を保持。Q 終了時に地図 true なら一覧を外す |
 | MC-ITEM-9/0b | SW | 同値 x、Q/一覧/記憶の処理なし | [] | E のみ（W-06 の通常ケース） |
-| HB-IE-13 | SW | 同値 x false、U あり | Jb | 同値判定より先に U→H（H-02） |
-| HB-IE-14 | SW | 同値 x true、Q(x,true) あり | Jb | 先に照合して一覧を外す。W-06 の例外 |
+| HB-IE-13 | SW | s DOWN、Hc(s) 未完了、同値 x false、U あり | [] | 同値判定より先に U→H（H-02） |
+| HB-IE-14 | SW | s DOWN、自動無効、Sc(s) 未完了、同値 x true、Q(x,true) あり | [] | 先に照合して一覧を外す。W-06 の例外 |
 | MC-ITEM-10/0b | SW | 未知鍵、Q/一覧なし | [] | core が最新値を覚える。再通知なし |
-| HB-IE-15 | SW | 未知鍵に追跡中の Q がある | Jb | 照合は可能。地図に項目を捏造せず次の Map を待つ |
-| HB-IE-16 | SW | 人が親グループを false | Jb | 子の一覧は保持。全経路を再計算 |
+| HB-IE-15 | SW | s DOWN、Hc(s) 未完了、未知鍵に追跡中の Q がある | [] | 照合は可能。地図に項目を捏造せず次の Map を待つ |
+| HB-IE-16 | SW | s DOWN、Hc(s) 未完了、人が親グループを false | [] | 子の一覧は保持。全経路を再計算 |
 
 人の SceneChanged はシーンの期待を消すが項目の期待は消さない。
-人の true を受けた項目に既送信 false があとから届く制約は、送信の取消しでは解けない。
+false Q が残る間の人の true は u を付けても一覧を外さない。Q 終了時に地図 true なら外す。
+承認から適用の間に人が同じ false を送ると本体の期待に一致し、回復で戻す。識別不能の既知制約（M-9）。
 u のある同じ不調中は、少なくとも新しい false を出さないことを検査する。
 
 ### 4.3 ItemRequestDone と項目 E
@@ -328,27 +325,48 @@ u のある同じ不調中は、少なくとも新しい false を出さない�
 
 | # | T | 前の状態 → 結果 | 出す列 | 期待・一覧・回数 |
 |---|---|---|---|---|
-| HB-IR-01 | SW | P、Q(false,r) → ItemOK | Jb | 決着時刻=At、期限=At+2秒、P 保持、地図未変更 |
-| HB-IR-02 | SW | P、Q(false,r) → ItemTimeout | Jb | P→U、期限=At+2秒、永続化。失敗はバッチ単位集約 |
-| HB-IR-03 | SW | P、Q(false,r)、地図 true → ItemError | Jb | Q 消去、P を外してよい。決着時刻記録 |
-| HB-IR-04 | SW | 一覧あり → ItemNotFound | Jb | Q 消去、該当項目を一覧から外す |
-| HB-IR-05 | SW | H、Q(true,r) → ItemOK | Jb | 期限=At+2秒、イベントか補正まで H 保持 |
-| HB-IR-06 | SW | H、Q(true,r) → ItemTimeout | Jb | 期限=At+2秒、H 保持。false の U を新設しない |
-| HB-IR-07 | SW | H、Q(true,r) → ItemError | Jb | Q 消去、H 保持。再送対象 |
-| HB-IR-08 | SW | 先着 false で H、Q 照合済み → ItemOK | Jb | H 維持、Q 復活なし、送信台帳に成功 |
-| HB-IR-09 | SW | 先着 false で H → ItemTimeout | Jb | H 維持。すでに観測した false を U に戻さない |
-| HB-IR-10 | SW | 先着 true で削除済み → ItemError | Jb | 一覧再追加なし、失敗は台帳に残す |
+| HB-IR-01 | SW | s DOWN、Hc(s) 未完了、P、Q(false,r) → ItemOK | [] | 決着時刻=At、期限=At+2秒、P 保持、地図未変更 |
+| HB-IR-02 | SW | s DOWN、Hc(s) 未完了、P、Q(false,r) → ItemTimeout | [] | P→U、期限=At+2秒、永続化。失敗はバッチ単位集約 |
+| HB-IR-03 | SW | s DOWN、Hc(s) 未完了、P、Q(false,r)、地図 true → ItemError | [] | Q 消去、送信済み P を外す。決着時刻記録 |
+| HB-IR-04 | SW | s DOWN、Hc(s) 未完了、一覧あり → ItemNotFound | [] | Q 消去、該当項目を一覧から外す |
+| HB-IR-05 | SW | s DOWN、自動無効、Sc(s) 未完了、H、Q(true,r) → ItemOK | [] | 期限=At+2秒、イベントか補正まで H 保持 |
+| HB-IR-06 | SW | s DOWN、自動無効、Sc(s) 未完了、H、Q(true,r) → ItemTimeout | [] | 期限=At+2秒、H 保持。false の U を新設しない |
+| HB-IR-07 | SW | s DOWN、自動無効、Sc(s) 未完了、H、Q(true,r) → ItemError | [] | Q 消去、H 保持。再送対象 |
+| HB-IR-08 | SW | s DOWN、先着 false で H(x)、Q 残存 → ItemOK | [] | H 維持、期限 At+2秒、送信台帳に成功 |
+| HB-IR-09 | SW | s DOWN、Hc(s) 未完了、先着 false で H → ItemTimeout | [] | H 維持。すでに観測した false を U に戻さない |
+| HB-IR-10 | SW | s DOWN、自動無効、Sc(s) 未完了、先着 true で削除済み → ItemError | [] | 一覧再追加なし、失敗は台帳に残す |
 | HB-IR-11 | SW | 未知 r または処理済みの結果 | [] | E のみ |
 | HB-EX-01 | SW | OK の Q、SawEvent=false、At=期限 | [] | まだ Q を保つ |
-| HB-EX-02 | SW | 同上、At>期限、false | Jb 対象入口なら Jb | 地図 false、期待一致相当、P→H、Q 消去 |
-| HB-EX-03 | SW | 同上、true | 同上 | 地図 true、期待一致相当で一覧削除 |
-| HB-EX-04 | SW | OK の Q、SawEvent=true、期限超過 | 同上 | Q だけ消し、地図と人の判断を上書きしない |
-| HB-EX-05 | SW | Timeout の Q、期限超過 | 同上 | Q 消去のみ、U または H を保つ |
-| HB-EX-06 | SW | P、地図 true、決着後10秒超過 | 同上 | P 削除。U は対象外 |
-| HB-EX-07 | SW | P、まだ応答なし | [] | 時間だけで P/Q を消さない |
+| HB-EX-02 | SW | s DOWN、Hc 未完了、ItemOK の Q(x,false)、SawEvent=false、At>期限 → Tick | [] | 地図 false、期待一致相当、P→H、Q 消去 |
+| HB-EX-02-C | SW | s DOWN、Hc 未完了、ItemOK の Q(x,false)、SawEvent=false、At>期限 StoppingReceived=true → CmdShowAllCameras | [] / ErrInvalidState{終了中} | 地図 false、期待一致相当、P→H、Q 消去 |
+| HB-EX-02-A | SW | s DOWN、Hc 未完了、ItemOK の Q(x,false)、SawEvent=false、At>期限 → 未知バッチ Approve | Reject | 地図 false、期待一致相当、P→H、Q 消去 |
+| HB-EX-03 | SW | s DOWN、Hc 未完了、ItemOK の Q(x,true)、SawEvent=false、At>期限 → Tick | [] | 地図 true、期待一致相当で一覧削除 |
+| HB-EX-03-C | SW | s DOWN、Hc 未完了、ItemOK の Q(x,true)、SawEvent=false、At>期限 StoppingReceived=true → CmdShowAllCameras | [] / ErrInvalidState{終了中} | 地図 true、期待一致相当で一覧削除 |
+| HB-EX-03-A | SW | s DOWN、Hc 未完了、ItemOK の Q(x,true)、SawEvent=false、At>期限 → 未知バッチ Approve | Reject | 地図 true、期待一致相当で一覧削除 |
+| HB-EX-04 | SW | s DOWN、Hc 未完了、OK の Q(x,false)、H(x)、地図 false、SawEvent=true、期限超過 → Tick | [] | Q だけ消し、地図と人の判断を上書きしない（x=false、H 維持） |
+| HB-EX-04-C | SW | s DOWN、Hc 未完了、OK の Q(x,false)、H(x)、地図 false、SawEvent=true、期限超過 StoppingReceived=true → CmdShowAllCameras | [] / ErrInvalidState{終了中} | Q だけ消し、地図と人の判断を上書きしない（x=false、H 維持） |
+| HB-EX-04-A | SW | s DOWN、Hc 未完了、OK の Q(x,false)、H(x)、地図 false、SawEvent=true、期限超過 → 未知バッチ Approve | Reject | Q だけ消し、地図と人の判断を上書きしない（x=false、H 維持） |
+| HB-EX-05 | SW | s DOWN、Hc 未完了、Timeout の Q、U(x)、期限超過 → Tick | [] | Q 消去のみ、U を保つ |
+| HB-EX-05-C | SW | s DOWN、Hc 未完了、Timeout の Q、U(x)、期限超過 StoppingReceived=true → CmdShowAllCameras | [] / ErrInvalidState{終了中} | Q 消去のみ、U を保つ |
+| HB-EX-05-A | SW | s DOWN、Hc 未完了、Timeout の Q、U(x)、期限超過 → 未知バッチ Approve | Reject | Q 消去のみ、U を保つ |
+| HB-EX-06 | SW | s DOWN、Hc 未完了、P、地図 true、決着後10秒超過（10秒ちょうどは保持） → Tick | [] | P 削除。U は対象外 |
+| HB-EX-06-C | SW | s DOWN、Hc 未完了、P、地図 true、決着後10秒超過（10秒ちょうどは保持） StoppingReceived=true → CmdShowAllCameras | [] / ErrInvalidState{終了中} | P 削除。U は対象外 |
+| HB-EX-06-A | SW | s DOWN、Hc 未完了、P、地図 true、決着後10秒超過（10秒ちょうどは保持） → 未知バッチ Approve | Reject | P 削除。U は対象外 |
+| HB-EX-07 | SW | s DOWN、Hc 未完了、P(x)、まだ応答なし | [] | 時間だけで P/Q を消さない |
 
 期限切れを起こす拒否 Command があっても、Command の出力へ自動バッチを混ぜない。
 ItemError の際に地図 false が確認済みなら H を外さない（H-03）。
+
+### 4.3a 切断後の要求結果
+
+以下はすべて未接続、送信台帳に r があり、Q は切断で消去済み。
+
+| # | T | 前の状態 → 入力 | 出す列 | 状態の変化 |
+|---|---|---|---|---|
+| HB-IR-12 | SW | s DOWN、P(x)、地図 true → ItemTimeout(r) | [] | P→U、決着 At。Q は戻さない |
+| HB-IR-13 | SW | s DOWN、P(x)、地図 true → ItemError(r) | [] | P 削除、台帳に結果、Q は戻さない |
+| HB-IR-14 | SW | s DOWN、P(x) → ItemOK(r) | [] | 決着 At、P 保持、Q は戻さない。再接続地図 true でも10秒超まで保持 |
+| HB-IR-15 | SW | s DOWN、P(x) → ItemNotFound(r) | [] | 該当記録を削除、Q は戻さない |
 
 ### 4.4 SceneMapChanged
 
@@ -357,75 +375,97 @@ ItemError の際に地図 false が確認済みなら H を外さない（H-03�
 
 | # | T | 前の状態 → 地図 | 出す列 | 状態の変化 |
 |---|---|---|---|---|
-| HB-MP-01 | SW | 同 Z、一覧の x が消えた | Jb | x を一覧から外す、対応 Q は整理 |
-| HB-MP-02 | SW | 同 Z、x のソース is→別カメラ im | [Sc(s) の x] | 記録を保って、その項目だけ戻せる。新 m を隠さない |
-| HB-MP-03 | SW | P の x が地図で false | Jb | P→H、決着未着でも非表示の記録を保つ |
-| HB-MP-04 | SW | P の x が地図 true、10秒未満 | Jb | P 保持 |
-| HB-MP-05 | SW | U の x が地図 true | Jb | U 保持、10秒掃除しない |
-| HB-MP-06 | SW | U の x が地図 false | Jb | H-02 案で H に決着。補助地図の既存値で上書きしない |
-| HB-MP-07 | SW | 別 Z の地図 | Jb | 旧記録を Retained へ。新 Z と UUID が同じでも触らない |
-| HB-MP-08 | SW | 空地図→有効地図、未照合記録あり | Jb | 初回照合をここでも行う（H-02） |
-| HB-MP-09 | SW | 全項目が H だがソースと親経路は同じ | Jb | V(R) で Monitored を維持、auto の戻り先を消さない |
+| HB-MP-01 | SW | s DOWN、Hc(s) 未完了、同 Z、一覧の x が消えた | [] | x を一覧から外す、対応 Q は整理 |
+| HB-MP-02 | SW | s DOWN、H(x)、is の URL 変更で CameraID s→m（SourceUUID is は同じ） | [Sc(s) の x] | 記録を保ち当該項目を戻す。新 m を隠さない |
+| HB-MP-03 | SW | s DOWN、Proceed 済み P(x)、Hc 未完了、地図 false | [] | P→H、未応答でも記録保持 |
+| HB-MP-04 | SW | s DOWN、Hc(s) 未完了、P の x が地図 true、10秒未満 | [] | P 保持 |
+| HB-MP-05 | SW | s DOWN、Hc(s) 未完了、U の x が地図 true | [] | U 保持、10秒掃除しない |
+| HB-MP-06 | SW | s DOWN、Hc(s) 未完了、U の x が地図 false | [] | H-02 決定どおり H に決着。補助地図の既存値で上書きしない |
+| HB-MP-07 | SW | m=s OK、別 Z の地図、全項目 true | [] | 旧記録を Retained へ。新 Z と UUID が同じでも触らない |
+| HB-MP-08 | SW | s DOWN、空地図→有効地図、未照合 H(x) 記録あり、x/y false | [] | 初回照合をここでも行う（H-02） |
+| HB-MP-09 | SW | s DOWN、全 s 項目が H、m true、ソースと親経路は同じ | [] | V(R) で Monitored を維持、auto の戻り先を消さない |
 
 ソースが変わった項目を「消えた」と同じに即時削除しない。
 Sc の true は現在の項目を戻す。旧 SourceUUID との不一致は戻す理由である。
+
+### 4.4a SceneChanged の 0b 差分
+
+| # | T | 前の状態 → 入力 | 出す列 | 状態の変化 |
+|---|---|---|---|---|
+| HB-SC-01 | SW | D、s DOWN、F の期待あり → 期待どおり SceneChanged(S) | [Hc(s)] | auto/D 維持、シーン期待一致。項目 Q/一覧を保持 |
+| HB-SC-02 | SW | S、s DOWN、owner=none → 人の SceneChanged(A) | [Hc(s)] | C、SceneEpoch+1。m が残るので隠せる |
+| HB-SC-03 | SW | A、s DOWN、Hc(s) 未完了 → 人の SceneChanged(D) | [F(D)] | C、SceneEpoch+1、項目 Q と一覧は保持 |
+| HB-SC-04 | SW | HB-SC-03 後、Hc の y false 承認 | Reject | D を空にするため送らない |
+| HB-SC-05 | SW | A、m=s OK、H(x)、Q(x,true)、Sc 未完了 → 人の SceneChanged(T) | [] | C、SceneEpoch+1、項目 Q/H/台帳は変わらない |
 
 ### 4.5 接続、配信、設定、Studio Mode
 
 | # | T | 前の状態 → 入口 | 出す列 | 状態の変化 |
 |---|---|---|---|---|
-| OD-1/0a/0b | SW | 接続→OBSDisconnected | [] | ConnEpoch+1、全 Q 消去、P/H/U と Pending 保持 |
-| HB-OC-01 | SW | 同 Z 再接続、P/H/U あり | Jb | 最初の Map で照合、StudioMode 導入 |
-| HB-OC-02 | SW | 別 collection Y へ再接続 | Jb | C、X の一覧は残した記録、Y 分だけ照合 |
+| OD-1/0a/0b | SW | 接続→OBSDisconnected | [] | ConnEpoch+1、全 Q 消去、送信台帳・P/H/U・Pending 保持 |
+| HB-OC-01 | SW | s DOWN、同 Z 再接続、P(x)、地図 true、決着後1秒、旧 Hc 送出から1秒、y=false | [] | 最初の Map で P を保持、StudioMode 導入。5秒制限で再送なし |
+| HB-OC-02 | SW | m=s OK、別 collection Y へ再接続、全項目 true | [] | C、X の一覧は残した記録、Y 分だけ照合 |
 | HB-OC-03 | SW | 空地図で再接続 | [] | 記録を照合せず残す。カメラ表示操作なし |
-| HB-OC-04 | SW | 配信停止へ変わった再接続、一覧 H | [Sc 対象] | C、u 消去、項目を戻す。StartScene なし |
-| SSF-1/0a/0b | SW | true→false、一覧 H | [Sc 対象] | C、シーン期待・自動再送記録消去、項目 Q は保持 |
-| HB-ST-01 | SW | false→true、開始シーン O あり | [StartScene(O),Sc 対象] | StartScene 未完了中の Hc なし。Sc は戻せる分のみ |
-| HB-ST-02 | SW | false→true、開始切替なし | Jb | 最新の地図・状態で判断、u は前の停止で消去済み |
-| SCF-11/0a/0b | SW | auto true→false、一覧 H | [Sc 対象] | auto owner は C、manual は維持。項目 Q は残す |
-| MC-CFG-2/0b | SW | A m OK/s DOWN、s standby→hide | [Hc(s)] | ConfigEpoch+1、健康 OK、F を新規に出さない |
-| HB-CF-01 | SW | s hide→standby、L(s)=H | [F(A),Sc(s)] または Sc | 健康と現在シーンに従う。非表示でも V へ数える |
-| HB-CF-02 | SW | s を設定から削除、L(s)=H | [Sc(s)] | 設定外でも一覧 id を走査して戻す |
-| HB-CF-03 | SW | StudioModeHide のみ変更 | Jb | ConfigEpoch+1、最新有効動作へ。Q/Pending は保持 |
+| HB-OC-04 | SW | 配信停止へ変わった再接続、s DOWN、一覧 H(x/y)、地図 false、送出時刻なし | [Sc(s)] | C、u 消去、項目を戻す。StartScene なし |
+| SSF-1/0a/0b | SW | true→false、s DOWN、一覧 H(x/y)、地図 false、送出時刻なし | [Sc(s)] | C、シーン期待・自動再送記録消去、項目 Q は保持 |
+| HB-ST-01 | SW | false→true、開始シーン O あり、s OK/H(x/y)、地図 false | [StartScene(O),Sc(s)] | StartScene 未完了か期待残存中の Hc なし。s OK なので Sc を出す |
+| HB-ST-02 | SW | m=s OK、false→true、開始切替なし | [] | 最新の地図・状態で判断、u は前の停止で消去済み |
+| SCF-11/0a/0b | SW | auto true→false、s DOWN、一覧 H(x/y)、地図 false、送出時刻なし | [Sc(s)] | auto owner は C、manual は維持。項目 Q は残す |
+| MC-CFG-2/0b | SW | A m OK/s DOWN、前の F は失敗済み、s standby→hide | [Hc(s)] | ConfigEpoch+1、健康 OK、F を新規に出さない |
+| HB-CF-01 | SW | s DOWN、s hide→standby、L(s)=H(x/y) | [F(A),Sc(s)] | 健康 DOWN、V(A) に s を数える |
+| HB-CF-02 | SW | s を設定から削除、L(s)=H | [Sc(s)] | 設定外でも一覧 id を走査して戻す。u/f/送出時刻を破棄 |
+| HB-CF-03 | SW | s DOWN/H(x/y)、Studio on、設定 ignore→standby | [F(A),Sc(s)] | ConfigEpoch+1、Q/Pending 保持 |
 | HB-SM-01 | SW | off→on、設定 standby、s DOWN/H | [F(A),Sc(s)] | s を standby として健康 DOWN、Hide 停止 |
 | HB-SM-02 | SW | off→on、設定 ignore、s DOWN/H | [] | H 保持、健康で s を悪いと数えない |
-| HB-SM-03 | SW | off→on、設定 hide、s DOWN/H | Jb | 通常 hide 継続 |
-| HB-SM-04 | SW | on→off、s OK/H | [Sc(s)] | 通常の戻す条件へ |
-| HB-SM-05 | SW | on→off、s DOWN、地図 true | [Hc(s)] | 空にしない等が成立した場合 |
-| HB-SM-06 | SW | 同値 StudioModeChanged | [] | E のみ（案） |
+| HB-SM-03 | SW | off→on、設定 hide、s DOWN/H(x/y) | [] | 通常 hide 継続、対象は地図 false のため新規 Hide なし |
+| HB-SM-04 | SW | on/ignore→off、s OK/H(x/y)、前回 Sc は失敗済み、送出から5秒超 | [Sc(s)] | 再試行、通常戻す条件 |
+| HB-SM-05 | SW | on/standby→off、現在 S、auto/A、s DOWN、地図 true | [R(A),Hc(s)] | A 健康 OK、待機中に隠せる。後の R 承認も通常条件で検査 |
+| HB-SM-06 | SW | 同値 StudioModeChanged | [] | E のみ（決定） |
 
 Sc/Hc の再送5秒と未完了条件はどの入口でも省略しない。
 同値設定の判定に StudioModeHide を含める以外、同値 ScenesConfigured は 0a の表のまま。
+
+### 4.5a 照合と予約の補足
+
+| # | T | 前の状態 → 入力 | 出す列 | 状態の変化 |
+|---|---|---|---|---|
+| HB-OC-05 | SW | 同 Z、H(x)、s OK、他一覧なし → 再接続地図 x true | [] | H を削除、u は付けない。イベントで人の操作を観測していない |
+| HB-OC-06 | SW | Stopping 済み未接続、s DOWN、H(x) → OBSConnected 同 Z、x false | [] | H を照合、StudioMode 導入。RA/Auto/Hc/Sc を出さない |
+| HB-MP-10 | SW | s DOWN、Hc[x,y] 未完了、y は未送信予約 P → 地図 y false | [] | y は P のまま、H にしない |
+| HB-IE-17 | SW | s DOWN、Hc[x,y] 未完了、y 未送信 P → 人の y false | [] | 地図だけ false、P 維持。承認 Skip 後 BatchDone で予約前へ戻す |
+| HB-HR-07 | SW | 接続済み、s OK、一覧なし → 初回 HiddenRestored | [] / nil | 順違反として無視、記録を再投入しない |
 
 ### 4.6 HiddenRestored、HiddenWriteFailed、Stopping、Command
 
 | # | T | 前の状態 → 入口 | 出す列 / cmdErr | 状態の変化 |
 |---|---|---|---|---|
 | HB-HR-01 | SW | 設定後・未接続→HiddenRestored | [] / nil | Entries を Retained に複製。まだ照合しない |
-| HB-HR-02 | SW | 初回 Map、同 Z/同ソース/false の H/P 記録 | Jb / nil | H として一覧に戻す |
-| HB-HR-03 | SW | 初回 Map、項目なし/別ソース/true の H/P 記録 | Jb / nil | 記録削除、永続化 |
-| HB-HR-04 | SW | 初回 Map、別 Z の記録 | Jb / nil | Retained 維持、件数を警告へ |
-| HB-HR-05 | SW | 初回 Map、U 記録 | Jb / nil | H-02 の例外で true でも U 保持 |
-| HB-HR-06 | SW | 2回目の HiddenRestored | [] / nil | H-01 案で無視し、一覧を再投入しない |
+| HB-HR-02 | SW | s DOWN、初回 Map、同 Z/同ソース/false の H(x) 記録、y=false | [] / nil | H として一覧に戻す |
+| HB-HR-03 | SW | s OK、初回 Map、同 Z の H(x) 記録、x は地図 true、y=false | [] / nil | 記録削除、永続化 |
+| HB-HR-04 | SW | s DOWN、初回 Map、別 Z の H(x) 記録、現 Z の x/y=false | [] / nil | Retained 維持、件数を警告へ |
+| HB-HR-05 | SW | s OK、初回 Map、U(x) 記録、x true、y=false | [] / nil | H-02 の例外で true でも U 保持 |
+| HB-HR-06 | SW | 2回目の HiddenRestored | [] / nil | H-01 決定どおり無視し、一覧を再投入しない |
 | HB-HW-01 | SW | 初回予約保存失敗→HiddenWriteFailed(#h) | [] / nil | #h が作った P/Q を予約前へ巻き戻す |
 | HB-HW-02 | SW | 同上 | [] / nil | LastError「隠した項目を記録できないため、隠すのを止めました」、警告 |
 | HB-HW-03 | SW | 不明/処理済み BatchID | [] / nil | 他バッチの一覧・期待を消さない |
-| HB-SP-01 | SW | 接続中→Stopping | [RA] / nil | StoppingReceived=true、RestoreIssued=true |
+| HB-SP-01 | SW | 接続中、一覧 H(x)→Stopping | [RA] / nil | StoppingReceived=true、RestoreIssued=true |
 | HB-SP-02 | SW | 未接続→Stopping | [] / nil | 停止済み印、core はすぐ app へ完了通知 |
 | HB-SP-03 | SW | 2回目の Stopping | [] / nil | RA を再発行しない |
-| HB-SP-04 | SW | 停止中→任意の Command | [] / ErrInvalidState{終了中} | E 以外変化なし、未接続でもこの理由を優先する案 |
+| HB-SP-04 | SW | 停止中→任意の Command | [] / ErrInvalidState{終了中} | E 以外変化なし、未接続でもこの理由を優先する |
 | HB-SP-05 | SW | 停止中→回線/地図/項目/応答/Tick | [] / nil | 照合・保存は続けるが Auto/Hc/Sc は生成しない |
-| HB-MA-01 | SW | 接続中→CmdShowAllCameras | [MA] / nil | 現 Z の全カメラ非表示項目を固定（一覧外も） |
+| HB-MA-01 | SW | 接続中、s DOWN、x=H、y は一覧外 false → CmdShowAllCameras | [MA] / nil | 非表示カメラ項目 ∪ 現 Z の全一覧 P/H/U ∪ false Q の鍵を固定。記録保持、受付以前の Hc を無効化 |
 | HB-MA-02 | SW | 未接続→同 Command | [] / ErrNotConnected | 503。コレクション切替中も同じ |
 | HB-MA-03 | SW | MA 未完了→同 Command | [] / ErrInvalidState{同じ操作が実行待ち} | 409、重ねない |
-| HB-MA-04 | SW | 対象0→同 Command | [] / nil | 200、現 Z の記録・U を消す |
-| HB-MA-05 | SW | MA 受付、別 Z の記録あり | [MA] / nil | 別 Z は保持。現 Z の一覧・記憶は H-06 案で削除 |
+| HB-MA-04 | SW | 有効地図、対象0、現 Z 記録なし → 同 Command | [] / nil | 200、他 Z 記録は保持 |
+| HB-MA-05 | SW | s DOWN、x=H、別 Z 記録あり → MA 受付 | [MA] / nil | 現 Z と別 Z の記録を保持。項目ごとの true 決着で現 Z の対象だけ消す |
 | CMD-SOFF-5/0a/0b | SW | S manual/A、健康 OK、待っている項目あり、auto=true | [] / nil | auto/A に変える。Show は次の入口で判断 |
 | HB-OF-01 | SW | 同上、auto=false | [M(A)] / nil | 待たず、I(A) は standby 扱いだけ |
+| HB-MA-06 | SW | 空地図、現 Z に P/H/U 記録 → CmdShowAllCameras | [] / nil | 200、全記録を触らず保持、カメラ表示操作なし |
+| HB-SP-06 | SW | 接続中、有効地図、一覧も false Q も空 → Stopping | [] / nil | 停止済み印、RA なし、core が保存後即完了通知 |
 
 MA は受け付けた同じ Handle で Hc/Sc/Auto を混ぜない。
-その後は通常規則なので、同じ不調の hide が再発することは仕様どおり。
-停止 RA は一覧が空でも空バッチを返し、BatchDone で通知する案（H-06）。
+その後は通常規則なので、同じ不調の hide が再発することは仕様どおり。MA は B のため true イベントの入口ですぐ再生成できる。
+停止 RA の対象が空ならバッチを返さず、core は保存後ただちに完了通知する（H-06）。
 既存 Command の配信条件・重複・X の拒否順は、停止判定を先頭へ足す以外 0a の表のまま。
 
 ### 4.7 Approve
@@ -435,15 +475,15 @@ Show の Restart は項目(1)〜(3)を行わず、共通条件の後にカメラ
 
 | # | T | 前の状態・対象 | 結果 | 状態の変化 |
 |---|---|---|---|---|
-| HB-AP-01 | SW | Hc の最初の有効な false | Proceed 候補 | 全固定項目を P 予約、Q 登録、core が保存してから返す |
-| HB-AP-02 | SW | Hc の2個目以降 | Proceed | 全件予約の再書込み不要。個別 Q 登録 |
+| HB-AP-01 | SW | Hc の最初の有効な false | Proceed{ReqID,MustPersist=true} | 全固定項目を P 予約、Q と台帳登録、core が1秒以内に保存してから返す |
+| HB-AP-02 | SW | Hc の2個目以降 | Proceed{ReqID,MustPersist=false} | 全件予約の再書込み不要。個別 Q と台帳登録 |
 | HB-AP-03 | SW | (1) 項目が地図にない | Skip | 一覧から外す、Q なし |
 | HB-AP-04 | SW | (2) Hc、ソースが今は別カメラ | Skip | 新カメラを隠さない。既存記録の復旧判断は残す |
 | HB-AP-05 | SW | (3) Hc、すでに false | Skip | Q なし。予約しただけなら BatchDone で P を外す |
-| HB-AP-06 | SW | (3) Sc、すでに true | Skip | Q なし。U の処遇は H-02 |
-| HB-AP-07 | SW | (4) Hc、c OK / uあり / 自動無効 / 非配信 | Reject | 残りを送らない |
-| HB-AP-08 | SW | Hc、StartScene 未完了 | Reject | false を送らない |
-| HB-AP-09 | SW | Hc、仮の A(now) が空 | Reject | F が OK でも SceneChanged(S) 未着なら同じ |
+| HB-AP-06 | SW | Sc、地図 true、H(x)、false Q なし | Skip | H を削除。U の場合は U を保持する別行 HB-AP-27 |
+| HB-AP-07 | SW | Hc、c OK / uあり / 自動無効 / 非配信 / on_bad=standby / Studio on かつ設定 standby・ignore | Reject | c が有効な hide でない場合も残りを送らない |
+| HB-AP-08 | SW | Hc、StartScene 未完了または期待残存 | Reject | false を送らない |
+| HB-AP-09 | SW | Hc、現在または期待の残る監視対象切替先の仮 A(R) が空 | Reject | 生成と同じ検査。F の OK だけでは待機到着でない |
 | HB-AP-10 | SW | Hc、SceneEpoch/ConfigEpoch だけ変化 | Proceed | 最新条件を満たすなら Q 登録 |
 | HB-AP-11 | SW | Hc/Sc、StreamEpoch/ConnEpoch 不一致 | Reject | Q 追加なし |
 | HB-AP-12 | SW | Sc Restart、c OK | Proceed | 固定入力を実行。Q なし |
@@ -451,7 +491,7 @@ Show の Restart は項目(1)〜(3)を行わず、共通条件の後にカメラ
 | HB-AP-14 | SW | Sc true、一覧あり/地図 false/その項目を戻せる | Proceed | Q(true) 登録 |
 | HB-AP-15 | SW | Sc true、一覧から外れた/戻す条件が消えた | Skip | 他項目は続ける |
 | HB-AP-16 | SW | Sc true、ソースが c のものでなくなった | Proceed | 当該項目は戻せる理由あり |
-| HB-AP-17 | SW | RA true、地図 true、P または false Q あり | Proceed | Skip 例外、Q(true) 登録 |
+| HB-AP-17 | SW | RA/MA true、地図 true、P/U または false Q あり | Proceed | Skip 例外、Q(true) 登録。false Q は応答期限まで保持 |
 | HB-AP-18 | SW | RA true、地図 true、H だけで false Q なし | Skip | 送らず成功扱い |
 | HB-AP-19 | SW | RA、StreamEpoch だけ違う | Proceed | 接続・ConnEpoch 一致だけを使う |
 | HB-AP-20 | SW | 停止中の Auto/Hc/Sc 後続 | Reject | 送信済み要求だけは結果を処理 |
@@ -459,35 +499,41 @@ Show の Restart は項目(1)〜(3)を行わず、共通条件の後にカメラ
 | HB-AP-22 | SW | MA の一覧外 true | Proceed | カメラ項目の対象であることを再確認（H-06） |
 | HB-AP-23 | SW | AutoRecover、生成後に待つ項目ができた | Proceed | 健康ほか従来条件成立時。待つ条件は承認に足さない |
 | HB-AP-24 | SW | OffMonitored、生成後に待つ項目ができた | Proceed | 同上。健康悪化なら従来どおり Replace |
+| HB-AP-25 | SW | MA 受付より前に生成した Hc の残り | Reject | 新しい false は送らず、未送信予約は BatchDone で巻き戻す |
+| HB-AP-26 | SW | 停止中、受付済み Command 由来または StartScene の承認、従来条件成立 | Proceed | 停止による追加却下はしない。従来の接続・Epoch・目的条件で承認 |
+| HB-AP-27 | SW | 通常 Sc、地図 true、U(x)、false Q なし | Skip | U 記憶は保持。明示 MA・停止 RA の true 成功で消す |
+| HB-AP-28 | SW | RA/MA、地図 true、U(x) | Proceed | true を送信し、OK 決着で U 削除 |
 
 最初の Action が Skip なら保存を要する false はまだない。
-最初の Proceed 候補のときに全対象を予約する案（H-01）。
+最初の Proceed 候補のときに全対象を予約する（H-01）。
 「全対象」にすでに H/U があるときは上書きせず、予約前の値を巻き戻し台帳に持つ。
 Sc の Restart 対象は、c の入力のうち地図で表示の項目が1つもない入力。
 入力 UUID を重複排除して辞書順、Wait は末尾に1回。c 不良なら生成時にも Restart を省く。
-親経路で見えないだけで項目 true の入力は「表示の項目あり」として除く案（H-08）。
+親経路で見えないだけで項目 true の入力は「表示の項目あり」として除く（H-08）。
 
 ### 4.8 Hide/Show/Restore の BatchDone
 
+Hc/Sc は要求失敗でも後続を走査し Completed+Err。Failed は発生しない（M-8）。
+
 | # | T | 前の状態 → 完了 | 出す列 | 状態の変化 |
 |---|---|---|---|---|
-| HB-BD-01 | SW | Hc、一部 Skip/Reject、送信済みあり | Jb | 未送信 P だけ外す、送信済み P/H/U は保持、Pending 削除 |
-| HB-BD-02 | SW | Hc/Sc Completed、Err=nil、実要求成功 | Jb | f=0、unusable=false |
-| HB-BD-03 | SW | Hc/Sc Completed、Errあり | Jb | f を1増やす、LastError に一部失敗。後続を試したことを保持 |
-| HB-BD-04 | SW | 同上、f が2→3 | Jb | unusable=true、last_error、健康を再計算 |
-| HB-BD-05 | SW | Rejected、実要求なし | Jb | 失敗回数を増やさない案。未送信 P を掃除 |
-| HB-BD-06 | SW | 全 Skip の Completed | Jb | f を成功として0にするかは H-04 案（0にしない） |
-| HB-BD-07 | SW | Sc の true OK、イベント未着 | Jb | 通常 Sc は一覧をまだ外さず Q のイベント/2秒補正待ち |
+| HB-BD-01 | SW | s DOWN、Hc、一部 Skip/Reject、送信済みあり、送出から5秒未満 | [] | 未送信 P を予約前へ巻き戻す。元 H/U は保持。Pending 削除 |
+| HB-BD-02 | SW | s DOWN、Hc Completed、Err=nil、実要求成功、送出から5秒未満 | [] | f=0、unusable=false |
+| HB-BD-03 | SW | s DOWN、Hc Completed+Err、f=0、送出から5秒未満 | [] | f=1、LastError はまだ更新しない。3到達時のみ記録 |
+| HB-BD-04 | SW | s DOWN、Hc Completed+Err、送出から5秒未満、f が2→3 | [] | unusable=true、last_error、健康を再計算 |
+| HB-BD-05 | SW | s DOWN、Hc Rejected、実要求なし、送出から5秒未満 | [] | 失敗回数を増やさない。未送信 P を掃除 |
+| HB-BD-06 | SW | s DOWN、Hc 全 Skip Completed、f=1、送出から5秒未満 | [] | f=1 を保持、Pending 削除 |
+| HB-BD-07 | SW | s OK、Sc の true OK、イベント未着、送出から5秒未満 | [] | 通常 Sc は一覧をまだ外さず Q のイベント/2秒補正待ち |
 | HB-BD-08 | SW | RA 完了、true OK/Timeout/Error が混在 | [] | OK の項目のみ外す。失敗分保持、保存後に停止完了通知 |
 | HB-BD-09 | SW | RA Rejected/Failed | [] | 未復旧分保持、core は完了通知して停止可能 |
 | HB-BD-10 | SW | 不明/重複 BatchDone | [] | E のみ、回数・保存を二重更新しない |
-| HB-BD-11 | SW | MA 完了、Errあり | [] | LastError、現 Z 記録は H-06 の削除方針。通常規則は次の入口 |
+| HB-BD-11 | SW | MA Completed+Err、x true OK、y true Error | [] | x 記録削除、y 記録保持。LastError「表示に戻せなかった項目があります。もう一度押してください」 |
 
 ItemRequestDone ごとに f を増やさない。複数項目が失敗しても1バッチで+1。
 同じバッチ内の成功1件で、他項目の失敗を打ち消さない。
 最後の送出から5秒未満なら BatchDone 起点の Jb でも同カメラを出さない。
 シーンの BatchDone がもともと J を行わない規則は 0a の表のまま。
-ただし StartScene 完了後の Hide 再開は次の Tick/判断入口で行う。
+ただし StartScene は未完了か期待が残る間 Hide を止め、両方が消えた後の判断入口で再開する。
 
 ## 5. 列のケース
 
@@ -529,26 +575,40 @@ ItemRequestDone ごとに f を増やさない。複数項目が失敗しても1
 |---|---|---|---|
 | 1 | s DOWN、Hc 発行 | [Hc(s)#1] | x/y は固定 |
 | 1.1 | x false Proceed、保存→OK→x false | — | x=H、y=P |
-| 1.2 | 人が x true、true Q なし | [] | x を外し u(s)=true |
+| 1.2 | 人が x true、true Q なし、false Q 残存 | [] | x の記録を保持し u(s)=true |
 | 1.3 | y false の承認 | Reject | u があるので残りを送らない |
-| 1.4 | BatchDone Rejected | [] | 未送信 y の P を外す、f は増やさない |
+| 1.4 | BatchDone Rejected | [] | 未送信 y の P を外す、f は増やさない。x は false Q 終了時に地図 true なら外す |
 | 7 | Tick、まだ s DOWN | [] | 同じ不調中、隠し直さない |
 | 8 | s OK | [] | u 消去 |
 | 9 | s DOWN | [Hc(s)] | 新しい不調として隠せる |
 
-### HB-SQ-04 Timeout と遅れた適用（要求 d）
+### HB-SQ-04 Timeout と同じ Z の再接続（要求 d）
+
+開始 A、m OK、s DOWN。y は地図 false の一覧外項目、x のみ表示。
 
 | t | 入力・処理 | 出す列 | 期待する状態 |
 |---|---|---|---|
-| 1 | Hc の x false 承認保存・送信 | — | P、Q(false,r) |
-| 6 | ItemTimeout(r) | Jb | U、期限8、hidden.json に U |
-| 6.1 | OBSDisconnected | [] | Q 消去、U は保持 |
-| 7 | 同 Z の OBSConnected、x true | Jb | H-02 案で U 保持、表示として数える |
-| 18 | Tick | Jb | 10秒でも U を外さない |
-| 20 | 遅れた x false | Jb | U→H、期待なしでも本体として拾う |
-| 21 | s OK、再送条件成立 | [Sc(s)] | 通常の true に向かう |
+| 1 | Hc(s)#1、x false 承認保存・送信 | — | P(x)、Q(false,r) |
+| 6 | ItemTimeout(r)、BatchDone Completed+Err | [] | U(x)、期限8、f=1、送信台帳に決着 |
+| 6.1 | OBSDisconnected | [] | Q 消去、U・台帳保持 |
+| 7 | 同 Z の OBSConnected、x true、s DOWN | [Hc(s)#2] | U を保ち表示と数える。5秒経過なので再送対象 x |
+| 7.1 | x false 承認保存→ItemOK→false→BatchDone | [] | U→H、f=0、Q は9.1まで保持 |
+| 18 | Tick | [] | H 保持、対象はすでに false |
+| 21 | s OK | [Sc(s)#3] | true に向かう |
 
-別列: t=20 の前に世代再起動し U を HiddenRestored しても同じ結果（H-02）。
+### HB-SQ-04B 切断が結果より先
+
+| t | 入力・処理 | 出す列 | 期待する状態 |
+|---|---|---|---|
+| 1 | A、s DOWN、x false を Proceed・保存・送信 | — | P、送信台帳あり |
+| 2 | OBSDisconnected | [] | Q 消去、台帳と P 保持 |
+| 2.1 | 実行役から ItemTimeout | [] | 台帳で P→U、Q は再生成しない |
+| 2.2 | 旧 BatchDone Completed+Err | [] | f=1、旧 Pending 削除 |
+| 3 | s OK（未接続） | [] | f=0 |
+| 7 | 同 Z 再接続、x true | [] | U 保持。s OK のため Hc なし、Sc も非表示対象なし |
+| 20 | 遅れた x false | [Sc(s)] | U→H、応答待ちの期待なしでも拾う |
+
+再起動を挟む同列では t=7 の前に HiddenRestored(U x) を渡し、同じ期待値を検査する。
 
 ### HB-SQ-05 配信停止（要求 e）
 
@@ -589,40 +649,89 @@ ItemRequestDone ごとに f を増やさない。複数項目が失敗しても1
 
 ### HB-SQ-08 Studio Mode の3値（要求 h）
 
-開始は A、m OK、s DOWN、x/y=H、最後の Hide から5秒以上。
+各列の開始 A、m OK、s DOWN、x/y=H、最後の Hide から5秒以上。
+standby 列の F は Item ではなく SceneRequestDone Error→BatchDone で終了し A に残す。
+Sc は t=1.1 に true の OK・イベント・BatchDone まで成功させる。
 
 | t | 入力・設定 | 出す列 | 期待する状態 |
 |---|---|---|---|
-| 1 | on、standby | [F(A),Sc(s)] | hide を standby 扱い、s を戻す |
-| 1 | on、ignore（別列） | [] | s は悪いと数えない、H は保持 |
-| 1 | on、hide（別列） | [] | 通常 hide、既存 H 維持 |
-| 8 | 各列で s OK | standby/ignore/hide の戻す条件による | ignore の解釈は H-07 を参照 |
-| 9 | 各列で off | Jb | 普段の hide、OK の H があれば Sc |
+| 1 | on、standby | [F(A),Sc(s)] | standby 扱い、s を戻す |
+| 1.1 | standby 列の上記完了 | [] | A、一覧なし、x/y true |
+| 8 | standby 列 s OK | [] | 戻す項目なし、u=false、f=0 |
+| 9 | standby 列 off | [] | A、一覧なし |
+| 1 | on、ignore（独立列） | [] | s は健康で悪いと数えず H 保持 |
+| 8 | ignore 列 s OK | [Sc(s)] | ignore 中も OK は戻す理由 |
+| 8.1 | true OK・イベント・BatchDone | [] | 一覧なし |
+| 9 | ignore 列 off | [] | A、追加操作なし |
+| 1 | on、hide（独立列） | [] | H 保持 |
+| 8 | hide 列 s OK | [Sc(s)] | 通常の OK 回復 |
+| 8.1 | true OK・イベント・BatchDone | [] | 一覧なし |
+| 9 | hide 列 off | [] | A、追加操作なし |
 
-standby 列では F の失敗で A のままでも Sc の true は許す。
-ignore 列の非配信または auto=false を挟む派生列も H-07 の採否に合わせて持つ。
+### HB-SQ-08B ignore 中の他の戻す理由
+
+次の各行は独立。開始 Studio on/ignore、A、s DOWN、x/y H、送出時刻なし。
+
+| # | T | 入力 | 出す列 | 状態の変化 |
+|---|---|---|---|---|
+| HB-SM-07 | SW | StreamStateChanged(false) | [Sc(s)] | H は true の決着まで保持、Restart なし |
+| HB-SM-08 | SW | ScenesConfigured auto=false | [Sc(s)] | H 保持、Restart なし |
+| HB-SM-09 | SW | ScenesConfigured s on_bad=standby | [F(A),Sc(s)] | 健康 DOWN、Restart なし |
 
 ### HB-SQ-09 コレクションを切り替えて戻る（要求 i）
 
 | t | 入力・処理 | 出す列 | 期待する状態 |
 |---|---|---|---|
 | 1 | X、x=H→OBSDisconnected | [] | H 保持、Q 消去 |
-| 2 | Y の OBSConnected、同じ UUID の x | Jb | X の x は Retained。Y の x を勝手に戻さない |
+| 2 | Y の OBSConnected、同じ UUID の x、m=s OK、全項目 true | [] | X の x は Retained。Y の x を勝手に戻さない |
 | 3 | Y→OBSDisconnected | [] | X 記録保持 |
 | 4 | X の OBSConnected、x false、s OK | [Sc(s)] | 同一ソース照合成功、H として復元 |
 | 5 | true の完了 | [] | X の記録削除、Y の記録はそのまま |
 
+### HB-SQ-09B 本体切替の期待中の空検査
+
+各行は独立、m OK、s LOW、一覧なし。D は s だけの監視対象。
+
+| # | T | 前の状態 → 入力 | 出す列 | 状態の変化 |
+|---|---|---|---|---|
+| HB-GD-01 | SW | S auto/D、SetScene(D) Proceed・OK、期待残存 → CamerasChanged s OK→LOW | [] | D を空にする Hc を生成しない |
+| HB-GD-02 | SW | T、StartScene(D) Completed、期待残存 → Tick | [] | 完了後も期待が残るので Hc なし |
+| HB-GD-03 | SW | S auto/D、Hc(s) 発行済み、その後 SetScene(D) Proceed、期待残存 → y false 承認 | Reject | 期待先 D を空にするので却下 |
+
 ### HB-SQ-10 すべて表示に戻す（要求 j）
+
+開始 A、m OK、s DOWN、前回 Hc 送出時刻なし、x=H、y は人の false、別 Z に記録。
 
 | t | 入力・処理 | 出す列 | 期待する状態 |
 |---|---|---|---|
-| 1 | x=H、y は人が false、別 Z に記録、U もある | — | 現 Z の非表示項目を区別できる |
-| 2 | CmdShowAllCameras | [MA#1] | x/y を対象、現 Z の記録/U/記憶を消去（H-06） |
-| 2.1 | 各 true を承認・送信、ItemOK | — | 一覧外の y も送る、Restart なし |
-| 2.2 | BatchDone Completed、true イベント | [] | x/y 表示、別 Z の記録は保持 |
-| 8 | s DOWN のまま、Tick | [Hc(s)] | 通常規則へ戻り再度隠せる |
+| 2 | CmdShowAllCameras | [MA#1] | x/y 対象、現 Z の記録も保持。送出時刻は更新しない |
+| 2.1 | true 承認・送信、ItemOK、MA BatchDone | [] | x は true OK で記録削除、y は一覧外でも送る。別 Z 保持 |
+| 2.2 | x true イベント | [Hc(s)#2] | x だけを対象に直ちに再生成。m が残る |
+| 2.3 | y true イベント | [] | Hc 未完了なので重ねない |
+| 2.4 | #2 x false 承認→OK→false→BatchDone | [] | x=H、y=true |
+| 8 | Tick | [Hc(s)#3] | 前回から5秒超、y のみ対象 |
 
-MA 中に false 期待が残る派生列は、H-06 の「記憶の消去」と後着イベントの扱いを検査する。
+### HB-SQ-10A MA が実行中 Hide の残りを止める
+
+| t | 入力・処理 | 出す列 | 期待する状態 |
+|---|---|---|---|
+| 1 | s DOWN、Hc#1[x,y]、x Proceed・保存・送信、y 未承認 | — | x/y P、x false Q |
+| 2 | MA Command | [MA#2] | 地図 true の x/y も全一覧として対象、記録保持 |
+| 2.1 | #1 y 承認 | Reject | MA より前の Hc の残りは送らない |
+| 2.2 | #1 BatchDone Rejected | [] | y は未送信 P を巻き戻し、x P と台帳保持 |
+| 2.3 | x false OK・イベント | [] | x H。5秒未満なので Hc 再生成なし |
+| 2.4 | #2 x/y true 承認→OK→イベント→BatchDone | [] | 項目ごとに記録・U を削除、x/y true |
+
+### HB-SQ-10B MA とイベント未着・失敗
+
+開始 A、s DOWN、Hc#1 は t=1 送出、x false Proceed・保存・ItemOK 済み、地図 true、y は対象外。
+
+| t | 入力・処理 | 出す列 | 期待する状態 |
+|---|---|---|---|
+| 2 | MA Command | [MA#2] | false Q と一覧の x が対象、記録保持 |
+| 2.1 | 遅れた x false イベント | [] | x H、Q の一致でも期限まで保持 |
+| 2.2 | #1 BatchDone、#2 x true Proceed→ItemError→BatchDone | [] | x H 保持、last_error に再操作案内 |
+| 2.3 | Snapshot・ファイル検査 | — | x の記録は一覧と hidden.json の両方に残る |
 
 ## 6. 第5節の4つを M-12 で確かめる案
 
@@ -636,20 +745,20 @@ MA 中に false 期待が残る派生列は、H-06 の「記憶の消去」と�
 ### HB-INV-01 記録のない非表示を作らない
 
 - 判定点: false の保存障壁、実送信、偽 OBS の適用、イベント処理、ファイル書換え。
-- 本体が false を適用した鍵の集合を「人の非表示」と別に保持する。
-- 各鍵が Machine の一覧または同 Z/SourceUUID の hidden.json にあることを判定。
-- まだ true を適用していない鍵が両方から消えたら失敗。
+- 偽 OBS が「どの接続のどの要求が値を変えたか」を事実として記録し、本体が true→false にした鍵を人の非表示と別に保持する。すでに false への false は含めない。
+- 各鍵が適用の瞬間に同 Z/SourceUUID の hidden.json のファイル内容にあることを判定。Machine の分類を oracle に使わない。
+- true が決着するまで記録がファイルから消えたら失敗。
 - 未送信予約の削除は、本体 false が一度も送られていないことと照合。
 - 送信前保存失敗の列では、偽 OBS に false が1件も届かないことも判定。
 - Timeout 保証外列では U の保存と遅着 false の回収を別の到達性として確認。
-- MA は明示的な記録破棄の例外として、H-06 の採否を oracle に入れる。
+- MA に例外は設けない。受付・部分失敗を含め同じ保存条件を検査する（C-1）。
 
 ### HB-INV-02 配信中の今のシーンを空にしない
 
-- 判定点: 各 false の Proceed 直前、偽 OBS での各 false の適用直後。
+- 判定点: 各 false の Proceed 直前、偽 OBS での各 false の適用直後、本体 SetScene の適用直後。
 - 承認時には既承認 false の集合を全て重ねた項目グラフを独立にたどる。
 - 入れ子の共有末端、ひし形、同カメラ複数入力、循環を生成する。
-- program が Monitored で配信中なら、その操作で実表示が非空→空にならないこと。
+- 承認までに本体に渡したイベントで決まる program と本体が Proceed した SetScene の先を独立に数え、監視対象で配信中なら空にしない。本体に未着の人の切替とのすれ違いは除外する。
 - F の OK 応答だけでは待機到着とみなさず、program の実適用も別に記録。
 - 人が空にした列は本体の違反から除外し、AutoFail の到達性を確認。
 - Studio Mode hide/複製ありは program 複製の既知制約として別列にする。
@@ -659,7 +768,8 @@ MA 中に false 期待が残る派生列は、H-06 の「記憶の消去」と�
 
 - 判定点: 期待不一致の true を処理した直後と、その後の各 false の承認。
 - oracle にカメラごとの「同じ不調の区間」を持つ。
-- 一覧の項目に人の true を観測し、戻せる条件がなければその区間に印を立てる。
+- 偽 OBS が人の操作として出した true イベントを本体に渡した事実から観測を立て、oracle が独立計算した戻せる条件がなければ区間に印を立てる。
+- 人が隠した項目に本体が true を送らない（明示 MA を除く）。未送信 P を H にしないこともここで検査。
 - 区間内で本体の新しい false が Proceed しないことを判定する。
 - 区間を閉じるのは OK 到達と配信停止。単なる Tick/地図変更では閉じない。
 - 観測より前に送信済みの false の遅着は取消不能として別に数える。
@@ -670,90 +780,88 @@ MA 中に false 期待が残る派生列は、H-06 の「記憶の消去」と�
 - 安全性だけでなく、入力列の末尾へ安定した回復区間を加える到達性検査にする。
 - 接続正常、要求成功、地図確定、Tick 継続、対象ソース維持を回復区間の前提にする。
 - 非配信/auto=false/on_bad=standby 等の戻せる条件を固定し、全対象の true 到達を確認。
-- 5秒再送、応答から2秒超の補正、バッチの直列処理時間を含めた十分な上限を設ける。
+- 回復条件に OK を加え、Studio on/ignore のままの回復と S auto/A から A への復帰も検査する。
+- 上限は 5秒×3 + 2秒 + 全対象のバッチ処理時間 B + Tick 間隔1秒 = 18秒+B。B は回復区間に許す全要求数 N に応答上限5秒と各 Wait の合計を足した 5N秒+ΣWait とする。
 - f>=3 でも試行が永久停止しないことを確認（H-04）。
 - 別 collection の項目は現 collection で true にせず、戻った後に同じ検査を行う。
 - Stopping は1回の RA と2秒まで。未復旧ならファイルに残ることを代わりに確認。
 - 次世代へファイルを渡し、接続回復・非配信の安定区間で復旧を確認。
 
-## 7. spec の不明点と採用案
+## 7. H-01〜H-09 の決定と撤回理由
 
-本文の H 依存箇所は以下の案を仮の期待値としている。spec は変更しない。
-実装前レビューで採否を決める。未記載の規則を確定済みと扱わない。
+指揮者の決定と spec v0.15 を反映した。ここに未決の採否はない。
 
-### H-01 型・ReqID・保存障壁の具体的な API
+### H-01 型・ReqID・保存障壁
 
-spec は出力の形と保存の通知方法を定めていない。
-案: 1章の専用 ApproveItem、実行役採番 uint64、Snapshot+Revision を採用。
-最初の有効な false の Proceed 候補時に全件予約し、core が保存してから返す。
-HiddenRestored は設定後に1回、再投入は無視。対象順は1章の固定順。
-保存中の割り込みを許すなら、保存後の再承認と予約の所有権を別途設計する必要がある。
+決定: 既存 Approve を広げ、Machine が uint64 ReqID を振り Proceed に返す。MustPersist はこの承認前の同期保存を示す。上限1秒、割り込みなし、失敗は HiddenWriteFailed。Snapshot/Revision は一覧の写しの読み口だけ。
 
-### H-02 未決着の永続性と HiddenRestored の一般照合が衝突する
+反映: 1.3〜1.4、HB-AP-01/02、HB-HW-01〜03、HB-HR-01/06。
 
-第7節は U を切断・再起動をまたいで保持するとし、同節の一般照合は表示項目を捨てる。
-案: U は一般照合の true 廃棄より優先し、同 Z/同ソースなら true でも保持。
-false を初回地図で確認したときは H へ決着。項目削除/ソース変更は一般照合に従う。
-人の true では U の記憶を消さず、必要なら一覧本体と記憶を内部で分ける。
-通常 Sc/RA の true 成功でも記憶を残し、明示 MA で消す保守的案。
-また空地図の後の最初の有効 SceneMapChanged でも未照合記録を照合する。
-これを OBSConnected だけに限定すると、補助地図で回復しても永久に未照合になる。
+撤回・選択の理由: 旧案の項目専用 API・実行役採番は二重の所有者になるため撤回。Revision の差だけでは保存失敗時の Reject と警告を区別できないため、障壁は Proceed の印にした。
 
-### H-03 項目の照合、先着イベント、掃除の境界
+### H-02 U と初回照合
 
-案: 期待照合の削除範囲は同じ項目内に限る。先着イベント後の結果は送信台帳で処理。
-同値通知でも Q/U の処理を先に行い、純粋な重複だけ W-06 に従う。
-2秒期限は既存 E と同じ `>`、10秒掃除も `>` として境界をそろえる。
-Error の P は地図 true のとき即時削除、地図 false なら H を保持。
-台帳をいつ捨てるかは、結果受領済みかつ期待・バッチの双方で不要になった時点とする。
+決定: U は同 Z/同ソースなら地図 true でも保持し、false なら H。削除・別ソースは一般照合に従う。空地図の後の最初の空でない SceneMapChanged でも照合する。通常 Sc の true は U 記憶を消さず、明示 MA の true 決着と停止 RA の true OK で対象を消す。
 
-### H-04 失敗の単位、3回後の再送と成功
+反映: HB-MP-05/06/08、HB-HR-02〜05、HB-OC-05、HB-AP-17/27、HB-MA-06、HB-BD-08。
 
-spec の「カメラごと」の連続失敗と、第4節の「表示に戻すのに3回」の関係が曖昧。
-案: Hide/Show 共通の送出時刻、バッチ単位で失敗+1、実要求が全成功なら0。
-全 Skip と条件変化による Reject は回数を変えない。状態変化で0は明文どおり。
-3回でも試行は止めず、健康上の unusable として扱う。戻す方への到達性を優先する。
-RestartMedia の失敗でも true の後続を試し、Err を集約する。
-採否時には「Hide の失敗でも unusable になるか」を特に確認する。
+撤回・選択の理由: 一般照合で U の地図 true を捨てる読みは、切断・再起動をまたぐ記憶を失うため採らない。停止 RA の OK 削除は停止契約を優先する。
 
-### H-05 コレクション変更時のカメラ単位の印
+### H-03 項目照合と境界
 
-一覧の移動は明記されているが、u/f/再送時刻の collection 境界は未記載。
-案: 既存のカメラ単位のまま保持し、OK/配信停止による u の解除を守る。
-これにより別 collection でも同じ不調中は人の判断を尊重する。
-再接続で無条件に0へ戻すと失敗の歯止めが無効になるので回数も保持。
+決定: 照合は同じ項目内。先着一致で SawEvent を立てても Q は応答から2秒まで保持。Error/NotFound は即消去。境界は2秒も10秒も >。台帳は切断で消さず、結果処理と期待・バッチで不要になった後に捨てる。
 
-### H-06 手動全表示と停止 RestoreAll の完了・失敗・記録消去
+反映: HB-IE-10/12、HB-IR-08/12〜14、HB-EX-01〜07、HB-SQ-04B。
 
-spec は MA で現在 collection の記録を消す一方、要求失敗時の残し方は未記載。
-案: MA 受付で現 Z の一覧/U/記憶を消し、失敗は LastError、再操作を案内。
-既送信要求の応答を解釈する台帳は残すが、削除した記憶を再生成しない印を持つ。
-MA 中の true は一覧不要、対象のカメラ項目性を承認で確認し、欠落なら Skip。
-停止 RA は空でも空バッチで完了通知、未接続なら即時通知。再発行しない。
-RA の OK 項目を BatchDone で外す規則と U 保持の衝突は H-02 と合わせて決める。
-通常の保存更新の失敗は、初回 Hide の HiddenWriteFailed と分けて再保存する案。
-MA の記録破棄は不変条件1の明示例外になるため、成功分だけ削除する代案もレビュー対象。
+撤回・選択の理由: 応答前一致で Q を削除する旧案は遅着 false を記録できないため撤回。地図 false の記録は Error でも消さない。
 
-### H-07 Studio Mode ignore と他の戻す理由の優先順位
+### H-04 失敗単位と再送
 
-第1節は ignore を「戻さない」とし、第5節4と第6節は停止/auto無効/OK で戻す。
-案: ignore は Studio Mode 自体を戻す理由にしないだけと読み、他の明示理由を優先。
-したがって OK、配信停止、auto=false、on_bad=standby なら Sc を出す。
-全面的に ignore を優先するなら HB-SM と HB-SQ-08 の期待値を変更する。
+決定: Hide/Show 共通時刻。バッチ単位で失敗+1、実要求が全成功なら0。全 Skip と実要求なし Reject は維持。3到達時だけ last_error。3以降も戻す試行を続け、Hide の失敗も unusable に反映。Restart 失敗でも true は続ける。
 
-### H-08 戻り先待ちと Show の入力対象の範囲
+反映: HB-BD-02〜06、HB-TK-04、1.2。
 
-案: 待ちは「R に映るカメラ」の一覧全体の非表示を調べる（全シーンの Hide と対応）。
-Show の Restart は地図の項目 Enabled を使い、親経路の可視性だけでは再起動しない。
-戻り先の経路にある項目だけ待つ代案は回復を短くするが、spec に明記が必要。
+撤回・選択の理由: 失敗を項目ごとに数えると項目数で歯止めが変わるため採らない。全 Skip は実成功でないため0にしない。
 
-### H-09 全部 hide・全部不良の最初の列
+### H-05 collection 境界
 
-各カメラを単独で隠す検査だけでは、2台とも表示中なら片方を先に隠せる。
-ユーザーが要求した「全部 hide で全部悪いので待機へ」は、F と Hide の同時生成に解釈差がある。
-案: H(now) が全部 hide 不良で、F を生成するときはその列の Hide を抑える。
-待機 SceneChanged の後に Hide を生成する。mixed standby/hide は通常の空判定を使う。
-この保守的案により HB-CC-07 の期待は [F(A)] だけになる。
+決定: u/f/送出時刻はカメラ単位で保持。OK と配信停止で u を消す。設定から削除したカメラの u/f/送出時刻は捨てる。
+
+反映: 2.2、HB-CF-02、HB-SQ-09。
+
+撤回・選択の理由: 再接続で回数を0にすると失敗の歯止めが無効になる。別 collection でも同じ不調中は人の判断を尊重する。
+
+### H-06 MA と停止 RA
+
+決定: MA は非表示全カメラ項目・全一覧 P/H/U・false Q を対象にし、受付以前の Hc の残りを Reject。記録は各 true 決着で消し、失敗は残して last_error。RA 対象0ならバッチなしで core が保存後即完了。
+
+反映: HB-MA-01〜06、HB-AP-17/25/26、HB-BD-08/11、HB-SQ-10/A/B。
+
+撤回・選択の理由: 受付時の削除と再生成防止印は記録なし非表示を作るため撤回。INV-01 の MA 例外も撤回。空 RA を実行役へ流す必要はない。通常保存失敗は警告と再保存対象を残す。
+
+### H-07 Studio ignore
+
+決定: ignore は新しく隠さず、待機へ送らず、健康で悪いと数えない。Studio on だけでは戻さず、OK・非配信・auto=false・on_bad=standby で本体の一覧だけ戻す。
+
+反映: 3.2、HB-SM-02/04/07〜09、HB-SQ-08/B、HB-INV-04。
+
+撤回・選択の理由: ignore が他の戻す理由も無効にする読みは待機から復帰不能になるため撤回。人が隠した項目には true を送らない。
+
+### H-08 待ちと Restart
+
+決定: 待ちは戻り先へ映るカメラの一覧全体の非表示を調べる。Show の Restart は項目 Enabled を使い、親経路だけの不可視では再起動しない。
+
+反映: 3.3、HB-AP-12/13、HB-SQ-02。
+
+撤回・選択の理由: 戻り先の経路だけ待つ代案は全シーンの Hide との対応を失うため採らない。
+
+### H-09 全部 hide・不良
+
+決定: 特別な抑止は置かず、同じ Handle 内の先行 Hc 候補を重ねて通常の空検査を使う。設定順 m,s で [F(A),Hc(m)]、s が残る。
+
+反映: 3.3、HB-CC-07、HB-SC-01。
+
+撤回・選択の理由: F を生成する列だけ Hide を止める旧案は、期待待ちや X により F が出ない列で結果が変わるため撤回。
 
 ## 8. 実装への受け渡しと文書の検証
 
@@ -761,6 +869,36 @@ Show の Restart は地図の項目 Enabled を使い、親経路の可視性だ
 - HB の各行を rows の名前に、HB-SQ を seq の名前にそのまま使用する。
 - テストの状態差分には Hidden/Retained/Q/送信台帳/u/f/送出時刻を追加する。
 - Snapshot と保存データの所有権を検査し、外から slice を変えても状態が変わらないこと。
-- M-10 の型と署名の差は H-01 決定後に実装役が吸収する。
+- M-10 の既存型を使い、承認の ReqID と保存印を M-12 の実行役に渡す。
 - 本文は実装完了や M-12 の成功を主張しない。製品コードとテストは変更していない。
-- レビューの主対象は H-02/H-06/H-07/H-09 の優先順位と、空にしない計算。
+- レビュー指摘と反映先は第9章で追跡する。
+
+## 9. レビュー対応の索引
+
+| 指摘 | 反映先と対応 |
+|---|---|
+| C-1 / H-06 | HB-MA-01/04/05/06、HB-AP-17/25/28、HB-BD-11、HB-SQ-10/A/B、HB-INV-01。受付削除を撤回、項目ごとの true 決着 |
+| C-2 | 3.3、HB-AP-08/09、HB-ST-01、HB-SC-01〜04、HB-GD-01〜03、HB-INV-02。期待が残る切替先も保護 |
+| I-1 | HB-IE-10/12、HB-IR-08、HB-EX-02〜05。応答から2秒まで Q 保持 |
+| I-2 | 1.3、OD-1/0a/0b、HB-IR-12〜15、HB-SQ-04B。切断後も台帳で結果処理 |
+| I-3 | HB-IE-17、HB-MP-03/10、HB-AP-05、HB-BD-01。Proceed 済みだけ H、未送信は元 H/U を含め巻き戻し |
+| I-4 | HB-AP-07。on_bad と Studio の有効 hide 条件 |
+| I-5 | HB-SM-02/04/07〜09、HB-SQ-08/B、H-07。ignore 中も他理由で復旧 |
+| I-6 | HB-SQ-04/B、HB-SQ-10。再送と即時 Hide の出力を訂正 |
+| I-7 | HB-IE/IR/MP/HR/BD 各行、HB-TK-02/05/06、HB-CF-01/03、HB-SM-03/05、HB-EX-02〜06 の C/A 行。カメラ状態と出力を具体化 |
+| I-8 | HB-SC-01〜05、HB-OC-05/06、HB-MA-06、HB-AP-26/28、HB-SP-06。抜けた入口を追加 |
+| I-9 / H-01 | 1.2〜1.4、HB-AP-01、HB-HW-01〜03。Approve 拡張・Machine 採番・Proceed 保存印・1秒同期保存 |
+| I-10 | HB-INV-01〜04。独立 oracle、ファイル、SetScene 適用、人の未着操作の除外、ignore、数値上限 |
+| M-1 | 3.1、HB-MP-02。URL による CameraID の変更を検査 |
+| M-2 | HB-TK-05、HB-EX-06。10秒ちょうどは保持 |
+| M-3 | 2.2、HB-SQ-05。提案は不採用、共通5秒再送を維持。通常の到達性に違反せず、既存の制限を統一するため |
+| M-4 | HB-BD-03/04、H-04。last_error は3到達時だけ |
+| M-5 | 3.2。有効 Motion と MotionIgnore、V(R) で classOf |
+| M-6 | HB-HR-06/07。再投入と接続後初回を無視 |
+| M-7 | 2.2、HB-CF-02。設定削除時 u/f/時刻を破棄 |
+| M-8 | 1.2、4.8。Hc/Sc は Failed を返さず失敗を集約して Completed |
+| M-9 | 4.2、HB-INV-03。人の同値 false を識別できない既知制約 |
+| H-02〜05 / H-08 / H-09 | 第7章に各決定・理由・反映行を記載 |
+
+新しく残した不明点はない。M-3 は理由を記して既存規則を維持した。
+この改訂は文書のみ。M-11/M-12 の実装・テストの成功を示すものではない。
