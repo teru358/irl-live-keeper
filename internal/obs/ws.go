@@ -186,6 +186,12 @@ func (r *connRecorder) close() {
 // dial は goobs.New で OBS に接続する。失敗したときと、実行中に ctx が終わったときは、
 // 開いた接続を閉じる。成功したら接続は cli.Disconnect と、返す記録で閉じる。
 func (w *WS) dial(ctx context.Context, addr string) (*goobs.Client, *connRecorder, error) {
+	return dialOBS(ctx, addr, w.cfg.Password, w.timeout)
+}
+
+// dialOBS は addr の OBS に goobs.New で接続する（WS と Aux が共通で使う）。
+// timeout は goobs の応答待ち（認証の待ちも同じ値）。extra は goobs の追加のオプション。
+func dialOBS(ctx context.Context, addr, password string, timeout time.Duration, extra ...goobs.Option) (*goobs.Client, *connRecorder, error) {
 	rec := &connRecorder{}
 	nd := &net.Dialer{}
 	dialer := &websocket.Dialer{
@@ -203,12 +209,13 @@ func (w *WS) dial(ctx context.Context, addr string) (*goobs.Client, *connRecorde
 		},
 	}
 	opts := []goobs.Option{
-		goobs.WithResponseTimeoutDuration(w.timeout),
+		goobs.WithResponseTimeoutDuration(timeout),
 		goobs.WithDialer(dialer),
 	}
-	if w.cfg.Password != "" {
-		opts = append(opts, goobs.WithPassword(w.cfg.Password))
+	if password != "" {
+		opts = append(opts, goobs.WithPassword(password))
 	}
+	opts = append(opts, extra...)
 
 	done := make(chan struct{})
 	stopped := make(chan struct{})
