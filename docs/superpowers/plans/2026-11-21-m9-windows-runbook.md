@@ -44,7 +44,7 @@
 
 | # | 確かめること | 結果 |
 |---|---|---|
-| T-12 | 配信中に上り回線を一時的に切って、OBS の出力が再接続しても、待機の持ち主と戻り先が保たれる | 2026-11-21: 合格（Windows の Claude Code のセッションが代理で進めた。指示書 `tmp/windows-test/t12-agent-brief.md`、結果 `t12-result.md`）。WAN の線を抜けないので、試験だけのプロファイル（`ctl.exe t12 setup`。配信先は PC の中の試験だけの MediaMTX `127.0.0.1:21935`）で配信し、その MediaMTX を止めた。OBS の `OUTPUT_RECONNECTING`（17:56:39.8）から `OUTPUT_RECONNECTED`（17:57:14.7）までの約35秒、status の全行で `streaming=True`、owner `auto`、return `Camera`。本体のログには何も出ない。そのあとカメラを送ると Camera へ戻った（owner none）。元のプロファイルに戻したことを確かめた。`scene switch` のログから `standby changed` まで約5秒あるのは、T-11 で設定したフェード 5000ms が残っていたため（ログはトランジションの始まり、持ち主の変化は終わり） |
+| T-12 | 配信中に上り回線を一時的に切って、OBS の出力が再接続しても、待機の持ち主と戻り先が保たれる | 2026-11-21: 合格（Windows の Claude Code のセッションが代理で進めた。指示書と結果は `docs/superpowers/plans/m9-windows/` の `t12-agent-brief.md` と `t12-result.md`。`ctl.exe t12` の命令は、あとで `ctl.exe test`〔tools/obsctl〕に置き換えた）。WAN の線を抜けないので、試験だけのプロファイル（`ctl.exe t12 setup`。配信先は PC の中の試験だけの MediaMTX `127.0.0.1:21935`）で配信し、その MediaMTX を止めた。OBS の `OUTPUT_RECONNECTING`（17:56:39.8）から `OUTPUT_RECONNECTED`（17:57:14.7）までの約35秒、status の全行で `streaming=True`、owner `auto`、return `Camera`。本体のログには何も出ない。そのあとカメラを送ると Camera へ戻った（owner none）。元のプロファイルに戻したことを確かめた。`scene switch` のログから `standby changed` まで約5秒あるのは、T-11 で設定したフェード 5000ms が残っていたため（ログはトランジションの始まり、持ち主の変化は終わり） |
 | T-15 | 実際のスマホの配信アプリ（SRT か RTMP）で、屋外に近い回線（モバイル回線など）から送り、kbps の揺れと、誤った切替が起きないか。SRT の RTT とロス率が status に出るか（Tailscale で送るときは `stream.publish_host` に Tailscale のアドレスを書く） | |
 
 ## 3. 複数のカメラ（スマホ2台）
