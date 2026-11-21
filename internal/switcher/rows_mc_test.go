@@ -178,28 +178,36 @@ func TestMCRestartInputs(t *testing.T) {
 
 	m := newMachine()
 	baseMulti(&m.st)
-	// MC-I-4: R にカメラがなければ RestartMedia 自体がなく、SetScene だけ。
-	if got := m.restoreActions(talk); !reflect.DeepEqual(got, []Action{SetScene{SceneUUID: talk}}) {
-		t.Errorf("MC-I-4: got %+v, want SetScene だけ", got)
-	}
-	// MC-I-5: 対象が空の合成バッチ生成は、Wait が 0.5秒でも空の Action を作らない。
-	for _, target := range []string{talk, standby, "unknown"} {
-		for _, a := range m.restoreActions(target) {
-			if rm, ok := a.(RestartMedia); ok {
-				t.Errorf("MC-I-5: %s に空の RestartMedia %+v", target, rm)
+	t.Run("MC-I-4", func(t *testing.T) {
+		// R にカメラがなければ RestartMedia 自体がなく、SetScene だけ。
+		if got := m.restoreActions(talk); !reflect.DeepEqual(got, []Action{SetScene{SceneUUID: talk}}) {
+			t.Errorf("got %+v, want SetScene だけ", got)
+		}
+	})
+	t.Run("MC-I-5", func(t *testing.T) {
+		// 対象が空の合成バッチ生成は、Wait が 0.5秒でも空の Action を作らない。
+		for _, target := range []string{talk, standby, "unknown"} {
+			for _, a := range m.restoreActions(target) {
+				if rm, ok := a.(RestartMedia); ok {
+					t.Errorf("%s に空の RestartMedia %+v", target, rm)
+				}
 			}
 		}
-	}
-	// 対象のあるシーンは、1つの RestartMedia（設定順、同カメラ内は UUID の辞書順）と SetScene。
-	want := []Action{RestartMedia{Inputs: []string{inMain, inSub}, Wait: W}, SetScene{SceneUUID: camera}}
-	if got := m.restoreActions(camera); !reflect.DeepEqual(got, want) {
-		t.Errorf("MC-I-1: got %+v, want %+v", got, want)
-	}
-	// 設定の順を s、m、d にすると、入力の順も s が先になる（W-03）。
-	m.st.Cameras = []CameraConfig{cam(camSub), cam(camMain), cam(camDesk)}
-	if got := m.restoreActions(camera); !reflect.DeepEqual(got[0], RestartMedia{Inputs: []string{inSub, inMain}, Wait: W}) {
-		t.Errorf("W-03 の順: got %+v", got[0])
-	}
+	})
+	t.Run("MC-I-1/actions", func(t *testing.T) {
+		// 対象のあるシーンは、1つの RestartMedia（設定順、同カメラ内は UUID の辞書順）と SetScene。
+		want := []Action{RestartMedia{Inputs: []string{inMain, inSub}, Wait: W}, SetScene{SceneUUID: camera}}
+		if got := m.restoreActions(camera); !reflect.DeepEqual(got, want) {
+			t.Errorf("got %+v, want %+v", got, want)
+		}
+	})
+	t.Run("MC-I-order", func(t *testing.T) {
+		// 設定の順を s、m、d にすると、入力の順も s が先になる（W-03）。
+		m.st.Cameras = []CameraConfig{cam(camSub), cam(camMain), cam(camDesk)}
+		if got := m.restoreActions(camera); !reflect.DeepEqual(got[0], RestartMedia{Inputs: []string{inSub, inMain}, Wait: W}) {
+			t.Errorf("W-03 の順: got %+v", got[0])
+		}
+	})
 }
 
 // ---- MC-CC: CamerasChanged ----
@@ -625,6 +633,10 @@ func TestApproveMultiHealth(t *testing.T) {
 // ---- U-15/0a: 初期値 ----
 
 func TestInitial0a(t *testing.T) {
+	t.Run("U-15/0a", func(t *testing.T) { initial0a(t) })
+}
+
+func initial0a(t *testing.T) {
 	m := newMachine()
 	s := m.st
 	if s.Connected || s.Map != nil || len(s.CameraStates) != 0 || len(s.Cameras) != 0 || s.Streaming || s.PrevConnStreaming ||
@@ -679,4 +691,57 @@ func TestLastErrorUsesMapName(t *testing.T) {
 	if msg := expire(t, func(m *Machine) { m.st.Map = nil }); !strings.Contains(msg, opening) {
 		t.Errorf("名前がなければ UUID: %q", msg)
 	}
+}
+
+// ---- 所有権（表2章）: Event の map と slice を、Handle のあとに外で変えても、状態は変わらない ----
+
+func TestEventOwnership(t *testing.T) {
+	t.Run("OBSConnected", func(t *testing.T) {
+		m := newMachine()
+		m.Handle(cfg(0, withMulti()))
+		mp := multiMap()
+		m.Handle(connM(1, true, camera, mp))
+		before := cloneState(m.st)
+		mp.Collection = "changed"
+		mp.Inputs[inMain] = scenemap.Input{Name: "x", CameraID: "x"}
+		mp.Scenes[camera] = scenemap.Container{Name: "changed"}
+		if d := diffState(m.st, before); d != "" {
+			t.Fatalf("OBSConnected の Map を共有している:%s", d)
+		}
+	})
+	t.Run("SceneMapChanged", func(t *testing.T) {
+		m := newMachine()
+		m.Handle(cfg(0, withMulti()))
+		m.Handle(connM(1, true, camera, multiMap()))
+		mp := mm(renamed(camera, "Camera-renamed"))
+		m.Handle(smcMap(2, mp))
+		before := cloneState(m.st)
+		mp.Scenes[camera].Items[0].Enabled = false
+		mp.Inputs[inSub] = scenemap.Input{Name: "x", CameraID: "x"}
+		if d := diffState(m.st, before); d != "" {
+			t.Fatalf("SceneMapChanged の Map を共有している:%s", d)
+		}
+	})
+	t.Run("CamerasChanged", func(t *testing.T) {
+		m := newMachine()
+		m.Handle(cfg(0, withMulti()))
+		states := map[string]scenemap.CameraState{camMain: OK, camSub: LOW, camDesk: OK}
+		m.Handle(CamerasChanged{At: at(1), States: states})
+		before := cloneState(m.st)
+		states[camSub] = DOWN
+		if d := diffState(m.st, before); d != "" {
+			t.Fatalf("CamerasChanged の States を共有している:%s", d)
+		}
+	})
+	t.Run("Snapshot", func(t *testing.T) {
+		m := newMachine()
+		m.Handle(cfg(0, withMulti()))
+		m.Handle(cc(1, OK, OK, OK))
+		m.Handle(connM(2, true, camera, multiMap()))
+		s := m.Snapshot()
+		s.VisibleCameras[0] = "changed"
+		if got := m.Snapshot().VisibleCameras[0]; got != camMain {
+			t.Fatalf("Snapshot の VisibleCameras を共有している: %q", got)
+		}
+	})
 }

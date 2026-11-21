@@ -109,52 +109,56 @@ func TestMCSeq01(t *testing.T) {
 
 // MC-SQ-02: 同じ健康でも原子的に組を扱う。
 func TestMCSeq02(t *testing.T) {
-	q := newSeq(t).multi(camera, true, [3]scenemap.CameraState{OK, OK, DOWN})
-	b := q.batchIn(cc(100, LOW, OK, DOWN), 1, af, standby, camera, nil, camMain)
-	q.finish(b, 200)
-	q.owner(OwnerAuto, camera)
-	q.pending()
-	q.none(cc(1000, OK, LOW, DOWN))
-	q.health(camera, LOW, camSub)
-	sent := q.m.st.LastAutoSent[ar]
-	before := cloneState(q.m.st)
-	q.none(CamerasChanged{At: at(2000), States: map[string]scenemap.CameraState{camDesk: DOWN, camSub: LOW, camMain: OK}})
-	if d := diffState(q.m.st, before); d != "" {
-		t.Fatalf("同じ組で状態が変わった:%s", d)
-	}
-	if got := q.m.st.LastAutoSent[ar]; !got.Equal(sent) {
-		t.Fatalf("再送時刻が動いた")
-	}
-	q.batchIn(cc(3000, OK, OK, DOWN), 2, ar, camera, "", bothInputs(), "")
+	t.Run("MC-SQ-02", func(t *testing.T) {
+		q := newSeq(t).multi(camera, true, [3]scenemap.CameraState{OK, OK, DOWN})
+		b := q.batchIn(cc(100, LOW, OK, DOWN), 1, af, standby, camera, nil, camMain)
+		q.finish(b, 200)
+		q.owner(OwnerAuto, camera)
+		q.pending()
+		q.none(cc(1000, OK, LOW, DOWN))
+		q.health(camera, LOW, camSub)
+		sent := q.m.st.LastAutoSent[ar]
+		before := cloneState(q.m.st)
+		q.none(CamerasChanged{At: at(2000), States: map[string]scenemap.CameraState{camDesk: DOWN, camSub: LOW, camMain: OK}})
+		if d := diffState(q.m.st, before); d != "" {
+			t.Fatalf("同じ組で状態が変わった:%s", d)
+		}
+		if got := q.m.st.LastAutoSent[ar]; !got.Equal(sent) {
+			t.Fatalf("再送時刻が動いた")
+		}
+		q.batchIn(cc(3000, OK, OK, DOWN), 2, ar, camera, "", bothInputs(), "")
+	})
 }
 
 // MC-SQ-03: 手元カメラを使わない日から使う。
 func TestMCSeq03(t *testing.T) {
-	ccMD := func(ms int, m, d scenemap.CameraState) Event {
-		return CamerasChanged{At: at(ms), States: map[string]scenemap.CameraState{camMain: m, camDesk: d}}
-	}
-	q := newSeq(t)
-	q.none(cfg(0, withCameras(cam(camMain), cam(camDesk))))
-	q.none(ccMD(0, OK, DOWN))
-	q.none(connM(0, true, camera2, multiMap()))
-	q.none(tick(1000))
-	e := q.epochs()
-	b := q.batchIn(sc(2000, deskScene), 1, af, standby, deskScene, nil, camDesk)
-	q.epochDelta(e, 1, 0, 0, 0)
-	q.finish(b, 2100)
-	q.owner(OwnerAuto, deskScene)
-	q.none(tick(3000))
-	q.none(ccMD(3500, OK, DOWN))
-	b = q.batchIn(ccMD(4000, OK, OK), 2, ar, deskScene, "", []string{inDesk}, "")
-	q.finish(b, 4100)
-	q.scene(deskScene)
-	q.owner(OwnerNone, "")
-	e = q.epochs()
-	q.none(sc(5000, camera2))
-	q.epochDelta(e, 1, 0, 0, 0)
-	q.none(ccMD(6000, OK, DOWN))
-	q.scene(camera2)
-	q.health(camera2, OK, "")
+	t.Run("MC-SQ-03", func(t *testing.T) {
+		ccMD := func(ms int, m, d scenemap.CameraState) Event {
+			return CamerasChanged{At: at(ms), States: map[string]scenemap.CameraState{camMain: m, camDesk: d}}
+		}
+		q := newSeq(t)
+		q.none(cfg(0, withCameras(cam(camMain), cam(camDesk))))
+		q.none(ccMD(0, OK, DOWN))
+		q.none(connM(0, true, camera2, multiMap()))
+		q.none(tick(1000))
+		e := q.epochs()
+		b := q.batchIn(sc(2000, deskScene), 1, af, standby, deskScene, nil, camDesk)
+		q.epochDelta(e, 1, 0, 0, 0)
+		q.finish(b, 2100)
+		q.owner(OwnerAuto, deskScene)
+		q.none(tick(3000))
+		q.none(ccMD(3500, OK, DOWN))
+		b = q.batchIn(ccMD(4000, OK, OK), 2, ar, deskScene, "", []string{inDesk}, "")
+		q.finish(b, 4100)
+		q.scene(deskScene)
+		q.owner(OwnerNone, "")
+		e = q.epochs()
+		q.none(sc(5000, camera2))
+		q.epochDelta(e, 1, 0, 0, 0)
+		q.none(ccMD(6000, OK, DOWN))
+		q.scene(camera2)
+		q.health(camera2, OK, "")
+	})
 }
 
 // MC-SQ-04: 人が OBS の項目を非表示にする。
@@ -323,43 +327,45 @@ func TestMCSeq06(t *testing.T) {
 
 // MC-SQ-07: 古い OBS（最初の地図取得に3回失敗）。UUID は名前と同じ値。
 func TestMCSeq07(t *testing.T) {
-	const (
-		oldA = "Camera"
-		oldS = "Standby"
-		oldO = "Opening"
-	)
-	oldMap := &scenemap.Map{Collection: collectionX, Groups: map[string]scenemap.Container{}, Inputs: map[string]scenemap.Input{},
-		Scenes: map[string]scenemap.Container{oldA: {Name: oldA}, oldS: {Name: oldS}, oldO: {Name: oldO}}}
-	q := newSeq(t)
-	q.none(cfg(0, withMulti(), withStart(opening)))
-	q.none(cc(0, DOWN, DOWN, DOWN))
-	q.none(OBSConnected{At: at(0), Streaming: false, Scene: oldA, SceneUUID: oldA, TransitionMs: ip(300), Map: oldMap})
-	if s := q.m.Snapshot(); !s.Connected || s.Class != ClassOther || s.HasHealth {
-		t.Fatalf("接続後の Snapshot = %+v", s)
-	}
-	b := q.batch(cmd(1000, CmdStreamStart), 1, stt, "", "")
-	q.approve(1, StartStream{}, 1000, Proceed{})
-	q.none(bd(1100, 1, BatchCompleted))
-	_ = b
-	b = q.batch(ssc(2000, true), 2, ssp, oldO, "")
-	q.finish(b, 2100)
-	q.scene(oldO)
-	q.owner(OwnerNone, "")
-	b = q.batch(cmd(3000, CmdStandbyOn), 3, son, oldS, oldO)
-	q.finish(b, 3100)
-	q.owner(OwnerManual, oldO)
-	b = q.batch(cmd(4000, CmdStandbyOff), 4, sfo, oldO, "")
-	for _, a := range b.Actions {
-		if _, ok := a.(RestartMedia); ok {
-			t.Fatalf("再起動なし")
+	t.Run("MC-SQ-07", func(t *testing.T) {
+		const (
+			oldA = "Camera"
+			oldS = "Standby"
+			oldO = "Opening"
+		)
+		oldMap := &scenemap.Map{Collection: collectionX, Groups: map[string]scenemap.Container{}, Inputs: map[string]scenemap.Input{},
+			Scenes: map[string]scenemap.Container{oldA: {Name: oldA}, oldS: {Name: oldS}, oldO: {Name: oldO}}}
+		q := newSeq(t)
+		q.none(cfg(0, withMulti(), withStart(opening)))
+		q.none(cc(0, DOWN, DOWN, DOWN))
+		q.none(OBSConnected{At: at(0), Streaming: false, Scene: oldA, SceneUUID: oldA, TransitionMs: ip(300), Map: oldMap})
+		if s := q.m.Snapshot(); !s.Connected || s.Class != ClassOther || s.HasHealth {
+			t.Fatalf("接続後の Snapshot = %+v", s)
 		}
-	}
-	q.finish(b, 4100)
-	q.scene(oldO)
-	q.owner(OwnerNone, "")
-	q.none(cc(5000, LOW, OK, DOWN))
-	q.none(tick(6000))
-	q.none(tick(12000))
+		b := q.batch(cmd(1000, CmdStreamStart), 1, stt, "", "")
+		q.approve(1, StartStream{}, 1000, Proceed{})
+		q.none(bd(1100, 1, BatchCompleted))
+		_ = b
+		b = q.batch(ssc(2000, true), 2, ssp, oldO, "")
+		q.finish(b, 2100)
+		q.scene(oldO)
+		q.owner(OwnerNone, "")
+		b = q.batch(cmd(3000, CmdStandbyOn), 3, son, oldS, oldO)
+		q.finish(b, 3100)
+		q.owner(OwnerManual, oldO)
+		b = q.batch(cmd(4000, CmdStandbyOff), 4, sfo, oldO, "")
+		for _, a := range b.Actions {
+			if _, ok := a.(RestartMedia); ok {
+				t.Fatalf("再起動なし")
+			}
+		}
+		q.finish(b, 4100)
+		q.scene(oldO)
+		q.owner(OwnerNone, "")
+		q.none(cc(5000, LOW, OK, DOWN))
+		q.none(tick(6000))
+		q.none(tick(12000))
+	})
 }
 
 // MC-SQ-08: 承認までに地図が変わる。
