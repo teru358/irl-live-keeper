@@ -11,6 +11,14 @@ import (
 type Config struct {
 	// RestartWait は RestartMedia.Wait に入れる待ち時間。
 	RestartWait time.Duration
+	// Endpoint は OBS の接続先。隠した項目の記録の同一性（接続先 + シーンコレクション）に使う。接続先の変更は新しい世代。
+	Endpoint Endpoint
+}
+
+// Endpoint は OBS の接続先（資格情報は含めない）。
+type Endpoint struct {
+	Host string
+	Port int
 }
 
 // settings は生成時に決まり、変わらない値。
@@ -27,11 +35,13 @@ type settings struct {
 type Machine struct {
 	cfg settings
 	st  state
+	ep  Endpoint
 }
 
 // New は未接続の初期状態の Machine を返す。
 func New(cfg Config) *Machine {
 	return &Machine{
+		ep: cfg.Endpoint,
 		cfg: settings{
 			RestartWait:   cfg.RestartWait,
 			ExpectMargin:  3 * time.Second,
@@ -44,6 +54,15 @@ func New(cfg Config) *Machine {
 			LastAutoSent: map[Purpose]time.Time{},
 			NextBatchID:  1,
 			NextReqID:    1,
+
+			Unsent:         map[scenemap.ItemKey]int{},
+			ItemReceipts:   map[uint64]ItemReceipt{},
+			MAConfirm:      map[scenemap.ItemKey]bool{},
+			UserShown:      map[string]bool{},
+			ItemFailures:   map[string]int{},
+			LastItemSent:   map[string]time.Time{},
+			StudioModeHide: StudioHideStandby,
+			NextItemReq:    1,
 		},
 	}
 }

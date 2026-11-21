@@ -67,6 +67,9 @@ type Motion string
 const (
 	MotionStandby Motion = "standby"
 	MotionHide    Motion = "hide"
+	// MotionIgnore は Studio Mode の studio_mode_hide=ignore の有効な動き。集合には残すが、不良と数えない
+	// （健康の全 hide 不良の判定にも再投入しない）。設定の on_bad の値ではない。
+	MotionIgnore Motion = "ignore"
 )
 
 // Class はシーンの分類。
@@ -119,6 +122,17 @@ func MatchCamera(rawURL string, isLocalFile *bool, rtspPort int, cameraIDs []str
 // false なら「実際に表示」: 本体が隠した項目を、地図でまだ表示でも（送ったがイベントがまだの「隠す」）非表示として数える。
 // 人が非表示にした項目は、どちらでも数えない。
 func CamerasIn(m Map, sceneUUID string, hiddenByTool func(ItemKey) bool, countToolHiddenAsShown bool) []string {
+	return CamerasInWith(m, sceneUUID, func(k ItemKey, it Item) bool {
+		if hiddenByTool != nil && hiddenByTool(k) {
+			return countToolHiddenAsShown
+		}
+		return it.Enabled
+	})
+}
+
+// CamerasInWith は CamerasIn の一般形。項目ごとに「表示として数えるか」を enabled が決める（地図の Enabled は it.Enabled）。
+// 本体が隠した項目の記録（V と A で扱いが違う）を項目の状態ごとに重ねるために使う。
+func CamerasInWith(m Map, sceneUUID string, enabled func(ItemKey, Item) bool) []string {
 	found := make(map[string]struct{})
 	active := make(map[string]bool)
 	var walk func(uuid string, kind SourceKind)
@@ -141,11 +155,7 @@ func CamerasIn(m Map, sceneUUID string, hiddenByTool func(ItemKey) bool, countTo
 		active[pathKey] = true
 		defer delete(active, pathKey)
 		for _, item := range container.Items {
-			enabled := item.Enabled
-			if hiddenByTool != nil && hiddenByTool(ItemKey{ContainerUUID: uuid, ItemID: item.ID}) {
-				enabled = countToolHiddenAsShown
-			}
-			if !enabled {
+			if !enabled(ItemKey{ContainerUUID: uuid, ItemID: item.ID}, item) {
 				continue
 			}
 			switch item.SourceKind {

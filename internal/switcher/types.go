@@ -66,6 +66,10 @@ const (
 	PurposeStartScene
 	PurposeStartStream
 	PurposeStopStream
+	// 0b: 項目の表示・非表示。承認のたびに有効条件を確かめる。
+	PurposeHideCamera
+	PurposeShowCamera
+	PurposeRestoreAll
 )
 
 func (p Purpose) String() string {
@@ -86,6 +90,12 @@ func (p Purpose) String() string {
 		return "StartStream"
 	case PurposeStopStream:
 		return "StopStream"
+	case PurposeHideCamera:
+		return "HideCamera"
+	case PurposeShowCamera:
+		return "ShowCamera"
+	case PurposeRestoreAll:
+		return "RestoreAll"
 	}
 	return "Purpose?"
 }
@@ -106,7 +116,12 @@ func (p Purpose) FromCommand() bool {
 
 // switchesScene はシーンを切り替えるバッチか（承認で SceneEpoch と ConfigEpoch を見るか）を返す。
 func (p Purpose) switchesScene() bool {
-	return p != PurposeStartStream && p != PurposeStopStream
+	return p != PurposeStartStream && p != PurposeStopStream && !p.isItem()
+}
+
+// isItem は項目の表示・非表示のバッチ（Hide / Show / RestoreAll）かを返す。
+func (p Purpose) isItem() bool {
+	return p == PurposeHideCamera || p == PurposeShowCamera || p == PurposeRestoreAll
 }
 
 // suppresses は、このバッチが未完了か、その期待が残っている間、自動切替を止めるかを返す。
@@ -204,7 +219,16 @@ type ScenesConfigured struct {
 	Cameras     []CameraConfig
 	AutoEnabled bool
 	StartScene  *string
+	// StudioModeHide は Studio Mode のとき on_bad=hide のカメラをどう扱うか（standby / ignore / hide）。空は standby。
+	StudioModeHide string
 }
+
+// Studio Mode のときの hide のカメラの扱い（obs.studio_mode_hide）。
+const (
+	StudioHideStandby = "standby"
+	StudioHideIgnore  = "ignore"
+	StudioHideHide    = "hide"
+)
 
 // CommandKind は手動操作の種類。
 type CommandKind int
@@ -214,6 +238,8 @@ const (
 	CmdStreamStop
 	CmdStandbyOn
 	CmdStandbyOff
+	// CmdShowAllCameras は手動の「すべて表示に戻す」。
+	CmdShowAllCameras
 )
 
 func (k CommandKind) String() string {
@@ -226,6 +252,8 @@ func (k CommandKind) String() string {
 		return "StandbyOn"
 	case CmdStandbyOff:
 		return "StandbyOff"
+	case CmdShowAllCameras:
+		return "ShowAllCameras"
 	}
 	return "Command?"
 }
@@ -311,6 +339,77 @@ type BatchDone struct {
 	Err     error
 }
 
+// HiddenState は隠した項目の記録の状態。
+type HiddenState int
+
+const (
+	// HiddenP は隠しかけ（記録を先に書いた。false を送る前か、送ったが結果がまだ）。
+	HiddenP HiddenState = iota + 1
+	// HiddenH は隠した（false が本来の接続のイベントで確かめられた）。
+	HiddenH
+	// HiddenU は未決着（false の応答が Timeout など、適用されたかわからない）。
+	HiddenU
+)
+
+func (h HiddenState) String() string {
+	switch h {
+	case HiddenP:
+		return "P"
+	case HiddenH:
+		return "H"
+	case HiddenU:
+		return "U"
+	}
+	return "HiddenState?"
+}
+
+// HiddenEntry は本体が隠した項目の記録。接続先とシーンコレクションと項目の鍵で識別する（資格情報は含めない）。
+type HiddenEntry struct {
+	CameraID      string
+	Host          string
+	Port          int
+	Collection    string
+	ContainerUUID string
+	ItemID        int
+	SourceUUID    string
+	State         HiddenState
+	// SettledAt は応答が決着した時刻。未応答なら nil。
+	SettledAt *time.Time
+	// WrittenAt は記録を作った（ディスクへ書いた）時刻。
+	WrittenAt time.Time
+}
+
+// Key は項目の鍵。
+func (e HiddenEntry) Key() scenemap.ItemKey {
+	return scenemap.ItemKey{ContainerUUID: e.ContainerUUID, ItemID: e.ItemID}
+}
+
+func (e HiddenEntry) clone() HiddenEntry {
+	if e.SettledAt != nil {
+		t := *e.SettledAt
+		e.SettledAt = &t
+	}
+	return e
+}
+
+// HiddenRestored は起動時に hidden.json から読んだ記録。設定の後、最初の接続より前に1回だけ渡す。
+// Entries は Machine が複製する。
+type HiddenRestored struct {
+	At      time.Time
+	Entries []HiddenEntry
+}
+
+// HiddenWriteFailed は最初の false の保存（Proceed.MustPersist）に失敗したこと。BatchID が作った予約と期待を巻き戻す。
+type HiddenWriteFailed struct {
+	At      time.Time
+	BatchID int
+}
+
+// Stopping は本体の停止の知らせ。世代ごとに高々1回の意味で、2回目以降は無作用。
+type Stopping struct {
+	At time.Time
+}
+
 // Tick は1秒ごとの時刻の知らせ。再送と期待の期限の判定に使う。
 type Tick struct {
 	At time.Time
@@ -331,6 +430,9 @@ func (e Command) eventAt() time.Time            { return e.At }
 func (e SceneRequestDone) eventAt() time.Time   { return e.At }
 func (e BatchDone) eventAt() time.Time          { return e.At }
 func (e Tick) eventAt() time.Time               { return e.At }
+func (e HiddenRestored) eventAt() time.Time     { return e.At }
+func (e HiddenWriteFailed) eventAt() time.Time  { return e.At }
+func (e Stopping) eventAt() time.Time           { return e.At }
 
 // ---- Action ----
 
@@ -385,7 +487,33 @@ type Batch struct {
 	ReturnScene string
 	BadCamera   string
 	Actions     []Action
+	// CameraID は Hide / Show のバッチの対象のカメラ。ほかは空。
+	CameraID string
+	// Items は項目のバッチ（Hide / Show / RestoreAll）が作った時点で固定した対象。SetItemEnabled の Action はこの中の1つに当たる。
+	Items []BatchItem
+	// RestoreScope は RestoreAll の範囲。ほかは RestoreNone。
+	RestoreScope RestoreScope
+	// FromCommand は手動の Command 由来のバッチか（手動の「すべて表示に戻す」）。
+	FromCommand bool
 }
+
+// BatchItem は項目のバッチの対象の項目と、固定した入力の UUID。
+type BatchItem struct {
+	SceneUUID  string
+	ItemID     int
+	SourceUUID string
+}
+
+// RestoreScope は RestoreAll の範囲。
+type RestoreScope int
+
+const (
+	RestoreNone RestoreScope = iota
+	// RestoreTrackedItems は停止用。現在の接続先の一覧の項目だけ。
+	RestoreTrackedItems
+	// RestoreAllCameraItems は手動の「すべて表示に戻す」。非表示のカメラの項目と一覧と false の期待の項目。
+	RestoreAllCameraItems
+)
 
 // ---- Override ----
 
@@ -420,6 +548,12 @@ type ApproveResult interface {
 // SetScene 以外では ReqID は 0。
 type Proceed struct {
 	ReqID int
+	// ItemReqID は SetItemEnabled の要求の番号。Machine が振る（項目用の別の領域で、世代内では再利用しない）。
+	// 実行役は結果の ItemRequestDone にそのまま載せる。SetItemEnabled 以外では 0。
+	ItemReqID uint64
+	// MustPersist は、この承認の Proceed を返す前に、隠した項目の一覧を同期で保存しなければならないこと
+	// （最初の false の承認。保存に失敗したら HiddenWriteFailed を渡し、実行役には Reject を返す）。
+	MustPersist bool
 }
 
 // Skip は送らずに成功とみなすこと（現在のシーンがすでに切替先のシーン）。
@@ -463,6 +597,8 @@ const (
 	ReasonSwitchInProcess = "切替の実行中"
 	// ReasonStandbyNotFound は待機シーンの設定名が OBS の地図で引けないこと。
 	ReasonStandbyNotFound = "待機シーンが OBS にない"
+	// ReasonStopping は本体の停止中で Command を受け付けないこと。
+	ReasonStopping = "終了中"
 )
 
 // ErrorInfo は記録したエラー（時刻と文）。status の last_error になる。
@@ -491,13 +627,22 @@ type Expectation struct {
 
 // PendingBatch は BatchDone が来るまで持つ未完了のバッチ。
 type PendingBatch struct {
-	BatchID        int
-	Purpose        Purpose
-	SceneEpoch     int
-	ConnEpoch      int
-	StreamEpoch    int
-	ConfigEpoch    int
-	ReturnScene    string
+	BatchID     int
+	Purpose     Purpose
+	SceneEpoch  int
+	ConnEpoch   int
+	StreamEpoch int
+	ConfigEpoch int
+	ReturnScene string
+	// 0b: 項目のバッチ。
+	CameraID       string
+	Scope          RestoreScope
+	FromCommand    bool
+	Items          []pendItem
+	Reserved       bool // 最初の false の承認で全対象を予約した
+	WriteFailed    bool // 最初の false の保存に失敗した（以後の承認は Reject）
+	Sent           int  // 送った要求の数
+	Failures       int  // 失敗した要求の数（Error / Timeout）
 	Replaced       bool // Replace で置き換えた元のバッチ。却下を記録しない
 	ManualRejected bool // StartScene を手動の切替のために却下した。却下を記録しない
 }
@@ -538,6 +683,82 @@ type state struct {
 	LastError          *ErrorInfo
 	NextBatchID        int
 	NextReqID          int
+
+	// ---- 0b ----
+
+	// Z は今の接続先とシーンコレクション（地図があるとき）。
+	Z zone
+	// Hidden は今の Z の隠した項目の記録。Retained は別の Z や未照合の記録（全 Z を含む）。
+	Hidden   []HiddenEntry
+	Retained []HiddenEntry
+	// Unsent は予約しただけで、まだ false を Proceed していない項目（値は予約したバッチ）。
+	Unsent map[scenemap.ItemKey]int
+	// ItemExpectations は送った SetItemEnabled の期待（登録順）。ItemReceipts は切断をまたぐ送信台帳。
+	ItemExpectations []ItemExpectation
+	ItemReceipts     map[uint64]ItemReceipt
+	// MAConfirm は手動の「すべて表示に戻す」で true を送った項目。期待どおりの true イベントか読み直しの表示確認まで記録を保つ。
+	MAConfirm map[scenemap.ItemKey]bool
+	// UserShown は人が戻した印。ItemFailures は続けて失敗した回数。LastItemSent は Hide / Show 共通の送出時刻。
+	UserShown        map[string]bool
+	ItemFailures     map[string]int
+	LastItemSent     map[string]time.Time
+	StudioMode       bool
+	StudioModeHide   string
+	StoppingReceived bool
+	RestoreIssued    bool
+	// HiddenRestoredDone は HiddenRestored を受け付けた（または受け付けられなくなった）こと。
+	HiddenRestoredDone bool
+	NextItemReq        uint64
+	// MAFloor は手動の「すべて表示に戻す」を受け付けた時点の次の BatchID。それより前の Hide は却下する。
+	MAFloor        int
+	HiddenRevision int
+}
+
+// zone は接続先とシーンコレクション。
+type zone struct {
+	Host       string
+	Port       int
+	Collection string
+}
+
+// ItemExpectation は送った SetItemEnabled の期待。
+type ItemExpectation struct {
+	Key         scenemap.ItemKey
+	Value       bool
+	ReqID       uint64
+	BatchID     int
+	Purpose     Purpose
+	Scope       RestoreScope
+	Responded   bool
+	RespondedAt time.Time
+	Result      ItemResult
+	Deadline    time.Time
+	// SawEvent は期待どおりのイベントを見たこと。Contra は反対の値のイベントを見たこと（無イベントの補正をしない）。
+	SawEvent bool
+	Contra   bool
+}
+
+// ItemReceipt は送信台帳の1件。結果を受けた後も、バッチが終わるまで保つ。
+type ItemReceipt struct {
+	ReqID    uint64
+	Key      scenemap.ItemKey
+	Value    bool
+	BatchID  int
+	CameraID string
+	Purpose  Purpose
+	Scope    RestoreScope
+	Result   ItemResult // 0 なら結果をまだ受けていない
+	ResultAt time.Time
+}
+
+// pendItem は項目のバッチの対象1つの扱い。
+type pendItem struct {
+	Key     scenemap.ItemKey
+	Source  string
+	Value   bool
+	Created bool // このバッチが予約で記録を作った
+	Sent    bool
+	ReqID   uint64
 }
 
 // Snapshot は status に出す読み取り専用の状態。シーンと戻り先は UUID（名前は SceneName などに持つ）。
@@ -561,6 +782,22 @@ type Snapshot struct {
 	// SceneEpoch は人の切替（本体の期待に当たらないシーンの変化）とみなした回数。
 	// 増えたことで、core は人の切替があったと知る。
 	SceneEpoch int
+	// 0b: 隠した項目の記録の写し（外から変えても内部は変わらない）と、変更のたびに進む番号。
+	HiddenEntries   []HiddenEntry
+	RetainedEntries []HiddenEntry
+	HiddenRevision  int
+	StudioMode      bool
+	// Cameras は設定の順のカメラ別の状態。
+	Cameras []CameraItemStatus
+}
+
+// CameraItemStatus はカメラ別の項目の表示・非表示の状態。
+type CameraItemStatus struct {
+	ID        string
+	UserShown bool
+	Failures  int
+	// Unusable は続けて3回以上失敗して、隠すことも戻すことも確かでないこと。
+	Unusable bool
 }
 
 // StandbyStatus は待機の持ち主と戻り先。戻り先がなければ ReturnScene は空。

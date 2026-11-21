@@ -320,12 +320,57 @@ func cloneState(s state) state {
 	for k, v := range s.LastAutoSent {
 		c.LastAutoSent[k] = v
 	}
+	// 0b の状態も深く複製する（浅いと before / want / m.st が同じ map を共有して、行が中身を見ずに通る）。
+	c.Hidden = cloneEntries(s.Hidden)
+	c.Retained = cloneEntries(s.Retained)
+	c.Unsent = cloneMap(s.Unsent)
+	c.ItemExpectations = slices.Clone(s.ItemExpectations)
+	c.ItemReceipts = cloneMap(s.ItemReceipts)
+	c.MAConfirm = cloneMap(s.MAConfirm)
+	c.UserShown = cloneMap(s.UserShown)
+	c.ItemFailures = cloneMap(s.ItemFailures)
+	c.LastItemSent = cloneMap(s.LastItemSent)
+	for k, pb := range c.Pending {
+		pb.Items = slices.Clone(pb.Items)
+		c.Pending[k] = pb
+	}
+	return c
+}
+
+func cloneEntries(es []HiddenEntry) []HiddenEntry {
+	if es == nil {
+		return nil
+	}
+	out := make([]HiddenEntry, len(es))
+	for i, e := range es {
+		out[i] = e.clone()
+	}
+	return out
+}
+
+func cloneMap[K comparable, V any](m map[K]V) map[K]V {
+	if m == nil {
+		return nil
+	}
+	c := make(map[K]V, len(m))
+	for k, v := range m {
+		c[k] = v
+	}
 	return c
 }
 func normState(s state) state {
 	c := cloneState(s)
 	if len(c.Expectations) == 0 {
 		c.Expectations = nil
+	}
+	if len(c.Hidden) == 0 {
+		c.Hidden = nil
+	}
+	if len(c.Retained) == 0 {
+		c.Retained = nil
+	}
+	if len(c.ItemExpectations) == 0 {
+		c.ItemExpectations = nil
 	}
 	return c
 }
