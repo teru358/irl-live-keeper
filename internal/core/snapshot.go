@@ -122,6 +122,9 @@ func (c *Core) publish() {
 			s.OBS.Warnings = append([]string(nil), w...)
 		}
 	}
+	if c.media != nil {
+		s.OBS.Warnings = append(s.OBS.Warnings, c.media.w.Warnings()...)
+	}
 	if c.mediamtx != nil {
 		st := c.mediamtx()
 		s.MediaMTX = st.State

@@ -866,3 +866,43 @@ func TestAuxConcurrentUseThenClose(t *testing.T) {
 		s.waitClosed(t, "受けた接続 "+strconv.Itoa(i+1)+" 本目")
 	}
 }
+
+func TestAuxGetMediaInputStatus(t *testing.T) {
+	s := newAuxServer(t)
+	s.setHandler(func(r auxReq) auxReply {
+		if r.Type == "GetMediaInputStatus" {
+			return auxReply{Data: `{"mediaState":"OBS_MEDIA_STATE_PLAYING","mediaCursor":1234}`}
+		}
+		return auxReply{}
+	})
+	a := newTestAux(t, s.config(t), 2*time.Second)
+	a.SetMainConnected(true)
+
+	st, err := a.GetMediaInputStatus("input-uuid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.State != "OBS_MEDIA_STATE_PLAYING" || st.Cursor != 1234 {
+		t.Fatalf("状態と位置が違う: %+v", st)
+	}
+	reqs := s.requests()
+	if len(reqs) != 1 || reqs[0].Type != "GetMediaInputStatus" {
+		t.Fatalf("要求が違う: %+v", reqs)
+	}
+	got := mustJSON(t, reqs[0].Data)
+	if got["inputUuid"] != "input-uuid" {
+		t.Errorf("inputUuid = %v（%s）", got["inputUuid"], reqs[0].Data)
+	}
+	if _, ok := got["inputName"]; ok {
+		t.Errorf("名前の引数が送られている: %s", reqs[0].Data)
+	}
+}
+
+func TestAuxGetMediaInputStatusUnavailable(t *testing.T) {
+	s := newAuxServer(t)
+	a := newTestAux(t, s.config(t), 2*time.Second)
+	// SetMainConnected していない
+	if _, err := a.GetMediaInputStatus("x"); !errors.Is(err, ErrAuxUnavailable) {
+		t.Fatalf("ErrAuxUnavailable のはずが %v", err)
+	}
+}

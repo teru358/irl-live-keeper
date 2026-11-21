@@ -48,11 +48,22 @@ type Deps struct {
 	MediaMTX func() supervisor.Status
 	// Warnings は OBS の接続時に見つかった警告を返す（obs.WS.Warnings）。nil なら警告なし。
 	Warnings func() []string
-	Log      *slog.Logger
+	// MediaWatch は止まったメディアソースの見張り（カメラの spec 第3節）。nil なら見張らない。
+	MediaWatch MediaWatcher
+	Log        *slog.Logger
 	// Tick は Tick の時刻の列。nil なら Run が1秒ごとの ticker を作る。
 	Tick <-chan time.Time
 	// Now は中核ループと実行役が使う時計。nil なら time.Now。
 	Now func() time.Time
+}
+
+// MediaWatcher はメディアソースの見張り（obs.MediaWatch）。Core は止まらないように、自分の別の
+// goroutine（mediaDispatcher）からだけ呼ぶ。Warnings は中核ループが Snapshot を作るときに呼ぶので、
+// 止まらず速く戻ること。
+type MediaWatcher interface {
+	Watch(camera string, sources []obs.MediaSource)
+	CancelAll()
+	Warnings() []string
 }
 
 // camState は中核ループが持つカメラ1台の状態。
@@ -73,6 +84,7 @@ type Core struct {
 	samples  <-chan ingest.SampleSet
 	mediamtx func() supervisor.Status
 	warnings func() []string
+	media    *mediaDispatcher // nil なら見張らない
 	log      *slog.Logger
 	tick     <-chan time.Time
 	now      func() time.Time
@@ -147,6 +159,9 @@ func New(d Deps) *Core {
 		stopped:   make(chan struct{}),
 		unknown:   map[itemKey]bool{},
 	}
+	if d.MediaWatch != nil {
+		c.media = newMediaDispatcher(d.MediaWatch)
+	}
 	cfgs := make([]switcher.CameraConfig, len(d.Cameras))
 	for i, cam := range d.Cameras {
 		c.cams = append(c.cams, &camState{cfg: cam, judge: ingest.NewJudge(cam.Thresholds)})
@@ -206,6 +221,9 @@ func (c *Core) Run(ctx context.Context) {
 	}
 	var wg sync.WaitGroup
 	wg.Go(func() { c.runExecutor(ctx) })
+	if c.media != nil {
+		wg.Go(func() { c.media.run(ctx) })
+	}
 	defer wg.Wait()
 	c.loop(ctx, tick)
 }
@@ -266,7 +284,11 @@ func (c *Core) onSamples(set ingest.SampleSet) {
 		if !ok {
 			continue
 		}
+		wasOnline := cam.sample.Online
 		cam.sample = s
+		if !wasOnline && s.Online {
+			c.requestWatch(cam)
+		}
 		before := cam.judge.State()
 		after := cam.judge.Update(s)
 		if after == before {
@@ -312,6 +334,18 @@ func (c *Core) handle(ev switcher.Event) error {
 	ev, pass := c.prepareMap(ev)
 	if !pass {
 		return nil
+	}
+	switch ev.(type) {
+	case switcher.OBSConnected:
+		for _, cam := range c.cams {
+			if cam.sample.Online {
+				c.requestWatch(cam)
+			}
+		}
+	case switcher.OBSDisconnected:
+		if c.media != nil {
+			c.media.cancelAll()
+		}
 	}
 	b, cmdErr := c.m.Handle(ev)
 	if b != nil {

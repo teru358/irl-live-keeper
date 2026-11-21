@@ -151,6 +151,8 @@ func run(ctx context.Context, base string, stdout, stderr io.Writer) int {
 	deps.Samples = samples
 	deps.MediaMTX = sup.Status
 	deps.Warnings = obsClient.Warnings
+	mediaWatch := obs.NewMediaWatch(obsClient.Aux().MediaAux(), log, nil)
+	deps.MediaWatch = mediaWatch
 	deps.Log = log
 	c := core.New(deps)
 
@@ -158,6 +160,7 @@ func run(ctx context.Context, base string, stdout, stderr io.Writer) int {
 	wg.Go(func() { poller.Run(runCtx, pollInterval, samples) })
 	wg.Go(func() { obsClient.Run(runCtx) })
 	wg.Go(func() { c.Run(runCtx) })
+	wg.Go(func() { <-runCtx.Done(); mediaWatch.Close() }) // 見張りの goroutine を残さない
 
 	// 管理 API。待ち受けに失敗したときも、部品を止めてから終了する
 	srv := &http.Server{

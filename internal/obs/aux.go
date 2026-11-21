@@ -15,6 +15,7 @@ import (
 	"github.com/andreykaipov/goobs/api/events/subscriptions"
 	"github.com/andreykaipov/goobs/api/requests/config"
 	"github.com/andreykaipov/goobs/api/requests/inputs"
+	"github.com/andreykaipov/goobs/api/requests/mediainputs"
 	"github.com/andreykaipov/goobs/api/requests/sceneitems"
 	"github.com/andreykaipov/goobs/api/requests/scenes"
 )
@@ -477,4 +478,22 @@ func (a *Aux) SetInputSettings(inputUUID string, settings map[string]any, overla
 		return c.Inputs.SetInputSettings(inputs.NewSetInputSettingsParams().
 			WithInputUuid(inputUUID).WithInputSettings(settings).WithOverlay(overlay))
 	})
+}
+
+// MediaStatus はメディアソースの再生の状態。State は OBS_MEDIA_STATE_PLAYING などの文字列、
+// Cursor は再生の位置（ミリ秒。再生中でなければ 0）。
+type MediaStatus struct {
+	State  string
+	Cursor float64
+}
+
+// GetMediaInputStatus はメディアソースの再生の状態と位置を返す。入力は UUID で指す。
+func (a *Aux) GetMediaInputStatus(inputUUID string) (MediaStatus, error) {
+	r, err := auxCall(a, "GetMediaInputStatus", func(c *goobs.Client) (*mediainputs.GetMediaInputStatusResponse, error) {
+		return c.MediaInputs.GetMediaInputStatus(mediainputs.NewGetMediaInputStatusParams().WithInputUuid(inputUUID))
+	})
+	if err != nil {
+		return MediaStatus{}, err
+	}
+	return MediaStatus{State: r.MediaState, Cursor: r.MediaCursor}, nil
 }
