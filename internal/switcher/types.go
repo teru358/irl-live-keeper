@@ -160,7 +160,7 @@ type SceneChanged struct {
 
 // SceneMapChanged はシーンの地図の読み直しの結果（obs は補助の接続で読む）。Map は流したあと変更しない。
 // 今の地図にある項目の表示・非表示は、読み取りの時刻の値で、本来の接続のイベントより古いことがある。
-// 受け取る側は、今の地図にすでにある項目の Enabled を今の値で引き継ぐ（カメラの spec 第3節）。
+// core が、今の地図にすでにある項目の Enabled を今の値で引き継いでから Machine に渡す（Machine は受け取った地図をそのまま使う。カメラの spec 第3節、M-7 の表 5.2）。
 type SceneMapChanged struct {
 	At  time.Time
 	Map *scenemap.Map
