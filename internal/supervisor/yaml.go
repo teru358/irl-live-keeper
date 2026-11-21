@@ -12,7 +12,9 @@ import (
 // GenerateYAML は mediamtx.yml の内容を作る。
 // 既定値に頼らず、v1.21.4 にあるプロトコルと機能のスイッチをすべて明示する。
 // path はカメラの id の数だけ書き、publish と read の権限も path ごとに書く（それ以外の path は受け付けない）。
-// 値は config の検証で英数字・_・- に限られているので、クォートは不要。
+// path の名前（カメラの id）は、`on`、`no`、`1` などが YAML の真偽や数に読まれないよう、いつも引用符で囲む
+// （id は config の検証で英小文字・数字・_・- に限られているので、%q の形がそのまま YAML の文字列になる）。
+// ほかの値は config の検証で英数字・_・- に限られているので、クォートは不要。
 func GenerateYAML(cfg *config.Config, apiUser, apiPass string) ([]byte, error) {
 	if apiUser == "" || apiPass == "" {
 		return nil, fmt.Errorf("API の資格情報が空です")
@@ -21,9 +23,9 @@ func GenerateYAML(cfg *config.Config, apiUser, apiPass string) ([]byte, error) {
 	s := cfg.Stream
 	var pubPerms, readPerms, paths strings.Builder
 	for _, cam := range cfg.Cameras {
-		fmt.Fprintf(&pubPerms, "      - action: publish\n        path: %s\n", cam.ID)
-		fmt.Fprintf(&readPerms, "      - action: read\n        path: %s\n", cam.ID)
-		fmt.Fprintf(&paths, "  %s: {}\n", cam.ID)
+		fmt.Fprintf(&pubPerms, "      - action: publish\n        path: %q\n", cam.ID)
+		fmt.Fprintf(&readPerms, "      - action: read\n        path: %q\n", cam.ID)
+		fmt.Fprintf(&paths, "  %q: {}\n", cam.ID)
 	}
 	out := fmt.Sprintf(`# 自動生成。編集しないこと
 logLevel: info

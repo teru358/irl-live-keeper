@@ -26,27 +26,27 @@ authInternalUsers:
     ips: []
     permissions:
       - action: publish
-        path: main
+        path: "main"
       - action: publish
-        path: sub
+        path: "sub"
       - action: publish
-        path: hand
+        path: "hand"
   - user: obs
     pass: readPASS123
     ips: []
     permissions:
       - action: read
-        path: main
+        path: "main"
       - action: read
-        path: sub
+        path: "sub"
       - action: read
-        path: hand
+        path: "hand"
   - user: APIUSER
     pass: APIPASS
     ips: ["127.0.0.1", "::1"]
     permissions:
       - action: api
 paths:
-  main: {}
-  sub: {}
-  hand: {}
+  "main": {}
+  "sub": {}
+  "hand": {}

@@ -467,3 +467,40 @@ func TestCheckPortsStoppedProtocol(t *testing.T) {
 		}
 	}
 }
+
+// YAML で真偽や数に読まれうる id（on、no、1）も、path の名前と権限の path が文字列のまま MediaMTX に渡ること。
+func TestGenerateYAMLQuotesAmbiguousIDs(t *testing.T) {
+	cams := "cameras:\n  - id: \"on\"\n    name: a\n    on_bad: standby\n  - id: \"no\"\n    name: b\n    on_bad: standby\n  - id: \"1\"\n    name: c\n    on_bad: standby\n"
+	cfg := loadCfgWith(t, cams, "")
+	out, err := GenerateYAML(cfg, "apiU", "apiP")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		AuthInternalUsers []struct {
+			Permissions []struct {
+				Action string `yaml:"action"`
+				Path   any    `yaml:"path"`
+			} `yaml:"permissions"`
+		} `yaml:"authInternalUsers"`
+		Paths map[any]any `yaml:"paths"`
+	}
+	if err := yaml.Unmarshal(out, &doc); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"on", "no", "1"} {
+		if _, ok := doc.Paths[id]; !ok {
+			t.Errorf("paths に文字列の %q がない（%v）", id, doc.Paths)
+		}
+	}
+	for _, u := range doc.AuthInternalUsers {
+		for _, p := range u.Permissions {
+			if p.Path == nil {
+				continue
+			}
+			if _, ok := p.Path.(string); !ok {
+				t.Errorf("%s の path %v（%T）が文字列でない", p.Action, p.Path, p.Path)
+			}
+		}
+	}
+}
