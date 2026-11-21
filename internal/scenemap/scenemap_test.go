@@ -166,3 +166,38 @@ func TestCamerasInPendingHideCountsAsHidden(t *testing.T) {
 	assertStrings(t, CamerasIn(m, "S", pending, false), nil)
 	assertStrings(t, CamerasIn(m, "S", nil, false), []string{"a"})
 }
+
+// 0b: MotionIgnore は集合に残すが、不良と数えない。全 hide 不良の判定にも再投入しない。
+func TestHealthのMotionIgnore(t *testing.T) {
+	states := map[string]CameraState{"m": StateOK, "s": StateDown}
+	motions := map[string]Motion{"m": MotionStandby, "s": MotionIgnore}
+	h, bad, has := Health([]string{"m", "s"}, states, motions, false, nil, []string{"m", "s"})
+	if !has || h != StateOK || bad != "" {
+		t.Fatalf("ignore の s が DOWN: got %v %q %v, want OK", h, bad, has)
+	}
+	// ignore だけが映るシーンの健康は OK（全 hide 不良に再投入しない）
+	h, bad, has = Health([]string{"s"}, states, motions, false, nil, []string{"m", "s"})
+	if !has || h != StateOK || bad != "" {
+		t.Fatalf("ignore だけ: got %v %q %v, want OK", h, bad, has)
+	}
+}
+
+// CamerasInWith は項目ごとに「表示として数えるか」を呼び側が決める（CamerasIn はその特別な場合）。
+func TestCamerasInWith(t *testing.T) {
+	m := Map{
+		Scenes: map[string]Container{"A": {Items: []Item{
+			{ID: 1, SourceUUID: "im", SourceKind: InputSource, Enabled: true},
+			{ID: 2, SourceUUID: "is", SourceKind: InputSource, Enabled: true},
+		}}},
+		Groups: map[string]Container{},
+		Inputs: map[string]Input{"im": {CameraID: "m"}, "is": {CameraID: "s"}},
+	}
+	got := CamerasInWith(m, "A", func(k ItemKey, it Item) bool { return k.ItemID != 2 && it.Enabled })
+	if len(got) != 1 || got[0] != "m" {
+		t.Fatalf("got %v, want [m]", got)
+	}
+	got = CamerasInWith(m, "A", func(k ItemKey, it Item) bool { return true })
+	if len(got) != 2 {
+		t.Fatalf("got %v, want [m s]", got)
+	}
+}

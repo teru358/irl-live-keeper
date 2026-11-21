@@ -88,6 +88,14 @@ func (m *Machine) Snapshot() Snapshot {
 		e := *s.LastError
 		snap.LastError = &e
 	}
+	snap.HiddenEntries = cloneHidden(s.Hidden)
+	snap.RetainedEntries = cloneHidden(s.Retained)
+	snap.HiddenRevision = s.HiddenRevision
+	snap.StudioMode = s.StudioMode
+	for _, c := range s.Cameras {
+		snap.Cameras = append(snap.Cameras, CameraItemStatus{ID: c.ID, UserShown: s.UserShown[c.ID],
+			Failures: s.ItemFailures[c.ID], Unusable: m.unusable(c.ID)})
+	}
 	return snap
 }
 
@@ -112,30 +120,46 @@ func (m *Machine) Handle(ev Event) ([]Batch, error) {
 	}
 	switch e := ev.(type) {
 	case ScenesConfigured:
-		return one(m.onConfigured(e))
+		return m.onConfigured(e), nil
 	case CamerasChanged:
-		return one(m.onCamerasChanged(e))
+		return m.onCamerasChanged(e), nil
 	case SceneMapChanged:
-		return one(m.onMapChanged(e))
+		return m.onMapChanged(e), nil
 	case ItemEnabledChanged:
-		return one(m.onItemEnabled(e))
+		return m.onItemEnabledEvent(e), nil
 	case OBSConnected:
-		return one(m.onConnected(e))
+		return m.onConnected(e), nil
 	case OBSDisconnected:
 		m.onDisconnected()
 	case SceneChanged:
-		return one(m.onSceneChanged(e))
+		return m.onSceneChanged(e), nil
 	case TransitionChanged:
 		m.st.TransitionMs = copyInt(e.TransitionMs)
 	case StreamStateChanged:
-		return one(m.onStreamState(e))
+		return m.onStreamState(e), nil
 	case SceneRequestDone:
 		m.onRequestDone(e)
+	case ItemRequestDone:
+		return m.onItemRequestDone(e), nil
+	case StudioModeChanged:
+		return m.onStudioMode(e), nil
 	case BatchDone:
-		m.onBatchDone(e)
+		return m.onBatchDone(e), nil
+	case HiddenRestored:
+		m.onHiddenRestored(e)
+	case HiddenWriteFailed:
+		m.onHiddenWriteFailed(e)
+	case Stopping:
+		return m.onStopping(e), nil
 	case Tick:
-		return one(m.judge(at, true))
+		return m.jb(at, true), nil
 	case Command:
+		if m.st.StoppingReceived {
+			return nil, ErrInvalidState{Reason: ReasonStopping}
+		}
+		if e.Kind == CmdShowAllCameras {
+			return m.onShowAll(e)
+		}
 		b, err := m.onCommand(e)
 		if err != nil {
 			return nil, err
@@ -143,6 +167,38 @@ func (m *Machine) Handle(ev Event) ([]Batch, error) {
 		return one(b)
 	}
 	return nil, nil
+}
+
+// onStudioMode は Studio Mode のオン・オフの変化。同じ値、未接続は E のみ。
+func (m *Machine) onStudioMode(e StudioModeChanged) []Batch {
+	s := &m.st
+	if !s.Connected || s.StudioMode == e.Enabled {
+		return nil
+	}
+	s.StudioMode = e.Enabled
+	m.refine()
+	return m.jb(e.At, false)
+}
+
+// jb は更新後の判断（Jb）: シーン判定→ShowCamera→HideCamera の順にバッチの列を返す。停止の受信後は出さない。
+func (m *Machine) jb(at time.Time, isTick bool) []Batch {
+	if m.st.StoppingReceived {
+		return nil
+	}
+	var out []Batch
+	if b := m.judge(at, isTick); b != nil {
+		out = append(out, *b)
+	}
+	return append(out, m.itemJudge(at)...)
+}
+
+// itemJudge は ShowCamera→HideCamera の候補。
+func (m *Machine) itemJudge(at time.Time) []Batch {
+	if m.st.StoppingReceived {
+		return nil
+	}
+	out := m.genShows(at)
+	return append(out, m.genHides(at)...)
 }
 
 func copyInt(p *int) *int {
@@ -180,17 +236,28 @@ func (m *Machine) sameConfig(e ScenesConfigured) bool {
 	if (e.StartScene == nil) != (s.StartScene == nil) || (e.StartScene != nil && *e.StartScene != *s.StartScene) {
 		return false
 	}
+	if studioHideOf(e) != s.StudioModeHide {
+		return false
+	}
 	return slices.Equal(e.Cameras, s.Cameras)
+}
+
+func studioHideOf(e ScenesConfigured) string {
+	if e.StudioModeHide == "" {
+		return StudioHideStandby
+	}
+	return e.StudioModeHide
 }
 
 // onConfigured はシーンとカメラの設定を差し替える。期待と未完了のバッチはそのまま残す
 // （未完了のシーン切替のバッチは、設定の世代が進むので承認で却下される）。
-func (m *Machine) onConfigured(e ScenesConfigured) *Batch {
+func (m *Machine) onConfigured(e ScenesConfigured) []Batch {
 	s := &m.st
 	if m.sameConfig(e) {
 		return nil
 	}
 	renamed := e.Standby != s.Standby
+	s.StudioModeHide = studioHideOf(e)
 	s.Standby = e.Standby
 	s.Cameras = slices.Clone(e.Cameras)
 	// 残るカメラの状態は保ち、増えたカメラは DOWN、減ったカメラは除く。
@@ -203,6 +270,21 @@ func (m *Machine) onConfigured(e ScenesConfigured) *Batch {
 		}
 	}
 	s.CameraStates = states
+	for id := range s.UserShown {
+		if _, ok := states[id]; !ok {
+			delete(s.UserShown, id)
+		}
+	}
+	for id := range s.ItemFailures {
+		if _, ok := states[id]; !ok {
+			delete(s.ItemFailures, id)
+		}
+	}
+	for id := range s.LastItemSent {
+		if _, ok := states[id]; !ok {
+			delete(s.LastItemSent, id)
+		}
+	}
 	s.AutoEnabled = e.AutoEnabled
 	s.StartScene = copyString(e.StartScene)
 	s.ConfigEpoch++
@@ -214,7 +296,7 @@ func (m *Machine) onConfigured(e ScenesConfigured) *Batch {
 		m.clearOwner()
 	}
 	m.refine()
-	return m.judge(e.At, false)
+	return m.jb(e.At, false)
 }
 
 // refine は「整える」共通の手順。ScenesConfigured、SceneMapChanged、ItemEnabledChanged、OBSConnected、
@@ -242,7 +324,7 @@ func (m *Machine) refine() {
 
 // onCamerasChanged は全カメラの組を一括で置き換える。未知のキーは無視し、足りないキーは DOWN に整える。
 // 整えた組が今と同じなら何もしない。途中のカメラ状態では判断しない。
-func (m *Machine) onCamerasChanged(e CamerasChanged) *Batch {
+func (m *Machine) onCamerasChanged(e CamerasChanged) []Batch {
 	s := &m.st
 	next := make(map[string]scenemap.CameraState, len(s.Cameras))
 	for _, c := range s.Cameras {
@@ -255,8 +337,16 @@ func (m *Machine) onCamerasChanged(e CamerasChanged) *Batch {
 	if sameStates(next, s.CameraStates) {
 		return nil
 	}
+	for id, v := range next {
+		if s.CameraStates[id] != v {
+			delete(s.ItemFailures, id)
+			if v == scenemap.StateOK {
+				delete(s.UserShown, id)
+			}
+		}
+	}
 	s.CameraStates = next
-	return m.judge(e.At, false)
+	return m.jb(e.At, false)
 }
 
 func sameStates(a, b map[string]scenemap.CameraState) bool {
@@ -273,46 +363,25 @@ func sameStates(a, b map[string]scenemap.CameraState) bool {
 
 // onMapChanged は地図を差し替える。未接続なら何もしない。同じ地図なら何もしない。
 // 地図の更新だけでは現在の program UUID も SceneEpoch も ConfigEpoch も変えない。
-func (m *Machine) onMapChanged(e SceneMapChanged) *Batch {
+func (m *Machine) onMapChanged(e SceneMapChanged) []Batch {
 	s := &m.st
-	if !s.Connected || e.Map == nil || sameMap(s.Map, e.Map) {
+	if !s.Connected || e.Map == nil {
+		return nil
+	}
+	// 構造の照合は、地図の同値判定だけで省略せず、未照合の記録がある場合を考える（H-02）。
+	if sameMap(s.Map, e.Map) && !(len(s.Retained) > 0 && !mapIsEmpty(e.Map)) {
 		return nil
 	}
 	s.Map = copyMap(e.Map)
+	m.resplit()
+	m.reconcile(e.At)
 	m.refine()
-	return m.judge(e.At, false)
-}
-
-// onItemEnabled は既知のシーンかグループの項目の表示・非表示を書き換える。未接続、未知の項目、同じ値なら何もしない。
-func (m *Machine) onItemEnabled(e ItemEnabledChanged) *Batch {
-	s := &m.st
-	if !s.Connected || s.Map == nil {
-		return nil
-	}
-	containers := s.Map.Scenes
-	c, ok := containers[e.SceneUUID]
-	if !ok {
-		containers = s.Map.Groups
-		c, ok = containers[e.SceneUUID]
-	}
-	if !ok {
-		return nil
-	}
-	i := slices.IndexFunc(c.Items, func(it scenemap.Item) bool { return it.ID == e.ItemID })
-	if i < 0 || c.Items[i].Enabled == e.Enabled {
-		return nil
-	}
-	items := slices.Clone(c.Items)
-	items[i].Enabled = e.Enabled
-	c.Items = items
-	containers[e.SceneUUID] = c
-	m.refine()
-	return m.judge(e.At, false)
+	return m.jb(e.At, false)
 }
 
 // onConnected は地図と状態を取り直す。シーン、配信状態、コレクションのどれかが切断の直前と違っていたら
 // 持ち主と戻り先を消す（手動の切替としては扱わず、配信開始時の切替も出さない）。そのあと「整える」を行う。
-func (m *Machine) onConnected(e OBSConnected) *Batch {
+func (m *Machine) onConnected(e OBSConnected) []Batch {
 	s := &m.st
 	sceneDiffers := e.SceneUUID != s.PrevConnScene
 	streamDiffers := e.Streaming != s.PrevConnStreaming
@@ -326,14 +395,21 @@ func (m *Machine) onConnected(e OBSConnected) *Batch {
 	s.Scene = e.SceneUUID
 	s.Map = mp
 	s.TransitionMs = copyInt(e.TransitionMs)
+	s.StudioMode = e.StudioMode
+	s.HiddenRestoredDone = true
 	if streamDiffers {
 		s.StreamEpoch++
+		if !e.Streaming {
+			clear(s.UserShown)
+		}
 	}
 	if sceneDiffers || streamDiffers || collectionDiffers {
 		m.clearOwner()
 	}
+	m.resplit()
+	m.reconcile(e.At)
 	m.refine()
-	return m.judge(e.At, false)
+	return m.jb(e.At, false)
 }
 
 // onDisconnected は期待をすべて消し、地図と解決した UUID を消す。持ち主と戻り先は再接続まで保つ。
@@ -342,6 +418,7 @@ func (m *Machine) onDisconnected() {
 	s.Connected = false
 	s.ConnEpoch++
 	s.Expectations = nil
+	s.ItemExpectations = nil
 	s.PrevConnScene = s.Scene
 	s.PrevConnStreaming = s.Streaming
 	if s.Map != nil {
@@ -353,7 +430,7 @@ func (m *Machine) onDisconnected() {
 }
 
 // onSceneChanged は期待と照らし、本体の切替か手動の切替かを見分ける。
-func (m *Machine) onSceneChanged(e SceneChanged) *Batch {
+func (m *Machine) onSceneChanged(e SceneChanged) []Batch {
 	s := &m.st
 	s.Scene = e.SceneUUID
 	i := slices.IndexFunc(s.Expectations, func(x Expectation) bool { return x.Scene == e.SceneUUID })
@@ -364,7 +441,7 @@ func (m *Machine) onSceneChanged(e SceneChanged) *Batch {
 		s.LastAutoSent = map[Purpose]time.Time{}
 		m.clearOwner()
 		m.refine()
-		return m.judge(e.At, false)
+		return m.jb(e.At, false)
 	}
 	// 本体の切替。一致した期待とそれより前の期待、同じシーンの期待を消す。
 	hit := s.Expectations[i]
@@ -391,10 +468,10 @@ func (m *Machine) onSceneChanged(e SceneChanged) *Batch {
 	}
 	// 期待の照合のあとに整える（待機でなくなった期待や、戻り先が監視対象外の期待は持ち主を残さない）。
 	m.refine()
-	return m.judge(e.At, false)
+	return m.jb(e.At, false)
 }
 
-func (m *Machine) onStreamState(e StreamStateChanged) *Batch {
+func (m *Machine) onStreamState(e StreamStateChanged) []Batch {
 	s := &m.st
 	if e.Streaming == s.Streaming {
 		return nil
@@ -405,10 +482,11 @@ func (m *Machine) onStreamState(e StreamStateChanged) *Batch {
 		m.clearOwner()
 		s.Expectations = nil
 		s.LastAutoSent = map[Purpose]time.Time{}
-		return nil
+		clear(s.UserShown)
+		return m.jb(e.At, false)
 	}
 	if s.StartScene == nil {
-		return m.judge(e.At, false)
+		return m.jb(e.At, false)
 	}
 	// 配信開始時の切替。受信状態は見ない。前の配信の StartScene が残っていれば重ねない。
 	if m.hasPending(PurposeStartScene) {
@@ -417,9 +495,10 @@ func (m *Machine) onStreamState(e StreamStateChanged) *Batch {
 	if s.StartSceneUUID == "" {
 		// 開始シーンが地図で引けない。バッチは出さず（再送もしない）警告を記録し、ほかの判断は続ける。
 		m.recordError(e.At, "配信開始時の切替先（"+*s.StartScene+"）が OBS にない")
-		return m.judge(e.At, false)
+		return m.jb(e.At, false)
 	}
-	return m.emit(PurposeStartScene, e.At, []Action{SetScene{SceneUUID: s.StartSceneUUID}}, "", "")
+	b := m.emit(PurposeStartScene, e.At, []Action{SetScene{SceneUUID: s.StartSceneUUID}}, "", "")
+	return append([]Batch{*b}, m.itemJudge(e.At)...)
 }
 
 func (m *Machine) onRequestDone(e SceneRequestDone) {
@@ -475,15 +554,19 @@ func (m *Machine) expire(at time.Time) {
 		}
 	}
 	s.Expectations = kept
+	m.expireItems(at)
 }
 
-func (m *Machine) onBatchDone(e BatchDone) {
+func (m *Machine) onBatchDone(e BatchDone) []Batch {
 	s := &m.st
 	pb, ok := s.Pending[e.BatchID]
 	if !ok {
-		return
+		return nil
 	}
 	delete(s.Pending, e.BatchID)
+	if pb.Purpose.isItem() {
+		return m.onItemBatchDone(e, pb)
+	}
 	switch e.Result {
 	case BatchCompleted:
 		if e.Err != nil {
@@ -500,6 +583,39 @@ func (m *Machine) onBatchDone(e BatchDone) {
 			m.recordError(e.At, pb.Purpose.String()+" は実行の直前に状況が変わったため取りやめた")
 		}
 	}
+	return nil
+}
+
+// onItemBatchDone は項目のバッチの終わり: 未送信の予約を戻し、Hide / Show は失敗の回数を数える。
+func (m *Machine) onItemBatchDone(e BatchDone, pb PendingBatch) []Batch {
+	s := &m.st
+	m.rollbackBatch(&pb, false)
+	// 結果を受けた台帳は、バッチが終わったら捨てる（結果がまだのものは、遅れた応答を解くために保つ）。
+	for _, pi := range pb.Items {
+		if r, ok := s.ItemReceipts[pi.ReqID]; ok && pi.ReqID != 0 && r.Result != 0 {
+			delete(s.ItemReceipts, pi.ReqID)
+		}
+	}
+	failed := e.Result == BatchCompleted && (e.Err != nil || pb.Failures > 0)
+	switch pb.Purpose {
+	case PurposeHideCamera, PurposeShowCamera:
+		c := pb.CameraID
+		switch {
+		case failed:
+			s.ItemFailures[c]++
+			if s.ItemFailures[c] == itemFailLimit {
+				m.recordError(e.At, "カメラ "+c+" の項目を隠す・戻す操作に続けて"+"3回失敗した")
+			}
+		case e.Result == BatchCompleted && pb.Sent > 0:
+			delete(s.ItemFailures, c)
+		}
+	case PurposeRestoreAll:
+		if pb.Scope == RestoreAllCameraItems && failed {
+			m.recordError(e.At, "表示に戻せなかった項目があります。もう一度押してください")
+		}
+	}
+	m.refine()
+	return m.jb(e.At, false)
 }
 
 // ---- 自動切替 ----
@@ -549,6 +665,10 @@ func (m *Machine) judge(at time.Time, isTick bool) *Batch {
 	s := &m.st
 	p, target := m.autoNeed()
 	if p == 0 || m.hasPending(p) || m.expecting(target) {
+		return nil
+	}
+	if p == PurposeAutoRecover && m.waitingHidden(target) {
+		// 戻り先が待っている隠した項目がある間は、戻さない（先に表示へ戻す）。生成だけを止める。
 		return nil
 	}
 	if last, ok := s.LastAutoSent[p]; isTick && ok && at.Sub(last) < m.cfg.RetryInterval {
@@ -620,8 +740,8 @@ func (m *Machine) onCommand(e Command) (*Batch, error) {
 			// 戻り先が管理外（地図から消えた場合を含む）。再起動なしで切り替える。
 			return m.emit(PurposeStandbyOffOther, e.At, []Action{SetScene{SceneUUID: ret}}, "", ""), nil
 		}
-		if h, _, has := m.healthOf(ret); s.AutoEnabled && isBad(h, has) {
-			// 回線が悪いままカメラ映像へ戻さない。回復したら AutoRecover で戻る。
+		if h, _, has := m.healthOf(ret); s.AutoEnabled && (isBad(h, has) || m.waitingHidden(ret)) {
+			// 回線が悪いまま、または隠した項目が待っているままカメラ映像へ戻さない。回復したら AutoRecover で戻る。
 			s.StandbyOwner = OwnerAuto
 			return nil, nil
 		}

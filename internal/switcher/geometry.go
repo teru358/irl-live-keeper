@@ -117,16 +117,19 @@ func (m *Machine) sceneLabel(uuid string) string {
 	return uuid
 }
 
-// classOf はシーン uuid の分類。未接続・地図なしなら不明。
+// classOf はシーン uuid の分類。未接続・地図なしなら不明。本体が隠した項目の記録は「映る」に数える。
 func (m *Machine) classOf(uuid string) SceneClass {
 	s := &m.st
 	if !s.Connected || s.Map == nil {
 		return ClassUnknown
 	}
-	switch scenemap.ClassifyWithMap(true, m.calcMap(), uuid, s.StandbyUUID) {
-	case scenemap.Standby:
+	if s.StandbyUUID != "" && uuid == s.StandbyUUID {
 		return ClassStandby
-	case scenemap.Monitored:
+	}
+	if _, exists := s.Map.Scenes[uuid]; !exists {
+		return ClassOther
+	}
+	if len(m.cameraSet(uuid, false, nil)) > 0 {
 		return ClassMonitored
 	}
 	return ClassOther
@@ -144,16 +147,7 @@ func (m *Machine) cameraIDs() []string {
 }
 
 // visibleCameras はシーン uuid に映るカメラの id（辞書順）。地図がなければ nil。
-func (m *Machine) visibleCameras(uuid string) []string {
-	if m.st.Map == nil {
-		return nil
-	}
-	ids := scenemap.CamerasIn(m.calcMap(), uuid, nil, true)
-	if len(ids) == 0 {
-		return nil
-	}
-	return ids
-}
+func (m *Machine) visibleCameras(uuid string) []string { return m.cameraSet(uuid, false, nil) }
 
 // healthOf は監視対象のシーン uuid の健康と、悪い代表のカメラ。監視対象でなければ has は false
 // （待機は、カメラが映っていても健康を返さない）。
@@ -164,10 +158,12 @@ func (m *Machine) healthOf(uuid string) (health scenemap.CameraState, bad string
 		return "", "", false
 	}
 	motions := make(map[string]scenemap.Motion, len(s.Cameras))
+	unusable := make(map[string]bool, len(s.Cameras))
 	for _, c := range s.Cameras {
-		motions[c.ID] = scenemap.MotionStandby
+		motions[c.ID] = m.motionOf(c)
+		unusable[c.ID] = m.unusable(c.ID)
 	}
-	return scenemap.Health(m.visibleCameras(uuid), s.CameraStates, motions, false, nil, m.cameraIDs())
+	return scenemap.Health(m.visibleCameras(uuid), s.CameraStates, motions, false, unusable, m.cameraIDs())
 }
 
 // isBad は健康が不良（LOW か DOWN）かを返す。健康なしは不良に含めない。
@@ -184,6 +180,11 @@ func (m *Machine) restartInputs(uuid string) []string {
 	var out []string
 	for _, id := range m.cameraIDs() {
 		if !slices.Contains(visible, id) {
+			continue
+		}
+		// I(R) は有効な動きが standby のカメラだけ（表 3.2）。hide のカメラは Show の Restart ですでに再起動する。
+		// Studio Mode の standby は standby として含め、ignore と hide は含めない。
+		if cc, ok := m.cameraCfg(id); ok && m.motionOf(cc) != scenemap.MotionStandby {
 			continue
 		}
 		var ins []string
