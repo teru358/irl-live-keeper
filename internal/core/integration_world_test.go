@@ -102,6 +102,12 @@ type world struct {
 	mark map[string]bool
 	// humanRestoredOwned は、人が本体の隠した項目を戻した（戻してよい理由がなかった）項目。流れたら印にする。
 	humanRestoredOwned map[ik]bool
+	// trueIssued は、人の操作のあとに本体が true の要求を出した項目。人の true のイベントが届いたとき、本体の期待と
+	// 区別できない（spec 第5節「イベントを取りこぼした人の操作は見分けられない」）ので、印の判定から外す。
+	trueIssued map[ik]bool
+	// uncertain は、false の応答が Timeout だった項目（適用されたかわからない）。本体が true を送って OK を得たら
+	// cleared になる。そのあとに遅れて適用された false は、前提の外の既知の制約（記録を消したあとの遅れた適用）。
+	uncertain map[ik]*bool
 
 	judges map[string]*ingest.Judge // カメラごとの独立の Judge
 	kbps   map[string]float64
@@ -128,7 +134,7 @@ func newWorld(seed int64, clk *fakeClock, hiddenPath string, faulty bool) *world
 			"HAND": {Name: "HAND", CameraID: wHand},
 		},
 		cont: map[string]*wCont{}, program: camera, streaming: true, connected: true, faulty: faulty,
-		hiddenPath: hiddenPath, appOwned: map[ik]bool{}, mark: map[string]bool{}, humanRestoredOwned: map[ik]bool{}, nextItem: 100,
+		hiddenPath: hiddenPath, appOwned: map[ik]bool{}, mark: map[string]bool{}, humanRestoredOwned: map[ik]bool{}, trueIssued: map[ik]bool{}, uncertain: map[ik]*bool{}, nextItem: 100,
 		kbps: map[string]float64{},
 	}
 	add := func(name string, group bool, items ...*wItem) {
@@ -185,6 +191,7 @@ func (w *world) newGeneration() {
 	w.pending = nil
 	w.mark = map[string]bool{}
 	w.humanRestoredOwned = map[ik]bool{}
+	w.trueIssued = map[ik]bool{}
 	w.releaseHungLocked()
 }
 
@@ -364,6 +371,10 @@ func (w *world) onHumanTrueDeliveredLocked(k ik) {
 		return
 	}
 	delete(w.humanRestoredOwned, k)
+	if w.trueIssued[k] {
+		w.logf("印を立てない: 人の true %v が届くまでに、本体も true を出していた（区別できない）", k)
+		return
+	}
 	if !w.canRestoreOracleLocked(cam) {
 		w.mark[cam] = true
 		w.stats.marks++

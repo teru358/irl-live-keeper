@@ -283,6 +283,7 @@ func (r *runner) humanToggle() {
 	}
 	it.enabled = v
 	delete(w.appOwned, k)
+	delete(w.trueIssued, k)
 	ev := switcher.ItemEnabledChanged{At: r.clk.Now(), SceneUUID: k.c, ItemID: k.id, Enabled: v}
 	w.enqueueLocked(ev, true, k, v)
 	w.mu.Unlock()

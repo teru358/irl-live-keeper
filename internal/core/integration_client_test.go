@@ -169,6 +169,11 @@ func (g *genClient) SetSceneItemEnabled(scene string, id int, en bool) error {
 	w.logf("本体: 項目 %v を %v にする要求（現在 %v, mode=%d）", k, en, it.enabled, mode)
 	if !en {
 		w.checkFalseIssueLocked(k, it)
+	} else {
+		w.trueIssued[k] = true
+		if u := w.uncertain[k]; u != nil && (mode == modeEventFirst || mode == modeRespFirst || mode == modeDropEvent) {
+			*u = true // 本体が true を送って OK を得た: 未決着の記録は消えうる
+		}
 	}
 	switch mode {
 	case modeNotFound:
@@ -179,15 +184,18 @@ func (g *genClient) SetSceneItemEnabled(scene string, id int, en bool) error {
 		return errors.New("request SetSceneItemEnabled: unexpected failure")
 	case modeTimeoutNever:
 		w.stats.timeouts++
+		w.markUncertainLocked(k, en)
 		w.mu.Unlock()
 		return fmt.Errorf("%w: SetSceneItemEnabled", obs.ErrTimeout)
 	case modeTimeoutLate:
 		w.stats.timeouts++
+		w.markUncertainLocked(k, en)
 		w.late = append(w.late, lateApply{due: w.clk.Now().Add(time.Duration(1+w.rng.Intn(8)) * time.Second), key: k, val: en})
 		w.mu.Unlock()
 		return fmt.Errorf("%w: SetSceneItemEnabled（遅れて適用される）", obs.ErrTimeout)
 	case modeHang:
 		w.stats.timeouts++
+		w.markUncertainLocked(k, en)
 		ch := make(chan struct{})
 		w.hung = append(w.hung, ch)
 		apply := w.rng.Intn(2) == 0
@@ -223,7 +231,11 @@ func (w *world) applyLocked(k ik, v bool, by string, dropEvent bool) (switcher.E
 		return nil, false
 	}
 	if !v {
-		w.checkFalseApplyLocked(k, it, by)
+		if u := w.uncertain[k]; u != nil && *u && (strings.Contains(by, "遅れ") || strings.Contains(by, "切断")) {
+			w.logf("既知の制約: Timeout のあと、本体の true が OK になってから遅れて false が適用された（記録は消えている）")
+		} else {
+			w.checkFalseApplyLocked(k, it, by)
+		}
 		w.stats.appFalse++
 	} else {
 		w.stats.appTrue++
@@ -239,6 +251,13 @@ func (w *world) applyLocked(k ik, v bool, by string, dropEvent bool) (switcher.E
 		return nil, true
 	}
 	return switcher.ItemEnabledChanged{At: w.clk.Now(), SceneUUID: k.c, ItemID: k.id, Enabled: v}, true
+}
+
+func (w *world) markUncertainLocked(k ik, en bool) {
+	if !en {
+		cleared := false
+		w.uncertain[k] = &cleared
+	}
 }
 
 func (w *world) clearMarksLocked(why string) {
