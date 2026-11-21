@@ -1,7 +1,7 @@
 # irl-live-keeper 設計 — 複数のカメラ（第2段階 区切り0）
 
 - 作成日: 2026-11-21
-- 版: v0.11（変更は末尾の変更履歴を参照）
+- 版: v0.12（変更は末尾の変更履歴を参照）
 - 状態: 2026-11-21 の brainstorming でユーザーが節ごとに承認した内容を文書化したもの。v0.2〜v0.4 で設計レビュー1周目（Fable、codex sol）と閉鎖確認2回（codex terra）の指摘を、v0.5 で M-0 の spike の結果と設計レビュー2周目（Fable）の指摘を反映し、作りを減らした（コレクションの切替を切断として扱う、要求を UUID で送る、古い OBS は空の地図、守ることを先に書き細部は M-7 の表へ）
 - 前提: コアの spec `docs/superpowers/specs/2026-11-18-core-design.md`（v2.15。以下「コアの spec」）と第2段階の spec `docs/superpowers/specs/2026-11-20-stage2-design.md`（v0.6。以下「第2段階の spec」）。この文書は両者の一部を置き換える（第10節の表）。食い違うときはこの文書を優先する
 
@@ -28,7 +28,15 @@
 
 **対応する OBS**（ユーザーの裁定。版は M-0 で決めた）: **OBS Studio 30.1.0 以降（obs-websocket 5.4.0 以降）**。UUID の項目、`InputSettingsChanged`、UUID で指定する要求がこの版で入った。つないだときに `GetVersion` の `obsWebSocketVersion` で確かめる（`rpcVersion` では見分けられない）。古ければ、地図を空（どのシーンにもカメラが映らない）として扱い、status の `warnings` に「OBS が古いため、自動の切替と隠す・戻すを止めています」と出す。空の地図では、すべてのシーンが管理外か待機シーンになるので、自動の切替と隠す・戻すは起きず、手動の操作と配信開始時の切替は今の規則（StandbyOff は StandbyOffOther）で動く。`hidden.json` の記録は照合せずに残す。README の「OBS Studio 28 以降」を書き直す。ユーザーの Windows は OBS 33.0.1、Linux の試験は OBS 33.0.0（obs-websocket 5.7.6）
 
-**Studio Mode**（0b。M-0 で、OBS の既定〔「シーンを複製」がオン〕では、program のシーンの項目を隠しても配信の画面に効かないとわかった）: Studio Mode がオンの間（`GetStudioModeEnabled` と `StudioModeStateChanged`）は、`on_bad: hide` のカメラを `standby` と同じに扱う（隠さず、悪ければ待機シーンへ送る。隠したつもりで乱れた映像を出すより安全なため。指揮者の提案で、ユーザーの確認待ち）。隠している項目は「c を戻してよい」に入れて戻すが、複製された program には次の遷移まで効かない（既知の制約。README で、Studio Mode を使うときは「シーンを複製」を切るか、hide のカメラを使わないことを勧める）。status の `warnings` に「Studio Mode では隠す動きが使えないため、待機シーンへ送ります」と出す
+**Studio Mode**（0b。M-0 で、OBS の既定〔「シーンを複製」がオン〕では、program のシーンの項目を隠しても配信の画面に効かず、次の遷移で効くとわかった。「シーンを複製」を切れば効く。本体はこの設定を OBS から読めない）: Studio Mode がオンの間（`GetStudioModeEnabled` と `StudioModeStateChanged`）の `on_bad: hide` のカメラの動きを、設定 `obs.studio_mode_hide` で選ぶ（2026-11-21 のユーザーの裁定。既定は `standby`）。Studio Mode がオフのときは、どの値でもふだんの「隠す」の動き
+
+  | 値 | Studio Mode の間の動き |
+  |---|---|
+  | `standby`（既定） | hide のカメラを standby と同じに扱う（隠さず、悪ければ待機シーンへ送り、戻ったら戻り先へ戻す）。本体が隠している項目は「c を戻してよい」に入れて表示に戻す（複製された program には次の遷移まで効かない。既知の制約）。隠したつもりで乱れた映像を出すより安全なため |
+  | `ignore` | hide のカメラについては何もしない（隠さない、戻さない、待機へも送らない。健康の計算でも悪いと数えない）。本体が隠している項目はそのまま残し、Studio Mode がオフになったあと、ふだんの規則で戻す。乱れた映像が配信に出ることがある |
+  | `hide` | ふだんどおり隠す・戻す。OBS の「シーンを複製」を切っているときだけ効く（切っていなければ、隠したつもりで乱れた映像が出る。本体からは見分けられないので、使う人の責任。設定のコメントと README に書く） |
+
+  Studio Mode がオンの間は、status の `warnings` に今の動きを出す（`standby`: 「Studio Mode のため、隠す動きの代わりに待機シーンへ送っています」、`ignore`: 「Studio Mode のため、隠す動きを止めています」、`hide`: 「Studio Mode でも隠しています（OBS の『シーンを複製』を切っていないと配信に効きません）」）
 
 ## 2. 設定
 
@@ -58,7 +66,8 @@ mediamtx:
   - `on_bad` は `standby` か `hide`
   - `switch` の上書きは、共通の値と合わせたあとの5つの値で、共通の閾値と同じ規則を確かめる。理由の項目名は `cameras[<番号>].switch.<項目>`（番号は0から）。`switch` の下に知らない項目があれば不正
   - `rtmp_enabled` と `srt_enabled` の両方が false なら不正
-- **反映の区分**（第2段階の spec 7章の表を直す）: 表から `obs.monitored_scenes`、`obs.media_source`、`stream.name` を消す。すぐ反映に、カメラの `name`、`on_bad`、`switch` の上書きを足す（中核ループがカメラごとの Judge の閾値を差し替える。受信状態は保ち、積み上げた秒数は捨てる）。再起動して反映に、カメラの追加・削除・並べ替え・`id` の変更と、`rtmp_enabled`・`srt_enabled` を足す
+  - `obs.studio_mode_hide` は `standby`、`ignore`、`hide` のどれか（既定 `standby`。0b で足す）
+- **反映の区分**（第2段階の spec 7章の表を直す）: 表から `obs.monitored_scenes`、`obs.media_source`、`stream.name` を消す。すぐ反映に、カメラの `name`、`on_bad`、`switch` の上書きと `obs.studio_mode_hide`（0b）を足す（中核ループがカメラごとの Judge の閾値を差し替える。受信状態は保ち、積み上げた秒数は捨てる）。再起動して反映に、カメラの追加・削除・並べ替え・`id` の変更と、`rtmp_enabled`・`srt_enabled` を足す
 - **config.yaml の書き換え**（第2段階の spec 7章）: `cameras` は対応づけのシーケンスで、文字で差し替える書き方に当たらない。`cameras` の区分は、変えたときに区分ごと Node で書き出す（区分の外のコメントと空行は残す。区分の中のコメントは残らないことを設定の画面で知らせる。ユーザーが承認した）
 - **URL**: カメラごとに作る。資格情報は全カメラで共通
   - SRT: `srt://<host>:<srt_port>?streamid=publish:<id>:<user>:<pass>`（`srt_enabled` が false なら作らない）
@@ -131,7 +140,7 @@ mediamtx:
 
 ### シーンの健康
 
-監視対象のシーン S の健康（OK / LOW / DOWN）を、そのときの地図とカメラの状態から計算する純粋な関数で決める。ここでの「hide のカメラ」は、Studio Mode がオフのときの `on_bad: hide` のカメラ（Studio Mode の間は standby として数える。第1節）。
+監視対象のシーン S の健康（OK / LOW / DOWN）を、そのときの地図とカメラの状態から計算する純粋な関数で決める。ここでの「hide のカメラ」は、Studio Mode がオフのとき、またはオンで `obs.studio_mode_hide` が `hide` のときの `on_bad: hide` のカメラ。Studio Mode がオンで `standby` なら standby として数え、`ignore` なら悪いと数えない（第1節）。
 
 - S に映るカメラのうち、standby のカメラが1つでも OK でなければ、**悪い**
 - S に映るカメラがすべて hide のカメラで、すべて「使えない」なら（全部隠れる）、**悪い**。「使えない」は、OK でないか、表示に戻すのに続けて3回失敗した（第6節）もの
@@ -170,12 +179,12 @@ mediamtx:
 | AutoFail | `[SetScene(待機シーン)]` | 今のシーンが監視対象で、**健康が悪い** |
 | AutoRecover | `[RestartMedia(戻り先に映る standby のカメラのソース), SetScene(戻り先)]` | **戻り先の健康が OK**。出すときだけ、加えて「戻り先が待っている隠した項目」がない |
 | StandbyOffMonitored | `[RestartMedia(同上), SetScene(戻り先)]` | `auto_enabled` が true なら**戻り先の健康が OK**。悪いとき、または待っている隠した項目があるときは、今の健康が悪いときの `Replace`（持ち主を `auto` にし、200）と同じ（項目が戻れば AutoRecover が戻す）。`auto_enabled` が false なら待たずに出す |
-| HideCamera(c) | `[SetItemEnabled(項目, false) …]`（c の項目のうち、地図で今表示のもの。全シーン） | 配信中、`auto_enabled`、c が hide のカメラ、c が OK でない、c に「人が戻した」印がない、`Stopping` を受けていない、StartScene のバッチが未完了でない、**今のシーンを空にしない**（下） |
+| HideCamera(c) | `[SetItemEnabled(項目, false) …]`（c の項目のうち、地図で今表示のもの。全シーン） | 配信中、`auto_enabled`、c が hide のカメラ（Studio Mode の間は `obs.studio_mode_hide` が `hide` のときだけ）、c が OK でない、c に「人が戻した」印がない、`Stopping` を受けていない、StartScene のバッチが未完了でない、**今のシーンを空にしない**（下） |
 | ShowCamera(c) | `[RestartMedia(c のソースのうち、表示の項目が1つもないもの), SetItemEnabled(項目, true) …]`（c の一覧の項目のうち、地図にあって非表示のもの） | 出すとき: c の一覧に地図にあって非表示の項目があり、「c を戻してよい」。承認は Action ごと（下） |
 | RestoreAll | `[SetItemEnabled(項目, true) …]`（全カメラの一覧の項目のうち、地図にあるもの。`RestartMedia` なし） | `Stopping` を受けたとき1回だけ出す。共通の条件は接続と `ConnEpoch` だけ。カメラごとの規則を掛けない。「隠しかけ」と `false` の期待が残る項目は、地図で表示でも `Skip` しない |
 
 - **今のシーンを空にしない**: 今のシーンが監視対象で、c の項目を隠すと、今のシーンに実際に表示されているカメラ（第3節）が0になるなら、HideCamera(c) を出さず、承認でも却下する。今のシーンが変われば（AutoFail が届いた、人が切り替えた）出せる。待機シーンへの切替が失敗や期限切れになっても、今のシーンは変わらないので隠さない
-- **「c を戻してよい」**: c が OK / 配信中でない / `auto_enabled` が false / c が hide のカメラでない（`on_bad` が standby、Studio Mode の間、設定にないカメラ）/ 一覧の項目のソースがもう c のメディアソースでない（その項目だけ）、のどれか。c が OK でないときは `RestartMedia` を付けない
+- **「c を戻してよい」**: c が OK / 配信中でない / `auto_enabled` が false / c が hide のカメラでない（`on_bad` が standby、Studio Mode の間で `obs.studio_mode_hide` が `standby`、設定にないカメラ）/ 一覧の項目のソースがもう c のメディアソースでない（その項目だけ）、のどれか。c が OK でないときは `RestartMedia` を付けない
 - **ShowCamera の承認**（Action ごと）: 共通の条件と `Stopping` を受けていないことを確かめたうえで、`RestartMedia` は c が OK なら `Proceed`、でなければ `Skip`。`SetItemEnabled(X, true)` は、X が c の一覧にあり、地図にあって非表示で、X について「c を戻してよい」なら `Proceed`、それ以外は `Skip`
 - **戻り先が待っている隠した項目**: 戻り先に映る、OK のカメラで、一覧に地図にあって非表示の項目が残っているもの（3回の失敗で「使えない」カメラは待たない）。ある間は AutoRecover と StandbyOffMonitored を出さない（戻ってから空いた画面を映さないため）。承認では見ない
 - HideCamera と ShowCamera は、`SceneEpoch`、`ConfigEpoch`、切替中の抑止を掛けない。同じカメラの HideCamera と ShowCamera は、どちらかが未完了の間はもう一方を出さない
@@ -284,7 +293,7 @@ mediamtx:
 - **配信の記録**（第2段階の spec 8章）: `sample` のできごとは1組で1秒に1件（S2-4）。`auto_fail`・`auto_recover` の `kbps` は第4節のカメラの値、`camera` を足す。`settings_applied` と meta の設定は、カメラの一覧（`id`、`name`、`on_bad`、合わせたあとの閾値）と待機シーンなど（`monitored` はなくす）。購読の形の「設定を返す関数」もこの形。まとめはカメラごとの平均と最低の kbps、LOW と DOWN の時間と割合、隠した回数と合計の時間。待機の回数・合計・最長は配信全体。CSV はカメラごとの列
 - **ソース**（第2段階の spec 9章）: 使える値に、カメラごとの値（`camera.<id>.kbps`、`camera.<id>.state`、`camera.<id>.name`、`camera.<id>.hidden` など）と、今のシーンの健康を足す。`link.*` は、設定で先頭のカメラの値の別名として残す（並べ替えで指す先が変わることを画面に書く）。`obs.scene_class` は地図で。回線の状況のテストは、カメラごとに状態を選べるようにし、「自動の待機中」の戻り先は、地図の監視対象のシーンの最初のもの（なければ「—」）
 - **メディアソースの URL の書き換え**（第2段階の spec 7章）: カメラごとに行う（`update_obs_input` はカメラごとの印）
-- **README**: 複数のカメラの使い方、`on_bad` の選び方、使わない日のカメラの運用、全部隠れるシーンで人が表示に戻しても待機へ送ること、人が「全部隠れる」シーンへ切り替えると待機へ送るまで隠れた画面が映ること、Studio Mode では隠さず待機へ送ること、コレクションの切替の間は操作を断ること。2台以上を同じ上り回線から送ると帯域を分け合うこと、メディアソースの「ハードウェアデコードを使用」。対応する OBS の版
+- **README**: 複数のカメラの使い方、`on_bad` の選び方、使わない日のカメラの運用、全部隠れるシーンで人が表示に戻しても待機へ送ること、人が「全部隠れる」シーンへ切り替えると待機へ送るまで隠れた画面が映ること、Studio Mode の間の動きと `obs.studio_mode_hide` の選び方（既定は待機へ送る。`hide` は OBS の「シーンを複製」を切っているときだけ）、コレクションの切替の間は操作を断ること。2台以上を同じ上り回線から送ると帯域を分け合うこと、メディアソースの「ハードウェアデコードを使用」。対応する OBS の版
 - **既知の制約**（コアの spec 13章に足す）: 配信の開始と同時に今のシーンの健康が悪いと、本体は待機シーンへの切替を送る。それが OBS に届く前（約0.3秒）に人が別のシーンへ切り替えると、本体の切替があとで効いて、人の切替が残らない（第1段階からの性質。M-9 の Linux の確認で見えた）。`hidden.json` は、落ちたあとに人が隠し直した項目と区別できない。補助の接続は常に2本目として開く。HideCamera は全シーンの項目を1つのバッチで送るので、項目が多いと実行中の間だけ AutoRecover が待つ
 
 ## 10. 置き換える箇所
@@ -337,4 +346,5 @@ mediamtx:
 | 2026-11-21 | v0.8 | 第6節に「0a の細部」（W-01〜W-06。古い OBS は名前を UUID の代わりに使う、地図の変更で古くなったバッチ、RestartMedia の対象、再接続のとき、カメラの一覧の変更、同じ値の表示の変化）を足した | M-7 の表の下書き（codex sol）の不明点を指揮者が決めた | 742c0c3 |
 | 2026-11-21 | v0.9 | W-01 のシーン一覧保持、W-02 の整える手順と期待の所有権、W-04 の接続先変更による世代更新、W-05 の States 正規化と計算用地図を明記 | M-7 表の Fable レビューと指揮者の決定 | 31de82e |
 | 2026-11-21 | v0.10 | 第3節「接続の扱い」の goobs の止まり方を、M-6 で再現した形（遅れた応答で受け口が止まり、イベントと次の要求と `Disconnect` が止まる）に直し、本体の側の期限と片づけの上限を書いた。コレクションの切替で `Changed` が来ないときの30秒の保険と、切替の間のイベントを捨てることを足した | M-6 の実装 | a3fe192 |
-| 2026-11-21 | v0.11 | 既知の制約に、配信開始の直後の約0.3秒の人の切替を足した | M-9 の Linux の確認 | この版の commit |
+| 2026-11-21 | v0.11 | 既知の制約に、配信開始の直後の約0.3秒の人の切替を足した | M-9 の Linux の確認 | 87fca65 |
+| 2026-11-21 | v0.12 | Studio Mode の間の hide のカメラの動きを、設定 `obs.studio_mode_hide`（`standby` 既定 / `ignore` / `hide`）で選ぶ形にした（第1節、第2節の検証と反映の区分、第4節の健康、第6節、第9節の README） | 2026-11-21 のユーザーの裁定 | この版の commit |

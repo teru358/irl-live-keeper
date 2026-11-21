@@ -29,7 +29,7 @@
 | M-7 | **要所** switcher: カメラ、地図、健康、UUID（**済み**、8f9cf60。表 `2026-11-21-switcher-table-0a.md`） | M-5 | 初めに、第6節の 0a の入口と Action の型（`CamerasChanged`、`SceneMapChanged`、`ItemEnabledChanged`、`RestartMedia{Inputs}`、UUID の `SetScene`・`SceneChanged`・`OBSConnected`）と `obs.Client` の interface を変える（M-5 から移した）。第6節の 0a の部分（分け方の段落）。先に「入口 × 状態」の表を作り、Fable か codex sol でレビューしてから実装 | 第11節 switcher の列挙。今の列のテストを1台の形に置き換えて同じ結果 |
 | M-8 | **要所** core と配線: 1組の Sample、地図の重ね、status（**済み**、7b6d290） | M-2、M-3、M-6、M-7 | 第3節（地図にない項目の変化を覚えて重ねる）、第4節の `CamerasChanged` を1回、第9節の status（隠す・戻すの値は 0b）、ログ。main（S2-5 の前なので今の `cmd`）の配線。つなぎを外す | 第11節 core の列挙（0a の分）。status の JSON の形 |
 | M-9 | 0a の実機の確認 | M-1〜M-8 | カメラの spec 第11節「実機の確認」のうち隠す・戻す以外（Linux と Windows。第1段階の確認のカメラ1台でのやり直しと、残りの T-12・T-15 を含む）。README（第9節の 0a の分） | チェックリストの結果を記録する |
-| M-10 | obs: 隠す・戻すの要求とイベント（0b） | M-9 | `SetSceneItemEnabled`（UUID）、`NotFound`（状態コード 600）の見分け、Studio Mode（`GetStudioModeEnabled`、`StudioModeStateChanged`）、`ItemRequestDone` の分類 | 偽の goobs の相手で |
+| M-10 | obs と config: 隠す・戻すの要求とイベント（0b） | M-9 | `SetSceneItemEnabled`（UUID）、`NotFound`（状態コード 600）の見分け、Studio Mode（`GetStudioModeEnabled`、`StudioModeStateChanged`）、`ItemRequestDone` の分類。config の `obs.studio_mode_hide`（`standby` 既定 / `ignore` / `hide`。検証とひな形のコメント） | 偽の goobs の相手で |
 | M-11 | **要所** switcher: 隠す・戻す（0b） | M-9 | 第5節の守ること、第6節の 0b の部分、第7節（`hidden.json` のファイルの読み書きを除く。`HiddenRestored` の照合、`HiddenWriteFailed` の巻き戻し、「未決着」、「すべて表示に戻す」は含む）。先に「入口 × 状態」の表を作り、Fable か codex sol でレビューしてから実装 | 第11節 switcher の列挙（0b）。第5節の4つを表の行ごとに |
 | M-12 | **要所** core と配線: `hidden.json`、`Stopping`、すべて表示に戻す（0b） | M-10、M-11 | 第6節のバッチの列の入れ方、第7節の `hidden.json`（バッチごとに1回書く、`HiddenWriteFailed`、壊れたファイル、空の地図で残す）と `Stopping`（2秒）、`POST /api/cameras/show-all`、status の隠す・戻すの値。小さな窓と管理ページのボタンは S2-17・S2-12 で | 第11節 core と結合の列挙（偽の OBS で、乱数の入力の列に対して第5節の4つをいつも確かめる） |
 | M-13 | 0b の実機の確認 | M-10〜M-12 | カメラの spec 第11節「実機の確認」のうち隠す・戻す（Linux と Windows。Studio Mode を含む） | チェックリストの結果を記録する |
@@ -161,4 +161,5 @@
 | 2026-11-21 | v1.6 | 区切り0を 0a（M-1〜M-9）と 0b（M-10〜M-13）に分けた | 2026-11-21 のユーザーの裁定（分けて、隠すは現実的に） | 75dd11c |
 | 2026-11-21 | v1.7 | M-5 は scenemap だけにし、switcher の入口の型と `obs.Client` の変更を M-7 の初めに移した。M-1〜M-3、M-5 を済みにした（M-1 ce72788、M-2 9ecf33e、M-3 9a7a876、M-5 59c1b6f） | 実装の並行（M-4 と obs のパッケージを分けるため） | 0bd6246 |
 | 2026-11-21 | v1.8 | M-4、M-6、M-7 を済みにした | 実装の進み | e1f545d |
-| 2026-11-21 | v1.9 | M-8 を済みにした（0a の実装は M-1〜M-8 で終わり。次は M-9 の実機の確認） | 実装の進み | この版の commit |
+| 2026-11-21 | v1.9 | M-8 を済みにした（0a の実装は M-1〜M-8 で終わり。次は M-9 の実機の確認） | 実装の進み | ca8d121 |
+| 2026-11-21 | v1.10 | M-10 に config の `obs.studio_mode_hide` を足した | カメラの spec v0.12（ユーザーの裁定） | この版の commit |
