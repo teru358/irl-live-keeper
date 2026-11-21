@@ -366,10 +366,10 @@ func TestStatusShapeFull(t *testing.T) {
 		t.Fatalf("cameras = %v", cams)
 	}
 	cam := cams[0].(map[string]any)
-	eqKeys(t, "cameras[0]", cam, "id", "name", "on_bad", "state", "kbps", "online", "protocol", "srt")
+	eqKeys(t, "cameras[0]", cam, "id", "name", "on_bad", "state", "kbps", "online", "protocol", "srt", "sources", "hidden", "user_shown", "unusable")
 	eqKeys(t, "cameras[0].srt", cam["srt"], "rtt_ms", "loss_rate", "recv_mbps")
 	o := m["obs"].(map[string]any)
-	eqKeys(t, "obs", o, "connected", "streaming", "scene", "scene_class", "scene_cameras", "scene_health", "standby", "auto_enabled", "warnings")
+	eqKeys(t, "obs", o, "connected", "streaming", "scene", "scene_class", "scene_cameras", "scene_health", "studio_mode", "standby", "auto_enabled", "warnings")
 	eqKeys(t, "obs.standby", o["standby"], "owner", "return_scene")
 	urls := m["urls"].([]any)
 	if len(urls) != 2 {
@@ -420,6 +420,9 @@ func TestStatusShapeNulls(t *testing.T) {
 	cam := m["cameras"].([]any)[0].(map[string]any)
 	if v, ok := cam["srt"]; !ok || v != nil {
 		t.Fatalf("srt = %#v, want null", v)
+	}
+	if v, ok := cam["sources"].([]any); !ok || len(v) != 0 {
+		t.Fatalf("sources = %#v, want []（null にしない）", cam["sources"])
 	}
 	o := m["obs"].(map[string]any)
 	if v, ok := o["scene_health"]; !ok || v != nil {

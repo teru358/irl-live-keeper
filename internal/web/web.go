@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/teru358/irl-live-keeper/internal/core"
@@ -58,6 +59,12 @@ func New(b Backend, password string) http.Handler {
 			snapshot := b.Snapshot()
 			if snapshot.OBS.Warnings == nil {
 				snapshot.OBS.Warnings = []string{}
+			}
+			snapshot.Cameras = slices.Clone(snapshot.Cameras) // 共有の列を書き換えない
+			for i := range snapshot.Cameras {
+				if snapshot.Cameras[i].Sources == nil {
+					snapshot.Cameras[i].Sources = []string{}
+				}
 			}
 			writeJSON(w, http.StatusOK, snapshot)
 			return
