@@ -170,3 +170,12 @@ func TestMediaWatchWarningsMerged(t *testing.T) {
 		return reflect.DeepEqual(s.OBS.Warnings, []string{"obs の警告", "IRL が映っていない可能性があります"})
 	})
 }
+
+// ログの kbps は小数1桁に丸める（M-9 の Windows の確認で、長い小数が読みにくかった）。
+func TestRoundKbps(t *testing.T) {
+	for _, c := range []struct{ in, want float64 }{{2227.8806111059994, 2227.9}, {0, 0}, {1500.04, 1500}, {1500.05, 1500.1}} {
+		if got := roundKbps(c.in); got != c.want {
+			t.Errorf("roundKbps(%v) = %v, want %v", c.in, got, c.want)
+		}
+	}
+}

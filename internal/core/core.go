@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"math"
 	"slices"
 	"strings"
 	"sync"
@@ -295,7 +296,7 @@ func (c *Core) onSamples(set ingest.SampleSet) {
 			continue
 		}
 		changed = true
-		c.log.Info("camera changed", "camera", cam.cfg.ID, "from", before.String(), "to", after.String(), "kbps", s.Kbps)
+		c.log.Info("camera changed", "camera", cam.cfg.ID, "from", before.String(), "to", after.String(), "kbps", roundKbps(s.Kbps))
 	}
 	if !changed {
 		return
@@ -526,7 +527,7 @@ func (c *Core) approve(req approveReq) switcher.ApproveResult {
 				rep = c.lowestVisibleCamera(set.SceneUUID)
 			}
 			if cam := c.camByID(rep); cam != nil {
-				attrs = append(attrs, "camera", cam.cfg.ID, "kbps", cam.sample.Kbps)
+				attrs = append(attrs, "camera", cam.cfg.ID, "kbps", roundKbps(cam.sample.Kbps))
 			}
 			c.log.Info("scene switch", append(attrs, "purpose", req.purpose.String())...)
 		}
@@ -592,4 +593,9 @@ func (c *Core) logBatchDone(bd switcher.BatchDone) {
 	default:
 		c.log.Debug("batch done", "batch", bd.BatchID, "result", int(bd.Result))
 	}
+}
+
+// roundKbps はログに書く kbps を小数1桁に丸める（読みやすくするため。status の値は丸めない）。
+func roundKbps(k float64) float64 {
+	return math.Round(k*10) / 10
 }
