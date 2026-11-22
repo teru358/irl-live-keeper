@@ -662,7 +662,7 @@ func (m *Machine) onItemEnabledEvent(e ItemEnabledChanged) []Batch {
 		return nil
 	}
 	m.refine()
-	return m.jb(e.At, false)
+	return m.jb(e.At)
 }
 
 // ---- 結果 ----
@@ -761,7 +761,7 @@ func (m *Machine) onItemRequestDone(e ItemRequestDone) []Batch {
 		}
 	}
 	m.refine()
-	return m.jb(e.At, false)
+	return m.jb(e.At)
 }
 
 // recEntry は台帳の記録に当たる記録（Hidden か Retained。鍵・接続先とコレクション・入力 UUID が一致するもの）を返す。

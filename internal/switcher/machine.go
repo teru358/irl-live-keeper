@@ -159,7 +159,7 @@ func (m *Machine) Handle(ev Event) ([]Batch, error) {
 	case Stopping:
 		return m.onStopping(e), nil
 	case Tick:
-		return m.jb(at, true), nil
+		return m.jb(at), nil
 	case Command:
 		if m.st.StoppingReceived {
 			return nil, ErrInvalidState{Reason: ReasonStopping}
@@ -184,11 +184,11 @@ func (m *Machine) onStudioMode(e StudioModeChanged) []Batch {
 	}
 	s.StudioMode = e.Enabled
 	m.refine()
-	return m.jb(e.At, false)
+	return m.jb(e.At)
 }
 
 // jb は更新後の判断（Jb）: シーン判定→ShowCamera→HideCamera の順にバッチの列を返す。停止の受信後は出さない。
-func (m *Machine) jb(at time.Time, isTick bool) []Batch {
+func (m *Machine) jb(at time.Time) []Batch {
 	if m.st.StoppingReceived {
 		return nil
 	}
@@ -372,7 +372,7 @@ func (m *Machine) onConfigured(e ScenesConfigured) []Batch {
 		m.clearOwner()
 	}
 	m.refine()
-	return m.jb(e.At, false)
+	return m.jb(e.At)
 }
 
 // refine は「整える」共通の手順。ScenesConfigured、SceneMapChanged、ItemEnabledChanged、OBSConnected、
@@ -468,7 +468,7 @@ func (m *Machine) onCamerasChanged(e CamerasChanged) []Batch {
 		}
 	}
 	s.CameraStates = next
-	return m.jb(e.At, false)
+	return m.jb(e.At)
 }
 
 func sameStates(a, b map[string]scenemap.CameraState) bool {
@@ -498,7 +498,7 @@ func (m *Machine) onMapChanged(e SceneMapChanged) []Batch {
 	m.resplit()
 	m.reconcile(e.At)
 	m.refine()
-	return m.jb(e.At, false)
+	return m.jb(e.At)
 }
 
 // onConnected は地図と状態を取り直す。シーン、配信状態、コレクションのどれかが切断の直前と違っていたら
@@ -532,7 +532,7 @@ func (m *Machine) onConnected(e OBSConnected) []Batch {
 	m.resplit()
 	m.reconcile(e.At)
 	m.refine()
-	return m.jb(e.At, false)
+	return m.jb(e.At)
 }
 
 // onDisconnected は期待をすべて消し、地図と解決した UUID を消す。持ち主と戻り先は再接続まで保つ。
@@ -564,7 +564,7 @@ func (m *Machine) onSceneChanged(e SceneChanged) []Batch {
 		// 手動（外部）の切替。人がシーンを変えたので、共通の変化を当てる。
 		m.releaseAll()
 		m.refine()
-		return m.jb(e.At, false)
+		return m.jb(e.At)
 	}
 	// 本体の切替。一致した期待とそれより前の期待、同じシーンの期待を消す。当てるのは一致した1件の計画だけ。
 	hit := s.Expectations[i]
@@ -601,7 +601,7 @@ func (m *Machine) onSceneChanged(e SceneChanged) []Batch {
 	}
 	// 期待の照合のあとに整える。
 	m.refine()
-	return m.jb(e.At, false)
+	return m.jb(e.At)
 }
 
 func (m *Machine) onStreamState(e StreamStateChanged) []Batch {
@@ -617,10 +617,10 @@ func (m *Machine) onStreamState(e StreamStateChanged) []Batch {
 		s.LastAutoSent = map[Purpose]time.Time{}
 		s.LastCandidateSent = map[candKey]time.Time{}
 		clear(s.UserShown)
-		return m.jb(e.At, false)
+		return m.jb(e.At)
 	}
 	if s.StartScene == nil {
-		return m.jb(e.At, false)
+		return m.jb(e.At)
 	}
 	// 配信開始時の切替。受信状態は見ない。前の配信の StartScene が残っていれば重ねない。
 	if m.hasPending(PurposeStartScene) {
@@ -629,7 +629,7 @@ func (m *Machine) onStreamState(e StreamStateChanged) []Batch {
 	if s.StartSceneUUID == "" {
 		// 開始シーンが地図で引けない。バッチは出さず（再送もしない）警告を記録し、ほかの判断は続ける。
 		m.recordError(e.At, "配信開始時の切替先（"+*s.StartScene+"）が OBS にない")
-		return m.jb(e.At, false)
+		return m.jb(e.At)
 	}
 	b := m.emit(PurposeStartScene, e.At, []Action{SetScene{SceneUUID: s.StartSceneUUID}}, "", "", ArrivalPlan{})
 	return append([]Batch{*b}, m.itemJudge(e.At)...)
@@ -719,7 +719,7 @@ func (m *Machine) onBatchDone(e BatchDone) []Batch {
 	}
 	// 未完了が解消したので判断し直す（StartScene・AutoRecover・OFF の未完了の抑止、承認で却下した候補の再判断）。
 	m.refine()
-	return m.jb(e.At, false)
+	return m.jb(e.At)
 }
 
 // onItemBatchDone は項目のバッチの終わり: 未送信の予約を戻し、Hide / Show は失敗の回数を数える。
@@ -751,7 +751,7 @@ func (m *Machine) onItemBatchDone(e BatchDone, pb PendingBatch) []Batch {
 		}
 	}
 	m.refine()
-	return m.jb(e.At, false)
+	return m.jb(e.At)
 }
 
 // ---- 自動切替 ----
