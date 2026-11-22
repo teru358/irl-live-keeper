@@ -637,7 +637,7 @@ func (r *runner) fbCheck(where string) {
 	}
 	// ここから静かな時点（流れていないイベントなし、本体と世界が静まった）。
 	if snap.OBS.Scene != w.sceneNameLocked(w.program) || snap.OBS.Streaming != w.streaming {
-		vf("status が偽の OBS と違う: 世界の program=%s streaming=%v", w.sceneNameLocked(w.program), w.streaming)
+		vf("status が偽の OBS と違う: 世界の program=%s streaming=%v（inflight=%d reqSeq=%d→%d evCount=%d pending=%d）", w.sceneNameLocked(w.program), w.streaming, w.inflight.Load(), seq0, w.reqSeq.Load(), w.evCount.Load(), len(w.pending))
 		return
 	}
 	// FB-INV-03: スタックの全要素は存在し、監視対象。
@@ -1009,10 +1009,6 @@ func runSeedFB(t *testing.T, seed int64, profile string, steps int) {
 	}
 	r.fbCheckLog(faulty)
 	if len(w.violations) > 0 {
-		profile := "normal"
-		if faulty {
-			profile = "fault"
-		}
 		t.Errorf("seed=%d profile=%s: %s\n--- 入力の列 ---\n%s\n--- 世界の記録（末尾） ---\n%s",
 			seed, profile, strings.Join(w.violations, "\n"), strings.Join(r.steps, "\n"), joinTrace(w.trace, 150))
 	}

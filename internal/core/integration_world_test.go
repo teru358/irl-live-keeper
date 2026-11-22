@@ -118,6 +118,7 @@ type world struct {
 	violations []string
 	trace      []string
 	activity   atomic.Int64
+	sendMu     sync.Mutex // イベントを本体へ流す順（取り出しから送り終えまで）を守る
 	reqSeq     atomic.Int64 // 始まった OBS の要求の通し番号
 	inflight   atomic.Int64 // 実行中の OBS の要求の数（0c: 静かな時点の判定）
 	evCount    atomic.Int64 // 本体へ流したイベントの数（0c: 履歴が変わるのはイベントかコマンドのあと）
@@ -341,6 +342,13 @@ func (w *world) enqueueLocked(ev switcher.Event, human bool, k ik, val bool) {
 				break
 			}
 		}
+		// 地図の読み直し同士の順は保つ（古い地図が新しい地図のあとに届かない）。
+		for i := len(w.pending) - 1; i >= 0; i-- {
+			if _, ok := w.pending[i].ev.(switcher.SceneMapChanged); ok {
+				idx = max(idx, i+1)
+				break
+			}
+		}
 		w.pending = slices.Insert(w.pending, idx, pendEv{due: due, ev: ev, human: human, key: k, val: val})
 		return
 	}
@@ -363,6 +371,11 @@ func (w *world) enqueueLocked(ev switcher.Event, human bool, k ik, val bool) {
 func (w *world) send(ch chan switcher.Event, gd chan struct{}, ev switcher.Event) {
 	select {
 	case ch <- ev:
+		if sc, ok := ev.(switcher.SceneChanged); ok {
+			w.mu.Lock()
+			w.logf("届けた: SceneChanged %s", sc.Scene)
+			w.mu.Unlock()
+		}
 		w.evCount.Add(1)
 		w.activity.Add(1)
 	case <-gd:
@@ -372,6 +385,13 @@ func (w *world) send(ch chan switcher.Event, gd chan struct{}, ev switcher.Event
 
 // deliverDue は due を過ぎたイベントを順に流す。
 func (w *world) deliverDue(all bool) {
+	w.sendMu.Lock()
+	defer w.sendMu.Unlock()
+	w.deliverDueSerial(all)
+}
+
+// deliverDueSerial は sendMu を持って呼ぶ（取り出してから送り終えるまでの間に、別の goroutine が新しいイベントを先に送らない）。
+func (w *world) deliverDueSerial(all bool) {
 	for {
 		w.mu.Lock()
 		if len(w.pending) == 0 || (!all && w.pending[0].due.After(w.clk.Now())) {
@@ -396,7 +416,9 @@ func (w *world) deliverDue(all bool) {
 
 // sendNow は、先に流すべきイベントをすべて流してから、このイベントを流す（応答より前のイベント）。
 func (w *world) sendNow(ev switcher.Event) {
-	w.deliverDue(true)
+	w.sendMu.Lock()
+	defer w.sendMu.Unlock()
+	w.deliverDueSerial(true)
 	w.mu.Lock()
 	ch, gd := w.evCh, w.genDone
 	connected := w.connected
