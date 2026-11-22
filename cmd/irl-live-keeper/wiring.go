@@ -11,6 +11,7 @@ import (
 	"github.com/teru358/irl-live-keeper/internal/obs"
 	"github.com/teru358/irl-live-keeper/internal/scenemap"
 	"github.com/teru358/irl-live-keeper/internal/supervisor"
+	"github.com/teru358/irl-live-keeper/internal/switcher"
 )
 
 // resolvePath は相対パスを base からの相対として解決する。絶対パスはそのまま返す。
@@ -69,6 +70,9 @@ func coreDeps(cfg *config.Config, urls []camURLs) core.Deps {
 		AutoEnabled:  cfg.Switch.AutoEnabled,
 		// Studio Mode の間の on_bad: hide のカメラの動き（standby / ignore / hide）
 		StudioModeHide: cfg.OBS.StudioModeHide,
+	}
+	for _, f := range cfg.OBS.SceneFallbacks {
+		d.SceneFallbacks = append(d.SceneFallbacks, switcher.FallbackRow{Scene: f.Scene, Fallback: f.Fallback})
 	}
 	for i, c := range cfg.Cameras {
 		d.Cameras = append(d.Cameras, core.Camera{

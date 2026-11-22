@@ -12,6 +12,7 @@ import (
 	"github.com/teru358/irl-live-keeper/internal/ingest"
 	"github.com/teru358/irl-live-keeper/internal/obs"
 	"github.com/teru358/irl-live-keeper/internal/scenemap"
+	"github.com/teru358/irl-live-keeper/internal/switcher"
 )
 
 // testConfig は検証を通る設定を返す（Generate を使わずに既定値と固定のパスワードで作る）。
@@ -81,7 +82,13 @@ func TestCoreDeps(t *testing.T) {
 		{ID: "sub", Name: "サブ", PublishSRT: "s2", PublishRTMP: "r2", OBSRead: "o2"},
 	}
 
+	cfg.OBS.SceneFallbacks = []config.SceneFallback{{Scene: " A ", Fallback: "B"}, {Scene: "C", Fallback: "Wait"}}
+
 	d := coreDeps(cfg, urls)
+	wantFB := []switcher.FallbackRow{{Scene: " A ", Fallback: "B"}, {Scene: "C", Fallback: "Wait"}}
+	if !reflect.DeepEqual(d.SceneFallbacks, wantFB) {
+		t.Errorf("SceneFallbacks = %+v, want %+v（名前のまま、順のまま渡す）", d.SceneFallbacks, wantFB)
+	}
 	if d.StandbyScene != "Wait" || d.AutoEnabled {
 		t.Errorf("詰め替えが違う: %+v", d)
 	}

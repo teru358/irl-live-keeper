@@ -40,9 +40,11 @@ type Deps struct {
 	// StandbyScene、Cameras、AutoEnabled、StartScene はシーンとカメラの設定。New がループを始める前に
 	// ScenesConfigured として Machine に1回渡す。StartScene は配信開始時の切替が無効なら nil。
 	StandbyScene string
-	Cameras      []Camera
-	AutoEnabled  bool
-	StartScene   *string
+	// SceneFallbacks はシーンごとの逃がし先（0c。名前のまま。空なら共通の待機シーンだけ）。
+	SceneFallbacks []switcher.FallbackRow
+	Cameras        []Camera
+	AutoEnabled    bool
+	StartScene     *string
 	// StudioModeHide は Studio Mode のときの on_bad=hide のカメラの動き（standby / ignore / hide）。空は standby。
 	StudioModeHide string
 	// HiddenPath は隠した項目の記録 hidden.json のパス（config.yaml のあるフォルダの state/hidden.json）。
@@ -224,11 +226,12 @@ func New(d Deps) *Core {
 	}
 	// ループを始める前の最初の Event。チャネルは通さない。
 	c.handle(switcher.ScenesConfigured{
-		At:          c.now(),
-		Standby:     d.StandbyScene,
-		Cameras:     cfgs,
-		AutoEnabled: d.AutoEnabled,
-		StartScene:  start,
+		At:             c.now(),
+		Standby:        d.StandbyScene,
+		SceneFallbacks: slices.Clone(d.SceneFallbacks),
+		Cameras:        cfgs,
+		AutoEnabled:    d.AutoEnabled,
+		StartScene:     start,
 
 		StudioModeHide: d.StudioModeHide,
 	})
