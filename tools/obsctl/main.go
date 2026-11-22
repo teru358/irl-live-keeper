@@ -11,7 +11,7 @@
 //	scene <名前> | current | scenes | stream start|stop | streamstatus | profile
 //	setinput <url>（入力 IRL）| mediastatus [入力名] | inputs（メディアソースの一覧と再生の状態）
 //	item <シーン> <ソース> on|off（シーンの項目の表示・非表示）| items <シーン>（項目の表示の状態）| hwdecode on|off（ctl が作ったソースだけ）
-//	studio on|off|status（Studio Mode）
+//	studio on|off|status（Studio Mode）| preview [名前]（Studio Mode の preview のシーン。名前なしで今の値）
 //	tdur <ms> | override <シーン> <トランジション> <ms> | transition
 //	onstarting <シーン> <秒> | watch <秒> [ファイル]（ファイルを渡すと1行ごとに直接書く。裏で動かして止めても欠けない）
 //	test setup | test restore（試験のプロファイルとシーンコレクション。test.go）
@@ -81,6 +81,16 @@ func run(c *goobs.Client, a []string) error {
 			return err
 		}
 		_, err := c.Scenes.SetCurrentProgramScene(&scenes.SetCurrentProgramSceneParams{SceneName: &a[1]})
+		return err
+	case "preview":
+		if len(a) < 2 {
+			r, err := c.Scenes.GetCurrentPreviewScene()
+			if err == nil {
+				fmt.Println(r.SceneName)
+			}
+			return err
+		}
+		_, err := c.Scenes.SetCurrentPreviewScene(&scenes.SetCurrentPreviewSceneParams{SceneName: &a[1]})
 		return err
 	case "current":
 		r, err := c.Scenes.GetCurrentProgramScene()
@@ -288,6 +298,10 @@ func run(c *goobs.Client, a []string) error {
 					line = "CurrentSceneCollectionChanged " + e.SceneCollectionName
 				case *events.CurrentProfileChanged:
 					line = "CurrentProfileChanged " + e.ProfileName
+				case *events.StudioModeStateChanged:
+					line = fmt.Sprintf("StudioModeStateChanged enabled=%v", e.StudioModeEnabled)
+				case *events.CurrentPreviewSceneChanged:
+					line = "PreviewSceneChanged " + e.SceneName
 				}
 				if line != "" {
 					fmt.Fprintln(out, now(), line)
