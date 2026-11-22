@@ -1,7 +1,7 @@
 # irl-live-keeper 設計 — 複数のカメラ（第2段階 区切り0）
 
 - 作成日: 2026-11-21
-- 版: v0.18（変更は末尾の変更履歴を参照）
+- 版: v0.19（変更は末尾の変更履歴を参照）
 - 状態: 2026-11-21 の brainstorming でユーザーが節ごとに承認した内容を文書化したもの。v0.2〜v0.4 で設計レビュー1周目（Fable、codex sol）と閉鎖確認2回（codex terra）の指摘を、v0.5 で M-0 の spike の結果と設計レビュー2周目（Fable）の指摘を反映し、作りを減らした（コレクションの切替を切断として扱う、要求を UUID で送る、古い OBS は空の地図、守ることを先に書き細部は M-7 の表へ）
 - 前提: コアの spec `docs/superpowers/specs/2026-11-18-core-design.md`（v2.15。以下「コアの spec」）と第2段階の spec `docs/superpowers/specs/2026-11-20-stage2-design.md`（v0.6。以下「第2段階の spec」）。この文書は両者の一部を置き換える（第10節の表）。食い違うときはこの文書を優先する
 
@@ -52,6 +52,7 @@
   - Studio Mode がオフのふだんの使い方では、何も変わらない（取っておかない）
 
   **屋外配信では Studio Mode を勧めない**（2026-11-22 のユーザーの裁定）。屋外からは OBS の画面を操作できず、Studio Mode の間は隠す動きが効かないか（`standby`・`ignore`）、「シーンを複製」の設定しだいになる（`hide`）ため。README に書き、Studio Mode がオンの間の `warnings` の文の頭に「屋外配信では Studio Mode を勧めません。」を足す
+- **OBS の読み取りが追いつかない警告**（v0.19、2026-11-22 のユーザーの裁定: 警告だけ出す。健康に入れない、待機へ送らない、隠さない。原因は PC のデコードの重さで、配信の前に気づいて設定を直せるようにするため）: MediaMTX の行を supervisor が読み、`[<プロトコル>] [session|conn <id>] is reading from path '<path>'` で読み手の id → path を覚え、`destroyed` / `closed` で忘れ、`reader is too slow, discarding N frames` を、覚えている読み手の path のできごととして数える（覚えていない id は数えない。RTSP の session、RTMP・SRT の conn とも同じ）。path ごとに、**30秒で3回以上**で「追いつかない」、**最後のできごとから60秒たったら**解く。MediaMTX を起動し直したら全部忘れる。「追いつかない」path がカメラの path（第2節）に当たるカメラごとに、status の `warnings` に1行「<カメラの名前> の映像を OBS が読み切れていません（MediaMTX が映像を捨てています）。送るビットレートや解像度を下げるか、OBS のメディアソースの「ハードウェアデコードを使用」を入れてください」を出す（ほかの警告は上書きせず並べる）。出たとき・解けたときに本体のログに INFO で1行ずつ（`obs reader too slow`〔`camera`、`count`〕/ `obs reader caught up`〔`camera`〕）。MediaMTX の WAR の行は今までどおり流す。健康・switcher には何も渡さない
 
 ## 2. 設定
 
@@ -381,3 +382,4 @@ OBS のメディアソース（`ffmpeg_source`）は、OBS の起動の直後に
 | 2026-11-21 | v0.16 | 第6節「戻り先が待っている隠した項目」に、戻り先の実際に表示されているカメラが0のときも待つ、を足した | M-11 の性質のテスト（INV-02）で見つけた列 | 0c1c747 |
 | 2026-11-22 | v0.17 | 第1節の Studio Mode に「Studio Mode を切るときの一瞬の切替」を足した（obs の層で、Studio Mode の間の program の切替を 250ms 取っておき、`StudioModeStateChanged false` が続いて元のシーンに戻っていれば捨てる。Machine と 0a・0b の表は変えない）。屋外配信では Studio Mode を勧めない（README と第1節） | M-13 の Windows の確認（F-9）と Linux の再現、2026-11-22 のユーザーの裁定（非推奨にし、直しも入れる）。先に流す・既知の制約は、実装の sol のレビュー（I-1、I-2） | この版の commit |
 | 2026-11-22 | v0.18 | 第2節の URL: MediaMTX の path を2段 `<app>/<id>`（`stream.app`、既定 `live`）にした。path を決める関数を1つにし、API と OBS の照合もそれに合わせた。1段の URL のメディアソースは見分けず、警告を出す | 2026-11-22 のユーザーの裁定（Larix Broadcaster と IRL Pro は1段の URL を受け付けない） | この版の commit |
+| 2026-11-22 | v0.19 | status の warnings に、OBS の読み取りが追いつかない警告（MediaMTX の reader is too slow を数え、カメラごとに出す。警告だけで、健康には入れない）を足した | 2026-11-22 のユーザーの裁定（T-15 の1日目、IRL Pro の 1080p で OBS の映像が乱れたのに OK のままだった） | この版の commit |

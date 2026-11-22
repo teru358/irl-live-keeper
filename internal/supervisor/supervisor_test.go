@@ -61,6 +61,13 @@ func fakeMediaMTX(mode string) {
 		fmt.Println("ready pid=" + strconv.Itoa(os.Getpid()))
 		time.Sleep(time.Minute)
 		os.Exit(0)
+	case "readers": // 実物と同じ形の、読み手が追いつかない行を出して、生きたままにする
+		fmt.Println("INF [RTSP] [session 2610e2a2] is reading from path 'live/main', with TCP, 2 tracks (H264, MPEG-4 Audio)")
+		for i := 0; i < 3; i++ {
+			fmt.Println("WAR [RTSP] [session 2610e2a2] reader is too slow, discarding 81 frames")
+		}
+		time.Sleep(time.Minute)
+		os.Exit(0)
 	case "ignoreterm": // 終了の要求を無視する（kill でしか止まらない）
 		signal.Ignore(syscall.SIGTERM)
 		fmt.Println("ready pid=" + strconv.Itoa(os.Getpid()))

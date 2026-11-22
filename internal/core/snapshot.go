@@ -170,6 +170,7 @@ func (c *Core) publish() {
 	if c.media != nil {
 		s.OBS.Warnings = append(s.OBS.Warnings, c.media.w.Warnings()...)
 	}
+	s.OBS.Warnings = append(s.OBS.Warnings, c.slowReaderWarnings()...)
 	if w := c.warnStudioMode(ms); w != "" {
 		s.OBS.Warnings = append(s.OBS.Warnings, w)
 	}
@@ -246,4 +247,35 @@ func (c *Core) logStateChanges(ms switcher.Snapshot) {
 		ms.Standby.ReturnSceneName != prev.Standby.ReturnSceneName || !slices.Equal(ms.Standby.Stack, prev.Standby.Stack) {
 		c.log.Info("standby changed", "owner", ms.Standby.Owner.String(), "return_scene", c.sceneLabel(ms.Standby.ReturnScene, ms.Standby.ReturnSceneName))
 	}
+}
+
+// slowReaderWarnings は、読み手（OBS）が追いつかないカメラの警告をカメラごとに1行返す。
+// 切り替わりはログに出す。警告だけで、健康や切替には関わらない。
+func (c *Core) slowReaderWarnings() []string {
+	if c.slowRead == nil {
+		return nil
+	}
+	slow := map[string]int{}
+	for _, r := range c.slowRead() {
+		slow[r.Path] = r.Count
+	}
+	var out []string
+	for _, cam := range c.cams {
+		n, ok := slow[cam.cfg.Path]
+		if cam.cfg.Path == "" {
+			ok = false
+		}
+		if ok {
+			out = append(out, fmt.Sprintf("%s の映像を OBS が読み切れていません（MediaMTX が映像を捨てています）。送るビットレートや解像度を下げるか、OBS のメディアソースの「ハードウェアデコードを使用」を入れてください", cam.cfg.Name))
+		}
+		if ok != cam.slow {
+			cam.slow = ok
+			if ok {
+				c.log.Info("obs reader too slow", "camera", cam.cfg.ID, "count", n)
+			} else {
+				c.log.Info("obs reader caught up", "camera", cam.cfg.ID)
+			}
+		}
+	}
+	return out
 }

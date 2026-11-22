@@ -23,8 +23,10 @@ var ErrStopped = errors.New("中核ループが止まっている")
 
 // Camera は Core が扱うカメラ1台の設定。Deps.Cameras は設定の順。
 type Camera struct {
-	ID    string
-	Name  string
+	ID   string
+	Name string
+	// Path はカメラの MediaMTX の path（読み手が追いつかないかを引く）。空なら引かない。
+	Path  string
 	OnBad scenemap.Motion
 	// Thresholds はこのカメラの Judge の閾値（共通の switch にカメラの上書きを合わせたもの）。
 	Thresholds ingest.Thresholds
@@ -63,6 +65,9 @@ type Deps struct {
 	Samples <-chan ingest.SampleSet
 	// MediaMTX は MediaMTX の状態を返す。nil なら status の mediamtx は空。
 	MediaMTX func() supervisor.Status
+	// SlowReaders は読み手（OBS）が追いつかない path の一覧を返す（supervisor.SlowReaders）。nil なら見ない。
+	// status の warnings に出すだけで、健康や切替には使わない。
+	SlowReaders func() []supervisor.SlowReader
 	// Warnings は OBS の接続時に見つかった警告を返す（obs.WS.Warnings）。nil なら警告なし。
 	Warnings func() []string
 	// MediaWatch は止まったメディアソースの見張り（カメラの spec 第3節）。nil なら見張らない。
@@ -88,6 +93,7 @@ type camState struct {
 	cfg    Camera
 	judge  *ingest.Judge
 	sample ingest.Sample // 最後の Sample
+	slow   bool          // 読み手が追いつかない（ログの切り替わりの検出用）
 	okSeq  uint64        // 最後に OK になった順番（0 はまだ OK になっていない）。回復のログの代表を決める
 }
 
@@ -103,6 +109,7 @@ type Core struct {
 	samples  <-chan ingest.SampleSet
 	mediamtx func() supervisor.Status
 	warnings func() []string
+	slowRead func() []supervisor.SlowReader
 	media    *mediaDispatcher // nil なら見張らない
 	log      *slog.Logger
 	tick     <-chan time.Time
@@ -191,7 +198,7 @@ func New(d Deps) *Core {
 	}
 	c := &Core{
 		m: d.Machine, obs: d.OBS,
-		samples: d.Samples, mediamtx: d.MediaMTX, warnings: d.Warnings,
+		samples: d.Samples, mediamtx: d.MediaMTX, warnings: d.Warnings, slowRead: d.SlowReaders,
 		log: d.Log, tick: d.Tick, now: d.Now,
 		batches:   make(chan *switcher.Batch),
 		approvals: make(chan approveReq),

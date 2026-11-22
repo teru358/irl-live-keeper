@@ -99,14 +99,19 @@ func TestCoreDeps(t *testing.T) {
 	override := common
 	override.FailKbps = 300
 	want := []core.Camera{
-		{ID: "main", Name: "メイン", OnBad: scenemap.MotionStandby, Thresholds: common,
+		{ID: "main", Name: "メイン", Path: "live/main", OnBad: scenemap.MotionStandby, Thresholds: common,
 			URLs: core.CameraURLs{PublishSRT: "s1", PublishRTMP: "r1", OBSRead: "o1"}},
-		{ID: "sub", Name: "サブ", OnBad: scenemap.MotionHide, Thresholds: override,
+		{ID: "sub", Name: "サブ", Path: "live/sub", OnBad: scenemap.MotionHide, Thresholds: override,
 			URLs: core.CameraURLs{PublishSRT: "s2", PublishRTMP: "r2", OBSRead: "o2"}},
 	}
 	if !reflect.DeepEqual(d.Cameras, want) {
 		t.Errorf("Cameras\n got: %+v\nwant: %+v", d.Cameras, want)
 	}
+	cfg.Stream.App = "" // app が空なら1段の path
+	if p := coreDeps(cfg, urls).Cameras[1].Path; p != "sub" {
+		t.Errorf("app が空のときの Path = %q, want sub", p)
+	}
+	cfg.Stream.App = "live"
 	if d.StartScene != nil {
 		t.Errorf("開始時の切替が無効なのに StartScene がある: %q", *d.StartScene)
 	}

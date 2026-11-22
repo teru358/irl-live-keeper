@@ -76,7 +76,7 @@ func coreDeps(cfg *config.Config, urls []camURLs) core.Deps {
 	}
 	for i, c := range cfg.Cameras {
 		d.Cameras = append(d.Cameras, core.Camera{
-			ID: c.ID, Name: c.Name, OnBad: scenemap.Motion(c.OnBad),
+			ID: c.ID, Name: c.Name, Path: cfg.CameraPath(c.ID), OnBad: scenemap.Motion(c.OnBad),
 			Thresholds: switchThresholds(cfg.CameraSwitch(i)),
 			URLs:       core.CameraURLs{PublishSRT: urls[i].PublishSRT, PublishRTMP: urls[i].PublishRTMP, OBSRead: urls[i].OBSRead},
 		})

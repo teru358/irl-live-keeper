@@ -180,6 +180,7 @@ func run(ctx context.Context, base string, stdout, stderr io.Writer) int {
 	deps.OBS = obsClient
 	deps.Samples = samples
 	deps.MediaMTX = sup.Status
+	deps.SlowReaders = sup.SlowReaders
 	deps.Warnings = obsClient.Warnings
 	mediaWatch := obs.NewMediaWatch(obsClient.Aux().MediaAux(), log, nil)
 	deps.MediaWatch = mediaWatch

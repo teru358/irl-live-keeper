@@ -66,6 +66,9 @@ type Supervisor struct {
 	apiPass string
 	credErr error // 作れなかったときの理由。起動のたびにこれで失敗する
 
+	// readers は OBS などの読み手が追いつかない path の記録（MediaMTX の行から数える）。
+	readers *readerTracker
+
 	mu     sync.Mutex
 	status Status
 }
@@ -82,6 +85,7 @@ func New(cfg *config.Config, binPath, workDir string, log *slog.Logger) *Supervi
 		grace:      defaultGrace,
 		exitSettle: defaultExitSettle,
 		status:     Status{State: StateDown},
+		readers:    newReaderTracker(),
 	}
 	s.apiUser, s.apiPass, s.credErr = newCredentials()
 	return s
@@ -114,6 +118,12 @@ func (s *Supervisor) Status() Status {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.status
+}
+
+// SlowReaders は、読み手（OBS）が追いつかず MediaMTX が映像を捨てている path の一覧を返す。
+// 30秒に3回以上 reader is too slow が出た path で、最後の1回から60秒たつと外れる。MediaMTX を起動し直すと空になる。
+func (s *Supervisor) SlowReaders() []SlowReader {
+	return s.readers.Slow()
 }
 
 // APICredentials は API の資格情報を返す。New で決まり、MediaMTX を再起動しても変わらない。
@@ -193,6 +203,8 @@ func (s *Supervisor) runOnce(ctx context.Context) (time.Duration, error) {
 		return fail(fmt.Errorf("mediamtx.yml を書き込めません: %w", err))
 	}
 	lw := newLineWriter(s.log.With("component", "mediamtx"), s.cfg.Stream.PublishPass, s.cfg.Stream.ReadPass, pass)
+	lw.readers = s.readers
+	s.readers.Reset()
 	cmd := exec.Command(s.binPath, ymlPath)
 	cmd.Dir = s.workDir
 	cmd.Stdout = lw
@@ -213,6 +225,7 @@ func (s *Supervisor) runOnce(ctx context.Context) (time.Duration, error) {
 		stopped = true
 	}
 	lw.flush()
+	s.readers.Reset()
 	ran := s.now().Sub(start)
 	if !stopped && ctx.Err() == nil && s.exitSettle > 0 {
 		// 子が先に終わった。本体の終了が少し遅れて来ることがあるので、少しの間待つ。
@@ -296,6 +309,8 @@ func spawn(cmd *exec.Cmd) (*child, error) {
 type lineWriter struct {
 	log    *slog.Logger
 	masker *redact.Masker
+	// readers は読み手が追いつかない記録（nil なら数えない）。
+	readers *readerTracker
 
 	now func() time.Time // テストで差し替える。nil なら time.Now
 
@@ -388,6 +403,7 @@ func (w *lineWriter) emit(line string) {
 		w.held = w.held[1:]
 	}
 	_, rest := parseLine(line)
+	w.readers.Observe(rest)
 	if m := openedRe.FindStringSubmatch(rest); m != nil {
 		w.release(m[1]) // 同じ接続の古い行が残っていれば先に書く
 		w.held = append(w.held, heldLine{addr: m[1], line: line, at: now})
