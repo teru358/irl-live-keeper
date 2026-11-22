@@ -19,23 +19,34 @@ func TestFBNM(t *testing.T) {
 				t.Fatalf("Class = %v", got)
 			}
 		}},
-		{"FB-NM-02/03", func(t *testing.T) {
-			// A→D が両方ある: 解決。D の名前が消えると、その行は実行時だけ共通待機（設定の文字列は保持）。
-			h := newHB(t, fbAD)
+		{"FB-NM-02", func(t *testing.T) {
+			// 地図の更新で、A名→D名が両方ある: UUID A→D を作り直す。全行を引き直す。
+			h := newHB(t, fbAD, hbMapEdit(func(m *scenemapMap) { delete(m.Scenes, deskScene) }))
+			h.smc(100, hbMap())
 			if got := h.m.resolved().Next[camera]; got != deskScene {
 				t.Fatalf("A→D: %q", got)
 			}
+		}},
+		{"FB-NM-03", func(t *testing.T) {
+			// D の名前がない（S はある）: この行は実行時だけ A→S。設定の文字列は保持、警告に行番号と fallback 名。
+			h := newHB(t, fbAD)
 			h.smc(100, editMap(h.mp, func(m *scenemapMap) { delete(m.Scenes, deskScene) }))
 			r := h.m.resolved()
 			if _, ok := r.Next[camera]; ok || r.NextOf(camera) != standby {
 				t.Fatalf("D がないとき A→S になっていない: %+v", r)
 			}
-			if len(r.Warnings) == 0 || h.m.st.Fallbacks[0].Fallback != "Desk" {
-				t.Fatalf("警告か設定の保持: %+v %+v", r.Warnings, h.m.st.Fallbacks)
+			if len(r.Warnings) == 0 || r.Warnings[0].Index != 0 || r.Warnings[0].Field != "fallback" || h.m.st.Fallbacks[0].Fallback != "Desk" {
+				t.Fatalf("警告か設定の文字列の保持: %+v %+v", r.Warnings, h.m.st.Fallbacks)
 			}
-			// FB-NM-05: 復活すれば A→D に戻る。ConfigEpoch は進めない。
+		}},
+		{"FB-NM-05", func(t *testing.T) {
+			// 未解決の D 名が後の地図に復活: A→D に復元。ConfigEpoch は進めない。
+			h := newHB(t, fbAD, hbMapEdit(func(m *scenemapMap) { delete(m.Scenes, deskScene) }))
+			if _, ok := h.m.resolved().Next[camera]; ok {
+				t.Fatalf("D がないのに解決している")
+			}
 			ce := h.m.st.ConfigEpoch
-			h.smc(200, h.mp)
+			h.smc(200, hbMap())
 			if got := h.m.resolved().Next[camera]; got != deskScene || h.m.st.ConfigEpoch != ce {
 				t.Fatalf("復活: %q epoch %d→%d", got, ce, h.m.st.ConfigEpoch)
 			}

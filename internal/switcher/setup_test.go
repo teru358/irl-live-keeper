@@ -75,9 +75,7 @@ func disconnected(s *state) {
 	if s.Map != nil {
 		s.PrevConnCollection = s.Map.Collection
 	}
-	if s.StandbyUUID != "" {
-		s.PrevConnStandby = s.StandbyUUID
-	}
+	s.PrevConnStandby = s.StandbyUUID
 	s.Map = nil
 	s.StandbyUUID = ""
 	s.StartSceneUUID = ""

@@ -18,15 +18,39 @@ func TestFBST(t *testing.T) {
 			h := newHB(t, hbNoConn())
 			h.wantStack("")
 		}},
-		{"FB-ST-02/03", func(t *testing.T) {
-			// 切断: 接続比較用に履歴を保持（地図なしを削除扱いしない）。同一4条件の再接続は、新しい地図で整理して保つ。
+		{"FB-ST-02", func(t *testing.T) {
+			// 切断: 接続比較用に履歴を保持（地図なしを削除扱いしない）。
 			h := newHB(t, fbAD)
 			h.toSAD(1000)
 			h.ev(OBSDisconnected{At: at(2000)})
 			h.wantStack("A,D")
-			bs := h.connect(2100, true, standby, false)
-			h.outP(bs, "")
+			h.wantOwner(OwnerAuto, camera)
+		}},
+		{"FB-ST-03", func(t *testing.T) {
+			// 再接続の4条件がすべて同一: 新しい地図で整理したあと、残る履歴と持ち主を保って判断する。
+			h := newHB(t, fbAD)
+			h.toSAD(1000)
+			h.ev(OBSDisconnected{At: at(2000)})
+			h.outP(h.connect(2100, true, standby, false), "")
 			h.wantStack("A,D")
+			// 整理: 再接続の地図で D が消えていれば、途中の D だけ外れる。
+			h2 := newHB(t, fbAD)
+			h2.toSAD(1000)
+			h2.ev(OBSDisconnected{At: at(2000)})
+			h2.mp = editMap(h2.mp, func(m *scenemapMap) { delete(m.Scenes, deskScene) })
+			h2.connect(2100, true, standby, false)
+			h2.wantStack("A")
+		}},
+		{"FB-ST-14/reconnect", func(t *testing.T) {
+			// S が引けない間に作った auto は、同じ4条件の再接続（S はまだない）で、古い待機の UUID と比べて C にならない。
+			h := newHB(t, fbAD, hbNoStandby())
+			bs := h.cams(1000, DOWN, OK)
+			h.outP(bs, "F(D;+A)")
+			h.settle(bs[0], 1100)
+			h.wantStack("A")
+			h.ev(OBSDisconnected{At: at(2000)})
+			h.connect(2100, true, deskScene, false)
+			h.wantStack("A")
 		}},
 		{"FB-ST-04", func(t *testing.T) {
 			// 4条件のどれかが違う: C。過去履歴を再利用しない。

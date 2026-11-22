@@ -301,6 +301,11 @@ func TestRowsSceneChangedExpected(t *testing.T) {
 			change: arrived(camera2), out: PurposeAutoFail, ret: camera2},
 		{name: "SCE-12", setup: all(startAt(camera2), scn(talk), link(LOW), p(1, PurposeStartScene, ""), x(1, camera2, PurposeStartScene, "")),
 			ev: sc(1000, camera2), change: arrived(camera2)},
+		// /0c: 到着のときは未完了のバッチが抑止し、未完了が解消した BatchDone で判断する（到着と BatchDone の順を分ける。SCE-8・SCE-12 の置き換え）。
+		{name: "SCE-8/0c", setup: all(own(OwnerManual, camera), link(LOW), p(1, PurposeStandbyOffMonitored, ""), x(1, camera, PurposeStandbyOffMonitored, "")),
+			ev: sc(1000, camera), change: chain(arrived(camera), clearOwner), check: afterBD(PurposeAutoFail)},
+		{name: "SCE-12/0c", setup: all(startAt(camera2), scn(talk), link(LOW), p(1, PurposeStartScene, ""), x(1, camera2, PurposeStartScene, "")),
+			ev: sc(1000, camera2), change: arrived(camera2), check: afterBD(PurposeAutoFail)},
 		{name: "SCE-13/auto_fail", setup: oldExp(1, standby, PurposeAutoFail, camera), ev: sc(1000, standby), change: arrived(standby)},
 		{name: "SCE-13/standby_on", setup: oldExp(1, standby, PurposeStandbyOn, camera), ev: sc(1000, standby), change: arrived(standby)},
 		{name: "SCE-14/auto_recover", setup: all(own(OwnerAuto, camera), oldExp(1, camera, PurposeAutoRecover, "")), ev: sc(1000, camera),
@@ -483,6 +488,17 @@ func TestRowsDeadline(t *testing.T) {
 				t.Fatalf("deadline = %s, want %s", show(got), show(at(c.dlMs)))
 			}
 		})
+	}
+}
+
+// afterBD は、未完了のバッチ 1 が BatchDone で終わったとき、その場で want のバッチが出ることを確かめる。
+func afterBD(want Purpose) func(t *testing.T, m *Machine) {
+	return func(t *testing.T, m *Machine) {
+		t.Helper()
+		b, _ := handle1(m, bd(1500, 1, BatchCompleted))
+		if b == nil || b.Purpose != want {
+			t.Errorf("BatchDone のあと: got %+v, want %v", b, want)
+		}
 	}
 }
 

@@ -105,6 +105,18 @@ func TestFBSQ04(t *testing.T) {
 	h.wantOwner(OwnerNone, "")
 }
 
+func TestFBSQ04ReleasePoint(t *testing.T) {
+	// 逆向きの待ちが解ける時点: false の承認（Proceed）の後は、実表示の計算で x は非表示と数えるので、
+	// 次の入口（応答・イベントの前の Tick）で R(A) が出る。表の「IR OK（イベント未着）で R なし」とは違う（表の不明点）。
+	h := newHB(t, fbAD)
+	h.setStates(OK, DOWN)
+	h.setAuto(standby, camera, deskScene)
+	hc := h.tick(1000)
+	h.outP(hc, "Hc(s)[x,y]")
+	h.proceed(hc[0], 1100, kx, false)
+	h.outP(h.tick(1150), "R(A)")
+}
+
 func TestFBSQ04Columns(t *testing.T) {
 	t.Run("a: u(s)=true なら Hc なし、逆待なしで R(A)", func(t *testing.T) {
 		h := newHB(t, fbAD)
@@ -155,22 +167,11 @@ func TestFBSQ06(t *testing.T) {
 	t.Run("main", func(t *testing.T) {
 		h := newHB(t, hbMapEdit(addSceneC), hbAt(sceneC))
 		h.m.st.CameraStates[camMain] = DOWN
-		h.setAuto(sceneC, camera, camera2) // 前提: auto/[A,B]、現在 C 不良、A/B 不可、D 可（s OK）
-		h.outP(h.tick(0), "F(S;+C)")       // 設定の前は C の先は共通待機（ここで出た F は新しい設定の世代で却下される）
-		old := h.lastBatch
+		h.setAuto(sceneC, camera, camera2) // 前提: auto/[A,B]、現在 C 不良、A/B 不可、D 可（s OK）。判断はまだ走らせない
+		ce := h.m.st.ConfigEpoch
 		c := h.cfg
 		c.At = at(1000)
 		c.SceneFallbacks = []FallbackRow{{Scene: "C", Fallback: "Camera2"}, fbRow(camera2, deskScene)}
-		ce := h.m.st.ConfigEpoch
-		h.ev(h.cfg) // 同値: 何も起きない
-		if h.m.st.ConfigEpoch != ce {
-			t.Fatalf("同値の設定で世代が進んだ")
-		}
-		if r := h.m.Approve(old.BatchID, SetScene{SceneUUID: standby}, OverrideNone{}, at(1000)); !isProceed(r) {
-			t.Fatalf("旧設定の F の承認: %#v", r)
-		}
-		h.m.st.Expectations = nil // この列は新しい設定の F の承認から始める
-		h.bdone(1000, old.BatchID, BatchCompleted, nil)
 		out := h.ev(c)
 		h.outP(out, "F(D;+C)") // 設定 C→B→D→S: B を積み直さず飛ばして D へ
 		if h.m.st.ConfigEpoch != ce+1 {
@@ -219,7 +220,7 @@ func TestFBSQ07(t *testing.T) {
 		ce := h.m.st.ConfigEpoch
 		f := h.tick(1000)
 		h.outP(f, "F(C;+B)")
-		p := h.approveSet(f[0], 1100) // 期待登録、K=[A]
+		h.approveSet(f[0], 1100) // 期待登録、K=[A]
 		h.wantStack("A")
 		e := h.m.st.SceneEpoch
 		h.outP(h.smc(1200, editMap(h.mp, func(m *scenemapMap) { delete(m.Scenes, camera) })), "") // A 削除。同目的の Pending がある間は []
@@ -243,8 +244,6 @@ func TestFBSQ07(t *testing.T) {
 		}
 		// t=0.5: C を不良へ更新したあと、送信済み C の遅着 SC、C→S。期待なしなので手動共通解除。旧計画は復活しない。
 		h.setStates(DOWN, DOWN)
-		p = Proceed{}
-		_ = p
 		h.outP(h.scene(1500, sceneC), "") // 同目的の Pending があるので出ない
 		h.wantStack("")
 		h.wantOwner(OwnerNone, "")

@@ -170,7 +170,8 @@ func fb11Map(m *scenemapMap) {
 // seedBody は本体が隠した項目の記録（H）を直接入れ、地図でも false にする。
 func (h *hb) seedBody(k scenemap.ItemKey, cam, src string) {
 	h.t.Helper()
-	h.setMap(k, false) // 判断を走らせずに地図へ書く（記録を足す前に監視対象でなくならないように）
+	h.setMap(k, false)                              // 判断を走らせずに地図へ書く（記録を足す前に監視対象でなくならないように）
+	setItem(h.mp, k.ContainerUUID, k.ItemID, false) // 以後の地図の差し替えも false
 	e := h.entryOf(k, HiddenH)
 	e.CameraID, e.SourceUUID = cam, src
 	h.m.st.Hidden = append(h.m.st.Hidden, e)
@@ -179,25 +180,49 @@ func (h *hb) seedBody(k scenemap.ItemKey, cam, src string) {
 
 func TestFBTK(t *testing.T) {
 	runHB(t, []hbRow{
-		{"FB-TK-01/02", func(t *testing.T) {
-			// 同じ F 候補、送出 t=0、失敗済み、t=4.999: 時刻保持、履歴未確定。t=5 ちょうどは出す。
+		{"FB-TK-01", func(t *testing.T) {
+			// 同じ F 候補、送出 t=0、失敗済み、t=4.999: 出さない。時刻保持、履歴未確定。
 			h := newHB(t, fbAD)
 			bs := h.cams(0, DOWN, OK)
 			p := h.approveSet(bs[0], 0)
 			h.failBatch(bs[0], p.ReqID, 100)
 			h.outP(h.tick(4999), "")
 			h.wantStack("")
-			h.outP(h.tick(5000), "F(D;+A)")
+			if len(h.m.st.LastCandidateSent) != 1 {
+				t.Fatalf("時刻が消えた")
+			}
 		}},
-		{"FB-TK-03/BD-06", func(t *testing.T) {
-			// A、m/s 不良、t=0 F(D) 失敗後 t=1: 別の候補 F(S;+A,D) は即時。
+		{"FB-TK-02", func(t *testing.T) {
+			// A、m 不良/s OK、t=0 F(D) 失敗後 t=5: 5秒ちょうどは出す。
 			h := newHB(t, fbAD)
 			bs := h.cams(0, DOWN, OK)
 			p := h.approveSet(bs[0], 0)
 			h.failBatch(bs[0], p.ReqID, 100)
-			out := h.cams(1000, DOWN, DOWN)
+			h.outP(h.tick(5000), "F(D;+A)")
+		}},
+		{"FB-TK-03", func(t *testing.T) {
+			// A、m/s 不良、t=0 F(D) 失敗後 t=1、期待・Pending なし: Tick で別の候補 F(S;+A,D) は即時。
+			h := newHB(t, fbAD)
+			bs := h.cams(0, DOWN, OK)
+			p := h.approveSet(bs[0], 0)
+			h.failBatch(bs[0], p.ReqID, 100)
+			h.setStates(DOWN, DOWN) // 判断を走らせずに D を不良にする
+			out := h.tick(1000)
 			if len(out) == 0 || pdesc(out[0]) != "F(S;+A,D)" {
 				t.Fatalf("出力: %s", pdescs(out))
+			}
+		}},
+		{"FB-BD-06", func(t *testing.T) {
+			// A、F(D) の失敗後 D 不可、m/s DOWN: BatchDone で別の候補 F(S;+A,D) が即時に出る。
+			h := newHB(t, fbAD)
+			bs := h.cams(1000, DOWN, OK)
+			h.outP(bs, "F(D;+A)")
+			p := h.approveSet(bs[0], 1000)
+			h.outP(h.cams(1050, DOWN, DOWN), "") // Pending・期待がある間は出ない（D は保護対象で Hide も出ない）
+			h.ev(SceneRequestDone{At: at(1100), ReqID: p.ReqID, Result: RequestError})
+			out := h.bdone(1150, bs[0].BatchID, BatchFailed, errTest)
+			if len(out) == 0 || pdesc(out[0]) != "F(S;+A,D)" {
+				t.Fatalf("BatchDone のあと: %s", pdescs(out))
 			}
 		}},
 		{"FB-TK-04", func(t *testing.T) {
@@ -344,6 +369,23 @@ func TestFBAP(t *testing.T) {
 			}
 			h.wantNoExpectations()
 		}},
+		{"FB-AP-04/display0", func(t *testing.T) {
+			// R 先が健康 OK でも、承認時に実際の表示が0（Studio ignore、本体が隠した記録のみ）: SetScene 直前の検査で Reject。
+			h := newHB(t, fbAD, hbBothHide(), hbMapEdit(fb11Map), hbStudio(), hbStudioHide(StudioHideIgnore))
+			h.setStates(OK, OK)
+			h.setAuto(standby, camera)
+			bs := h.tick(1000)
+			h.outP(bs, "R(A)") // m/s とも hide なので再起動の対象はなく、SetScene だけ
+			h.setStates(DOWN, OK)
+			h.seedBody(kzA, camMain, inMain) // 生成のあとに A の m が隠れた（健康は ignore で OK のまま）
+			if f := h.m.enterFacts(camera, DirReturn); !f.ActualZero || f.OKHiddenRecord {
+				t.Fatalf("前提: %+v", f)
+			}
+			if r := h.m.Approve(bs[0].BatchID, bs[0].Actions[0], OverrideNone{}, at(2100)); r != (Reject{}) {
+				t.Fatalf("SetScene = %#v, want Reject", r)
+			}
+			h.wantNoExpectations()
+		}},
 		{"FB-AP-05", func(t *testing.T) {
 			// Conn/Stream/Scene/ConfigEpoch のいずれかが古い: Reject。期待を増やさない。
 			for name, f := range map[string]func(m *Machine){
@@ -461,10 +503,15 @@ func TestFBBD(t *testing.T) {
 				t.Fatalf("StartScene: %s", pdescs(bs))
 			}
 			p := h.approveSet(bs[0], 1100)
-			h.completeBatch(bs[0], p.ReqID, 1200)
-			h.scene(1300, camera)
-			out := h.bdone(1400, bs[0].BatchID, BatchCompleted, nil)
-			_ = out
+			h.outP(h.scene(1200, camera), "") // 到着。StartScene が未完了の間は、A が不良でも判断しない
+			h.outP(h.cams(1250, DOWN, OK), "")
+			h.ev(SceneRequestDone{At: at(1300), ReqID: p.ReqID, Result: RequestOK})
+			out := h.bdone(1400, bs[0].BatchID, BatchCompleted, nil) // 未完了が解消した BatchDone で、通常の退避
+			h.outP(out, "F(D;+A)")
+			if out[0].Purpose == PurposeStartScene {
+				t.Fatalf("StartScene を再送した")
+			}
+			h.outP(h.tick(1500), "")
 		}},
 	})
 }

@@ -547,9 +547,7 @@ func (m *Machine) onDisconnected() {
 	if s.Map != nil {
 		s.PrevConnCollection = s.Map.Collection
 	}
-	if s.StandbyUUID != "" {
-		s.PrevConnStandby = s.StandbyUUID
-	}
+	s.PrevConnStandby = s.StandbyUUID // 空は「情報なし」（待機が引けていなかった）。古い値を残さない
 	s.Map = nil
 	s.StandbyUUID = ""
 	s.StartSceneUUID = ""

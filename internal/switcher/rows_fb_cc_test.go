@@ -97,6 +97,22 @@ func TestFBCC(t *testing.T) {
 	})
 }
 
+// fbTwoExpectations は FB-SC-06・14 の前提: 現在 A、m/s 不良、x/y は本体が隠した H、期待は F(D;+A) と F(S;+A,D)（登録順）。
+func (h *hb) fbTwoExpectations() {
+	h.t.Helper()
+	h.setStates(DOWN, DOWN)
+	h.seedBody(kx, camSub, inSub)
+	h.seedBody(ky, camSub, inSub)
+	ce := h.m.st.ConfigEpoch
+	for i, x := range []struct {
+		to string
+		ap []string
+	}{{deskScene, []string{camera}}, {standby, []string{camera, deskScene}}} {
+		h.m.st.Expectations = append(h.m.st.Expectations, Expectation{ReqID: i + 1, Scene: x.to, Purpose: PurposeAutoFail, ReturnScene: camera,
+			ConfigEpoch: ce, Override: OverrideNone{}, Plan: ArrivalPlan{Plan: Plan{Kind: PlanEscape, Target: x.to, Append: x.ap}}})
+	}
+}
+
 func TestFBSC(t *testing.T) {
 	runHB(t, []hbRow{
 		{"FB-SC-01", func(t *testing.T) {
@@ -152,19 +168,10 @@ func TestFBSC(t *testing.T) {
 			h.wantStack("A")
 		}},
 		{"FB-SC-06", func(t *testing.T) {
-			// 期待 F(D;+A) と F(S;+A,D) が並び、S だけ届く: S の計画だけ適用。
+			// 期待 F(D;+A) と F(S;+A,D)、m/s 不良、x/y H、S だけ届く: S の計画だけ適用、auto/[A,D]。
 			h := newHB(t, fbAD)
-			bs := h.cams(1000, DOWN, OK)
-			p := h.approveSet(bs[0], 1100)
-			h.completeBatch(bs[0], p.ReqID, 1200)
-			bs = h.cams(2000, DOWN, DOWN)
-			h.outP(bs[:1], "F(S;+A,D)")
-			p = h.approveSet(bs[0], 2100)
-			h.completeBatch(bs[0], p.ReqID, 2200)
-			if len(h.m.st.Expectations) != 2 {
-				t.Fatalf("期待が2件でない: %+v", h.m.st.Expectations)
-			}
-			h.scene(2300, standby)
+			h.fbTwoExpectations()
+			h.outP(h.scene(2300, standby), "")
 			h.wantStack("A,D")
 			h.wantNoExpectations() // D 宛の前の期待も一緒に消費
 		}},
@@ -253,17 +260,12 @@ func TestFBSC(t *testing.T) {
 			}
 		}},
 		{"FB-SC-14", func(t *testing.T) {
-			// F(D;+A) と F(S;+A,D) の期待、SC(D) → SC(S): [A] → [A,D]。既存の A を追加しない。
+			// F(D;+A) と F(S;+A,D) の期待、m/s 不良・x/y H、SC(D) → SC(S): [A] → [A,D]。既存の A を追加しない。
 			h := newHB(t, fbAD)
-			bs := h.cams(1000, DOWN, OK)
-			p := h.approveSet(bs[0], 1100)
-			h.completeBatch(bs[0], p.ReqID, 1200)
-			bs = h.cams(2000, DOWN, DOWN)
-			p = h.approveSet(bs[0], 2100)
-			h.completeBatch(bs[0], p.ReqID, 2200)
+			h.fbTwoExpectations()
 			h.outP(h.scene(2300, deskScene), "")
 			h.wantStack("A")
-			h.outP(h.scene(2400, standby), "Hc(s)[x,y]") // S に着けば、s を隠せる
+			h.outP(h.scene(2400, standby), "")
 			h.wantStack("A,D")
 		}},
 		{"FB-SC-15", func(t *testing.T) {
@@ -373,11 +375,12 @@ func TestFBMP(t *testing.T) {
 			h := newHB(t, fbAD)
 			h.setStates(OK, DOWN)
 			h.setAuto(standby, camera, deskScene)
+			h.seedBody(ky, camSub, inSub) // y は本体が隠した H
 			h.outP(h.smc(1000, editMap(h.mp, func(m *scenemapMap) {
 				c := m.Scenes[camera]
 				c.Items = nil
 				m.Scenes[camera] = c
-			})), "Hc(s)[y]") // A は管理外なので x はなく、y だけ隠す
+			})), "")
 			h.wantStack("D")
 			h.wantScene(standby)
 		}},
@@ -470,4 +473,30 @@ func TestFBMP(t *testing.T) {
 			h.wantScene(talk)
 		}},
 	})
+}
+
+func TestFBW03(t *testing.T) {
+	// W-03/0c: 戻り先の再起動の対象から、現在の配信（program）に実際に表示されている入力を除く（共有入力も入力 UUID で）。
+	h := newHB(t, fbAD)
+	h.m.st.Scene = standby
+	if got := h.m.restartInputs(camera2); len(got) != 1 || got[0] != inMain {
+		t.Fatalf("program が待機: %v", got)
+	}
+	h.m.st.Scene = camera // A に im が映っている。B（im だけ）へ戻すときの im は再起動しない
+	if got := h.m.restartInputs(camera2); len(got) != 0 {
+		t.Fatalf("program の A に映る im を再起動している: %v", got)
+	}
+	// 入れ子の経路: program の A が、B をシーンのソースとして映す場合も数える。
+	h.m.st.Scene = talk
+	h.m.st.Map.Scenes[talk] = scenemapContainer("Talk",
+		scenemap.Item{ID: 1, SourceUUID: camera2, SourceKind: scenemap.SceneSource, Enabled: true})
+	if got := h.m.restartInputs(camera2); len(got) != 0 {
+		t.Fatalf("入れ子の経路の im を再起動している: %v", got)
+	}
+	// 実表示でなければ（A の項目が非表示）再起動の対象に残る。
+	h.m.st.Scene = camera
+	setItem(h.m.st.Map, camera, 1, false)
+	if got := h.m.restartInputs(camera2); len(got) != 1 {
+		t.Fatalf("非表示の入力は対象のまま: %v", got)
+	}
 }
