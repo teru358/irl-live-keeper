@@ -39,7 +39,7 @@ func TestEndToEndAutoFail(t *testing.T) {
 		t.Errorf("scene_class = %q, want standby", s.OBS.SceneClass)
 	}
 
-	want := `msg="scene switch" from=Camera to=Standby reason=low camera=main kbps=0`
+	want := `msg="scene switch" from=Camera to=Standby reason=fallback camera=main kbps=0`
 	if out := h.log.String(); !strings.Contains(out, want) {
 		t.Errorf("ログに %q がない:\n%s", want, out)
 	}

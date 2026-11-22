@@ -669,15 +669,12 @@ func (c *Core) lastOKVisibleCamera(sceneUUID string) string {
 	return best.cfg.ID
 }
 
-// reason は切替の理由。AutoFail は悪い代表のカメラの受信状態（low / down）、AutoRecover は ok、
-// 配信開始時の切替は stream_start、それ以外は command。
+// reason は切替の理由。AutoFail（逃がす）は fallback（0c 表 8 章。悪い代表のカメラと kbps は camera と kbps に出す）、
+// AutoRecover は ok、配信開始時の切替は stream_start、それ以外は command。
 func (c *Core) reason(p switcher.Purpose, badCamera string) string {
 	switch {
 	case p == switcher.PurposeAutoFail:
-		if cam := c.camByID(badCamera); cam != nil {
-			return strings.ToLower(cam.judge.State().String())
-		}
-		return "low"
+		return "fallback"
 	case p.IsAuto():
 		return strings.ToLower(ingest.LinkOK.String())
 	case p == switcher.PurposeStartScene:

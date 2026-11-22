@@ -15,7 +15,9 @@ func hbFB(rows ...FallbackRow) hbOpt {
 	return func(h *hb) { h.cfg.SceneFallbacks = rows }
 }
 
-func fbRow(from, to string) FallbackRow { return FallbackRow{Scene: nameOf(from), Fallback: nameOf(to)} }
+func fbRow(from, to string) FallbackRow {
+	return FallbackRow{Scene: nameOf(from), Fallback: nameOf(to)}
+}
 
 // 表の既定の設定 A→D→S（D の行はなく、D の先は共通待機）。
 var fbAD = hbFB(fbRow(camera, deskScene))
@@ -27,6 +29,11 @@ func init() { hbSceneNames[sceneC] = "C" }
 
 func addSceneC(m *scenemap.Map) {
 	m.Scenes[sceneC] = scenemapContainer("C", scenemapItem(1, inMain, true))
+}
+
+// addSceneCs は C を s だけが映るシーンにする（C が悪い間も m の A/B が戻れる fixture）。
+func addSceneCs(m *scenemap.Map) {
+	m.Scenes[sceneC] = scenemapContainer("C", scenemapItem(1, inSub, true))
 }
 
 // hbNoStandby は地図から共通待機 S を消す（FB-NM-06）。
@@ -187,7 +194,6 @@ func (h *hb) setAuto(cur string, stack ...string) {
 	h.m.st.Scene = cur
 	h.m.setAuto(stack)
 }
-
 
 // setStates はカメラの状態を直接書く（判断を走らせず、前提の状態だけ作る。次の Tick などで判断が走る）。
 func (h *hb) setStates(m, s scenemap.CameraState) {
