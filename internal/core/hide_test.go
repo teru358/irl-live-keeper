@@ -747,9 +747,8 @@ func TestRetainedEntriesWarning(t *testing.T) {
 func TestHideShowLogs(t *testing.T) {
 	h, path := hideHarness(t)
 	h.hideSub(path)
-	if !strings.Contains(h.log.String(), `msg="camera hidden" camera=sub items=1 reason=down`) {
-		t.Errorf("camera hidden の行がない:\n%s", h.log.String())
-	}
+	// camera hidden は要求の応答が戻ってから出る（hideSub は要求が送られた時点で戻る）。出るまで待ち、隠す処理が終わってから次へ
+	h.waitLog(`msg="camera hidden" camera=sub items=1 reason=down`)
 	// 配信の停止で戻る（reason=stream_stop）。Hide と Show は前回の送出から5秒あける。
 	h.clk.Advance(6 * time.Second)
 	h.obsEvent(switcher.StreamStateChanged{At: h.clk.Now(), Streaming: false})
