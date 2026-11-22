@@ -432,3 +432,151 @@ func TestFBSQ14(t *testing.T) {
 	h.wantStack("A")
 	h.outP(h.bdone(2300, r[0].BatchID, BatchRejected, nil), "")
 }
+
+func TestFBSQ10(t *testing.T) {
+	// 画像終端・OFF 専用範囲。A→T→D、A 不良。
+	h := newHB(t, hbFB(fbRow(camera, talk), fbRow(talk, deskScene)))
+	f := h.cams(1000, DOWN, OK)
+	h.outP(f, "F(T;+A)") // T に設定行があっても終端
+	h.outP(h.settle(f[0], 1100), "")
+	h.wantScene(talk)
+	h.wantStack("A")
+	// t=1: ON → ON(A): 戻り先は T ではなく A。
+	on := h.mustCmd(h.cmdOn(2000))
+	if len(on) != 1 || on[0].Purpose != PurposeStandbyOn || on[0].ReturnScene != camera {
+		t.Fatalf("ON(A) でない: %+v", on)
+	}
+	h.settle(on[0], 2100)
+	h.wantOwner(OwnerManual, camera)
+	h.wantStack("")
+	// t=2: OFF、A 不可/T 可 → OFF(T;[A]): T で止める、D まで探索しない。
+	off := h.mustCmd(h.cmdOff(3000))
+	h.out(off, "M(T)")
+	h.settle(off[0], 3100)
+	h.wantScene(talk)
+	h.wantStack("A") // ON 前の履歴を合成しない（auto/[A]）
+	h.wantOwner(OwnerAuto, camera)
+	// t=3: A 回復、準備完了 → R(A)。T からも復帰。
+	r := h.cams(9000, OK, OK)
+	h.outP(r, "R(A)")
+	h.outP(h.settle(r[0], 9100), "")
+	h.wantScene(camera)
+	h.wantStack("")
+	h.wantOwner(OwnerNone, "")
+}
+
+func TestFBSQ12(t *testing.T) {
+	// 再接続・auto=false・開始時切替。
+	h := newHB(t, fbAD, hbStart(camera))
+	// t=0: D、auto/[A]、m 不良、s OK。
+	h.toDAuto(500)
+	// t=1: OBSDisconnected: K 保持、ConnEpoch+1、期待消去。
+	ce := h.m.st.ConnEpoch
+	h.outP(h.ev(OBSDisconnected{At: at(1000)}), "")
+	if h.m.st.ConnEpoch != ce+1 {
+		t.Fatalf("ConnEpoch")
+	}
+	h.wantStack("A")
+	h.wantNoExpectations()
+	// t=2: 同じ 4 条件で OBSConnected: 新地図で [A] 保持、StartScene なし。
+	h.outP(h.connect(2000, true, deskScene, false), "")
+	h.wantStack("A")
+	// t=3: auto=false: C、D に残る。
+	c := h.cfg
+	c.At = at(3000)
+	c.AutoEnabled = false
+	h.outP(h.ev(c), "")
+	h.wantStack("")
+	h.wantOwner(OwnerNone, "")
+	h.wantScene(deskScene)
+	// t=4: m OK: 旧 A へ戻らない。
+	h.outP(h.cams(4000, OK, OK), "")
+	h.wantScene(deskScene)
+	// t=5: auto=true: D 健康 OK、過去履歴を復活しない。
+	c.At = at(5000)
+	c.AutoEnabled = true
+	h.outP(h.ev(c), "")
+	h.wantStack("")
+	// t=5.5: m DOWN: D 健康 OK、履歴なし。
+	h.outP(h.cams(5500, DOWN, OK), "")
+	h.wantStack("")
+	// t=6: 配信停止: 期待・時刻消去、K=[]。
+	h.outP(h.ev(StreamStateChanged{At: at(6000), Streaming: false}), "")
+	h.wantNoExpectations()
+	h.wantStack("")
+	// t=7: 配信開始、on_stream_start=A → StartScene(A)。A 不良でも X 中 Auto/Hide なし。
+	bs := h.ev(StreamStateChanged{At: at(7000), Streaming: true})
+	h.out(bs, "St(A)")
+	p := h.approveSet(bs[0], 7050)
+	// t=7.1: SC(A) を先に受ける: まだ StartScene Pending。
+	h.outP(h.scene(7100, camera), "")
+	// t=7.2: SRD/BD、A 不良 → F(D;+A)。StartScene 再送なし。
+	h.ev(SceneRequestDone{At: at(7200), ReqID: p.ReqID, Result: RequestOK})
+	h.outP(h.bdone(7200, bs[0].BatchID, BatchCompleted, nil), "F(D;+A)")
+}
+
+func TestFBSQ12Reconnect4Conditions(t *testing.T) {
+	// 別列: 再接続の 4 条件を 1 つずつ変え、すべて C を検査。collection の差は UUID が同一でも解除。
+	for name, f := range map[string]func(h *hb){
+		"scene":      func(h *hb) { h.connect(2100, true, camera, false) },
+		"streaming":  func(h *hb) { h.connect(2100, false, standby, false) },
+		"collection": func(h *hb) { h.mp.Collection = "collection-y"; h.connect(2100, true, standby, false) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newHB(t, fbAD)
+			h.toSAD(1000)
+			h.ev(OBSDisconnected{At: at(2000)})
+			f(h)
+			h.wantStack("")
+			h.wantOwner(OwnerNone, "")
+		})
+	}
+}
+
+func TestFBSQ14T4(t *testing.T) {
+	// 別列 a〜c（d は FB-AP-10/subset）。
+	t.Run("a/old_config_R_arrival_is_C", func(t *testing.T) {
+		// SetScene 承認後、設定変更→古い復帰の SC 一致なら部分復帰せず C。
+		h := newHB(t, fbAD)
+		h.withRecoverExp()
+		c := h.cfg
+		c.At = at(8900)
+		c.SceneFallbacks = []FallbackRow{fbRow(camera, deskScene), fbRow(deskScene, talk)}
+		h.ev(c)
+		h.scene(9000, camera)
+		h.wantStack("")
+		h.wantOwner(OwnerNone, "")
+	})
+	t.Run("b/old_F_and_ON_arrival", func(t *testing.T) {
+		// 古い F の期待: 追加/所有権設定なし、履歴がなければ none で到着先に残る。古い ON も manual にしない。
+		h := newHB(t, fbAD)
+		f := h.cams(1000, DOWN, OK)
+		h.outP(f, "F(D;+A)")
+		h.approveSet(f[0], 1100)
+		c := h.cfg
+		c.At = at(1200)
+		c.SceneFallbacks = []FallbackRow{fbRow(camera, deskScene), fbRow(deskScene, talk)}
+		h.ev(c)
+		h.scene(1300, deskScene)
+		h.wantStack("")
+		h.wantOwner(OwnerNone, "")
+		h2 := newHB(t, fbAD)
+		on := h2.mustCmd(h2.cmdOn(1000))
+		h2.approveSet(on[0], 1100)
+		c = h2.cfg
+		c.At = at(1200)
+		c.SceneFallbacks = []FallbackRow{fbRow(camera, deskScene), fbRow(deskScene, talk)}
+		h2.ev(c)
+		h2.scene(1300, standby)
+		h2.wantOwner(OwnerNone, "")
+		h2.wantStack("")
+	})
+	t.Run("c/shared_input_current_scene", func(t *testing.T) {
+		// A と現在 B が同入力 im を共有: R(A) の生成時に im を除外、再起動なしで SetScene。
+		h := newHB(t, fbAD)
+		h.setAuto(camera2, camera)
+		r := h.tick(1000)
+		h.outP(r, "R(A)")
+		h.wantRestartActions(r[0], SetScene{SceneUUID: camera})
+	})
+}

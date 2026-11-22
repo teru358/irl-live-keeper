@@ -469,3 +469,38 @@ func TestFBMA(t *testing.T) {
 }
 
 var _ = strings.Contains
+
+// status（Snapshot）: standby.stack（名前の並び、下→上）と return_scene、引けない scene_fallbacks の行（1.1）。
+func TestFBStatus(t *testing.T) {
+	t.Run("stack_and_return_scene", func(t *testing.T) {
+		h := newHB(t, fbAD)
+		h.toSAD(1000)
+		st := h.m.Snapshot().Standby
+		if strings.Join(st.StackNames, ",") != nameOf(camera)+","+nameOf(deskScene) || st.ReturnScene != camera || st.ReturnSceneName != nameOf(camera) {
+			t.Fatalf("Standby = %+v", st)
+		}
+		// 外から変えても内部は変わらない。
+		st.Stack[0] = "x"
+		st.StackNames[0] = "x"
+		h.wantStack("A,D")
+		// manual は単独の戻り先で、スタックは空。
+		h2 := newHB(t, fbAD)
+		h2.standbyOnManual(t)
+		st = h2.m.Snapshot().Standby
+		if len(st.Stack) != 0 || st.ReturnScene != camera {
+			t.Fatalf("manual: %+v", st)
+		}
+	})
+	t.Run("warnings_for_unresolved_rows", func(t *testing.T) {
+		h := newHB(t, hbFB(FallbackRow{Scene: "NoSuch", Fallback: nameOf(deskScene)}, FallbackRow{Scene: nameOf(camera), Fallback: "Gone"}))
+		ws := h.m.Snapshot().FallbackWarnings
+		if len(ws) != 2 || ws[0] != (NameWarning{Index: 0, Field: "scene", Name: "NoSuch"}) || ws[1] != (NameWarning{Index: 1, Field: "fallback", Name: "Gone"}) {
+			t.Fatalf("warnings = %+v", ws)
+		}
+		// 未接続（地図なし）では出さない。
+		h.ev(OBSDisconnected{At: at(1000)})
+		if ws := h.m.Snapshot().FallbackWarnings; len(ws) != 0 {
+			t.Fatalf("未接続: %+v", ws)
+		}
+	})
+}

@@ -844,3 +844,94 @@ func keyPaths(m map[string]any, prefix string) []string {
 	sort.Strings(out)
 	return out
 }
+
+// C-03: 承認が返した部分集合（Proceed.RestartInputs）だけを再起動する。Skip なら再起動も待ちもしない。
+func TestExecuteRestartSubset(t *testing.T) {
+	run := func(t *testing.T, restartRes switcher.ApproveResult, wait time.Duration) (calls []string, elapsed time.Duration) {
+		h := newHarness(t) // Run は始めない。実行役だけを、承認を台本で返す相手につなぐ
+		c := h.core
+		h.obs.onScene = func(string) error { return nil } // イベントは流さない
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		go func() {
+			for {
+				select {
+				case req := <-c.approvals:
+					switch req.action.(type) {
+					case switcher.RestartMedia:
+						req.reply <- restartRes
+					default:
+						req.reply <- switcher.Proceed{ReqID: 1}
+					}
+				case <-c.results:
+				case <-h.obs.entered:
+				case <-ctx.Done():
+					return
+				}
+			}
+		}()
+		b := &switcher.Batch{BatchID: 7, Purpose: switcher.PurposeAutoRecover, Actions: []switcher.Action{
+			switcher.RestartMedia{Inputs: []string{"in-a", "in-b"}, Wait: wait},
+			switcher.SetScene{SceneUUID: camera},
+		}}
+		n := len(h.obs.Calls())
+		start := time.Now()
+		c.execute(ctx, b)
+		return callsSince(h.obs, n), time.Since(start)
+	}
+	t.Run("subset", func(t *testing.T) {
+		calls, _ := run(t, switcher.Proceed{RestartInputs: []string{"in-b"}}, time.Millisecond)
+		if got := countPrefix(calls, "restart:"); got != 1 || calls[0] != "restart:in-b" && calls[1] != "restart:in-b" {
+			t.Fatalf("calls = %v, want restart:in-b だけ", calls)
+		}
+		for _, c := range calls {
+			if strings.Contains(c, "in-a") {
+				t.Fatalf("外した入力を再起動した: %v", calls)
+			}
+		}
+	})
+	t.Run("fixed_when_no_subset", func(t *testing.T) {
+		// 項目の Show の Restart など、RestartInputs を持たない Proceed は固定した入力すべて。
+		calls, _ := run(t, switcher.Proceed{}, time.Millisecond)
+		if !slices.Contains(calls, "restart:in-a,in-b") {
+			t.Fatalf("calls = %v", calls)
+		}
+	})
+	t.Run("skip_no_restart_no_wait", func(t *testing.T) {
+		calls, elapsed := run(t, switcher.Skip{}, 5*time.Second)
+		if countPrefix(calls, "restart:") != 0 {
+			t.Fatalf("Skip なのに再起動した: %v", calls)
+		}
+		if elapsed > time.Second {
+			t.Fatalf("Skip なのに待った: %v", elapsed)
+		}
+		if countPrefix(calls, "scene:") != 1 {
+			t.Fatalf("SetScene へ進まない: %v", calls)
+		}
+	})
+}
+
+// status の warnings: 名前が OBS で引けない scene_fallbacks の行を、行番号（1 始まり）と名前つきで出す（0c T4）。
+func TestSnapshotFallbackWarnings(t *testing.T) {
+	h := newHarness(t, func(_ *switcher.Config, d *Deps) {
+		d.SceneFallbacks = []switcher.FallbackRow{
+			{Scene: "NoSuchScene", Fallback: camera},
+			{Scene: camera, Fallback: "GoneScene"},
+			{Scene: camera2, Fallback: camera},
+		}
+	})
+	h.start()
+	h.connect(true, camera)
+	s := h.waitSnap("警告", func(s Snapshot) bool {
+		return slices.ContainsFunc(s.OBS.Warnings, func(w string) bool { return strings.Contains(w, "scene_fallbacks の 1 行目") })
+	})
+	var got []string
+	for _, w := range s.OBS.Warnings {
+		if strings.Contains(w, "scene_fallbacks") {
+			got = append(got, w)
+		}
+	}
+	if len(got) != 2 || !strings.Contains(got[0], "NoSuchScene") || !strings.Contains(got[1], "scene_fallbacks の 2 行目") || !strings.Contains(got[1], "GoneScene") {
+		t.Fatalf("warnings = %v", got)
+	}
+}
