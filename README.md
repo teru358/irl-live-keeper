@@ -60,6 +60,7 @@ irl-live-keeper は、MediaMTX が受け取ったバイト数の差分から、�
      - status の `cameras[].srt` の `loss_rate` は %（再送された割合）、`recv_mbps` は SRT の段階で受け取った速さです。`recv_mbps` が十分あるのに `kbps` が低いときは、アプリの送り方が MediaMTX と合っていません（映像の track を始めに宣言しないアプリなど）
    - RTMP: `rtmp://<この PC のアドレス>:1935/live/<カメラの id>?user=<ユーザー>&pass=<パスワード>`
      - 入力欄が「URL」と「ストリームキー」（アプリ名とキー）に分かれているアプリ（Larix Broadcaster、IRL Pro など）では、URL の欄に `rtmp://<この PC のアドレス>:1935/live`、キーの欄に `<カメラの id>?user=<ユーザー>&pass=<パスワード>`（例: `main?user=irl&pass=…`）を入れます。アプリがつなげた結果が `live/<カメラの id>` になります。URL を1本だけ入れるアプリ（OBS、It's My Live、Android の RTMP Streamer など）は、上の URL をそのまま入れます
+     - アプリに「login」「password」（RTMP の認証）の欄があっても、**空のままにします**。ユーザー名とパスワードは、URL かキーの `?user=…&pass=…` に入れます（MediaMTX は RTMP の認証の手順〔Adobe 式〕を使わず、`?user=…&pass=…` だけを読むため）
      - それでも書き方が合わないアプリがあれば、SRT で送ってください
      - `live` の部分は `config.yaml` の `stream.app` で変えられます（空にすると、前の版の `<カメラの id>` だけの path になります）
 7. 外から送る場合は、ルーターで 1935/TCP と 8890/UDP だけを、この PC へ転送する
