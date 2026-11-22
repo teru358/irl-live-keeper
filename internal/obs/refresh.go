@@ -145,7 +145,7 @@ func (r *refresher) read(ctx context.Context) (*scenemap.Map, error) {
 	if r.legacy {
 		return readSceneListOnly(ctx, r.req, true)
 	}
-	return readSceneMap(ctx, r.req, r.w.cameraIDs(), r.w.cfg.RTSPPort)
+	return readSceneMap(ctx, r.req, r.w.cameraPaths(), r.w.cfg.RTSPPort)
 }
 
 // applySettings は、届いた InputSettingsChanged のうち、地図で ffmpeg_source とわかっている入力のものだけを、
@@ -161,8 +161,8 @@ func (r *refresher) applySettings() {
 		if !ok {
 			continue
 		}
-		id, _ := matchInputSettings(e.settings, r.w.cameraIDs(), r.w.cfg.RTSPPort)
-		if id == in.CameraID {
+		id, legacy := matchInputSettings(e.settings, r.w.cameraPaths(), r.w.cfg.RTSPPort)
+		if id == in.CameraID && legacy == in.LegacyCameraID {
 			continue
 		}
 		if next == nil {
@@ -170,7 +170,7 @@ func (r *refresher) applySettings() {
 			cp.Inputs = maps.Clone(r.cur.Inputs)
 			next = &cp
 		}
-		next.Inputs[e.uuid] = scenemap.Input{Name: in.Name, CameraID: id}
+		next.Inputs[e.uuid] = scenemap.Input{Name: in.Name, CameraID: id, LegacyCameraID: legacy}
 	}
 	if next == nil {
 		return
@@ -179,12 +179,12 @@ func (r *refresher) applySettings() {
 	r.w.emitMap(r.ep, next)
 }
 
-func (w *WS) cameraIDs() []string {
-	ids := make([]string, len(w.cfg.Cameras))
+func (w *WS) cameraPaths() []scenemap.CameraPath {
+	cams := make([]scenemap.CameraPath, len(w.cfg.Cameras))
 	for i, c := range w.cfg.Cameras {
-		ids[i] = c.ID
+		cams[i] = scenemap.CameraPath{ID: c.ID, Path: c.cameraPath()}
 	}
-	return ids
+	return cams
 }
 
 // emitMap は読み直しの結果を流し、警告に反映する。切断のあとなら流さない。

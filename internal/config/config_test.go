@@ -523,3 +523,68 @@ func Testひな形にStudioModeHideのコメントがある(t *testing.T) {
 	}
 	t.Fatal("ひな形に studio_mode_hide の行がない")
 }
+
+func TestStreamApp(t *testing.T) {
+	if got := defaults().Stream.App; got != "live" {
+		t.Errorf("既定の app = %q, want live", got)
+	}
+	tests := []struct {
+		app   string
+		field string
+	}{
+		{"live", ""}, {"", ""}, {"app-1_x", ""},
+		{"a/b", "stream.app"}, {"/live", "stream.app"}, {"a b", "stream.app"}, {" ", "stream.app"},
+		{"a?b", "stream.app"}, {"a#b", "stream.app"}, {"a:b", "stream.app"}, {"ライブ", "stream.app"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.app, func(t *testing.T) {
+			c := valid()
+			c.Stream.App = tt.app
+			err := c.Validate()
+			if tt.field == "" {
+				if err != nil {
+					t.Fatalf("通るはずが落ちた: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.field) {
+				t.Fatalf("%q: %s で落ちるはずが %v", tt.app, tt.field, err)
+			}
+		})
+	}
+}
+
+func TestCameraPath(t *testing.T) {
+	c := valid()
+	if got := c.CameraPath("main"); got != "live/main" {
+		t.Errorf("既定: %q", got)
+	}
+	c.Stream.App = "x"
+	if got := c.CameraPath("main"); got != "x/main" {
+		t.Errorf("app=x: %q", got)
+	}
+	c.Stream.App = ""
+	if got := c.CameraPath("main"); got != "main" {
+		t.Errorf("app が空: %q", got)
+	}
+}
+
+func TestLoadのstream_app(t *testing.T) {
+	load := func(streamApp string) (*Config, error) {
+		p := filepath.Join(t.TempDir(), "config.yaml")
+		body := "admin:\n  password: adminPASS123\nstream:\n" + streamApp + "  publish_pass: pubPASS123\n  read_pass: readPASS123\ncameras:\n  - id: main\n    name: m\n    on_bad: standby\n"
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return Load(p)
+	}
+	if c, err := load(""); err != nil || c.Stream.App != "live" {
+		t.Errorf("省略は live: %v %+v", err, c)
+	}
+	if c, err := load("  app: \"\"\n"); err != nil || c.Stream.App != "" || c.CameraPath("main") != "main" {
+		t.Errorf("app: \"\" は1段: %v %+v", err, c)
+	}
+	if _, err := load("  app: a/b\n"); err == nil {
+		t.Error("a/b が通った")
+	}
+}

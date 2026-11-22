@@ -40,7 +40,7 @@ func TestObsConfig(t *testing.T) {
 	if want := []string{"Wait"}; !reflect.DeepEqual(got.Scenes, want) {
 		t.Errorf("Scenes = %v, want %v", got.Scenes, want)
 	}
-	if want := []obs.CameraConfig{{ID: "main", Name: "メイン"}, {ID: "sub", Name: "サブ"}}; !reflect.DeepEqual(got.Cameras, want) {
+	if want := []obs.CameraConfig{{ID: "main", Name: "メイン", Path: "live/main"}, {ID: "sub", Name: "サブ", Path: "live/sub"}}; !reflect.DeepEqual(got.Cameras, want) {
 		t.Errorf("Cameras = %v, want %v（設定の順）", got.Cameras, want)
 	}
 	if got.RTSPPort != 18554 {
@@ -157,14 +157,14 @@ func TestBuildCameraURLsOne(t *testing.T) {
 	cfg.Stream.PublishUser, cfg.Stream.PublishPass = "irl", "PUBPASS12"
 	cfg.Stream.ReadUser, cfg.Stream.ReadPass = "obs", "READPASS1"
 	u := buildCameraURLs(cfg, "192.168.1.10")[0]
-	if want := "srt://192.168.1.10:8890?streamid=publish:live:irl:PUBPASS12"; u.PublishSRT != want {
+	if want := "srt://192.168.1.10:8890?streamid=publish:live/live:irl:PUBPASS12"; u.PublishSRT != want {
 		t.Errorf("SRT = %q, want %q", u.PublishSRT, want)
 	}
-	if want := "rtmp://192.168.1.10:1935/live?user=irl&pass=PUBPASS12"; u.PublishRTMP != want {
+	if want := "rtmp://192.168.1.10:1935/live/live?user=irl&pass=PUBPASS12"; u.PublishRTMP != want {
 		t.Errorf("RTMP = %q, want %q", u.PublishRTMP, want)
 	}
 	// OBS 用は host によらず 127.0.0.1
-	if want := "rtsp://obs:READPASS1@127.0.0.1:8554/live"; u.OBSRead != want {
+	if want := "rtsp://obs:READPASS1@127.0.0.1:8554/live/live"; u.OBSRead != want {
 		t.Errorf("OBS = %q, want %q", u.OBSRead, want)
 	}
 }
@@ -177,18 +177,18 @@ func TestBuildCameraURLsOverrides(t *testing.T) {
 		wantSRT, wantRTMP, wantOBSRead string
 	}{
 		{"既定", func(c *config.Config) {}, "192.168.1.10",
-			"srt://192.168.1.10:8890?streamid=publish:live:irl:PUBPASS12", "rtmp://192.168.1.10:1935/live?user=irl&pass=PUBPASS12", "rtsp://obs:READPASS1@127.0.0.1:8554/live"},
+			"srt://192.168.1.10:8890?streamid=publish:live/live:irl:PUBPASS12", "rtmp://192.168.1.10:1935/live/live?user=irl&pass=PUBPASS12", "rtsp://obs:READPASS1@127.0.0.1:8554/live/live"},
 		{"obs_read_host 指定", func(c *config.Config) { c.Stream.ObsReadHost = "192.168.1.20" }, "192.168.1.10",
-			"srt://192.168.1.10:8890?streamid=publish:live:irl:PUBPASS12", "rtmp://192.168.1.10:1935/live?user=irl&pass=PUBPASS12", "rtsp://obs:READPASS1@192.168.1.20:8554/live"},
+			"srt://192.168.1.10:8890?streamid=publish:live/live:irl:PUBPASS12", "rtmp://192.168.1.10:1935/live/live?user=irl&pass=PUBPASS12", "rtsp://obs:READPASS1@192.168.1.20:8554/live/live"},
 		{"ポート上書き", func(c *config.Config) { c.Stream.PublishRTMPPort, c.Stream.PublishSRTPort = 21935, 28890 }, "example.com",
-			"srt://example.com:28890?streamid=publish:live:irl:PUBPASS12", "rtmp://example.com:21935/live?user=irl&pass=PUBPASS12", "rtsp://obs:READPASS1@127.0.0.1:8554/live"},
+			"srt://example.com:28890?streamid=publish:live/live:irl:PUBPASS12", "rtmp://example.com:21935/live/live?user=irl&pass=PUBPASS12", "rtsp://obs:READPASS1@127.0.0.1:8554/live/live"},
 		{"ポート 0 は受信のポート", func(c *config.Config) { c.MediaMTX.RTMPPort, c.MediaMTX.SRTPort = 11935, 18890 }, "example.com",
-			"srt://example.com:18890?streamid=publish:live:irl:PUBPASS12", "rtmp://example.com:11935/live?user=irl&pass=PUBPASS12", "rtsp://obs:READPASS1@127.0.0.1:8554/live"},
+			"srt://example.com:18890?streamid=publish:live/live:irl:PUBPASS12", "rtmp://example.com:11935/live/live?user=irl&pass=PUBPASS12", "rtsp://obs:READPASS1@127.0.0.1:8554/live/live"},
 		{"IPv6", func(c *config.Config) {
 			c.Stream.ObsReadHost = "fd00::20"
 			c.Stream.PublishRTMPPort = 21935
 		}, "fd00::10",
-			"srt://[fd00::10]:8890?streamid=publish:live:irl:PUBPASS12", "rtmp://[fd00::10]:21935/live?user=irl&pass=PUBPASS12", "rtsp://obs:READPASS1@[fd00::20]:8554/live"},
+			"srt://[fd00::10]:8890?streamid=publish:live/live:irl:PUBPASS12", "rtmp://[fd00::10]:21935/live/live?user=irl&pass=PUBPASS12", "rtsp://obs:READPASS1@[fd00::20]:8554/live/live"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -225,15 +225,15 @@ func TestBuildCameraURLs(t *testing.T) {
 	want := []camURLs{
 		{
 			Name: "メインカメラ", ID: "main",
-			PublishSRT:  "srt://192.168.1.10:8890?streamid=publish:main:irl:PUBPASS12",
-			PublishRTMP: "rtmp://192.168.1.10:1935/main?user=irl&pass=PUBPASS12",
-			OBSRead:     "rtsp://obs:READPASS1@127.0.0.1:8554/main",
+			PublishSRT:  "srt://192.168.1.10:8890?streamid=publish:live/main:irl:PUBPASS12",
+			PublishRTMP: "rtmp://192.168.1.10:1935/live/main?user=irl&pass=PUBPASS12",
+			OBSRead:     "rtsp://obs:READPASS1@127.0.0.1:8554/live/main",
 		},
 		{
 			Name: "サブカメラ", ID: "sub",
-			PublishSRT:  "srt://192.168.1.10:8890?streamid=publish:sub:irl:PUBPASS12",
-			PublishRTMP: "rtmp://192.168.1.10:1935/sub?user=irl&pass=PUBPASS12",
-			OBSRead:     "rtsp://obs:READPASS1@127.0.0.1:8554/sub",
+			PublishSRT:  "srt://192.168.1.10:8890?streamid=publish:live/sub:irl:PUBPASS12",
+			PublishRTMP: "rtmp://192.168.1.10:1935/live/sub?user=irl&pass=PUBPASS12",
+			OBSRead:     "rtsp://obs:READPASS1@127.0.0.1:8554/live/sub",
 		},
 	}
 	if !reflect.DeepEqual(got, want) {

@@ -22,7 +22,8 @@ type Poller struct {
 	baseURL string
 	apiUser string
 	apiPass string
-	ids     []string // カメラの id（= path 名）。設定の順
+	ids     []string // カメラの id。設定の順
+	paths   []string // カメラの MediaMTX の path（ids と同じ順）。API の項目の名前と照合する
 	client  *http.Client
 
 	mu      sync.Mutex
@@ -39,9 +40,13 @@ type base struct {
 	id   string // publisher の識別子。なければ空
 }
 
-// NewPoller は Poller を作る。ids はカメラの id（path 名）の列で、設定の順。
+// NewPoller は Poller を作る。ids はカメラの id の列で設定の順、paths は同じ順の MediaMTX の path
+// （`live/main` など。app が空なら id と同じ）。Sample の Camera は id。
 // client が nil なら http.DefaultClient を使う。
-func NewPoller(baseURL, apiUser, apiPass string, ids []string, client *http.Client) *Poller {
+func NewPoller(baseURL, apiUser, apiPass string, ids, paths []string, client *http.Client) *Poller {
+	if len(paths) != len(ids) {
+		paths = ids
+	}
 	if client == nil {
 		client = http.DefaultClient
 	}
@@ -50,6 +55,7 @@ func NewPoller(baseURL, apiUser, apiPass string, ids []string, client *http.Clie
 		apiUser: apiUser,
 		apiPass: apiPass,
 		ids:     append([]string(nil), ids...),
+		paths:   append([]string(nil), paths...),
 		client:  client,
 		bases:   make([]base, len(ids)),
 	}
@@ -143,10 +149,10 @@ func (p *Poller) Poll(ctx context.Context, at time.Time) SampleSet {
 	}
 
 	needSRT := false
-	for i, id := range p.ids {
+	for i := range p.ids {
 		s := &set.Cameras[i]
 		b := &p.bases[i]
-		it := byName[id]
+		it := byName[p.paths[i]]
 		if it == nil {
 			// 一覧にない path: オフライン扱い。基準は取り直す
 			*b = base{}
@@ -195,10 +201,11 @@ func (p *Poller) fillSRT(ctx context.Context, set *SampleSet, byName map[string]
 		if s.Protocol != "srt" {
 			continue
 		}
-		sourceID := byName[s.Camera].Source.ID
+		path := p.paths[i]
+		sourceID := byName[path].Source.ID
 		pick := -1
 		for j, c := range cr.Items {
-			if c.State != "publish" || c.Path != s.Camera {
+			if c.State != "publish" || c.Path != path {
 				continue
 			}
 			if sourceID != "" && c.ID == sourceID {

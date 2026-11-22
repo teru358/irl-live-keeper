@@ -3,6 +3,7 @@ package obs
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"github.com/andreykaipov/goobs"
 	"github.com/andreykaipov/goobs/api/requests/config"
@@ -16,8 +17,10 @@ import (
 
 // CameraConfig はカメラの OBS の側の照合に使う設定。
 type CameraConfig struct {
-	// ID は MediaMTX の path（カメラの id）。メディアソースの URL の path と照合する。
+	// ID はカメラの id。
 	ID string
+	// Path は MediaMTX の path（`live/main` など）。メディアソースの URL の path と照合する。空なら ID。
+	Path string
 	// Name は警告に出す表示名。空なら ID。
 	Name string
 }
@@ -116,7 +119,7 @@ const ffmpegSource = "ffmpeg_source"
 // 見つけたグループごとの GetGroupSceneItemList（見つけた順。グループは何か所に出ても1回）、
 // GetInputList（ffmpeg_source）、入力ごとの GetInputSettings。どれか1つでも失敗したら、全体が失敗。
 // ctx が終わったら、次の要求を送らずに戻る。
-func readSceneMap(ctx context.Context, req mapRequester, cameraIDs []string, rtspPort int) (*scenemap.Map, error) {
+func readSceneMap(ctx context.Context, req mapRequester, cameras []scenemap.CameraPath, rtspPort int) (*scenemap.Map, error) {
 	m, list, err := readCollectionAndScenes(ctx, req, false)
 	if err != nil {
 		return nil, err
@@ -191,8 +194,8 @@ func readSceneMap(ctx context.Context, req mapRequester, cameraIDs []string, rts
 		if err != nil {
 			return nil, fmt.Errorf("GetInputSettings: %w", err)
 		}
-		id, _ := matchInputSettings(st.InputSettings, cameraIDs, rtspPort)
-		m.Inputs[in.InputUuid] = scenemap.Input{Name: in.InputName, CameraID: id}
+		id, legacy := matchInputSettings(st.InputSettings, cameras, rtspPort)
+		m.Inputs[in.InputUuid] = scenemap.Input{Name: in.InputName, CameraID: id, LegacyCameraID: legacy}
 	}
 	return m, nil
 }
@@ -238,17 +241,25 @@ func readCollectionAndScenes(ctx context.Context, req mapRequester, byName bool)
 }
 
 // matchInputSettings は入力の設定（GetInputSettings か InputSettingsChanged の inputSettings）を
-// カメラの id に照合する。is_local_file は、なければ既定（true）なので対象にならない。
-func matchInputSettings(settings map[string]any, cameraIDs []string, rtspPort int) (string, bool) {
+// カメラに照合する。id は path が一致したカメラ、legacy は path が今までの1段の形（id だけ）のカメラ。
+// is_local_file は、なければ既定（true）なので対象にならない。
+func matchInputSettings(settings map[string]any, cameras []scenemap.CameraPath, rtspPort int) (id, legacy string) {
 	url, _ := settings["input"].(string)
 	var local *bool
 	if v, ok := settings["is_local_file"].(bool); ok {
 		local = &v
 	}
-	return scenemap.MatchCamera(url, local, rtspPort, cameraIDs)
+	if id, ok := scenemap.MatchCamera(url, local, rtspPort, cameras); ok {
+		return id, ""
+	}
+	if id, ok := scenemap.MatchLegacy(url, local, rtspPort, cameras); ok {
+		return "", id
+	}
+	return "", ""
 }
 
-// cameraWarnings は、メディアソースが見つからないカメラの警告（設定の順）。
+// cameraWarnings は、メディアソースが見つからないカメラの警告（設定の順）と、URL が古い1段の形の
+// メディアソースの警告（入力の名前の順）。
 func cameraWarnings(cameras []CameraConfig, m *scenemap.Map) []string {
 	have := map[string]bool{}
 	for _, in := range m.Inputs {
@@ -267,5 +278,25 @@ func cameraWarnings(cameras []CameraConfig, m *scenemap.Map) []string {
 		}
 		out = append(out, name+" のメディアソースが OBS に見つかりません")
 	}
-	return out
+	paths := map[string]string{}
+	for _, c := range cameras {
+		paths[c.ID] = c.cameraPath()
+	}
+	var legacy []string
+	for _, in := range m.Inputs {
+		if in.LegacyCameraID != "" {
+			legacy = append(legacy, fmt.Sprintf("メディアソース %s の URL が古い形（…/%s）です。…/%s に直してください",
+				in.Name, in.LegacyCameraID, paths[in.LegacyCameraID]))
+		}
+	}
+	sort.Strings(legacy)
+	return append(out, legacy...)
+}
+
+// cameraPath は照合に使う path。Path が空なら ID。
+func (c CameraConfig) cameraPath() string {
+	if c.Path == "" {
+		return c.ID
+	}
+	return c.Path
 }

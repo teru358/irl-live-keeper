@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -59,7 +60,7 @@ func listWith(t *testing.T, edits map[string]pathEdit) reply {
 
 func newMulti(t *testing.T, paths []reply, conns reply, ids ...string) (*fakeServer, *Poller) {
 	f := newFake(t, paths, conns)
-	return f, NewPoller(f.URL, "api", "secret", ids, f.Client())
+	return f, NewPoller(f.URL, "api", "secret", ids, ids, f.Client())
 }
 
 var cams3 = []string{"cam1", "cam2", "cam3"}
@@ -241,5 +242,40 @@ func TestPollerMultiRebaseAfterMissing(t *testing.T) {
 	}
 	if s := p.Poll(nil2ctx(), at(3)).Cameras[0]; s.Kbps != 1000 {
 		t.Errorf("次の回 = %+v", s)
+	}
+}
+
+// path が2段（live/cam1）のとき、API の項目の名前と SRT の接続の path を、カメラの id でなく path で照合する。
+// Sample の Camera は id のまま。1段の名前（cam1）の項目は、別の path なので拾わない。
+func TestPollerMultiTwoLevelPath(t *testing.T) {
+	prefix := func(b []byte) []byte {
+		s := string(b)
+		for _, id := range []string{"cam1", "cam2", "cam3"} {
+			s = strings.ReplaceAll(s, `"name": "`+id+`"`, `"name": "live/`+id+`"`)
+			s = strings.ReplaceAll(s, `"path": "`+id+`"`, `"path": "live/`+id+`"`)
+		}
+		return []byte(s)
+	}
+	paths := []string{"live/cam1", "live/cam2", "live/cam3"}
+	f := newFake(t, []reply{ok(prefix(loadMulti(t, "paths_list_3cams.json")))}, ok(prefix(loadMulti(t, "srt_conns_list.json"))))
+	p := NewPoller(f.URL, "api", "secret", cams3, paths, f.Client())
+	set := p.Poll(nil2ctx(), at(0))
+	for i, id := range cams3 {
+		if s := set.Cameras[i]; s.Camera != id || !s.Online {
+			t.Errorf("cameras[%d] = %+v, want camera %s online", i, s, id)
+		}
+	}
+	if c2 := set.Cameras[1]; c2.Protocol != "srt" || c2.SRT == nil || c2.SRT.RTTMs != 20 {
+		t.Errorf("cam2 = %+v %+v", c2, c2.SRT)
+	}
+	if c3 := set.Cameras[2]; c3.SRT == nil || c3.SRT.RTTMs != 30 {
+		t.Errorf("cam3 = %+v %+v", c3, c3.SRT)
+	}
+	// 1段の名前で探すと、2段の項目は見つからない（オフライン扱い）
+	q := NewPoller(f.URL, "api", "secret", cams3, cams3, f.Client())
+	for i, s := range q.Poll(nil2ctx(), at(0)).Cameras {
+		if s.Online {
+			t.Errorf("cameras[%d]: path が違うのにオンライン: %+v", i, s)
+		}
 	}
 }

@@ -29,7 +29,7 @@ func TestMatchCamera(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, ok := MatchCamera(tt.raw, tt.local, tt.port, []string{"main"})
+			got, ok := MatchCamera(tt.raw, tt.local, tt.port, []CameraPath{{ID: "main", Path: "main"}})
 			if ok != (tt.want != "") || got != tt.want {
 				t.Fatalf("MatchCamera() = (%q, %v), want (%q, %v)", got, ok, tt.want, tt.want != "")
 			}
@@ -199,5 +199,47 @@ func TestCamerasInWith(t *testing.T) {
 	got = CamerasInWith(m, "A", func(k ItemKey, it Item) bool { return true })
 	if len(got) != 2 {
 		t.Fatalf("got %v, want [m s]", got)
+	}
+}
+
+func TestMatchCameraTwoLevel(t *testing.T) {
+	cams := []CameraPath{{ID: "main", Path: "live/main"}, {ID: "sub", Path: "live/sub"}}
+	f := boolPtr(false)
+	tests := []struct {
+		name       string
+		raw        string
+		wantID     string
+		wantLegacy string
+	}{
+		{"2段を見分ける", "rtsp://127.0.0.1:8554/live/main", "main", ""},
+		{"2段（資格情報、末尾の /）", "rtsp://u:p@10.0.0.2:8554/live/sub/", "sub", ""},
+		{"1段は見分けない（古い形）", "rtsp://127.0.0.1:8554/main", "", "main"},
+		{"app だけは見分けない", "rtsp://127.0.0.1:8554/live", "", ""},
+		{"別の app は見分けない", "rtsp://127.0.0.1:8554/other/main", "", ""},
+		{"3段は見分けない", "rtsp://127.0.0.1:8554/live/main/x", "", ""},
+		{"知らない1段は古い形でもない", "rtsp://127.0.0.1:8554/zzz", "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			id, ok := MatchCamera(tt.raw, f, 8554, cams)
+			if ok != (tt.wantID != "") || id != tt.wantID {
+				t.Errorf("MatchCamera = (%q, %v), want %q", id, ok, tt.wantID)
+			}
+			lid, lok := MatchLegacy(tt.raw, f, 8554, cams)
+			if lok != (tt.wantLegacy != "") || lid != tt.wantLegacy {
+				t.Errorf("MatchLegacy = (%q, %v), want %q", lid, lok, tt.wantLegacy)
+			}
+		})
+	}
+	// app が空（path = id）: 1段を見分け、古い形はない
+	plain := []CameraPath{{ID: "main", Path: "main"}}
+	if id, ok := MatchCamera("rtsp://h:8554/main", f, 8554, plain); !ok || id != "main" {
+		t.Errorf("app が空で1段を見分けない: %q %v", id, ok)
+	}
+	if _, ok := MatchLegacy("rtsp://h:8554/main", f, 8554, plain); ok {
+		t.Error("app が空なのに古い形と判定した")
+	}
+	if _, ok := MatchCamera("rtsp://h:8554/live/main", f, 8554, plain); ok {
+		t.Error("app が空なのに2段を見分けた")
 	}
 }

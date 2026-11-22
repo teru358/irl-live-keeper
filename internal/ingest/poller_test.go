@@ -122,7 +122,7 @@ func poll(f *fakeServer, p *Poller, secs ...int) []Sample {
 }
 
 func newP(f *fakeServer) *Poller {
-	return NewPoller(f.URL, "api", "secret", []string{"live"}, f.Client())
+	return NewPoller(f.URL, "api", "secret", []string{"live"}, []string{"live"}, f.Client())
 }
 
 func wantKbps(t *testing.T, got []Sample, want ...float64) {

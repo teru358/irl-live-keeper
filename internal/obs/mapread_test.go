@@ -117,7 +117,7 @@ func testWorld() *fakeMapReq {
 
 func TestReadSceneMapRequestOrderAndUUIDs(t *testing.T) {
 	f := testWorld()
-	m, err := readSceneMap(context.Background(), f, []string{"cam1", "cam2"}, 8554)
+	m, err := readSceneMap(context.Background(), f, plainPaths("cam1", "cam2"), 8554)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,13 +173,13 @@ func TestReadSceneMapRequestOrderAndUUIDs(t *testing.T) {
 
 func TestReadSceneMapFailsWhenAnyRequestFails(t *testing.T) {
 	probe := testWorld()
-	if _, err := readSceneMap(context.Background(), probe, []string{"cam1"}, 8554); err != nil {
+	if _, err := readSceneMap(context.Background(), probe, plainPaths("cam1"), 8554); err != nil {
 		t.Fatal(err)
 	}
 	for n := 1; n <= len(probe.calls); n++ {
 		f := testWorld()
 		f.failAfter = n
-		if m, err := readSceneMap(context.Background(), f, []string{"cam1"}, 8554); err == nil || m != nil {
+		if m, err := readSceneMap(context.Background(), f, plainPaths("cam1"), 8554); err == nil || m != nil {
 			t.Errorf("%d 本目の要求の失敗が、結果の失敗にならない: %v %v", n, m, err)
 		}
 	}
@@ -189,7 +189,7 @@ func TestReadSceneMapStopsWhenContextEnds(t *testing.T) {
 	f := testWorld()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := readSceneMap(ctx, f, []string{"cam1"}, 8554); !errors.Is(err, context.Canceled) {
+	if _, err := readSceneMap(ctx, f, plainPaths("cam1"), 8554); !errors.Is(err, context.Canceled) {
 		t.Fatalf("context.Canceled のはずが %v", err)
 	}
 	if len(f.calls) != 0 {
@@ -235,4 +235,37 @@ func TestCameraWarnings(t *testing.T) {
 		t.Fatalf("全部あるのに警告: %v", got)
 	}
 	_ = fmt.Sprint
+}
+
+// plainPaths は path がカメラの id と同じ（app が空）の照合の対象。
+func plainPaths(ids ...string) []scenemap.CameraPath {
+	out := make([]scenemap.CameraPath, len(ids))
+	for i, id := range ids {
+		out[i] = scenemap.CameraPath{ID: id, Path: id}
+	}
+	return out
+}
+
+func TestMatchInputSettingsTwoLevel(t *testing.T) {
+	cams := []scenemap.CameraPath{{ID: "main", Path: "live/main"}}
+	mk := func(u string) map[string]any { return map[string]any{"input": u, "is_local_file": false} }
+	if id, lg := matchInputSettings(mk("rtsp://127.0.0.1:8554/live/main"), cams, 8554); id != "main" || lg != "" {
+		t.Errorf("2段: %q %q", id, lg)
+	}
+	if id, lg := matchInputSettings(mk("rtsp://127.0.0.1:8554/main"), cams, 8554); id != "" || lg != "main" {
+		t.Errorf("1段: %q %q", id, lg)
+	}
+}
+
+func TestCameraWarningsLegacyURL(t *testing.T) {
+	cams := []CameraConfig{{ID: "main", Name: "メイン", Path: "live/main"}}
+	m := &scenemap.Map{Inputs: map[string]scenemap.Input{"i": {Name: "旧メイン", LegacyCameraID: "main"}}}
+	got := cameraWarnings(cams, m)
+	want := []string{
+		"メイン のメディアソースが OBS に見つかりません",
+		"メディアソース 旧メイン の URL が古い形（…/main）です。…/live/main に直してください",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("警告: %q", got)
+	}
 }

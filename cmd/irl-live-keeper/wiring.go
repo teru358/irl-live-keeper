@@ -49,7 +49,7 @@ func obsConfig(cfg *config.Config) obs.Config {
 	})
 	cams := make([]obs.CameraConfig, len(cfg.Cameras))
 	for i, c := range cfg.Cameras {
-		cams[i] = obs.CameraConfig{ID: c.ID, Name: c.Name}
+		cams[i] = obs.CameraConfig{ID: c.ID, Name: c.Name, Path: cfg.CameraPath(c.ID)}
 	}
 	return obs.Config{
 		Host:     cfg.OBS.Host,
@@ -130,6 +130,15 @@ func buildCameraURLs(cfg *config.Config, publishHost string) []camURLs {
 		}
 	}
 	return out
+}
+
+// cameraPaths は設定の順のカメラの MediaMTX の path の列。
+func cameraPaths(cfg *config.Config) []string {
+	paths := make([]string, len(cfg.Cameras))
+	for i, c := range cfg.Cameras {
+		paths[i] = cfg.CameraPath(c.ID)
+	}
+	return paths
 }
 
 // cameraIDs は設定の順のカメラの id の列。

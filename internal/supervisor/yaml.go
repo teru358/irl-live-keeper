@@ -11,8 +11,8 @@ import (
 
 // GenerateYAML は mediamtx.yml の内容を作る。
 // 既定値に頼らず、v1.21.4 にあるプロトコルと機能のスイッチをすべて明示する。
-// path はカメラの id の数だけ書き、publish と read の権限も path ごとに書く（それ以外の path は受け付けない）。
-// path の名前（カメラの id）は、`on`、`no`、`1` などが YAML の真偽や数に読まれないよう、いつも引用符で囲む
+// path はカメラの数だけ書き、publish と read の権限も path ごとに書く（それ以外の path は受け付けない）。
+// path の名前（`<app>/<カメラの id>`。app が空なら id だけ）は、`on`、`no`、`1` などが YAML の真偽や数に読まれないよう、いつも引用符で囲む
 // （id は config の検証で英小文字・数字・_・- に限られているので、%q の形がそのまま YAML の文字列になる）。
 // ほかの値は config の検証で英数字・_・- に限られているので、クォートは不要。
 func GenerateYAML(cfg *config.Config, apiUser, apiPass string) ([]byte, error) {
@@ -23,9 +23,10 @@ func GenerateYAML(cfg *config.Config, apiUser, apiPass string) ([]byte, error) {
 	s := cfg.Stream
 	var pubPerms, readPerms, paths strings.Builder
 	for _, cam := range cfg.Cameras {
-		fmt.Fprintf(&pubPerms, "      - action: publish\n        path: %q\n", cam.ID)
-		fmt.Fprintf(&readPerms, "      - action: read\n        path: %q\n", cam.ID)
-		fmt.Fprintf(&paths, "  %q: {}\n", cam.ID)
+		path := cfg.CameraPath(cam.ID)
+		fmt.Fprintf(&pubPerms, "      - action: publish\n        path: %q\n", path)
+		fmt.Fprintf(&readPerms, "      - action: read\n        path: %q\n", path)
+		fmt.Fprintf(&paths, "  %q: {}\n", path)
 	}
 	out := fmt.Sprintf(`# 自動生成。編集しないこと
 logLevel: info
@@ -95,10 +96,10 @@ func PublishURLs(cfg *config.Config, host string) []PublishURLSet {
 	for _, cam := range cfg.Cameras {
 		u := PublishURLSet{ID: cam.ID}
 		if cfg.MediaMTX.SRTEnabled {
-			u.SRT = fmt.Sprintf("srt://%s?streamid=publish:%s:%s:%s", hostPort(host, srtPort), cam.ID, s.PublishUser, s.PublishPass)
+			u.SRT = fmt.Sprintf("srt://%s?streamid=publish:%s:%s:%s", hostPort(host, srtPort), cfg.CameraPath(cam.ID), s.PublishUser, s.PublishPass)
 		}
 		if cfg.MediaMTX.RTMPEnabled {
-			u.RTMP = fmt.Sprintf("rtmp://%s/%s?user=%s&pass=%s", hostPort(host, rtmpPort), cam.ID, s.PublishUser, s.PublishPass)
+			u.RTMP = fmt.Sprintf("rtmp://%s/%s?user=%s&pass=%s", hostPort(host, rtmpPort), cfg.CameraPath(cam.ID), s.PublishUser, s.PublishPass)
 		}
 		out = append(out, u)
 	}
@@ -121,13 +122,13 @@ func ReadURLs(cfg *config.Config, host string) []ReadURLSet {
 	for _, cam := range cfg.Cameras {
 		u := ReadURLSet{
 			ID:   cam.ID,
-			RTSP: fmt.Sprintf("rtsp://%s:%s@%s/%s", s.ReadUser, s.ReadPass, hostPort(host, cfg.MediaMTX.RTSPPort), cam.ID),
+			RTSP: fmt.Sprintf("rtsp://%s:%s@%s/%s", s.ReadUser, s.ReadPass, hostPort(host, cfg.MediaMTX.RTSPPort), cfg.CameraPath(cam.ID)),
 		}
 		if cfg.MediaMTX.RTMPEnabled {
-			u.RTMP = fmt.Sprintf("rtmp://%s/%s?user=%s&pass=%s", hostPort(host, cfg.MediaMTX.RTMPPort), cam.ID, s.ReadUser, s.ReadPass)
+			u.RTMP = fmt.Sprintf("rtmp://%s/%s?user=%s&pass=%s", hostPort(host, cfg.MediaMTX.RTMPPort), cfg.CameraPath(cam.ID), s.ReadUser, s.ReadPass)
 		}
 		if cfg.MediaMTX.SRTEnabled {
-			u.SRT = fmt.Sprintf("srt://%s?streamid=read:%s:%s:%s", hostPort(host, cfg.MediaMTX.SRTPort), cam.ID, s.ReadUser, s.ReadPass)
+			u.SRT = fmt.Sprintf("srt://%s?streamid=read:%s:%s:%s", hostPort(host, cfg.MediaMTX.SRTPort), cfg.CameraPath(cam.ID), s.ReadUser, s.ReadPass)
 		}
 		out = append(out, u)
 	}

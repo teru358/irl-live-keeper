@@ -27,6 +27,9 @@ type Container struct {
 type Input struct {
 	Name     string
 	CameraID string
+	// LegacyCameraID は、URL の path が今までの1段の形（カメラの id だけ）で、app があるため映らない
+	// メディアソースの、そのカメラの id。CameraID とは同時に入らない。
+	LegacyCameraID string
 }
 
 // SourceKind は項目が指すソースの種類。
@@ -82,35 +85,66 @@ const (
 	Unknown   Class = "Unknown"
 )
 
-// MatchCamera はメディアソースの URL をカメラの id に照合する。is_local_file が false と明示されたもの
-// だけを対象にし（既定は true）、スキームが rtsp、ポートが rtspPort（省略は 554）、path（前後の / を除く）が
-// id と同じなら一致。host と資格情報は見ない。
-func MatchCamera(rawURL string, isLocalFile *bool, rtspPort int, cameraIDs []string) (id string, ok bool) {
+// CameraPath はカメラの id と MediaMTX の path（`live/main` など。app が空なら id と同じ）。
+type CameraPath struct {
+	ID   string
+	Path string
+}
+
+// urlPath は、照合の対象のメディアソースの URL（is_local_file が false と明示され、スキームが rtsp、
+// ポートが rtspPort（省略は 554））の path（前後の / を除く）を返す。対象でなければ空。
+func urlPath(rawURL string, isLocalFile *bool, rtspPort int) string {
 	if isLocalFile == nil || *isLocalFile {
-		return "", false
+		return ""
 	}
 	u, err := url.Parse(rawURL)
 	if err != nil || !strings.EqualFold(u.Scheme, "rtsp") || u.Opaque != "" || u.Hostname() == "" {
-		return "", false
+		return ""
 	}
 	port := 554
 	if p := u.Port(); p != "" {
 		parsed, err := strconv.Atoi(p)
 		if err != nil {
-			return "", false
+			return ""
 		}
 		port = parsed
 	}
 	if port != rtspPort {
-		return "", false
+		return ""
 	}
-	path := strings.Trim(u.Path, "/")
+	return strings.Trim(u.Path, "/")
+}
+
+// MatchCamera はメディアソースの URL をカメラの id に照合する。is_local_file が false と明示されたもの
+// だけを対象にし（既定は true）、スキームが rtsp、ポートが rtspPort（省略は 554）、path（前後の / を除く）が
+// カメラの path（app があれば `<app>/<id>`）と同じなら一致。host と資格情報は見ない。
+func MatchCamera(rawURL string, isLocalFile *bool, rtspPort int, cameras []CameraPath) (id string, ok bool) {
+	path := urlPath(rawURL, isLocalFile, rtspPort)
 	if path == "" {
 		return "", false
 	}
-	for _, cameraID := range cameraIDs {
-		if path == cameraID {
-			return cameraID, true
+	for _, c := range cameras {
+		if path == c.Path {
+			return c.ID, true
+		}
+	}
+	return "", false
+}
+
+// MatchLegacy は、MatchCamera では一致しないが、path が今までの1段の形（カメラの id だけ）に
+// 一致するメディアソースの URL を、そのカメラの id に照合する。app があるとき、MediaMTX にその path
+// がないので映らない、古い URL を見つけるための照合。app が空なら Path と id が同じなので、いつも一致しない。
+func MatchLegacy(rawURL string, isLocalFile *bool, rtspPort int, cameras []CameraPath) (id string, ok bool) {
+	if _, matched := MatchCamera(rawURL, isLocalFile, rtspPort, cameras); matched {
+		return "", false
+	}
+	path := urlPath(rawURL, isLocalFile, rtspPort)
+	if path == "" {
+		return "", false
+	}
+	for _, c := range cameras {
+		if c.Path != c.ID && path == c.ID {
+			return c.ID, true
 		}
 	}
 	return "", false

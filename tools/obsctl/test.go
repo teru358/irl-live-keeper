@@ -124,7 +124,7 @@ func testSetup(c *goobs.Client) error {
 		}
 	}
 	// メディアソースの設定のひな形: 今のシーンコレクションで、1台目の URL を読んでいるメディアソースの設定（URL 以外）
-	tmpl := templateSettings(c, "/"+cam1.ID)
+	tmpl := templateSettings(c, "/"+cfg.CameraPath(cam1.ID))
 
 	st := &testState{Profile: pl.CurrentProfileName, Collection: cl.CurrentSceneCollectionName, Scene: sl.CurrentProgramSceneName}
 	if err := st.save(); err != nil {

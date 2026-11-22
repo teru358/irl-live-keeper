@@ -409,7 +409,7 @@ func (w *WS) readFirstMap(ctx context.Context, c *mainConn, legacy bool, now fun
 		m, err = readSceneListOnly(ctx, req, true)
 		return m, "", err
 	}
-	m, err = readSceneMap(ctx, req, w.cameraIDs(), w.cfg.RTSPPort)
+	m, err = readSceneMap(ctx, req, w.cameraPaths(), w.cfg.RTSPPort)
 	if err == nil {
 		return m, "", nil
 	}

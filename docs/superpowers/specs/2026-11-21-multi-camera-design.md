@@ -1,7 +1,7 @@
 # irl-live-keeper 設計 — 複数のカメラ（第2段階 区切り0）
 
 - 作成日: 2026-11-21
-- 版: v0.17（変更は末尾の変更履歴を参照）
+- 版: v0.18（変更は末尾の変更履歴を参照）
 - 状態: 2026-11-21 の brainstorming でユーザーが節ごとに承認した内容を文書化したもの。v0.2〜v0.4 で設計レビュー1周目（Fable、codex sol）と閉鎖確認2回（codex terra）の指摘を、v0.5 で M-0 の spike の結果と設計レビュー2周目（Fable）の指摘を反映し、作りを減らした（コレクションの切替を切断として扱う、要求を UUID で送る、古い OBS は空の地図、守ることを先に書き細部は M-7 の表へ）
 - 前提: コアの spec `docs/superpowers/specs/2026-11-18-core-design.md`（v2.15。以下「コアの spec」）と第2段階の spec `docs/superpowers/specs/2026-11-20-stage2-design.md`（v0.6。以下「第2段階の spec」）。この文書は両者の一部を置き換える（第10節の表）。食い違うときはこの文書を優先する
 
@@ -85,11 +85,13 @@ mediamtx:
 - **反映の区分**（第2段階の spec 7章の表を直す）: 表から `obs.monitored_scenes`、`obs.media_source`、`stream.name` を消す。すぐ反映に、カメラの `name`、`on_bad`、`switch` の上書きと `obs.studio_mode_hide`（0b）を足す（中核ループがカメラごとの Judge の閾値を差し替える。受信状態は保ち、積み上げた秒数は捨てる）。再起動して反映に、カメラの追加・削除・並べ替え・`id` の変更と、`rtmp_enabled`・`srt_enabled` を足す
 - **config.yaml の書き換え**（第2段階の spec 7章）: `cameras` は対応づけのシーケンスで、文字で差し替える書き方に当たらない。`cameras` の区分は、変えたときに区分ごと Node で書き出す（区分の外のコメントと空行は残す。区分の中のコメントは残らないことを設定の画面で知らせる。ユーザーが承認した）
 - **URL**: カメラごとに作る。資格情報は全カメラで共通
-  - SRT: `srt://<host>:<srt_port>?streamid=publish:<id>:<user>:<pass>`（`srt_enabled` が false なら作らない）
-  - RTMP: `rtmp://<host>:<rtmp_port>/<id>?user=<user>&pass=<pass>`（`rtmp_enabled` が false なら作らない）
-  - OBS 用: `rtsp://<read_user>:<read_pass>@<obs_read_host>:<rtsp_port>/<id>`
+  - path は2段 `<app>/<id>`（`<app>` は `stream.app`、既定 `live`）。`stream.app` が空なら1段の `<id>`。決めるのは `config.(*Config).CameraPath(id)` の1か所で、mediamtx.yml の `paths` と権限、送信用と OBS 用の URL、API の照合（`/v3/paths/list` の名前、`/v3/srt/conns/list` の `path`）、OBS のメディアソースの照合がすべてこれを使う。検証: `/` `?` `#` `:` と空白を含む値、英数字・`_`・`-` 以外は不正（`:` は SRT の streamid の区切り）。Larix Broadcaster と IRL Pro は RTMP の URL を「アプリ名」と「ストリームキー」の2段で求め、1段の URL を受け付けない。MediaMTX は tcUrl の path とストリームキーを `/` でつないで path にするので、2段の path にすれば合う（URL を1本で送るアプリも、つないだ結果が同じ）
+  - SRT: `srt://<host>:<srt_port>?streamid=publish:<app>/<id>:<user>:<pass>`（`srt_enabled` が false なら作らない）
+  - RTMP: `rtmp://<host>:<rtmp_port>/<app>/<id>?user=<user>&pass=<pass>`（`rtmp_enabled` が false なら作らない）。URL とキーが分かれたアプリには、URL に `rtmp://<host>:<rtmp_port>/<app>`、キーに `<id>?user=…&pass=…`
+  - OBS 用: `rtsp://<read_user>:<read_pass>@<obs_read_host>:<rtsp_port>/<app>/<id>`
+  - OBS のメディアソースの見分け: URL の path がカメラの path と同じものを、そのカメラとする。1段の古い形（`…/<id>`）のメディアソースは、app があるときは見分けない（MediaMTX にその path がなく、映らない）。status の `warnings` に「メディアソース <名前> の URL が古い形（…/<id>）です。…/<app>/<id> に直してください」を出す。app が空なら1段を見分ける
   - 起動の表示（コアの spec 10章）はカメラごとに並べる
-- **mediamtx.yml**（コアの spec 8章を置き換える部分）: path はカメラの `id` の数だけ書き、それ以外は受け付けない。`rtmp: no`、`srt: no` を `*_enabled` に合わせて書く。ポートの事前確認は、止めたプロトコルのポートを確かめない
+- **mediamtx.yml**（コアの spec 8章を置き換える部分）: path はカメラの path（`<app>/<id>`）の数だけ書き、それ以外は受け付けない。`rtmp: no`、`srt: no` を `*_enabled` に合わせて書く。ポートの事前確認は、止めたプロトコルのポートを確かめない
 - **ID を変えたとき**: 送信用 URL と OBS 用 URL が変わる。スマホのアプリは手で直す。OBS のメディアソースは、第2段階の spec 7章「OBS のメディアソースの URL の書き換え」をカメラごとに使える。保存のときに app が、今の地図から「変える前の `id` → そのカメラのメディアソース（入力の UUID）」を覚え、新しい世代の書き換えに渡す（区切り2の S2-31）。OBS につながっていなければ、新しい世代が最初の地図を作ったあとに、古い設定の `id`・`rtsp_port` で照合して探す
 
 ## 3. シーンの地図
@@ -378,3 +380,4 @@ OBS のメディアソース（`ffmpeg_source`）は、OBS の起動の直後に
 | 2026-11-21 | v0.15 | 第1節: Studio Mode の `ignore` でも、ほかの戻す理由では隠した項目を戻す（H-07）。第6節: 空にしない検査に、本体の切替の期待が残る切替先を入れる、StartScene の期待が残る間は隠さない（C-2）。第7節: すべて表示に戻すの対象と記録を消す時点（C-1）、期待を応答から2秒残す・切断でも応答を Timeout で返す（I-1、I-2）、空の地図のあとの最初の地図での照合（H-02） | M-11 の表の Fable のレビュー、H-07 は sol の助言とユーザーの裁定（案 A） | 1e90ae7 |
 | 2026-11-21 | v0.16 | 第6節「戻り先が待っている隠した項目」に、戻り先の実際に表示されているカメラが0のときも待つ、を足した | M-11 の性質のテスト（INV-02）で見つけた列 | 0c1c747 |
 | 2026-11-22 | v0.17 | 第1節の Studio Mode に「Studio Mode を切るときの一瞬の切替」を足した（obs の層で、Studio Mode の間の program の切替を 250ms 取っておき、`StudioModeStateChanged false` が続いて元のシーンに戻っていれば捨てる。Machine と 0a・0b の表は変えない）。屋外配信では Studio Mode を勧めない（README と第1節） | M-13 の Windows の確認（F-9）と Linux の再現、2026-11-22 のユーザーの裁定（非推奨にし、直しも入れる）。先に流す・既知の制約は、実装の sol のレビュー（I-1、I-2） | この版の commit |
+| 2026-11-22 | v0.18 | 第2節の URL: MediaMTX の path を2段 `<app>/<id>`（`stream.app`、既定 `live`）にした。path を決める関数を1つにし、API と OBS の照合もそれに合わせた。1段の URL のメディアソースは見分けず、警告を出す | 2026-11-22 のユーザーの裁定（Larix Broadcaster と IRL Pro は1段の URL を受け付けない） | |

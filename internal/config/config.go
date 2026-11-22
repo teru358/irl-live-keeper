@@ -108,8 +108,19 @@ func (c *Config) CameraSwitch(i int) Switch {
 	return sw
 }
 
+// CameraPath はカメラの MediaMTX の path。app が空なら id、そうでなければ `<app>/<id>`。
+func (c *Config) CameraPath(id string) string {
+	if c.Stream.App == "" {
+		return id
+	}
+	return c.Stream.App + "/" + id
+}
+
 // Stream は配信（path と資格情報）の設定。
 type Stream struct {
+	// App は MediaMTX の path の1段目（アプリ名）。path は `<app>/<カメラの id>` になる。既定は live。
+	// 空は「1段の path（<カメラの id> だけ）」。
+	App         string `yaml:"app"`
 	PublishUser string `yaml:"publish_user"`
 	PublishPass string `yaml:"publish_pass"`
 	ReadUser    string `yaml:"read_user"`
@@ -172,7 +183,7 @@ func defaults() *Config {
 		MediaMTX: MediaMTX{
 			RTMPPort: 1935, SRTPort: 8890, RTSPPort: 8554, APIPort: 9997, RTMPEnabled: true, SRTEnabled: true,
 		},
-		Stream: Stream{PublishUser: "irl", ReadUser: "obs"},
+		Stream: Stream{App: "live", PublishUser: "irl", ReadUser: "obs"},
 		OBS: OBS{
 			Host: "127.0.0.1", Port: 4455, StandbyScene: "Standby", StudioModeHide: StudioHideStandby,
 		},
@@ -255,6 +266,7 @@ cameras:                     # 1〜8台。上から順に表示する
     #   fail_kbps: 400
 
 stream:
+  app: live                  # MediaMTX の path の1段目（アプリ名）。path は live/<カメラの id> になる。Larix や IRL Pro のように URL を「アプリ名」と「ストリームキー」に分けて入れるアプリ向け。空（""）にすると1段の path（<カメラの id> だけ）。/ ? # : と空白は使えない
   publish_user: irl
   publish_pass: "*"
   read_user: obs             # OBS が読み出すときの資格情報（OBS 用 URL に埋め込む）
@@ -408,6 +420,13 @@ func (c *Config) Validate() error {
 				add(ports[j].field, fmt.Sprintf("%s と同じポート %d を使っています。重複しないようにしてください", ports[i].field, ports[i].port))
 			}
 		}
+	}
+
+	// path の1段目（空は1段の path）。/ ? # : 空白は URL や SRT の streamid を壊す
+	if strings.ContainsAny(c.Stream.App, "/?#: \t\r\n\u3000") {
+		add("stream.app", "/ ? # : と空白は使えません（URL と SRT の streamid が壊れるため）。空にすると1段の path になります")
+	} else if c.Stream.App != "" && !nameRe.MatchString(c.Stream.App) {
+		add("stream.app", "使える文字は英数字・_・- だけです（URL が壊れるため）。空にすると1段の path になります")
 	}
 
 	// 資格情報と path 名

@@ -157,7 +157,7 @@ func run(ctx context.Context, base string, stdout, stderr io.Writer) int {
 
 	sup := supervisor.New(cfg, binPath, base, log)
 	apiUser, apiPass := sup.APICredentials()
-	poller := ingest.NewPoller(fmt.Sprintf("http://127.0.0.1:%d", cfg.MediaMTX.APIPort), apiUser, apiPass, cameraIDs(cfg), nil)
+	poller := ingest.NewPoller(fmt.Sprintf("http://127.0.0.1:%d", cfg.MediaMTX.APIPort), apiUser, apiPass, cameraIDs(cfg), cameraPaths(cfg), nil)
 	samples := make(chan ingest.SampleSet) // Poller → core。全カメラの Sample の1組
 	obsClient := obs.New(obsConfig(cfg), log)
 
