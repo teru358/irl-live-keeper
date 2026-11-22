@@ -108,7 +108,7 @@ mediamtx:
 ### カメラのメディアソース
 
 - `GetInputList`（`inputKind: ffmpeg_source`）で入力を集め、それぞれの `GetInputSettings` の `input`（URL）を読む。`is_local_file` が false と明示されているものだけを対象にする（`GetInputSettings` は既定値を省き、`ffmpeg_source` の `is_local_file` の既定は true。M-0 で確かめた）
-- URL を解析し、スキームが `rtsp`、ポートが `mediamtx.rtsp_port`、path（先頭と末尾の `/` を除いたもの）がカメラの `id` と同じなら、その入力をそのカメラのソースとする。host と資格情報は見ない。URL はログに書かない
+- URL を解析し、スキームが `rtsp`、ポートが `mediamtx.rtsp_port`、path（先頭と末尾の `/` を除いたもの）がカメラの path（`<stream.app>/<id>`。`stream.app` が空なら `<id>`。v0.18、第2節）と同じなら、その入力をそのカメラのソースとする。`stream.app` が空でないのに path がカメラの `id` だけ（前の版の1段の形）のものは、ソースとせず、status の `warnings` に古い形の URL として出す（第2節）。host と資格情報は見ない。URL はログに書かない
 - 1台のカメラを複数のメディアソースで読んでいてよい。どのメディアソースにも当たらないカメラは status の `warnings` に出す。メディアソース以外の種類は調べない
 
 ### シーンの項目と「映る」
@@ -380,4 +380,4 @@ OBS のメディアソース（`ffmpeg_source`）は、OBS の起動の直後に
 | 2026-11-21 | v0.15 | 第1節: Studio Mode の `ignore` でも、ほかの戻す理由では隠した項目を戻す（H-07）。第6節: 空にしない検査に、本体の切替の期待が残る切替先を入れる、StartScene の期待が残る間は隠さない（C-2）。第7節: すべて表示に戻すの対象と記録を消す時点（C-1）、期待を応答から2秒残す・切断でも応答を Timeout で返す（I-1、I-2）、空の地図のあとの最初の地図での照合（H-02） | M-11 の表の Fable のレビュー、H-07 は sol の助言とユーザーの裁定（案 A） | 1e90ae7 |
 | 2026-11-21 | v0.16 | 第6節「戻り先が待っている隠した項目」に、戻り先の実際に表示されているカメラが0のときも待つ、を足した | M-11 の性質のテスト（INV-02）で見つけた列 | 0c1c747 |
 | 2026-11-22 | v0.17 | 第1節の Studio Mode に「Studio Mode を切るときの一瞬の切替」を足した（obs の層で、Studio Mode の間の program の切替を 250ms 取っておき、`StudioModeStateChanged false` が続いて元のシーンに戻っていれば捨てる。Machine と 0a・0b の表は変えない）。屋外配信では Studio Mode を勧めない（README と第1節） | M-13 の Windows の確認（F-9）と Linux の再現、2026-11-22 のユーザーの裁定（非推奨にし、直しも入れる）。先に流す・既知の制約は、実装の sol のレビュー（I-1、I-2） | この版の commit |
-| 2026-11-22 | v0.18 | 第2節の URL: MediaMTX の path を2段 `<app>/<id>`（`stream.app`、既定 `live`）にした。path を決める関数を1つにし、API と OBS の照合もそれに合わせた。1段の URL のメディアソースは見分けず、警告を出す | 2026-11-22 のユーザーの裁定（Larix Broadcaster と IRL Pro は1段の URL を受け付けない） | |
+| 2026-11-22 | v0.18 | 第2節の URL: MediaMTX の path を2段 `<app>/<id>`（`stream.app`、既定 `live`）にした。path を決める関数を1つにし、API と OBS の照合もそれに合わせた。1段の URL のメディアソースは見分けず、警告を出す | 2026-11-22 のユーザーの裁定（Larix Broadcaster と IRL Pro は1段の URL を受け付けない） | この版の commit |

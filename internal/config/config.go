@@ -266,7 +266,7 @@ cameras:                     # 1〜8台。上から順に表示する
     #   fail_kbps: 400
 
 stream:
-  app: live                  # MediaMTX の path の1段目（アプリ名）。path は live/<カメラの id> になる。Larix や IRL Pro のように URL を「アプリ名」と「ストリームキー」に分けて入れるアプリ向け。空（""）にすると1段の path（<カメラの id> だけ）。/ ? # : と空白は使えない
+  app: live                  # MediaMTX の path の1段目（アプリ名）。path は live/<カメラの id> になる。Larix や IRL Pro のように URL を「アプリ名」と「ストリームキー」に分けて入れるアプリ向け。空（""）にすると1段の path（<カメラの id> だけ）。使える文字は半角の英数字と _ - だけ
   publish_user: irl
   publish_pass: "*"
   read_user: obs             # OBS が読み出すときの資格情報（OBS 用 URL に埋め込む）

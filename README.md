@@ -122,7 +122,7 @@ cameras:
 | `switch.recover_kbps` / `recover_sec` | 1500 / 10 | これ以上が何秒続いたら配信画面へ戻す |
 | `switch.down_sec` | 2 | 受信が途切れて何秒で待機画面へ |
 | `stream.publish_host` | 空 | 送信用 URL の host。空なら LAN のアドレスを自動で調べる。転送先やトンネルのアドレスが決まっていれば書く |
-| `stream.app` | `live` | MediaMTX の path の1段目（アプリ名）。path は `live/<カメラの id>` になる。Larix や IRL Pro のように URL を「アプリ名」と「キー」に分けて入れるアプリ向け。空（`""`）にすると前の版の1段の path。`/` `?` `#` `:` と空白は使えない（変えたら再起動） |
+| `stream.app` | `live` | MediaMTX の path の1段目（アプリ名）。path は `live/<カメラの id>` になる。Larix や IRL Pro のように URL を「アプリ名」と「キー」に分けて入れるアプリ向け。空（`""`）にすると前の版の1段の path。使える文字は半角の英数字と `_` `-` だけ（変えたら再起動） |
 | `stream.obs_read_host` | 空 | OBS 用 URL の host。空なら `127.0.0.1`（配信 PC に置く場合）。LAN の中継 PC に置くときは中継 PC の LAN のアドレスを書く |
 | `stream.publish_rtmp_port` / `publish_srt_port` | `0` / `0` | 送信用 URL に出す RTMP と SRT のポート。0 なら受信のポート（`mediamtx.rtmp_port` / `srt_port`）と同じ。ルーターのポート転送で外側のポートを変えたときに書く |
 | `admin.port` / `admin.lan` | `8787` / `false` | 管理 API のポートと、LAN に公開するか。false なら `127.0.0.1` だけで待ち受ける。別の PC から操作するときと、LAN の中継 PC に置くときだけ true にする |
