@@ -6,9 +6,11 @@
 
 - 使うのは **iPhone 1台（カメラ `sub`）だけ**。Android（`main`）は送らない（`main` は DOWN のままでよい）
 - 送り方は2つ。どちらも **キャリアのモバイル回線から Tailscale を通して** `sub` へ送る（Wi-Fi を切り、URL のホストだけを Windows の Tailscale のアドレス `100.…` にする。`config.yaml` の `stream.publish_host` は変えない）
-  - **前半: Larix Broadcaster の SRT**（URL の欄に `srt://100.…:8890`、streamid の欄に `publish:sub:<ユーザー>:<パスワード>`。ユーザーが設定済み）
-  - **後半: It's My Live の RTMP**
-- 本体は今の `irl-live-keeper.exe`（2026-11-22 21:21 の版、14,225,920 バイト）。`watch-status.ps1` は新しい版（21:3x。`-Csv` が増えた）。準備 1 で、ユーザーに入れ替えたことを確かめてもらう
+  - **前半: Larix Broadcaster の SRT**（URL の欄に `srt://100.…:8890`、streamid の欄に `publish:live/sub:<ユーザー>:<パスワード>`）
+  - **後半: It's My Live の RTMP**（URL は `rtmp://100.…:1935/live/sub?user=…&pass=…`）
+  - **おまけ（5分）: Larix の RTMP**（URL の欄に `rtmp://100.…:1935/live`、Key の欄に `sub?user=…&pass=…`）。前の版では Larix の RTMP は URL の形が合わずに弾かれていた
+- **本体は新しい `irl-live-keeper.exe`（2026-11-22 21:55 の版、14,236,672 バイト）と `ctl.exe`（11,417,088 バイト）**。`watch-status.ps1` は 21:36 の版（`-Csv` が増えた）。準備 1 で、ユーザーに入れ替えたことを確かめてもらう
+- **この版から、MediaMTX の path が2段（`live/<カメラの id>`）になった**。送信用の URL と OBS 用の URL が変わる（本体の起動の表示を見る）。スマホのアプリの URL と、ユーザーの OBS のメディアソース（`IRL`、`メディア` など）の URL を、ユーザーに `…/live/main`、`…/live/sub` へ直してもらう。直していないメディアソースは、status の `warnings` に「URL が古い形（…/main）です。…/live/main に直してください」と出る（準備のあとで、この警告が消えたことを確かめる）。`ctl.exe test setup` が作る試験のシーンは、自動で新しい形になる
 - 記録のファイルは `t15-result.md`、見張りのファイルは `status-t15-srt.txt` / `t15-srt.csv`（前半）と `status-t15-rtmp.txt` / `t15-rtmp.csv`（後半）、OBS のイベントは `obs-t15.txt`
 - **見張り**: `powershell -ExecutionPolicy Bypass -File .\watch-status.ps1 -Log .\status-t15-srt.txt -Csv .\t15-srt.csv -IntervalMs 1000`（後半はファイル名を rtmp に替えて起動し直す）。CSV の列は `time,id,state,kbps,protocol,rtt_ms,loss_rate,recv_mbps,scene,owner,stack`（`loss_rate` は %）
 
@@ -35,6 +37,7 @@
 |---|---|---|
 | T15-1 | 前半（SRT、20分）: ユーザーに Larix で送り始めてもらう。最初の10分はスマホを置いたまま、次の10分はスマホを持って歩いてもらう（建物の中を移動するなど、無理のない範囲で。ユーザーに始まりと終わりの時刻を言ってもらう） | 本体のログの `[SRT] [conn 100.…] opened`、`is publishing to path 'sub'`（tracks の数）、`camera changed`、`scene switch`。CSV から、置いたまま・歩いたときそれぞれの kbps の最小・平均・最大、LOW と DOWN の回数と長さ、待機への切替の回数、RTT とロス率の最小・平均・最大 |
 | T15-2 | 後半（RTMP、20分）: ユーザーに Larix を止め、It's My Live の RTMP で送ってもらう。T15-1 と同じく、置いたまま10分、歩いて10分 | T15-1 と同じ（RTT とロス率は出ない） |
+| T15-2b | おまけ（Larix の RTMP、5分）: Larix の接続を RTMP に替えて送ってもらう | 弾かれずにつながるか（本体のログの `[RTMP] [conn 100.…] is publishing to path 'live/sub'`）、OK になるか、OBS で映るか（ユーザーに見てもらう） |
 | T15-3 | まちがった切替の判断 | 待機への切替が起きたとき、その直前の kbps と、スマホの画面（ユーザーに聞く）や回線の様子を並べ、本当に映像が乱れていたのか（正しい切替）、乱れていないのに切り替えたのか（まちがった切替）を書く |
 | T15-4 | 長い時間の様子 | 本体のログの MediaMTX の WARN（`reader is too slow` など）の数、本体の `media source refreshed` の数、OBS のメディアソースが止まったか（`.\ctl.exe inputs` を5分ごと）、メモリの変化 |
 
