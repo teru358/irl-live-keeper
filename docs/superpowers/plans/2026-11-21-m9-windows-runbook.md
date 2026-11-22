@@ -63,6 +63,27 @@
 | C-6 | OBS の負荷: メディアソース2本のデコード（「ハードウェアデコードを使用」の有無で CPU と GPU の使い方を比べる） || 2026-11-21: 記録のみ。試験のソース2つのハードウェアデコードを切ると、obs64 の CPU が論理コア1つ分の 25% → 31%、GPU のビデオデコードは 13.3% → 11.7%（もとからある IRL と メディア はハードウェアデコードのまま）。`reader is too slow` は on・off とも0件 |
 | C-7 | status（`curl.exe`）で、`cameras` に2台、`scene_cameras`、`scene_health` が出る || 2026-11-21: 合格。`cameras` に2台、`scene_cameras` は T-B で [main]、T-A で [main, sub]、`scene_health` はどちらも OK |
 
+## 3.4 隠す・戻す（M-13 の Windows、スマホ2台）
+
+2026-11-22 に Windows の Claude Code のセッションが代理で進めた（指示書は `m9-windows/hide-agent-brief.md`、結果は `m9-windows/hide-result.md`）。本体は 2026-11-21 22:38 の版（14,125,568 バイト）。`main`（Android、LAN）は `on_bad: standby`、`sub`（iOS、**全項目を WAN〔モバイル回線〕から Tailscale 経由**）は `on_bad: hide`。シーンは `ctl.exe test setup` の `T-A`・`T-B`・`T-Sub`。
+
+| # | 確かめること | 結果 |
+|---|---|---|
+| H-1 | T-A で sub を止める → T-A のまま sub の項目を隠す。OK で戻す | 2026-11-22: 合格。約2秒で `camera hidden items=2`（T-A と T-Sub の両方）、`hidden.json` 2件。OK の1秒後に `camera shown reason=ok`、0件 |
+| H-2 | T-Sub（全部隠れる）で sub を止める → 待機へ | 2026-11-22: 合格。待機へ（return T-Sub）送ってから隠した。戻るときは表示に戻す → T-Sub の順 |
+| H-3 | 人が表示に戻した項目を隠し直さない | 2026-11-22: 合格。20秒以上隠し直さず（`user_shown=True`）、OK で印が消えた |
+| H-4 | すべて表示に戻す（`show-all.ps1`） | 2026-11-22: 合格。`200 {"ok":true}`、`reason=manual_all`。sub が悪いままなので 2.55秒後に隠し直した（指示書の「5秒ほど」は目安の書き違い。期待を応答から2秒残す規則のとおり） |
+| H-5 | 配信の停止で戻す。始め直すと隠す | 2026-11-22: 合格（`reason=stream_stop`） |
+| H-6 | Ctrl+C で戻す | 2026-11-22: 合格（`reason=shutdown`、`hidden.json` 0件） |
+| H-7 | 本体が落ちたとき（タスクの終了）| 2026-11-22: 合格。隠れたまま、`hidden.json` 2件で残り、起動し直した本体が引き継いで OK で戻した。本体の MediaMTX も一緒に消えた。引き継いだことを示すログの行がなかった → 起動のときに `隠した項目の記録を読んだ items=N` を出すようにした |
+| H-8 | Studio Mode（`studio_mode_hide` の既定 `standby`） | 2026-11-22: 合格。warnings に Studio Mode の文、sub の不調で隠さずに待機へ、OK で T-A へ。ただし Studio Mode を切るときの動きで F-9 を見つけた |
+
+結果のファイルの「気になった点」のうち、設計どおりのもの:
+
+- 人が表示に戻した sub の項目は、sub が DOWN のままでも映り、待機へも行かない（人の判断を変え直さない。hide のカメラは、全部隠れるシーンでなければ健康を悪くしない）
+- 本体が隠している間の `scene_cameras` は `[main, sub]`（カメラの spec 第3節: 本体が隠した項目は「映る」では表示として、「実際に表示」では非表示として数える）。C-4 で ctl が手で隠したときの `[main]` とは数え方が違う
+- 起動し直した直後に、猶予なく待機へ移った（本体の MediaMTX が一緒に止まり、スマホの接続が切れていたため。配信の画面はすでに止まっていた）
+
 ## 3.5 確認の途中で見つけて直したこと
 
 | # | 見つけたこと | 直し | 結果 |
@@ -74,6 +95,7 @@
 | F-6 | AutoRecover の `scene switch` のログの `camera` が、回復のきっかけのカメラでなく、戻り先に映るカメラのうち kbps がいちばん低いもの（19:03:17、main が OK に戻ったのに `camera=sub`）。M-8 で決めた形だが、読み手には分かりにくい | 回復のきっかけ（戻り先に映るカメラのうち、最後に OK になったもの）にした（カメラの spec v0.14、ユーザーの裁定） | テストで確かめた（実機はまだ） |
 | F-7 | 試験の道具: `ctl.exe test restore` が、program に出ていた試験のシーンをトランジションの途中で消し、本体がシーンコレクションの切替とみなして読み直した（害はない）。`ctl.exe watch` を PowerShell の `>` で書くと、止めたときに最後の行が欠けた | restore はトランジションの長さ + 1秒待ってから消す。watch はファイルを引数で渡すと直接書く（tools/obsctl） | Linux で確かめた |
 | F-8 | iPhone の配信アプリで、配信中に縦と横を切り替えると、OBS の映像の縦横の比率がうまく追従しないことがある（本体はメディアソースの位置と大きさに触れない。OBS の側の動き） | 既知の症状として保留（2026-11-21 のユーザーの裁定）。境界ボックスは、もとから「内側に合わせる」で、原因ではなかった。配信の前にアプリで向きを固定する。崩れたら OBS でソースのプロパティを開いて OK（開き直す）。屋外からはボタンを押せないので、開き直すボタンは作らない。解像度の変化を本体が見つけて自動で開き直す案は、MediaMTX から読めるかがわかってからの候補 | |
+| F-9 | Studio Mode を切ると、OBS が program を一瞬 preview のシーンにしてから戻す（`CurrentProgramSceneChanged <preview>` → `CurrentProgramSceneChanged <program>` → `StudioModeStateChanged false` の順に、同じミリ秒で届く。Windows の H-8 の片づけと、Linux の OBS 33.0.0 で確かめた）。本体は2つとも人の切替と受け取る。**本体が自動で待機にいて（持ち主 `auto`）、preview が健康の良い監視対象のシーンのとき、持ち主が `none` になり、カメラが戻っても待機のまま戻らない**（Linux で再現: return A、preview H、Studio Mode を切る → `scene changed by user Standby→H`、`H→Standby`、owner `none`、main が OK になっても Standby のまま）。preview が悪いシーンのときは、本体がすぐ待機へ送り直し、持ち主 `auto` に戻った | 未定（spec に規則を足す。案: 人の切替の直後に、同じ瞬間に元のシーンへ戻る切替が続いたら、2つを無かったことにして持ち主と戻り先をそのままにする） | |
 | F-2 | ログの kbps が長い小数で読みにくい | 小数1桁に丸める（568cd6b） | 2026-11-21: 合格（`kbps=1827.7`） |
 
 ## 4. 終わったら

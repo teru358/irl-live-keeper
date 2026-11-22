@@ -166,6 +166,10 @@ func run(ctx context.Context, base string, stdout, stderr io.Writer) int {
 	if hiddenWarn != "" {
 		log.Warn(hiddenWarn)
 	}
+	if len(hidden) > 0 {
+		// 落ちたあとの起動で記録を引き継いだことを、あとで追えるようにする（M-13 の Windows の確認）
+		log.Info("隠した項目の記録を読んだ（OBS につないだら照合する）", "items", len(hidden))
+	}
 
 	deps := coreDeps(cfg, cameraURLs)
 	deps.HiddenPath, deps.HiddenRestored, deps.HiddenLoadWarning = hiddenPath(base), hidden, hiddenWarn
