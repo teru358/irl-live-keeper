@@ -311,9 +311,15 @@ func (w *world) checkFalseIssueLocked(k ik, it *wItem) {
 	cam := w.cameraOfItemLocked(k)
 	// INV-03: 人が戻した印が本体に届いたあとの、同じカメラへの false は、同じ不調の間は出さない。
 	if cam != "" && w.mark[cam] && !w.canRestoreOracleLocked(cam) {
-		w.stats.issuesWithMark++
-		if !w.faulty {
-			w.violate("INV-03: 人が戻した印があるのに、カメラ %s の項目 %v に false を出した", cam, k)
+		if ap, ok := w.approvedSeq[k]; ok && ap < w.markSeq[cam] {
+			// 承認が、人の true を本体が処理する前だった（承認から要求までの間に人の true が届いた）。人の操作を知らずに決めた要求。
+			w.logf("INV-03 の判定を控える: 項目 %v の false の承認は、カメラ %s の印より前", k, cam)
+			w.stats.approvedBeforeMark++
+		} else {
+			w.stats.issuesWithMark++
+			if !w.faulty {
+				w.violate("INV-03: 人が戻した印があるのに、カメラ %s の項目 %v に false を出した", cam, k)
+			}
 		}
 	}
 	// INV-02: 配信中の今のシーン（本体から見て監視対象）の、実際に表示されているカメラを0にしない。

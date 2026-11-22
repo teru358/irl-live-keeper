@@ -102,6 +102,7 @@ func (r *runner) startGen(autoOn bool, studioHide string) {
 		}
 	}
 	g.core = New(deps)
+	g.core.observe = w.observeCore
 	if w.fb != nil {
 		w.mu.Lock()
 		w.fb.snap = g.core.Snapshot
@@ -681,8 +682,8 @@ func runSeed(t *testing.T, seed int64, faulty bool, steps int) {
 	w.mu.Lock()
 	st := w.stats
 	w.mu.Unlock()
-	t.Logf("seed=%d faulty=%v: false=%d true=%d timeout=%d late=%d restarts=%d(crash %d) showAll=%d humanRestores=%d marks=%d",
-		seed, faulty, st.appFalse, st.appTrue, st.timeouts, st.lateApplies, st.restarts, st.crashes, st.showAll, st.humanRestores, st.marks)
+	t.Logf("seed=%d faulty=%v: false=%d true=%d timeout=%d late=%d restarts=%d(crash %d) showAll=%d humanRestores=%d marks=%d approvedBeforeMark=%d",
+		seed, faulty, st.appFalse, st.appTrue, st.timeouts, st.lateApplies, st.restarts, st.crashes, st.showAll, st.humanRestores, st.marks, st.approvedBeforeMark)
 }
 
 func seedCount(short, normal int) int {

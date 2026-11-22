@@ -101,6 +101,13 @@ type world struct {
 	appOwned map[ik]bool
 	// INV-03: 人が戻した印（カメラごと）。markPend は人の true を流す前に立て、流れたあとに mark にする。
 	mark map[string]bool
+	// markSeq は印を立てた順（seq の値）。approvedSeq は本体が false を承認した順。承認が印より前なら、その false は
+	// 人の true を知らずに決めたもの（承認から OBS への要求までの間に、人の true が本体に届きうる）。
+	markSeq     map[string]int64
+	approvedSeq map[ik]int64
+	seq         int64
+	// humanTrueAt は、人の true のイベントの At（目印）。本体の中核ループが処理した時点で印にする。
+	humanTrueAt map[time.Time]ik
 	// humanRestoredOwned は、人が本体の隠した項目を戻した（戻してよい理由がなかった）項目。流れたら印にする。
 	humanRestoredOwned map[ik]bool
 	// trueIssued は、人の操作のあとに本体が true の要求を出した項目。人の true のイベントが届いたとき、本体の期待と
@@ -134,7 +141,7 @@ type world struct {
 
 type worldStats struct {
 	appFalse, appTrue, timeouts, lateApplies, humanRestores, restarts, crashes, showAll int
-	marks, issuesWithMark                                                               int
+	marks, issuesWithMark, approvedBeforeMark                                           int
 }
 
 func newWorld(seed int64, clk *fakeClock, hiddenPath string, faulty bool) *world {
@@ -146,7 +153,7 @@ func newWorld(seed int64, clk *fakeClock, hiddenPath string, faulty bool) *world
 			"HAND": {Name: "HAND", CameraID: wHand},
 		},
 		cont: map[string]*wCont{}, program: camera, streaming: true, connected: true, faulty: faulty,
-		hiddenPath: hiddenPath, appOwned: map[ik]bool{}, mark: map[string]bool{}, humanRestoredOwned: map[ik]bool{}, trueIssued: map[ik]bool{}, uncertain: map[ik]*bool{}, nextItem: 100,
+		hiddenPath: hiddenPath, appOwned: map[ik]bool{}, mark: map[string]bool{}, markSeq: map[string]int64{}, approvedSeq: map[ik]int64{}, humanTrueAt: map[time.Time]ik{}, humanRestoredOwned: map[ik]bool{}, trueIssued: map[ik]bool{}, uncertain: map[ik]*bool{}, nextItem: 100,
 		kbps: map[string]float64{},
 	}
 	add := func(name string, group bool, items ...*wItem) {
@@ -202,6 +209,9 @@ func (w *world) newGeneration() {
 	w.genDone = make(chan struct{})
 	w.pending = nil
 	w.mark = map[string]bool{}
+	w.markSeq = map[string]int64{}
+	w.approvedSeq = map[ik]int64{}
+	w.humanTrueAt = map[time.Time]ik{}
 	w.humanRestoredOwned = map[ik]bool{}
 	w.trueIssued = map[ik]bool{}
 	w.releaseHungLocked()
@@ -327,6 +337,13 @@ func (w *world) enqueueLocked(ev switcher.Event, human bool, k ik, val bool) {
 	if !w.connected {
 		return // 切断中はイベントを受け取る相手がいない
 	}
+	if ie, ok := ev.(switcher.ItemEnabledChanged); ok && human && val {
+		// 人の true の目印。At を1ナノ秒ずつ過去へずらして一意にする（Machine は At を期限の判定にしか使わず、過去へのずれは影響しない）。
+		w.seq++
+		ie.At = ie.At.Add(-time.Duration(w.seq) * time.Nanosecond)
+		w.humanTrueAt[ie.At] = k
+		ev = ie
+	}
 	due := w.clk.Now()
 	if !w.benign && w.rng.Intn(3) > 0 {
 		due = due.Add(time.Duration(w.rng.Intn(3000)) * time.Millisecond)
@@ -403,14 +420,6 @@ func (w *world) deliverDueSerial(all bool) {
 		ch, gd := w.evCh, w.genDone
 		w.mu.Unlock()
 		w.send(ch, gd, p.ev)
-		// 印は、本体の中核ループがイベントを受け取ったあとに立てる（受け取る前に承認された要求は、人の操作を知らない）。
-		if p.human && p.ev != nil {
-			if ie, ok := p.ev.(switcher.ItemEnabledChanged); ok && ie.Enabled {
-				w.mu.Lock()
-				w.onHumanTrueDeliveredLocked(p.key)
-				w.mu.Unlock()
-			}
-		}
 	}
 }
 
@@ -454,7 +463,31 @@ func (w *world) onHumanTrueDeliveredLocked(k ik) {
 	}
 	if !w.canRestoreOracleLocked(cam) {
 		w.mark[cam] = true
+		w.seq++
+		w.markSeq[cam] = w.seq
 		w.stats.marks++
 		w.logf("印を立てた: %s（人の true %v が本体に届いた）", cam, k)
+	}
+}
+
+// observeCore は本体の中核ループが処理した Event と承認を、中核ループの goroutine で受ける（INV-03 の順序の判定）。
+// 人の true は、中核ループが処理した時点で印にする（受け取ったあとに承認される要求は、それを知っている）。
+// false の承認の順も記録する（承認から OBS への要求までの間に人の true が届いても、承認の時点では知らなかった）。
+func (w *world) observeCore(v any) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	switch x := v.(type) {
+	case switcher.ItemEnabledChanged:
+		if k, ok := w.humanTrueAt[x.At]; ok && x.Enabled {
+			w.onHumanTrueDeliveredLocked(k)
+		}
+	case approval:
+		if _, ok := x.Result.(switcher.Proceed); !ok {
+			return
+		}
+		if a, ok := x.Action.(switcher.SetItemEnabled); ok && !a.Enabled {
+			w.seq++
+			w.approvedSeq[ik{a.SceneUUID, a.ItemID}] = w.seq
+		}
 	}
 }
