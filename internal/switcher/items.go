@@ -582,6 +582,10 @@ func (m *Machine) finishQ(q ItemExpectation) {
 func (m *Machine) applyMatchedEvent(k scenemap.ItemKey, v bool) {
 	i := m.entryIdx(k)
 	if i < 0 {
+		if v {
+			// 記録のない鍵（人が隠した項目を「すべて表示に戻す」が Show した）の確認待ちは、true が確かめられたら終わる。
+			delete(m.st.MAConfirm, k)
+		}
 		return
 	}
 	e := &m.st.Hidden[i]
@@ -652,6 +656,9 @@ func (m *Machine) onItemEnabledEvent(e ItemEnabledChanged) []Batch {
 				m.removeEntry(ei)
 			}
 		}
+	} else if e.Enabled && matched {
+		// 記録のない鍵（人が隠した項目を MA が Show した）: 期待どおりの true が確かめられたので、確認待ちを終える。
+		delete(s.MAConfirm, k)
 	}
 	// 地図の更新。
 	if it, ok := m.findItem(k); ok && it.Enabled != e.Enabled {

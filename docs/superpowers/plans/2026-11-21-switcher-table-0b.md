@@ -474,6 +474,8 @@ Sc/Hc の再送5秒と未完了条件はどの入口でも省略しない。
 | CMD-SOFF-5/0a/0b | SW | S manual/A、健康 OK、待っている項目あり、auto=true | [] / nil | auto/A に変える。Show は次の入口で判断 |
 | HB-OF-01 | SW | 同上、auto=false | [M(A)] / nil | 待たず、I(A) は standby 扱いだけ |
 | HB-MA-06 | SW | 空地図、現 Z に P/H/U 記録 → CmdShowAllCameras | [] / nil | 200、全記録を触らず保持、カメラ表示操作なし |
+| HB-MA-07 | SW | 人が隠して記録のない x を MA が Show、期待どおりの true イベントが届く | [] | 記録がない鍵の MAConfirm も、true が確かめられたときに消える（0c の結合のテストで見つかった不具合の修正） |
+| HB-MA-08 | SW | 上のあと（または true の確認前）、本体が x を HideCamera し記録（P）を作る。Hide が当たる前に、x が地図で有効のままの読み直し | [] | 新しい Hide の記録を作るとき、その鍵の古い MAConfirm を消す。記録は読み直しで消えない（MA より新しい判断） |
 | HB-SP-06 | SW | 接続中、有効地図、一覧も false Q も空 → Stopping | [] / nil | 停止済み印、RA なし、core が保存後即完了通知 |
 
 MA は受け付けた同じ Handle で Hc/Sc/Auto を混ぜない。
@@ -939,3 +941,5 @@ Sc は t=1.1 に true の OK・イベント・BatchDone まで成功させる。
 
 新しく残した不明点はない。M-3 は理由を記して既存規則を維持した。
 この改訂は文書のみ。M-11/M-12 の実装・テストの成功を示すものではない。
+
+- 2026-11-22（0c の T5 で見つかった不具合の修正）: HB-MA-07/08 を追加。記録のない鍵の MAConfirm が残ると、のちの Hide の記録が地図の読み直しの照合（reconcile）で消え、記録なしで false が送られた（HB-INV-01 違反）。

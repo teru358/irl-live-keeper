@@ -1,6 +1,7 @@
 package switcher
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/teru358/irl-live-keeper/internal/scenemap"
@@ -247,6 +248,24 @@ func TestFBCFG(t *testing.T) {
 			h.outP(h.ev(c), "")
 			if h.m.st.ConfigEpoch != ce || len(h.m.st.LastCandidateSent) != sent {
 				t.Fatalf("並べ替えで変わった")
+			}
+			// 並びは新しい設定のものに差し替える（警告の行番号のため）。
+			if !slices.Equal(h.m.st.Fallbacks, c.SceneFallbacks) {
+				t.Fatalf("並びが差し替わっていない: %v", h.m.st.Fallbacks)
+			}
+		}},
+		{"FB-CFG-16/警告の行番号", func(t *testing.T) {
+			// OBS にない名前の行は、並べ替えのあと、新しい設定での行番号（0 始まり）で警告に出る。
+			h := newHB(t, hbFB(fbRow("OBSにない", deskScene), fbRow(camera2, talk)))
+			if w := h.m.Snapshot().FallbackWarnings; len(w) != 1 || w[0].Index != 0 {
+				t.Fatalf("初めの警告: %+v", w)
+			}
+			c := h.cfg
+			c.At = at(2000)
+			c.SceneFallbacks = []FallbackRow{fbRow(camera2, talk), fbRow("OBSにない", deskScene)}
+			h.outP(h.ev(c), "")
+			if w := h.m.Snapshot().FallbackWarnings; len(w) != 1 || w[0].Index != 1 || w[0].Name != "OBSにない" {
+				t.Fatalf("並べ替えのあとの警告の行番号: %+v", w)
 			}
 		}},
 		{"FB-CFG-17", func(t *testing.T) {

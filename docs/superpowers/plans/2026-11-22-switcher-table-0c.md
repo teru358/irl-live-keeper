@@ -129,7 +129,7 @@ W-01 の「空の地図」はシーン一覧を保持する。nil の未取得�
 | FB-CFG-13 | CFG | 同じ保存で新S2名が scene にある | ValidationError、その行の scene が箇所。警告だけで成功しない |
 | FB-CFG-14 | CFG | standby名変更なし、旧名らしい文字列あり | 過去名警告なし。起動・status にも保存時警告なし |
 | FB-CFG-15 | CFG | 保存後の起動 / status取得 | 過去名警告を再生成しない。未解決名警告は別途出す |
-| FB-CFG-16 | SW | 対応の並べ替えのみ | ScenesConfigured は同値、ConfigEpoch 不変、Jcなし |
+| FB-CFG-16 | SW | 対応の並べ替えのみ | ScenesConfigured は同値、ConfigEpoch 不変、Jcなし。並びは差し替える（警告の行番号のため） |
 | FB-CFG-17 | SW | 対応の先を別名に変更 / 最初の設定 | ConfigEpoch+1。別名が同UUIDでも名前対応としては変化 |
 
 保存時警告は旧設定と保存に成功した新設定を比較する経路で計算する。

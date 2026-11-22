@@ -281,6 +281,7 @@ func (m *Machine) proceedItem(pb *PendingBatch, pi *pendItem, at time.Time) Appr
 			State: HiddenP, WrittenAt: at,
 		})
 		pi.Created = true
+		delete(s.MAConfirm, pi.Key) // 新しい Hide は「すべて表示に戻す」より新しい判断。古い確認待ちで記録を消さない
 		m.sortHidden()
 		m.touch()
 		persist = true
@@ -299,6 +300,7 @@ func (m *Machine) proceedItem(pb *PendingBatch, pi *pendItem, at time.Time) Appr
 				State: HiddenP, WrittenAt: at,
 			})
 			it.Created = true
+			delete(s.MAConfirm, it.Key)
 			s.Unsent[it.Key] = pb.BatchID
 		}
 		m.sortHidden()

@@ -633,7 +633,6 @@ func (r *runner) fbCheck(where string) {
 		}
 	}
 	// status の警告: scene_fallbacks の名前が OBS にない行と、OBS の警告が同時にあっても、どちらも出る。
-	// 行番号は照合しない: 行の並べ替えだけの変更は同値として扱われ、本体の行の並びが古いまま残る（報告した不具合の候補）。
 	wantWarn, wantIdx := map[string]bool{}, map[string]bool{}
 	for i, row := range f.rows {
 		if w.byNameLocked(row.Scene) == "" {
@@ -665,8 +664,10 @@ func (r *runner) fbCheck(where string) {
 	}
 	if len(wantWarn) > 0 {
 		f.count("名前がないfallbackの警告とOBSの警告の同時")
+		// 行番号も照合する（並べ替えだけの変更でも、新しい設定の並びになる）。
 		if !maps_equal(wantIdx, gotIdx) {
-			f.count("警告の行番号が設定の並びとずれた(並べ替えのみの変更のあと)")
+			vf("scene_fallbacks の警告の行番号が設定の並びと違う: 期待 %v、実際 %v", sortedMapKeys(wantIdx), sortedMapKeys(gotIdx))
+			return
 		}
 	}
 	// FB-INV-10: スタックの底は、最後の共通解除のあと、本体が最初に離れた監視対象（独立に計算）。
@@ -902,9 +903,7 @@ func runSeedFB(t *testing.T, seed int64, faulty bool, steps int) {
 		case x < 78:
 			r.studioToggle()
 		case x < 81:
-			// 「すべて表示に戻す」は混ぜない: 人が非表示にして記録のない項目を RestoreAll が Show すると、MAConfirm が残り、
-			// 後の Hide の記録が地図の読み直しで消える（本体の不具合の候補。報告）。直ったら混ぜる。
-			r.idle()
+			r.showAll()
 		case x < 85:
 			r.humanAddRemove()
 		case x < 91:

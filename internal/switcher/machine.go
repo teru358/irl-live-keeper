@@ -332,6 +332,8 @@ func studioHideOf(e ScenesConfigured) string {
 func (m *Machine) onConfigured(e ScenesConfigured) []Batch {
 	s := &m.st
 	if m.sameConfig(e) {
+		// 行の並べ替えだけ: 世代は進めないが、並びは新しい設定のものに差し替える（status の警告の行番号を設定に合わせる）。
+		m.st.Fallbacks = slices.Clone(e.SceneFallbacks)
 		return nil
 	}
 	renamed := e.Standby != s.Standby
