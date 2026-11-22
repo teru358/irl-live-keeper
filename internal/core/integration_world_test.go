@@ -118,7 +118,7 @@ type world struct {
 	violations []string
 	trace      []string
 	activity   atomic.Int64
-	sendMu     sync.Mutex // イベントを本体へ流す順（取り出しから送り終えまで）を守る
+	sendMu     sync.Mutex   // イベントを本体へ流す順（取り出しから送り終えまで）を守る
 	reqSeq     atomic.Int64 // 始まった OBS の要求の通し番号
 	inflight   atomic.Int64 // 実行中の OBS の要求の数（0c: 静かな時点の判定）
 	evCount    atomic.Int64 // 本体へ流したイベントの数（0c: 履歴が変わるのはイベントかコマンドのあと）

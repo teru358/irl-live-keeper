@@ -124,6 +124,8 @@ func (r *runner) startGen(autoOn bool, studioHide string) {
 
 func (r *runner) sendConnected() {
 	w := r.w
+	w.sendMu.Lock() // 接続の状態を立ててから OBSConnected を流すまでの間に、実行役のイベントが先に流れないように
+	defer w.sendMu.Unlock()
 	w.mu.Lock()
 	w.pending = nil
 	ev := switcher.OBSConnected{At: r.clk.Now(), Streaming: w.streaming, Scene: w.sceneNameLocked(w.program), SceneUUID: w.program,

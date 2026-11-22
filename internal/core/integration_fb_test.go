@@ -95,8 +95,9 @@ func (r *runner) fbReconfig() {
 		w.mu.Unlock()
 		r.rng.Shuffle(len(rows), func(i, j int) { rows[i], rows[j] = rows[j], rows[i] })
 	}
+	synced := r.fbSync() // 前の本体の処理が済んでから「前」の status を読む
 	w.mu.Lock()
-	quiet := w.fbQuietLocked()
+	quiet := synced && w.fbQuietLocked()
 	var before Snapshot
 	app0 := w.fb.appSwitches
 	if quiet {
@@ -191,6 +192,7 @@ func (r *runner) fbHumanScene() {
 
 func (r *runner) fbRename() {
 	w := r.w
+	synced := r.fbSync()
 	w.mu.Lock()
 	var us []string
 	for _, u := range w.sceneUUIDsLocked() {
@@ -210,7 +212,7 @@ func (r *runner) fbRename() {
 	}
 	w.fb.seq++
 	nn := fmt.Sprintf("%s_r%d", base, w.fb.seq)
-	quiet := w.fbQuietLocked()
+	quiet := synced && w.fbQuietLocked()
 	var before Snapshot
 	app0 := w.fb.appSwitches
 	if quiet {
@@ -401,6 +403,7 @@ func (r *runner) fbCommand() {
 
 func (r *runner) fbCommandKind(kind switcher.CommandKind) (pre Snapshot, err error) {
 	w := r.w
+	r.fbSync()
 	pre = r.fbSnap()
 	w.mu.Lock()
 	cfg0 := w.fb.cfgGen
@@ -533,11 +536,16 @@ var fbWarnRe = regexp.MustCompile(`^scene_fallbacks の (\d+) 行目: (scene|fal
 
 // fbSync は、実行中の OBS の要求が終わるのを待ち（上限あり）、core がそれまでに受けたイベントの処理と publish を
 // 終えたことを Tick の受理で確かめる（Tick は core の1回のループが終わってからしか受け取られない）。
-func (r *runner) fbSync() {
-	for i := 0; i < 2000 && r.w.inflight.Load() > 0; i++ {
+func (r *runner) fbSync() bool {
+	deadline := time.Now().Add(5 * time.Second)
+	for r.w.inflight.Load() > 0 {
+		if time.Now().After(deadline) {
+			return false // 要求が終わらない（hung など）。静かな時点の判定は控える
+		}
 		time.Sleep(100 * time.Microsecond)
 	}
 	r.sendTick()
+	return r.w.inflight.Load() == 0
 }
 
 func (r *runner) fbCheck(where string) {
@@ -545,14 +553,14 @@ func (r *runner) fbCheck(where string) {
 	if w.fb == nil || r.cur == nil {
 		return
 	}
-	r.fbSync()
+	synced := r.fbSync()
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if len(w.violations) > 0 {
 		return
 	}
 	f := w.fb
-	quiet0, seq0 := w.fbQuietLocked(), w.reqSeq.Load()
+	quiet0, seq0 := synced && w.fbQuietLocked(), w.reqSeq.Load()
 	snap := r.fbSnap()
 	st := snap.OBS.Standby
 	owner := st.Owner
@@ -610,6 +618,9 @@ func (r *runner) fbCheck(where string) {
 		f.count("manual")
 	}
 	// 履歴は期待どおりのイベント・コマンドのあとにだけ変わる（FB-INV-04 / 05）。
+	if !synced {
+		return // 要求が終わらない間は、履歴の変化とイベントの数の対応を見ない（prev も更新しない）
+	}
 	cur := fbPrev{valid: true, owner: owner, stack: slices.Clone(st.Stack), ev: w.evCount.Load(), cmd: f.cmdCount, app: f.appSwitches}
 	if f.prev.valid && !stackEq(f.prev.stack, cur.stack) {
 		if cur.ev == f.prev.ev && cur.cmd == f.prev.cmd {
