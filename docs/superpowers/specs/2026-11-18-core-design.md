@@ -1,7 +1,7 @@
 # irl-live-keeper 設計 — 全体構成と第1段階（コア）
 
 - 作成日: 2026-11-18
-- 版: v2.16（変更は末尾の変更履歴を参照）
+- 版: v2.17（変更は末尾の変更履歴を参照）
 - **複数のカメラ（v2.15）**: 4章〜10章の一部（1本の path と1つの受信状態、`stream.name`、`obs.media_source`、`obs.monitored_scenes`、`LinkChanged`、分類、AutoFail と AutoRecover の条件など）は、`docs/superpowers/specs/2026-11-21-multi-camera-design.md`（第2段階の区切り0）で置き換える。置き換える箇所はその文書の第10節の表。食い違うときはその文書を優先する
 - 状態: ユーザー承認済みの設計（セクション1〜5）を文書化したもの。v2.0 でシーンのモデルを 2026-11-19 のユーザーの裁定に合わせて書き直した（6章の末尾に「実装前に決めたこと」がある）
 - 対象バージョン: MediaMTX v1.21.4（2026-11-15 リリース）、obs-websocket v5
@@ -595,6 +595,8 @@ goroutine 1本が switcher の状態を持ち、次を `select` で受ける: in
 }
 ```
 
+- `srt.loss_rate` は %（MediaMTX の `packetsReceivedLossRate` のまま。gosrt の `PktRecvLossRate`「受け取ったデータに対する再送されたデータの割合」。2026-11-22 に gosrt v0.13.0 のソースで確かめた）。例の 0.01 は 0.01%。`recv_mbps` は SRT の段階で受け取った速さで、MediaMTX が読めないデータも数える（`kbps` は MediaMTX が受け付けた分。両者の差で、アプリの送り方の問題を見分けられる。M-9 の Windows の T-15）
+
 `last_error` は、なければ null、あれば `{"at": "<RFC3339 の時刻>", "source": "switcher" | "mediamtx", "message": "<理由>"}`。switcher と supervisor の最新の1件のうち、新しいほうを出す（supervisor の記録には時刻がないので、core が変化を見た時刻を付ける）。OBS に一度も接続していない間の `scene_class` は `unknown`。
 
   - `scene_class`: 現在のシーンの分類。`monitored` / `standby` / `other` / `unknown`（OBS に未接続などで現在のシーンがわからない）
@@ -784,4 +786,5 @@ goobs のラッパーは実際の OBS を相手に手動で確かめる。自動
 | 2026-11-20 | v2.13 | `admin.listen` を `admin.port`（既定 8787）と `admin.lan`（既定 false。false は `127.0.0.1` だけ、true はすべてのインターフェース）に分け、ひな形、検証、`Warnings` の文、古い `admin.listen` の扱いを直した（2章、4章）。中継 PC では `admin.lan` も true にする（1章）。9章の中核ループの `select` が受けるものと、容量1の応答用チャネルに、設定の差し替えの要求を足した。API の確かめる順に、第2段階の 429 と `/api/login` の独自ヘッダーへの参照を足した。待ち受けのアドレスを `admin.port` と `admin.lan` で書いた。10章の `InitJob` はプロセスの寿命のもので窓の前に1回、起動の表示は最初の世代でだけ、`mediamtx.binary` が空のときの場所を書いた。13章の LAN 公開のリスクを、第2段階でできること（すべてのパスワードの表示、設定の変更）と、`mediamtx.binary` と `log.dir` を同じ PC からだけ変えられることに合わせて書き直した。どれも第2段階の spec v0.3 に合わせた | Fable と codex sol の設計レビュー 2 周目（Fable: Critical 0 / Important 9 / Minor 12、sol: Critical 0 / Important 8 / Minor 1）と、2026-11-20 のユーザーの裁定 | この版の commit |
 | 2026-11-20 | v2.14 | 2章の古い文を直した（生成物の置き場所に `history/`、`sources.yaml`、`--dir` を足し、部品の図の「オーバーレイ」を「ソースのページ」に） | 第2段階の task 表を作る中で見つかった | この版の commit |
 | 2026-11-21 | v2.15 | 冒頭に、複数のカメラの spec（2026-11-21-multi-camera-design.md）で置き換える箇所への参照を足した（本文は変えず、その文書の置き換える箇所の表で置き換える） | 2026-11-21 のユーザーの裁定（複数のカメラを第2段階に入れる） | f704f2c |
-| 2026-11-22 | v2.16 | 6章「外部からの手動切替」に、Studio Mode を切るときの一瞬の切替は obs の層で流さない、を足した（参照のみ。規則はカメラの spec v0.17 第1節） | M-13 の Windows の確認（F-9） | この版の commit |
+| 2026-11-22 | v2.16 | 6章「外部からの手動切替」に、Studio Mode を切るときの一瞬の切替は obs の層で流さない、を足した（参照のみ。規則はカメラの spec v0.17 第1節） | M-13 の Windows の確認（F-9） | 4010a28 |
+| 2026-11-22 | v2.17 | 9章の status の例のあとに、`srt.loss_rate` の単位（%）と `recv_mbps` の意味を書いた | M-9 の Windows の T-15（Larix の SRT で 0.76）、gosrt v0.13.0 のソース | この版の commit |

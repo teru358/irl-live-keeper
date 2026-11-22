@@ -37,7 +37,9 @@ type CameraStatus struct {
 	Unusable  bool `json:"unusable"`
 }
 
-// SRTStatus は SRT 接続の表示用の統計。
+// SRTStatus は SRT 接続の表示用の統計（MediaMTX の /v3/srt/conns/list の値のまま）。
+// LossRate は % （packetsReceivedLossRate。gosrt の PktRecvLossRate「受け取ったデータに対する再送されたデータの割合」）。
+// 0.76 は 0.76%。RecvMbps は SRT の段階で受け取った速さで、MediaMTX が読めないデータ（暗号化の違いなど）も数える。
 type SRTStatus struct {
 	RTTMs    float64 `json:"rtt_ms"`
 	LossRate float64 `json:"loss_rate"`
