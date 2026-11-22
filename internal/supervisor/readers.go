@@ -15,6 +15,9 @@ const (
 	slowThreshold = 3
 	// slowRelease は、最後の reader is too slow からこれだけたったら「追いつかない」を解く。
 	slowRelease = 60 * time.Second
+	// maxReaders は覚える読み手の数の上限。終わりの行が来ない読み手が残り続けないように、超えたら古いものから忘れる。
+	// 通信のない正常な接続もあるので、時間では消さない。
+	maxReaders = 256
 )
 
 var (
@@ -46,6 +49,7 @@ type readerTracker struct {
 
 	mu      sync.Mutex
 	readers map[string]string // 「プロトコル kind id」→ path
+	order   []string          // readers の鍵を覚えた順（古い順）
 	paths   map[string]*pathSlow
 }
 
@@ -58,23 +62,26 @@ func (t *readerTracker) Reset() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.readers = map[string]string{}
+	t.order = nil
 	t.paths = map[string]*pathSlow{}
 }
 
 // Observe は MediaMTX の行（水準の語を除いた本文）を1行読む。
+// 渡す行は資格情報を伏せる前のもの（path の文字列を覚えるだけで、ログには出さない）。伏せたあとだと、
+// パスワードが path の一部と同じとき（live/main と read_pass: main）に path がカメラと合わなくなる。
 func (t *readerTracker) Observe(rest string) {
 	if t == nil {
 		return
 	}
 	if m := readingRe.FindStringSubmatch(rest); m != nil {
 		t.mu.Lock()
-		t.readers[m[1]+" "+m[2]+" "+m[3]] = m[4]
+		t.remember(m[1]+" "+m[2]+" "+m[3], m[4])
 		t.mu.Unlock()
 		return
 	}
 	if m := readerEndRe.FindStringSubmatch(rest); m != nil {
 		t.mu.Lock()
-		delete(t.readers, m[1]+" "+m[2]+" "+m[3])
+		t.forget(m[1] + " " + m[2] + " " + m[3])
 		t.mu.Unlock()
 		return
 	}
@@ -99,6 +106,30 @@ func (t *readerTracker) Observe(rest string) {
 		p.last = now
 		if len(p.events) >= slowThreshold {
 			p.slow = true
+		}
+	}
+}
+
+// remember は読み手を覚える（呼ぶ側が mu を持つ）。同じ鍵は古い対応を置き換え、上限を超えたら古いものから忘れる。
+func (t *readerTracker) remember(key, path string) {
+	t.forget(key)
+	t.readers[key] = path
+	t.order = append(t.order, key)
+	for len(t.order) > maxReaders {
+		delete(t.readers, t.order[0])
+		t.order = t.order[1:]
+	}
+}
+
+func (t *readerTracker) forget(key string) {
+	if _, ok := t.readers[key]; !ok {
+		return
+	}
+	delete(t.readers, key)
+	for i, k := range t.order {
+		if k == key {
+			t.order = append(t.order[:i], t.order[i+1:]...)
+			break
 		}
 	}
 }

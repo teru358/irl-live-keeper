@@ -3,6 +3,7 @@ package supervisor
 import (
 	"context"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -272,5 +273,62 @@ func TestSupervisorSlowReadersEndToEnd(t *testing.T) {
 	<-done
 	if got := s.SlowReaders(); got != nil {
 		t.Errorf("終了のあと SlowReaders = %v", got)
+	}
+}
+
+func TestReaderTrackerCapsReaders(t *testing.T) {
+	tr, _ := newTestTracker()
+	for i := 0; i < maxReaders*3; i++ {
+		tr.Observe("[RTMP] [conn 10.0.0." + strconv.Itoa(i) + ":1] is reading from path 'live/x', 1 track (H264)")
+	}
+	tr.mu.Lock()
+	n, o := len(tr.readers), len(tr.order)
+	tr.mu.Unlock()
+	if n != maxReaders || o != maxReaders {
+		t.Errorf("readers = %d, order = %d, want %d", n, o, maxReaders)
+	}
+	// 古いものから忘れ、新しいものは残る
+	slowN(tr, "[RTMP] [conn 10.0.0.0:1]", 3)
+	if got := tr.Slow(); got != nil {
+		t.Errorf("忘れたはずの古い読み手を数えた: %v", got)
+	}
+	slowN(tr, "[RTMP] [conn 10.0.2.255:1]", 0)
+	last := "[RTMP] [conn 10.0.0." + strconv.Itoa(maxReaders*3-1) + ":1]"
+	slowN(tr, last, 3)
+	if got := tr.Slow(); len(got) != 1 {
+		t.Errorf("新しい読み手を数えない: %v", got)
+	}
+}
+
+func TestReaderTrackerSameKeyReplaces(t *testing.T) {
+	tr, _ := newTestTracker()
+	const who = "[RTSP] [session a]"
+	tr.Observe(who + " is reading from path 'live/a', with TCP, 1 track (H264)")
+	tr.Observe(who + " is reading from path 'live/b', with TCP, 1 track (H264)") // 終わりの行なしで使い回し
+	slowN(tr, who, 3)
+	if got := slowPaths(tr); !reflect.DeepEqual(got, []string{"live/b"}) {
+		t.Errorf("slow = %v, want [live/b]", got)
+	}
+	tr.mu.Lock()
+	defer tr.mu.Unlock()
+	if len(tr.order) != 1 {
+		t.Errorf("order = %v", tr.order)
+	}
+}
+
+// パスワードが path の一部と同じでも、追跡は伏せる前の行を読むので path が合う。ログには出ない。
+func TestLineWriterReadersSeeUnmaskedPath(t *testing.T) {
+	lw, buf, _ := newTestLW("main")
+	tr, _ := newTestTracker()
+	lw.readers = tr
+	_, _ = lw.Write([]byte("INF [RTSP] [session s1] is reading from path 'live/main', with TCP, 1 track (H264)\n"))
+	for i := 0; i < 3; i++ {
+		_, _ = lw.Write([]byte("WAR [RTSP] [session s1] reader is too slow, discarding 81 frames\n"))
+	}
+	if got := slowPaths(tr); !reflect.DeepEqual(got, []string{"live/main"}) {
+		t.Errorf("slow = %v", got)
+	}
+	if strings.Contains(buf.String(), "live/main") || !strings.Contains(buf.String(), "live/***") {
+		t.Errorf("ログのパスワードが伏せられていない:\n%s", buf.String())
 	}
 }

@@ -392,10 +392,14 @@ func parseLine(line string) (level, rest string) {
 }
 
 func (w *lineWriter) emit(line string) {
-	line = w.masker.Mask(strings.TrimRight(line, "\r\n"))
+	raw := strings.TrimRight(line, "\r\n")
+	line = w.masker.Mask(raw)
 	if line == "" {
 		return
 	}
+	// 読み手の追跡には、伏せる前の行を渡す（path の文字列を覚えるだけで、ログには伏せたあとの行を出す）。
+	_, rawRest := parseLine(raw)
+	w.readers.Observe(rawRest)
 	now := w.clock()
 	// 古くなった行は先に書く。
 	for len(w.held) > 0 && now.Sub(w.held[0].at) >= holdFor {
@@ -403,7 +407,6 @@ func (w *lineWriter) emit(line string) {
 		w.held = w.held[1:]
 	}
 	_, rest := parseLine(line)
-	w.readers.Observe(rest)
 	if m := openedRe.FindStringSubmatch(rest); m != nil {
 		w.release(m[1]) // 同じ接続の古い行が残っていれば先に書く
 		w.held = append(w.held, heldLine{addr: m[1], line: line, at: now})

@@ -66,8 +66,8 @@ func TestSlowReaderWarnings(t *testing.T) {
 	for _, want := range []string{
 		"msg=\"obs reader too slow\" camera=main count=4",
 		"msg=\"obs reader too slow\" camera=sub count=3",
-		"msg=\"obs reader caught up\" camera=main",
-		"msg=\"obs reader caught up\" camera=sub",
+		"msg=\"obs reader caught up\" camera=main count=0",
+		"msg=\"obs reader caught up\" camera=sub count=0",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("ログに %q がない:\n%s", want, out)

@@ -273,7 +273,7 @@ func (c *Core) slowReaderWarnings() []string {
 			if ok {
 				c.log.Info("obs reader too slow", "camera", cam.cfg.ID, "count", n)
 			} else {
-				c.log.Info("obs reader caught up", "camera", cam.cfg.ID)
+				c.log.Info("obs reader caught up", "camera", cam.cfg.ID, "count", 0)
 			}
 		}
 	}
