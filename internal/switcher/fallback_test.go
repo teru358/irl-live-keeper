@@ -95,6 +95,21 @@ func TestFBNM同名が複数あればUUIDの辞書順で先(t *testing.T) {
 	}
 }
 
+func TestFBNM重複したscene行は先の行が優先(t *testing.T) {
+	m := nmMap(map[string]string{"A": "シーン1", "D": "シーン2", "S": "Standby"})
+	// 先の行だけ未解決: 後の行は使わず、共通の逃がし先へ
+	r := ResolveFallbacks(m, "Standby", []FallbackRow{{Scene: "シーン1", Fallback: "Missing"}, {Scene: "シーン1", Fallback: "シーン2"}})
+	if len(r.Next) != 0 || r.NextOf("A") != "S" {
+		t.Fatalf("先の行だけ未解決: Next=%v", r.Next)
+	}
+	// 両方解決済み: 先の行
+	m.Scenes["E"] = scenemap.Container{Name: "シーン3"}
+	r = ResolveFallbacks(m, "Standby", []FallbackRow{{Scene: "シーン1", Fallback: "シーン3"}, {Scene: "シーン1", Fallback: "シーン2"}})
+	if r.Next["A"] != "E" || len(r.Next) != 1 {
+		t.Fatalf("両方解決: Next=%v", r.Next)
+	}
+}
+
 func TestFBNM待機シーンを元にした行は使わない(t *testing.T) {
 	m := nmMap(map[string]string{"A": "シーン1", "S": "Standby"})
 	r := ResolveFallbacks(m, "Standby", []FallbackRow{{Scene: "Standby", Fallback: "シーン1"}})
@@ -222,6 +237,9 @@ func TestFBEX探索(t *testing.T) {
 			Plan{Kind: PlanEscape, Target: "S", Append: []string{"A", "D"}}, []string{"A", "D"}},
 		{"FB-EX-03 D は健康OKだがOK記録あり/表示0 は飛ばして積む", world{next: map[string]string{"A": "D"}, std: std,
 			escape: map[string]EnterResult{"D": waitShow(), "S": okTerm()}}, "A", nil, false,
+			Plan{Kind: PlanEscape, Target: "S", Append: []string{"A", "D"}}, []string{"A", "D"}},
+		{"FB-EX-03 D は実際の表示が0 は飛ばして積む", world{next: map[string]string{"A": "D"}, std: std,
+			escape: map[string]EnterResult{"D": {Reason: ReasonNoActualCamera}, "S": okTerm()}}, "A", nil, false,
 			Plan{Kind: PlanEscape, Target: "S", Append: []string{"A", "D"}}, []string{"A", "D"}},
 		{"FB-EX-06 戻り待ちでも退避 B→T", world{next: map[string]string{"B": "T"}, std: std,
 			escape: map[string]EnterResult{"A": ok(), "D": ok(), "T": okTerm(), "S": okTerm()},

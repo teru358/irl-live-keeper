@@ -67,7 +67,12 @@ func ResolveFallbacks(m *scenemap.Map, standbyName string, rows []FallbackRow) R
 		return found
 	}
 	r.Standby = byName(standbyName)
+	seen := map[string]bool{} // 設定の scene 名。名前解決の成否と無関係に、先の行が優先
 	for i, row := range rows {
+		if seen[row.Scene] {
+			continue
+		}
+		seen[row.Scene] = true
 		from := byName(row.Scene)
 		if from == "" {
 			r.Warnings = append(r.Warnings, NameWarning{Index: i, Field: "scene", Name: row.Scene})
@@ -79,9 +84,7 @@ func ResolveFallbacks(m *scenemap.Map, standbyName string, rows []FallbackRow) R
 		if from == "" || to == "" || from == r.Standby {
 			continue
 		}
-		if _, dup := r.Next[from]; !dup {
-			r.Next[from] = to
-		}
+		r.Next[from] = to
 	}
 	if r.Standby == "" {
 		r.Warnings = append(r.Warnings, NameWarning{Index: -1, Field: "standby", Name: standbyName})
