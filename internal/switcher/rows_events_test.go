@@ -538,19 +538,15 @@ func TestRowsBatchDone(t *testing.T) {
 	for _, pp := range []Purpose{PurposeStandbyOn, PurposeStandbyOffMonitored, PurposeStandbyOffOther, PurposeStartStream, PurposeStopStream} {
 		rows = append(rows, evRow{name: "BD-R-2/" + pp.String(), setup: p(1, pp, ""), ev: bd(1000, 1, BatchRejected), change: gone(1), recErr: true})
 	}
-	replaced := func(s *state) {
-		pb := s.Pending[1]
-		pb.Replaced = true
-		s.Pending[1] = pb
-	}
 	manualRej := func(s *state) {
 		pb := s.Pending[1]
 		pb.ManualRejected = true
 		s.Pending[1] = pb
 	}
 	rows = append(rows,
-		evRow{name: "BD-R-3", setup: all(own(OwnerAuto, camera), link(LOW), p(1, PurposeStandbyOffMonitored, ""), replaced),
-			ev: bd(1000, 1, BatchRejected), change: gone(1)},
+		// FB-BD-03: 置き換え（Replace）はなくなり、OFF の却下は manual のまま last_error で押し直しを案内する。
+		evRow{name: "BD-R-3/FB-BD-03", setup: all(own(OwnerManual, camera), link(LOW), p(1, PurposeStandbyOffMonitored, "")),
+			ev: bd(1000, 1, BatchRejected), change: gone(1), recErr: true},
 		evRow{name: "BD-R-4", setup: all(startAt(opening), p(1, PurposeStartScene, ""), manualRej), ev: bd(1000, 1, BatchRejected), change: gone(1)},
 		evRow{name: "BD-R-5", setup: all(startAt(opening), p(1, PurposeStartScene, "")), ev: bd(1000, 1, BatchRejected), change: gone(1), recErr: true},
 		// /0c: BatchDone は未完了の解消後にその場で判断する（BD-J-1 の置き換え。次の Tick まで待たない）。

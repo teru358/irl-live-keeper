@@ -381,44 +381,53 @@ func TestSeqStandbyOff(t *testing.T) {
 	})
 }
 
+// 0c（FB-AP-07）: 手動の OFF の待ちの間に戻り先の状態が変わっても、auto 化へ置き換えない。承認で Reject し、manual のまま
+// last_error で押し直しを案内する。押し直しは OFF の専用探索（今が待機なら切替なしで auto）。
 func TestSeqReplace(t *testing.T) {
-	t.Run("SQ-09a", func(t *testing.T) {
+	t.Run("SQ-09a/FB-AP-07", func(t *testing.T) {
 		q := newSeq(t).PM(camera, OK)
 		q.batch(cmd(1000, CmdStandbyOff), 2, sfm, camera, "")
 		q.approve(2, restart, 1000, Proceed{})
 		q.none(lc(1200, LOW))
 		next := q.m.st.NextBatchID
-		q.approve(2, set(camera), 1500, Replace{})
-		q.owner(OwnerAuto, camera)
+		q.approve(2, set(camera), 1500, Reject{})
+		q.owner(OwnerManual, camera)
 		q.scene(standby)
 		q.exps()
 		if q.m.st.NextBatchID != next {
 			t.Fatalf("NextBatchID moved: %d → %d", next, q.m.st.NextBatchID)
 		}
 		q.none(bd(1500, 2, BatchRejected))
-		q.noErr()
+		q.errAt(1500)
 		q.pending()
 		q.none(tick(2000))
-		q.batch(lc(3000, OK), 3, ar, camera, "")
+		q.owner(OwnerManual, camera)
+		// 押し直し: 戻り先は悪く、今が待機（逃がし先の列の終わり）なので、切替なしで auto にする。
+		q.none(cmd(3000, CmdStandbyOff))
+		q.owner(OwnerAuto, camera)
+		q.batch(lc(4000, OK), 3, ar, camera, "")
 	})
-	t.Run("SQ-09b", func(t *testing.T) {
+	t.Run("SQ-09b/FB-AP-07", func(t *testing.T) {
 		q := newSeq(t).PM(camera, OK)
 		q.batch(cmd(1000, CmdStandbyOff), 2, sfm, camera, "")
 		q.none(lc(1100, DOWN))
-		q.approve(2, restart, 1200, Replace{})
-		q.owner(OwnerAuto, camera)
+		q.approve(2, restart, 1200, Reject{})
+		q.owner(OwnerManual, camera)
 		q.none(bd(1200, 2, BatchRejected))
-		q.noErr()
+		q.errAt(1200)
 	})
-	t.Run("SQ-09c", func(t *testing.T) {
+	t.Run("SQ-09c/FB-AP-07", func(t *testing.T) {
 		q := newSeq(t).PM(camera, OK)
 		q.batch(cmd(1000, CmdStandbyOff), 2, sfm, camera, "")
 		q.approve(2, restart, 1000, Proceed{})
 		q.none(lc(1200, LOW))
-		q.approve(2, set(camera), 1500, Replace{})
+		q.approve(2, set(camera), 1500, Reject{})
 		q.none(lc(1600, OK))
-		// /0c: BatchDone でその場で判断する（BD-J-1 の置き換え）。
-		q.batch(bd(1700, 2, BatchRejected), 3, ar, camera, "")
+		// 回復しても manual のまま（auto に置き換えていない）。BatchDone で manual の失敗を記録し、押し直せる。
+		q.none(bd(1700, 2, BatchRejected))
+		q.owner(OwnerManual, camera)
+		q.errAt(1700)
+		q.batch(cmd(2000, CmdStandbyOff), 3, sfm, camera, "")
 	})
 }
 
@@ -891,9 +900,13 @@ func TestSeqCommandsConflict(t *testing.T) {
 }
 
 func TestSeqStandbyOnAcceptance(t *testing.T) {
-	t.Run("SQ-18a", func(t *testing.T) {
+	t.Run("SQ-18a/0c", func(t *testing.T) {
+		// 待機で auto の ON は特例（FB-ON-04）: 切替なしで manual、戻り先は最下段。
 		q := newSeq(t).PA(camera)
-		q.cmdErr(cmd(1000, CmdStandbyOn), invalid)
+		q.none(cmd(1000, CmdStandbyOn))
+		q.owner(OwnerManual, camera)
+		q.scene(standby)
+		q.noErr()
 	})
 	t.Run("SQ-18b", func(t *testing.T) {
 		q := newSeq(t).P(camera, true, OK)

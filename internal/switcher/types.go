@@ -684,7 +684,6 @@ type PendingBatch struct {
 	WriteFailed    bool // 最初の false の保存に失敗した（以後の承認は Reject）
 	Sent           int  // 送った要求の数
 	Failures       int  // 失敗した要求の数（Error / Timeout）
-	Replaced       bool // Replace で置き換えた元のバッチ。却下を記録しない
 	ManualRejected bool // StartScene を手動の切替のために却下した。却下を記録しない
 }
 

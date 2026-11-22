@@ -13,12 +13,6 @@ func markManualRejected(s *state) {
 	s.Pending[1] = pb
 }
 
-func markReplaced(s *state) {
-	pb := s.Pending[1]
-	pb.Replaced = true
-	s.Pending[1] = pb
-}
-
 func TestRowsApproveCommon(t *testing.T) {
 	af := p(1, PurposeAutoFail, camera)
 	bad := link(LOW)
@@ -108,14 +102,12 @@ func TestRowsApproveStandbyOn(t *testing.T) {
 
 func TestRowsApproveStandbyOffMonitored(t *testing.T) {
 	off := all(own(OwnerManual, camera), p(1, PurposeStandbyOffMonitored, ""))
-	toAuto := toAutoOwner
 	runApRows(t, []apRow{
 		{name: "AP-SOFFM-1", setup: off, action: restart, atMs: 1000, res: Proceed{}},
 		{name: "AP-SOFFM-2", setup: off, action: set(camera), atMs: 1000, res: Proceed{}, register: true},
-		{name: "AP-SOFFM-3/restart", setup: all(off, link(LOW)), action: restart, atMs: 1000, res: Replace{},
-			change: all(toAuto, markReplaced)},
-		{name: "AP-SOFFM-3/set_scene", setup: all(off, link(DOWN)), action: set(camera), atMs: 1000, res: Replace{},
-			change: all(toAuto, markReplaced)},
+		// 0c（FB-AP-07）: 戻り先の健康だけが悪くなっても auto 化へ置き換えず、OFF の計画が変われば Reject（押し直しで選び直す）。
+		{name: "AP-SOFFM-3/FB-AP-07/restart", setup: all(off, link(LOW)), action: restart, atMs: 1000, res: Reject{}},
+		{name: "AP-SOFFM-3/FB-AP-07/set_scene", setup: all(off, link(DOWN)), action: set(camera), atMs: 1000, res: Reject{}},
 		{name: "AP-SOFFM-4/restart_bad", setup: all(autoOff, off, link(LOW)), action: restart, atMs: 1000, res: Proceed{}},
 		{name: "AP-SOFFM-4/set_scene_bad", setup: all(autoOff, off, link(DOWN)), action: set(camera), atMs: 1000, res: Proceed{}, register: true},
 		{name: "AP-SOFFM-4/set_scene_ok", setup: all(autoOff, off), action: set(camera), atMs: 1000, res: Proceed{}, register: true},

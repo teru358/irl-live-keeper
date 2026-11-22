@@ -568,8 +568,9 @@ func TestMCCommands(t *testing.T) {
 		resolveNames(s)
 	}
 	runEvRows(t, []evRow{
-		{name: "MC-CMD-1", base: baseMulti, setup: all(own(OwnerManual, camera), useMap(mm(dropped(camera)))), ev: cmd(1000, CmdStandbyOff),
-			out: PurposeStandbyOffOther},
+		// FB-OFF-09: 削除済みの元へ強制 OFF しない（通常は整理で全解除済みで、直接作った状態だけ）。
+		{name: "MC-CMD-1/FB-OFF-09", base: baseMulti, setup: all(own(OwnerManual, camera), useMap(mm(dropped(camera)))), ev: cmd(1000, CmdStandbyOff),
+			err: invalid, reason: ReasonNotManual},
 		{name: "CMD-SOFF-5/0a/multi", base: baseMulti, setup: own(OwnerManual, camera), ev: cmd(1000, CmdStandbyOff),
 			out: PurposeStandbyOffMonitored, in: []string{inMain, inSub}},
 		{name: "CMD-SOFF-6/0a/multi", base: baseMulti, setup: all(own(OwnerManual, camera), states(OK, LOW, OK)), ev: cmd(1000, CmdStandbyOff),
@@ -598,7 +599,6 @@ func TestMCApprove(t *testing.T) {
 	renamedA := mm(renamed(camera, "Camera-renamed"))
 	standbyMoved := mm(standbyIsS2)
 	aBad := states(OK, DOWN, OK)
-	toAuto := toAutoOwner
 	runApRows(t, []apRow{
 		{name: "MC-AP-1", base: baseMulti, setup: all(own(OwnerAuto, camera), p(1, PurposeAutoRecover, ""), useMap(mm(dropped(camera))), clearOwner),
 			action: set(camera), atMs: 1000, res: Reject{}},
@@ -606,8 +606,8 @@ func TestMCApprove(t *testing.T) {
 			action: set(camera), atMs: 1000, res: Reject{}},
 		{name: "MC-AP-3/auto_recover", base: baseMulti, setup: all(own(OwnerAuto, camera), p(1, PurposeAutoRecover, ""), aBad),
 			action: set(camera), atMs: 1000, res: Reject{}},
-		{name: "MC-AP-3/off_monitored", base: baseMulti, setup: all(own(OwnerManual, camera), p(1, PurposeStandbyOffMonitored, ""), aBad),
-			action: set(camera), atMs: 1000, res: Replace{}, change: all(toAuto, markReplaced)},
+		{name: "MC-AP-3/off_monitored/FB-AP-07", base: baseMulti, setup: all(own(OwnerManual, camera), p(1, PurposeStandbyOffMonitored, ""), aBad),
+			action: set(camera), atMs: 1000, res: Reject{}},
 		{name: "MC-AP-4/auto_fail", base: baseMulti, setup: all(states(DOWN, OK, OK), p(1, PurposeAutoFail, camera), useMap(renamedA)),
 			action: set(standby), atMs: 1000, res: Proceed{}, register: true},
 		{name: "MC-AP-4/auto_recover", base: baseMulti, setup: all(own(OwnerAuto, camera), p(1, PurposeAutoRecover, ""), useMap(renamedA)),
@@ -641,8 +641,8 @@ func TestApproveMultiHealth(t *testing.T) {
 			action: set(standby), atMs: 1000, res: Reject{}},
 		{name: "AP-AUTOREC-3/0a/multi", base: baseMulti, setup: all(own(OwnerAuto, camera), states(OK, LOW, OK), p(1, PurposeAutoRecover, "")),
 			action: set(camera), atMs: 1000, res: Reject{}},
-		{name: "AP-SOFFM-3/0a/multi", base: baseMulti, setup: all(own(OwnerManual, camera), states(LOW, OK, OK), p(1, PurposeStandbyOffMonitored, "")),
-			action: restartOf(inMain, inSub), atMs: 1000, res: Replace{}, change: all(toAutoOwner, markReplaced)},
+		{name: "AP-SOFFM-3/0a/multi/FB-AP-07", base: baseMulti, setup: all(own(OwnerManual, camera), states(LOW, OK, OK), p(1, PurposeStandbyOffMonitored, "")),
+			action: restartOf(inMain, inSub), atMs: 1000, res: Reject{}},
 		{name: "AP-SOFFM-4/0a/multi", base: baseMulti, setup: all(autoOff, own(OwnerManual, camera), states(LOW, OK, OK), p(1, PurposeStandbyOffMonitored, "")),
 			action: set(camera), atMs: 1000, res: Proceed{}, register: true},
 	})

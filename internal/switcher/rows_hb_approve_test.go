@@ -315,7 +315,7 @@ func TestHBApprove(t *testing.T) {
 				t.Fatalf("Approve = %#v, want Reject", got)
 			}
 		}},
-		{"HB-AP-24", func(t *testing.T) {
+		{"HB-AP-24/0c", func(t *testing.T) {
 			h := newHB(t)
 			h.standbyOnManual(t)
 			bs, err := h.evErr(Command{At: at(2000), Kind: CmdStandbyOff})
@@ -325,15 +325,16 @@ func TestHBApprove(t *testing.T) {
 			h.out(bs, "M(A)")
 			h.yOff()
 			h.seedH(kx)
-			if got := h.m.Approve(bs[0].BatchID, SetScene{SceneUUID: camera}, OverrideNone{}, at(2100)); !isProceed(got) {
-				t.Fatalf("Approve = %#v", got)
+			// 承認時にも待ち（OK のカメラの非表示の記録）を検査する。戻り先へ入れなくなったので OFF の計画が変わり Reject。
+			if got := h.m.Approve(bs[0].BatchID, SetScene{SceneUUID: camera}, OverrideNone{}, at(2100)); got != (Reject{}) {
+				t.Fatalf("Approve = %#v, want Reject", got)
 			}
 			h2 := newHB(t)
 			h2.standbyOnManual(t)
 			bs2, _ := h2.evErr(Command{At: at(2000), Kind: CmdStandbyOff})
-			h2.cams(2050, LOW, OK) // 健康悪化なら従来どおり Replace
-			if got := h2.m.Approve(bs2[0].BatchID, SetScene{SceneUUID: camera}, OverrideNone{}, at(2100)); got != (Replace{}) {
-				t.Fatalf("Approve = %#v", got)
+			h2.cams(2050, LOW, OK) // 健康悪化は Replace でなく Reject（FB-AP-07）
+			if got := h2.m.Approve(bs2[0].BatchID, SetScene{SceneUUID: camera}, OverrideNone{}, at(2100)); got != (Reject{}) {
+				t.Fatalf("Approve = %#v, want Reject", got)
 			}
 		}},
 		{"HB-AP-25", func(t *testing.T) {

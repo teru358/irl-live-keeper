@@ -41,7 +41,8 @@ func TestRowsCommandStandbyOn(t *testing.T) {
 	runEvRows(t, []evRow{
 		{name: "CMD-SON-1", setup: disconnected, ev: ev, err: notConnected},
 		{name: "CMD-SON-2", setup: notStreaming, ev: ev, err: invalid, reason: ReasonNotStreaming},
-		{name: "CMD-SON-3", setup: own(OwnerAuto, camera), ev: ev, err: invalid, reason: ReasonAlreadyStandby},
+		// 待機で auto の ON は特例（FB-ON-04、裁定 9）: 切替なしで manual、戻り先は最下段、スタックは空。
+		{name: "CMD-SON-3/FB-ON-04", setup: own(OwnerAuto, camera), ev: ev, change: func(s *state) { s.StandbyOwner = OwnerManual; s.Stack = nil }},
 		{name: "CMD-SON-4", setup: own(OwnerNone, ""), ev: ev, err: invalid, reason: ReasonAlreadyStandby},
 		{name: "CMD-SON-5", setup: own(OwnerManual, camera), ev: ev, err: invalid, reason: ReasonAlreadyStandby},
 		{name: "CMD-SON-6/start_scene", setup: all(startAt(opening), p(1, PurposeStartScene, "")), ev: ev, err: invalid, reason: ReasonSwitchInProcess},

@@ -372,7 +372,7 @@ func TestMCSeq08(t *testing.T) {
 		return q
 	}
 	withD := mm(itemsOf(camera, itm(1, inMain), itm(2, inSub), itm(3, inDesk)))
-	t.Run("MC-SQ-08", func(t *testing.T) {
+	t.Run("MC-SQ-08/FB-AP-07", func(t *testing.T) {
 		q := manualA(t)
 		e := q.epochs()
 		b := q.batchIn(cmd(1000, CmdStandbyOff), 2, sfm, camera, "", bothInputs(), "")
@@ -382,13 +382,14 @@ func TestMCSeq08(t *testing.T) {
 		q.none(smcMap(1200, withD))
 		q.epochDelta(e, 0, 0, 0, 0)
 		q.health(camera, DOWN, camDesk)
-		q.approve(2, b.Actions[1], 1600, Replace{})
-		q.owner(OwnerAuto, camera)
+		q.approve(2, b.Actions[1], 1600, Reject{}) // 0c（FB-AP-07）: auto 化へ置き換えず却下
+		q.owner(OwnerManual, camera)
 		q.exps()
 		q.none(bd(1700, 2, BatchRejected))
-		q.noErr()
-		q.batchIn(smcMap(2000, multiMap()), 3, ar, camera, "", bothInputs(), "")
+		q.errAt(1700)
+		q.none(smcMap(2000, multiMap()))
 		q.health(camera, OK, "")
+		q.batchIn(cmd(2500, CmdStandbyOff), 3, sfm, camera, "", bothInputs(), "")
 	})
 	t.Run("MC-SQ-08/auto_recover", func(t *testing.T) {
 		// #1 を AutoRecover にすれば t=1.6 は Reject、auto/A を保つ。
