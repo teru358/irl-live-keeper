@@ -9,5 +9,5 @@
 
 | id | 優先 | 起票 | 概要 |
 |---|---|---|---|
-| [flaky-tests-norace](open/flaky-tests-norace.md) | 中 | 2026-11-22 | -race なしで落ちる既存のテスト2つ（obs の Studio Mode の境界、core の保存の再試行） |
+| [flaky-tests-norace](open/flaky-tests-norace.md) | 中 | 2026-11-22 | 揺れる既存のテスト3つ（obs の Studio Mode の境界、core の保存） |
 

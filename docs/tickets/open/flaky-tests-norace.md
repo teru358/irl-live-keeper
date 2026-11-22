@@ -1,6 +1,6 @@
 ---
 id: flaky-tests-norace
-title: -race なしで落ちる既存のテスト2つ（obs の Studio Mode の境界、core の保存の再試行）
+title: 揺れる既存のテスト3つ（obs の Studio Mode の境界、core の保存）
 status: 実装待ち
 priority: 中
 kind: 保守
@@ -26,3 +26,4 @@ go test を -race なしで走らせると、internal/obs の TestStudioModeChan
 
 - 2026-11-22: 起票。
 - 2026-11-22: 状態: 実装待ち — 直し方の案: obs は境界が確定してから false を送る同期点を足す（待ちを伸ばしても直らない）。core は保存の内容か明示した同期点で「隠す前の保存は成功、隠したあとの保存から失敗」を指定し、再試行は呼び出しの数と成功を明示的に待つ
+- 2026-11-22: 題名: 揺れる既存のテスト3つ（obs の Studio Mode の境界、core の保存） — 2026-11-22 追加: internal/core の TestRunReturnsWhenAsyncWriteIsStuck も、-race 付きのパッケージ一括の実行で TempDir の RemoveAll（directory not empty）で落ちることがある（main でも。単独では通る）。止まった非同期の書き込みが、テストの後片づけのあとにファイルを書いている見立て
