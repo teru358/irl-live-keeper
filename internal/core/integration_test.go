@@ -85,7 +85,7 @@ func (r *runner) startGen(autoOn bool, studioHide string) {
 	entries, warn := LoadHidden(r.path)
 	g := &gen{samples: make(chan ingest.SampleSet), ticks: make(chan time.Time), done: make(chan struct{})}
 	deps := Deps{
-		OBS: &genClient{w: w, gen: gnum}, StandbyScene: standby, Cameras: integCameras(), AutoEnabled: autoOn,
+		OBS: &genClient{w: w, gen: gnum}, StandbyScene: standby, Cameras: w.deviceCameras(), AutoEnabled: autoOn,
 		StudioModeHide: studioHide, HiddenPath: r.path, HiddenRestored: entries, HiddenLoadWarning: warn,
 		HiddenRetry: 5 * time.Millisecond, StopTimeout: 300 * time.Millisecond,
 		Samples: g.samples, Tick: g.ticks, Now: r.clk.Now,
@@ -201,7 +201,7 @@ func (r *runner) second() {
 	// 独立の Judge で、カメラの状態を追う。OK になったら、人が戻した印を消す。
 	w.mu.Lock()
 	set := ingest.SampleSet{At: now}
-	for _, id := range wCameraIDs {
+	for _, id := range w.cameraIDs() {
 		k := w.kbps[id]
 		s := ingest.Sample{Camera: id, At: now, Interval: time.Second, Online: k > 0, Protocol: "srt", Kbps: k}
 		set.Cameras = append(set.Cameras, s)
@@ -557,7 +557,7 @@ func (r *runner) recoverAll() {
 		w.enqueueLocked(switcher.StreamStateChanged{At: r.clk.Now(), Streaming: false}, false, ik{}, false)
 	default:
 		r.stepfLocked("回復: 全カメラを良い回線にする")
-		for _, id := range wCameraIDs {
+		for _, id := range w.cameraIDs() {
 			w.kbps[id] = goodKbps
 		}
 	}

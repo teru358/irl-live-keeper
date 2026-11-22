@@ -25,7 +25,14 @@ const fbObsWarning = "OBS の警告（0c の試験用）"
 // Hand（手元だけ）、Nest（Camera を入れ子＋手元）、Grp（グループ G1〔サブ・メイン〕＋手元）、画像のシーン Talk（カメラなし）。
 const fbSubOnly = "SubOnly"
 
-var fbPool = []string{camera, "Nest", "Grp", "Both", "Hand", fbSubOnly, talk}
+// 2台目の standby のカメラ alt（入力 ALT）と、それを映す Dual（メイン＋alt）、AltOnly。メインの入力を共有する Dual と Camera を作る。
+const (
+	wAlt      = "alt"
+	fbDual    = "Dual"
+	fbAltOnly = "AltOnly"
+)
+
+var fbPool = []string{camera, "Nest", "Grp", "Both", "Hand", fbSubOnly, talk, fbDual, fbAltOnly}
 
 // fbCov は全種の合計（空振りの検出と報告に使う）。
 var (
@@ -55,6 +62,7 @@ type fbWorld struct {
 	epBottom string
 	epValid  bool
 
+	restarts    [][]string // RestartMediaInputs の要求（入力 UUID の列）
 	appSwitches int
 	consumed    int // スタックが増えた回数（適用の数を超えない: FB-INV-05）
 	lastSwitch  time.Time
@@ -79,7 +87,31 @@ func (w *world) enableFB(rows []switcher.FallbackRow) {
 	w.fb.rows = slices.Clone(rows)
 	w.cont[fbSubOnly] = &wCont{name: fbSubOnly, items: []*wItem{{id: 1, source: "SUB", kind: scenemap.InputSource, enabled: true}}}
 	w.order = append(w.order, fbSubOnly)
+	w.inputs["ALT"] = scenemap.Input{Name: "ALT", CameraID: wAlt}
+	w.cont[fbDual] = &wCont{name: fbDual, items: []*wItem{{id: 1, source: "IRL", kind: scenemap.InputSource, enabled: true}, {id: 2, source: "ALT", kind: scenemap.InputSource, enabled: true}}}
+	w.cont[fbAltOnly] = &wCont{name: fbAltOnly, items: []*wItem{{id: 1, source: "ALT", kind: scenemap.InputSource, enabled: true}}}
+	w.order = append(w.order, fbDual, fbAltOnly)
+	w.resetJudges()
 }
+
+// cameraIDs は世界のカメラ。0c の世界では alt（2台目の standby のカメラ）が加わる。
+func (w *world) cameraIDs() []string {
+	if w.fb != nil {
+		return append(slices.Clone(wCameraIDs), wAlt)
+	}
+	return wCameraIDs
+}
+
+// deviceCameras は本体に渡すカメラの設定。
+func (w *world) deviceCameras() []Camera {
+	cams := integCameras()
+	if w.fb != nil {
+		cams = append(cams, testCamera(wAlt, "alt", scenemap.MotionStandby))
+	}
+	return cams
+}
+
+func (w *world) isStandbyCam(id string) bool { return id == wMain || id == wAlt }
 
 func (w *world) sceneNameLocked(u string) string {
 	if c := w.cont[u]; c != nil && c.name != "" {
@@ -165,7 +197,7 @@ func (w *world) badWithLocked(u string, okf func(string) bool) bool {
 	standbyBad, allHideNotOK := false, true
 	for id := range cams {
 		ok := okf(id)
-		if id == wMain {
+		if w.isStandbyCam(id) {
 			allHideNotOK = false
 			if !ok {
 				standbyBad = true
@@ -178,7 +210,9 @@ func (w *world) badWithLocked(u string, okf func(string) bool) bool {
 }
 
 // okHiddenRecordLocked は u に、本体の非表示のせいで映っていない OK のカメラがあるか（戻り先が待つ Show）。
-func (w *world) okHiddenRecordLocked(u string) []string { return w.okHiddenRecordWithLocked(u, w.stateOKLocked) }
+func (w *world) okHiddenRecordLocked(u string) []string {
+	return w.okHiddenRecordWithLocked(u, w.stateOKLocked)
+}
 
 func (w *world) okHiddenRecordWithLocked(u string, okf func(string) bool) []string {
 	if w.faulty {
@@ -225,7 +259,7 @@ func (w *world) reverseWaitWithLocked(u string, snap Snapshot, okf func(string) 
 	}
 	var out []string
 	for id := range w.visibleLocked(u, false, nil) {
-		if id == wMain || okf(id) || w.mark[id] {
+		if w.isStandbyCam(id) || okf(id) || w.mark[id] {
 			continue
 		}
 		exempt := false
@@ -456,6 +490,7 @@ func (w *world) fbOnRestartLocked(inputs []string) {
 		return
 	}
 	f.count("RestartMedia")
+	f.restarts = append(f.restarts, slices.Clone(inputs))
 	seen := map[string]bool{}
 	shown := w.inputsShownLocked(w.program)
 	for _, u := range inputs {
@@ -464,7 +499,7 @@ func (w *world) fbOnRestartLocked(inputs []string) {
 		}
 		seen[u] = true
 		cam := w.inputs[u].CameraID
-		if cam != wMain && !w.studio && !w.humanWin && !w.humanPendingLocked() {
+		if !w.isStandbyCam(cam) && !w.studio && !w.humanWin && !w.humanPendingLocked() {
 			// Studio Mode では hide のカメラも standby として再起動の対象になる。hide のカメラの入力は、Show の再起動だけ（カメラが OK のとき。対象は生成時に固定するので、今の表示は見ない）。
 			var snap Snapshot
 			if f.snap != nil {
@@ -475,7 +510,7 @@ func (w *world) fbOnRestartLocked(inputs []string) {
 			}
 		}
 		// 本体の切替のイベントがまだ届いていない間は、本体が見ている今のシーンが古い（遅着の切替）。
-		if cam == wMain && shown[u] && !w.humanWin && !w.humanPendingLocked() && !w.hasPendingAppSceneLocked() {
+		if w.isStandbyCam(cam) && shown[u] && !w.humanWin && !w.humanPendingLocked() && !w.hasPendingAppSceneLocked() {
 			w.violate("RestartMedia: 今 program %s に実際に表示されている入力 %s を再起動した: %v", w.sceneNameLocked(w.program), u, inputs)
 		}
 	}

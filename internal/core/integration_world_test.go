@@ -53,8 +53,8 @@ type pendEv struct {
 	ev       switcher.Event
 	human    bool
 	appScene bool // 0c: 本体の SetScene の適用で出た SceneChanged
-	key   ik // 人の項目の変化のとき
-	val   bool
+	key      ik   // 人の項目の変化のとき
+	val      bool
 }
 
 type lateApply struct {
@@ -168,7 +168,7 @@ func newWorld(seed int64, clk *fakeClock, hiddenPath string, faulty bool) *world
 
 func (w *world) resetJudges() {
 	w.judges = map[string]*ingest.Judge{}
-	for _, id := range wCameraIDs {
+	for _, id := range w.cameraIDs() {
 		w.judges[id] = ingest.NewJudge(testThresholds)
 	}
 }
@@ -397,7 +397,7 @@ func (w *world) canRestoreOracleLocked(cam string) bool {
 	if !w.streaming || !w.autoOn || w.judges[cam].State() == ingest.LinkOK {
 		return true
 	}
-	if cam == wMain { // main は on_bad: standby
+	if w.isStandbyCam(cam) { // main（と alt）は on_bad: standby
 		return true
 	}
 	return w.studio && w.studioHid != switcher.StudioHideHide

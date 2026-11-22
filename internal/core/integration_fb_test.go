@@ -55,12 +55,12 @@ func fbRandomRows(rng *rand.Rand) []switcher.FallbackRow {
 
 // fbSpecRows は spec 第3節の例: シーン1〔メインとサブ〕→ シーン2〔サブ〕→ 待機。画像のシーン Talk を終端にした列も足す。
 func fbSpecRows() []switcher.FallbackRow {
-	return []switcher.FallbackRow{{Scene: camera, Fallback: fbSubOnly}, {Scene: "Hand", Fallback: talk}, {Scene: "Nest", Fallback: camera}}
+	return []switcher.FallbackRow{{Scene: camera, Fallback: fbSubOnly}, {Scene: "Hand", Fallback: talk}, {Scene: "Nest", Fallback: camera}, {Scene: fbDual, Fallback: camera}, {Scene: fbAltOnly, Fallback: talk}}
 }
 
 func fbCameraConfigs() []switcher.CameraConfig {
 	return []switcher.CameraConfig{
-		{ID: wMain, OnBad: scenemap.MotionStandby}, {ID: wSub, OnBad: scenemap.MotionHide}, {ID: wHand, OnBad: scenemap.MotionHide},
+		{ID: wMain, OnBad: scenemap.MotionStandby}, {ID: wSub, OnBad: scenemap.MotionHide}, {ID: wHand, OnBad: scenemap.MotionHide}, {ID: wAlt, OnBad: scenemap.MotionStandby},
 	}
 }
 
@@ -159,6 +159,11 @@ func (r *runner) fbHumanScene() {
 		}
 		if len(mon) > 0 {
 			to = mon[r.rng.Intn(len(mon))]
+		}
+	}
+	if r.rng.Intn(100) < 20 { // 入力 IRL を共有する Dual と Camera の組（共有入力の再起動の除外）を多めにする
+		if u := w.byNameLocked(fbDual); u != "" {
+			to = u
 		}
 	}
 	if r.rng.Intn(3) == 0 { // 積んだスタックの中のシーン、今のシーンの逃がし先、を選ぶ
@@ -331,7 +336,8 @@ func (r *runner) fbRevive() {
 
 // fbCamSingle は1台のカメラの状態を変える（Judge が状態を変える長さ〔3〜5秒〕を超えて保つことが多い）。
 func (r *runner) fbCamSingle() {
-	id := wCameraIDs[r.rng.Intn(len(wCameraIDs))]
+	ids := r.w.cameraIDs()
+	id := ids[r.rng.Intn(len(ids))]
 	var k float64
 	switch x := r.rng.Intn(100); {
 	case x < 45:
@@ -354,8 +360,8 @@ func (r *runner) fbCamSingle() {
 // fbCamMulti は複数のカメラの状態を同時に変える（同時の悪化・回復）。
 func (r *runner) fbCamMulti() {
 	w := r.w
-	n := 2 + r.rng.Intn(2)
-	ids := slices.Clone(wCameraIDs)
+	n := 2 + r.rng.Intn(3)
+	ids := slices.Clone(w.cameraIDs())
 	r.rng.Shuffle(len(ids), func(i, j int) { ids[i], ids[j] = ids[j], ids[i] })
 	w.mu.Lock()
 	var parts []string
@@ -380,7 +386,7 @@ func (r *runner) fbCamMulti() {
 }
 
 // fbCommand は手動の待機の ON・OFF。ON の特例（auto の待機、戻る切替の期待中、R の承認後など）は、
-// 乱数の列の中で、遅れて届くシーンの切替の最中に押されることで起きる。
+// 乱数の列の中で、遅れて届くシーンの切替の最中に押されることで起きる（fbOnDuringReturn が狙って作る）。
 func (r *runner) fbCommand() {
 	kind := switcher.CmdStandbyOff
 	onPct := 40
@@ -390,8 +396,12 @@ func (r *runner) fbCommand() {
 	if r.rng.Intn(100) < onPct {
 		kind = switcher.CmdStandbyOn
 	}
+	r.fbCommandKind(kind)
+}
+
+func (r *runner) fbCommandKind(kind switcher.CommandKind) (pre Snapshot, err error) {
 	w := r.w
-	pre := r.fbSnap()
+	pre = r.fbSnap()
 	w.mu.Lock()
 	cfg0 := w.fb.cfgGen
 	pendApp := w.hasPendingAppSceneLocked()
@@ -399,7 +409,7 @@ func (r *runner) fbCommand() {
 	r.stepf("コマンド %v（直前: owner=%s scene=%s stack=%v 遅れて届く切替=%v）", kind, pre.OBS.Standby.Owner, pre.OBS.Scene, pre.OBS.Standby.Stack, pendApp)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	err := r.cur.core.Command(ctx, kind)
+	err = r.cur.core.Command(ctx, kind)
 	var nc switcher.ErrNotConnected
 	var is switcher.ErrInvalidState
 	switch {
@@ -428,6 +438,61 @@ func (r *runner) fbCommand() {
 	r.settle()
 	if kind == switcher.CmdStandbyOff && err == nil && pre.OBS.Standby.Owner == "manual" && pre.OBS.Standby.ReturnScene != nil {
 		r.fbCheckOff(pre, cfg0)
+	}
+	return pre, err
+}
+
+// fbOnDuringReturn は、全カメラを良くして戻る切替が飛ぶのを待ち、そのイベントが遅れて届く間に ON を押す。
+// 間に設定の変更（R の承認 → 設定の変更 → ON → 古い R の遅着）を挟むこともある。
+// 待機の auto の ON は期待中でも切替なしで manual になり、あとから届く戻りの切替は手動の待機を解く（持ち主 none）。
+func (r *runner) fbOnDuringReturn() {
+	w := r.w
+	w.mu.Lock()
+	vec := map[string]float64{}
+	for _, id := range w.cameraIDs() {
+		vec[id] = goodKbps
+		if r.rng.Intn(5) == 0 {
+			vec[id] = 0
+		}
+		w.kbps[id] = vec[id]
+	}
+	r.stepfLocked("戻る切替の期待中の ON を狙う: カメラを良くする %v", vec)
+	w.mu.Unlock()
+	for i := 0; i < 14; i++ {
+		r.second()
+		w.mu.Lock()
+		var dest string
+		for _, p := range w.pending {
+			if sc, ok := p.ev.(switcher.SceneChanged); ok && p.appScene {
+				dest = sc.SceneUUID
+			}
+		}
+		w.mu.Unlock()
+		if dest == "" {
+			continue
+		}
+		reconf := r.rng.Intn(2) == 0
+		if reconf {
+			r.fbReconfig()
+		}
+		pre, err := r.fbCommandKind(switcher.CmdStandbyOn)
+		w.deliverDue(true)
+		r.settle()
+		w.mu.Lock()
+		defer w.mu.Unlock()
+		snap := r.fbSnap()
+		special := err == nil && pre.OBS.Standby.Owner == "auto" && pre.OBS.Scene == standby && dest != standby
+		if !special || !w.fbQuietLocked() || len(w.violations) > 0 || snap.OBS.Scene != w.sceneNameLocked(dest) {
+			return
+		}
+		w.fb.count("ON特例の後に、古い戻りの切替が届いた")
+		if snap.OBS.Standby.Owner == "manual" {
+			w.violate("ON 特例: 待機 ON の前に送った戻りの切替が %s へ届いたのに、手動の待機（manual）のまま残っている", w.sceneNameLocked(dest))
+		}
+		if !reconf && snap.LastError != nil && strings.Contains(snap.LastError.Message, "もう一度 ON を押してください") {
+			w.fb.count("ON特例の後の遅着: last_error の通知")
+		}
+		return
 	}
 }
 
@@ -713,7 +778,7 @@ func (r *runner) fbStable(label string, vec map[string]float64, repair bool) {
 		len(st0.OBS.Standby.Stack) > 0 && st0.OBS.Standby.Stack[0] == w.sceneNameLocked(w.fb.epBottom) {
 		wantBottom = w.fb.epBottom // 区間の初めの底（独立の計算で、status の底と一致している）
 	}
-	for _, id := range wCameraIDs {
+	for _, id := range w.cameraIDs() {
 		w.kbps[id] = vec[id]
 	}
 	app0 := w.fb.appSwitches
@@ -788,7 +853,7 @@ func (r *runner) fbStable(label string, vec map[string]float64, repair bool) {
 
 func (w *world) fbStatesLocked() string {
 	var parts []string
-	for _, id := range wCameraIDs {
+	for _, id := range w.cameraIDs() {
 		parts = append(parts, fmt.Sprintf("%s=%s", id, w.judges[id].State()))
 	}
 	return strings.Join(parts, " ")
@@ -813,7 +878,7 @@ func runSeedFB(t *testing.T, seed int64, faulty bool, steps int) {
 	r.settle()
 	r.stepf("設定 scene_fallbacks=%v", rows)
 	for i := 0; i < steps && len(w.violations) == 0; i++ {
-		switch x := r.rng.Intn(110); {
+		switch x := r.rng.Intn(116); {
 		case x < 22:
 			r.fbCamSingle()
 		case x < 32:
@@ -854,6 +919,8 @@ func runSeedFB(t *testing.T, seed int64, faulty bool, steps int) {
 			r.fbRevive()
 		case x < 105:
 			r.restart()
+		case x < 111:
+			r.fbOnDuringReturn()
 		default:
 			w.deliverDue(true)
 			r.settle()
@@ -864,12 +931,12 @@ func runSeedFB(t *testing.T, seed int64, faulty bool, steps int) {
 		r.recoverAll()
 	}
 	if len(w.violations) == 0 {
-		good := map[string]float64{wMain: goodKbps, wSub: goodKbps, wHand: goodKbps}
+		good := map[string]float64{wMain: goodKbps, wSub: goodKbps, wHand: goodKbps, wAlt: goodKbps}
 		r.fbStable("全カメラ OK", good, true)
 	}
 	if len(w.violations) == 0 {
 		vec := map[string]float64{}
-		for _, id := range wCameraIDs {
+		for _, id := range w.cameraIDs() {
 			switch x := r.rng.Intn(100); {
 			case x < 50:
 				vec[id] = goodKbps
@@ -991,4 +1058,157 @@ func TestIntegrationFallbackInvariants(t *testing.T) {
 	}
 	run("normal", false, fbSeedCount(6, 40), 20000)
 	run("fault", true, fbSeedCount(3, 16), 25000)
+}
+
+// ---- 固定の列（spec 第3節の例、ログ、共有入力の再起動） ----
+
+type fbFixed struct {
+	r *runner
+	w *world
+}
+
+func newFBFixed(t *testing.T, start string, rows []switcher.FallbackRow) *fbFixed {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state", "hidden.json")
+	clk := newClock()
+	w := newWorld(1, clk, path, false)
+	w.enableFB(rows)
+	w.program = start
+	w.benign = true
+	r := &runner{t: t, w: w, clk: clk, rng: rand.New(rand.NewSource(1)), path: path, logBuf: &syncBuf{}}
+	t.Cleanup(w.close)
+	r.startGen(true, switcher.StudioHideStandby)
+	r.settle()
+	return &fbFixed{r: r, w: w}
+}
+
+func (f *fbFixed) set(good map[string]bool, secs int) {
+	f.w.mu.Lock()
+	for _, id := range f.w.cameraIDs() {
+		if g, ok := good[id]; ok {
+			f.w.kbps[id] = 0
+			if g {
+				f.w.kbps[id] = goodKbps
+			}
+		}
+	}
+	f.w.mu.Unlock()
+	for range secs {
+		f.r.second()
+	}
+}
+
+func (f *fbFixed) want(t *testing.T, label, scene, owner string, stack ...string) {
+	t.Helper()
+	snap := f.r.fbSnap()
+	if stack == nil {
+		stack = []string{}
+	}
+	if snap.OBS.Scene != scene || snap.OBS.Standby.Owner != owner || !slices.Equal(snap.OBS.Standby.Stack, stack) {
+		f.w.mu.Lock()
+		viol := strings.Join(f.w.violations, "\n")
+		f.w.mu.Unlock()
+		t.Fatalf("%s: scene=%s owner=%s stack=%v、期待 scene=%s owner=%s stack=%v\n%s\n%s", label, snap.OBS.Scene, snap.OBS.Standby.Owner, snap.OBS.Standby.Stack,
+			scene, owner, stack, viol, joinTrace(f.w.trace, 60))
+	}
+}
+
+func (f *fbFixed) noViolation(t *testing.T) {
+	t.Helper()
+	f.w.mu.Lock()
+	defer f.w.mu.Unlock()
+	if len(f.w.violations) > 0 {
+		t.Fatalf("%s\n%s", strings.Join(f.w.violations, "\n"), joinTrace(f.w.trace, 80))
+	}
+}
+
+// 表 0c の例 1〜4・7 と同じ列を、Hide / Show・応答・イベントを省かない偽の OBS で通し、各段の status とログ（reason は 0b のまま low / down / ok、
+// 行き先は to、画像・手動に架空の camera を付けない）を確かめる。
+func TestIntegrationFallbackSpecExample(t *testing.T) {
+	f := newFBFixed(t, camera, []switcher.FallbackRow{{Scene: camera, Fallback: fbSubOnly}, {Scene: fbDual, Fallback: camera}, {Scene: "Hand", Fallback: talk}})
+	all := map[string]bool{wMain: true, wSub: true, wHand: true, wAlt: true}
+	f.set(all, 10)
+	f.want(t, "全カメラ OK", camera, "none")
+	f.set(map[string]bool{wMain: false}, 7)
+	f.want(t, "メインが悪化", fbSubOnly, "auto", camera)
+	f.set(map[string]bool{wSub: false}, 7)
+	f.want(t, "サブも悪化", standby, "auto", camera, fbSubOnly)
+	f.set(map[string]bool{wSub: true}, 8)
+	f.want(t, "サブが回復（メインはまだ悪い）", fbSubOnly, "auto", camera)
+	f.set(map[string]bool{wMain: true}, 8)
+	f.want(t, "メインが回復", camera, "none")
+	f.noViolation(t)
+	// 別の列: 待機にいる間に、メインとサブが同時に回復する（SubOnly を飛ばして直接戻る）
+	f.set(map[string]bool{wMain: false}, 7)
+	f.set(map[string]bool{wSub: false}, 7)
+	f.want(t, "待機へ", standby, "auto", camera, fbSubOnly)
+	f.set(map[string]bool{wMain: true, wSub: true}, 9)
+	f.want(t, "同時に回復して底へ戻る", camera, "none")
+	// 手動の待機 ON と OFF（ログに camera を付けない）
+	if _, err := f.r.fbCommandKind(switcher.CmdStandbyOn); err != nil {
+		t.Fatalf("ON: %v", err)
+	}
+	f.r.settle()
+	f.r.second()
+	f.want(t, "手動の待機", standby, "manual")
+	if _, err := f.r.fbCommandKind(switcher.CmdStandbyOff); err != nil {
+		t.Fatalf("OFF: %v", err)
+	}
+	f.r.settle()
+	f.r.second()
+	f.want(t, "OFF で戻る", camera, "none")
+	f.noViolation(t)
+
+	logs := f.r.logBuf.String()
+	var seq []string
+	re := regexp.MustCompile(`msg="scene switch" from=(\S+) to=(\S+) reason=(\S+)(?: camera=(\S+) kbps=(\S+))?`)
+	for _, line := range strings.Split(logs, "\n") {
+		if g := re.FindStringSubmatch(line); g != nil {
+			seq = append(seq, strings.Join(g[1:], " "))
+		}
+	}
+	// 起動直後（全カメラ DOWN から回復するまで）の切替は列の頭に付く。例の列は、最後の「Camera → SubOnly low main」から。
+	want := []string{
+		"Camera SubOnly low main 0",
+		"SubOnly Standby low sub 0",
+		"Standby SubOnly ok sub 3000",
+		"SubOnly Camera ok main 3000",
+		"Camera SubOnly low main 0",
+		"SubOnly Standby low sub 0",
+		"Standby Camera ok sub 3000", // 同時に OK になったときは、あとに処理したカメラ（設定順で後）
+		"Camera Standby command  ",
+		"Standby Camera command  ",
+	}
+	i := slices.Index(seq, want[0])
+	if i < 0 || !slices.Equal(seq[i:], want) {
+		t.Errorf("scene switch のログの列が違う:\n実際 %q\n期待（末尾）%q", seq, want)
+	}
+	for _, l := range strings.Split(logs, "\n") {
+		if strings.Contains(l, "reason=fallback") {
+			t.Errorf("reason は 0b のまま low / down（行き先は to）: %s", l)
+		}
+	}
+}
+
+// 入力 IRL を共有する Dual（メイン＋alt）と Camera（メイン＋サブ）: alt が悪化して Dual → Camera へ逃がし、alt が回復して戻るとき、
+// Camera に実際に表示されている IRL は再起動せず、ALT だけを再起動する（0c の共有入力の除外。独立の計算）。
+func TestIntegrationFallbackSharedInputRestart(t *testing.T) {
+	f := newFBFixed(t, fbDual, []switcher.FallbackRow{{Scene: fbDual, Fallback: camera}})
+	all := map[string]bool{wMain: true, wSub: true, wHand: true, wAlt: true}
+	f.set(all, 10)
+	f.want(t, "Dual で全カメラ OK", fbDual, "none")
+	f.w.mu.Lock()
+	n0 := len(f.w.fb.restarts)
+	f.w.mu.Unlock()
+	f.set(map[string]bool{wAlt: false}, 7)
+	f.want(t, "alt が悪化して Camera へ逃がす", camera, "auto", fbDual)
+	f.set(map[string]bool{wAlt: true}, 8)
+	f.want(t, "alt が回復して Dual へ戻る", fbDual, "none")
+	f.noViolation(t)
+	f.w.mu.Lock()
+	rs := slices.Clone(f.w.fb.restarts[n0:])
+	f.w.mu.Unlock()
+	if len(rs) != 1 || !slices.Equal(rs[0], []string{"ALT"}) {
+		t.Errorf("戻るときの RestartMedia は [ALT] の1回だけのはず（Camera が表示している IRL は除く）: %v", rs)
+	}
 }
