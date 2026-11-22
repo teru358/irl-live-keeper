@@ -212,6 +212,12 @@ func TestRunは生成した設定の秘密をログファイルに書かない(t
 	if logs == "" {
 		t.Fatal("ログファイルが空")
 	}
+	// 止める操作を受けた時刻と、止まり終えた時刻がログでわかる（Windows の確認で、Ctrl+C のときに1行も出なかった）
+	for _, want := range []string{"msg=止める操作を受けました。終了します", "msg=終了しました code=0"} {
+		if !strings.Contains(logs, want) {
+			t.Errorf("ログに %s がない", want)
+		}
+	}
 	for name, secret := range map[string]string{
 		"admin.password": cfg.Admin.Password, "publish_pass": cfg.Stream.PublishPass, "read_pass": cfg.Stream.ReadPass,
 	} {

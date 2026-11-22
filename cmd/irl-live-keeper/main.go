@@ -214,6 +214,8 @@ func run(ctx context.Context, base string, stdout, stderr io.Writer) int {
 	code := 0
 	select {
 	case <-ctx.Done():
+		// 止めた時刻をログでわかるようにする（Ctrl+C、SIGTERM、Windows のコンソールを閉じる操作）
+		log.Info("止める操作を受けました。終了します")
 	case err := <-serveErr:
 		log.Error("管理 API が止まりました", "error", err)
 		fmt.Fprintf(stderr, "管理 API が止まりました: %v\n", err)
@@ -222,6 +224,7 @@ func run(ctx context.Context, base string, stdout, stderr io.Writer) int {
 
 	// core に Stopping を渡して隠した項目を戻し（最大2秒）、HTTP サーバーを止め、ctx を取り消し、MediaMTX が止まるのを待つ
 	shutdown(c, srv, cancel, &wg)
+	log.Info("終了しました", "code", code)
 	return code
 }
 
