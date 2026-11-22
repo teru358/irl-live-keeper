@@ -38,7 +38,19 @@ func p(id int, pp Purpose, ret string) setupFn {
 func x(req int, scene string, pp Purpose, ret string) setupFn {
 	return func(s *state) { addExp(s, req, scene, pp, ret) }
 }
-func sentAt(pp Purpose, ms int) setupFn { return func(s *state) { s.LastAutoSent[pp] = at(ms) } }
+
+// sentAt は目的 pp の既定の候補（AutoFail は共通待機へ今のシーンを積む、AutoRecover は戻り先へ）を ms に送ったことにする。
+func sentAt(pp Purpose, ms int) setupFn {
+	return func(s *state) {
+		s.LastAutoSent[pp] = at(ms)
+		switch pp {
+		case PurposeAutoFail:
+			s.LastCandidateSent[makeCandKey(s, pp, s.StandbyUUID, defaultPlan(pp, s.StandbyUUID, s.Scene))] = at(ms)
+		case PurposeAutoRecover:
+			s.LastCandidateSent[makeCandKey(s, pp, s.ReturnScene, defaultPlan(pp, s.ReturnScene, ""))] = at(ms)
+		}
+	}
+}
 
 // states は複数のカメラの状態を設定する。
 func states(m, sub, d scenemap.CameraState) setupFn {
@@ -62,6 +74,9 @@ func disconnected(s *state) {
 	s.PrevConnStreaming = s.Streaming
 	if s.Map != nil {
 		s.PrevConnCollection = s.Map.Collection
+	}
+	if s.StandbyUUID != "" {
+		s.PrevConnStandby = s.StandbyUUID
 	}
 	s.Map = nil
 	s.StandbyUUID = ""

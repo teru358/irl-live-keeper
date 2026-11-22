@@ -177,6 +177,8 @@ func (m *Machine) restartInputs(uuid string) []string {
 		return nil
 	}
 	calc := m.calcMap()
+	// 現在の配信に実際に表示されている入力は再起動しない（共有入力・入れ子の経路も入力 UUID で数える）。
+	shown := m.actualInputs(m.st.Scene)
 	var out []string
 	for _, id := range m.cameraIDs() {
 		if !slices.Contains(visible, id) {
@@ -195,7 +197,7 @@ func (m *Machine) restartInputs(uuid string) []string {
 		}
 		sort.Strings(ins)
 		for _, in := range ins {
-			if !slices.Contains(out, in) {
+			if !slices.Contains(out, in) && !shown[in] {
 				out = append(out, in)
 			}
 		}

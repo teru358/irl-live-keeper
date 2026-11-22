@@ -232,7 +232,7 @@ func TestMCSeq05(t *testing.T) {
 		q.none(smcMap(1000, aGone))
 		q.owner(OwnerNone, "")
 		q.scene(standby)
-		q.epochDelta(e, 0, 0, 0, 0)
+		q.epochDelta(e, 1, 0, 0, 0) // /0c: 戻り先の削除は人の操作と同じ全解除（SceneEpoch+1）
 		q.none(cc(2000, OK, OK, OK))
 		q.none(tick(10000))
 		a2 := "uuid-camera-A2"
@@ -254,20 +254,17 @@ func TestMCSeq05(t *testing.T) {
 		q.none(bd(1100, 2, BatchRejected))
 		q.noErr()
 	})
-	t.Run("MC-SQ-05/manual", func(t *testing.T) {
-		// manual/A は保持し、Off の実行失敗を記録する（W-04）。
+	t.Run("MC-SQ-05/manual/0c", func(t *testing.T) {
+		// /0c: manual の戻り先の削除も全解除（W-04 の「manual/A は保持」を置き換えた）。Off は受け付けない。
 		q := newSeq(t).multi(camera, true, [3]scenemap.CameraState{OK, OK, DOWN})
 		b := q.batch(cmd(100, CmdStandbyOn), 1, son, standby, camera)
 		q.finish(b, 200)
 		q.owner(OwnerManual, camera)
+		e := q.epochs()
 		q.none(smcMap(1000, aGone))
-		q.owner(OwnerManual, camera)
-		b = q.batch(cmd(2000, CmdStandbyOff), 2, sfo, camera, "")
-		q.approve(2, set(camera), 2100, Proceed{ReqID: q.m.st.NextReqID})
-		q.none(srd(2200, 2, RequestError))
-		q.none(BatchDone{At: at(2200), BatchID: b.BatchID, Result: BatchFailed, Err: errors.New("SetScene: scene not found")})
-		q.errAt(2200)
-		q.owner(OwnerManual, camera)
+		q.epochDelta(e, 1, 0, 0, 0)
+		q.owner(OwnerNone, "")
+		q.cmdErr(cmd(2000, CmdStandbyOff), ErrInvalidState{})
 		q.scene(standby)
 	})
 }
@@ -426,11 +423,15 @@ func TestMCSeqCC4Resend(t *testing.T) {
 	q.approve(1, b.Actions[0], 1000, Proceed{ReqID: 1})
 	q.none(srd(1100, 1, RequestError))
 	q.none(bd(1100, 1, BatchFailed))
-	q.batchIn(cc(1600, DOWN, OK, LOW), 2, af, standby, camera, nil, camMain)
-	q.approve(2, set(standby), 1600, Proceed{ReqID: 2})
-	q.none(srd(1700, 2, RequestError))
-	q.none(bd(1700, 2, BatchFailed))
-	q.batchIn(cc(2200, DOWN, OK, DOWN), 3, af, standby, camera, nil, camMain)
+	// /0c: 同じ候補の再送は全入口で最短5秒（FB-CC-10）。0a のイベント起点の「意図した再送」を置き換えた。
+	q.none(cc(1600, DOWN, OK, LOW))
+	q.none(cc(2200, DOWN, OK, DOWN))
+	q.batchIn(tick(6000), 2, af, standby, camera, nil, camMain)
+	q.approve(2, set(standby), 6000, Proceed{ReqID: 2})
+	q.none(srd(6100, 2, RequestError))
+	q.none(bd(6100, 2, BatchFailed))
+	q.none(cc(6200, DOWN, OK, OK))
+	q.batchIn(tick(11000), 3, af, standby, camera, nil, camMain)
 }
 
 // MC-MAP-X / MC-ITEM-X の続き: BatchDone と期待の解消のあと、Tick で F(T) になる。
@@ -443,6 +444,7 @@ func TestMCSeqMapXThenTick(t *testing.T) {
 	q.none(tick(400))
 	q.none(srd(500, 1, RequestError)) // 期待は消える
 	q.none(tick(600))                 // BatchDone がまだ: 未完了の StandbyOn が止める
-	q.none(BatchDone{At: at(700), BatchID: 1, Result: BatchFailed, Err: errors.New("x")})
-	q.batchIn(tick(800), 2, af, standby, talk, nil, camMain)
+	// /0c: 未完了の StandbyOn が解消した BatchDone でその場で判断する（BD-J-1 の置き換え）。
+	q.batchIn(BatchDone{At: at(700), BatchID: 1, Result: BatchFailed, Err: errors.New("x")}, 2, af, standby, talk, nil, camMain)
+	q.none(tick(800))
 }

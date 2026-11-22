@@ -64,7 +64,7 @@ func TestRowsCommandStandbyOn(t *testing.T) {
 
 func TestRowsCommandStandbyOff(t *testing.T) {
 	ev := cmd(1000, CmdStandbyOff)
-	toAuto := func(s *state) { s.StandbyOwner = OwnerAuto }
+	toAuto := toAutoOwner
 	timedOutTo := func(scene string, pp Purpose) setupFn {
 		return func(s *state) {
 			s.Expectations = []Expectation{answered(waiting(s, 1, scene, pp, ""), RequestTimeout, 0, 60000)}

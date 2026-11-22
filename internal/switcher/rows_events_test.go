@@ -121,7 +121,8 @@ func TestRowsLinkChanged(t *testing.T) {
 		{name: "LC-2", ev: lc(1000, DOWN), change: linkTo(DOWN), out: PurposeAutoFail},
 		{name: "LC-3", setup: all(link(LOW), p(1, PurposeAutoFail, camera)), ev: lc(1000, DOWN), change: linkTo(DOWN)},
 		{name: "LC-4", setup: all(link(LOW), x(1, standby, PurposeAutoFail, camera)), ev: lc(1000, DOWN), change: linkTo(DOWN)},
-		{name: "LC-5", setup: all(link(LOW), sentAt(PurposeAutoFail, 800)), ev: lc(1000, DOWN), change: linkTo(DOWN), out: PurposeAutoFail},
+		// /0c: 同じ候補の再送は全入口で最短5秒（FB-CC-10）。Tick だけの歯止めを置き換えた。
+		{name: "LC-5/0c", setup: all(link(LOW), sentAt(PurposeAutoFail, 800)), ev: lc(1000, DOWN), change: linkTo(DOWN)},
 		{name: "LC-6/LOW", setup: link(LOW), ev: lc(1000, OK), change: linkTo(OK)},
 		{name: "LC-6/DOWN", setup: link(DOWN), ev: lc(1000, OK), change: linkTo(OK)},
 		{name: "LC-7", setup: all(link(LOW), p(1, PurposeAutoFail, camera)), ev: lc(1000, OK), change: linkTo(OK)},
@@ -251,7 +252,7 @@ func arrived(scene string, keep ...Expectation) func(s *state) {
 }
 
 func setOwner(o Owner, ret string) func(s *state) {
-	return func(s *state) { s.StandbyOwner, s.ReturnScene = o, ret }
+	return func(s *state) { ownerIs(s, o, ret) }
 }
 
 func chain(fns ...func(s *state)) func(s *state) { return all(fns...) }
@@ -398,6 +399,7 @@ func streamOff(s *state) {
 	clearOwner(s)
 	s.Expectations = nil
 	s.LastAutoSent = map[Purpose]time.Time{}
+	s.LastCandidateSent = map[candKey]time.Time{}
 }
 
 func TestRowsStreamStateChanged(t *testing.T) {
@@ -497,12 +499,14 @@ func TestRowsBatchDone(t *testing.T) {
 		rows = append(rows, evRow{name: "BD-C-1/" + pp.String(), setup: all(startAt(opening), p(1, pp, "")), ev: bd(1000, 1, BatchCompleted), change: gone(1)})
 	}
 	rows = append(rows,
-		evRow{name: "BD-C-2/AutoRecover", setup: all(own(OwnerAuto, camera), p(1, PurposeAutoRecover, "")),
+		// /0c: BatchDone は未完了の解消後にその場で判断する。直前に送った同じ候補は全入口で5秒の歯止めが掛かるので、
+		// 以下の AutoFail / AutoRecover の行は、0.8秒に送った同じ候補を持たせて「再送しない」を確かめる（BD-F-1 の置き換え）。
+		evRow{name: "BD-C-2/AutoRecover/0c", setup: all(own(OwnerAuto, camera), p(1, PurposeAutoRecover, ""), sentAt(PurposeAutoRecover, 800)),
 			ev: bdErr(1000, 1, BatchCompleted, restartErr), change: gone(1), recErr: true},
 		evRow{name: "BD-C-2/StandbyOffMonitored", setup: all(own(OwnerManual, camera), p(1, PurposeStandbyOffMonitored, "")),
 			ev: bdErr(1000, 1, BatchCompleted, restartErr), change: gone(1), recErr: true},
-		evRow{name: "BD-F-1/AutoFail", setup: all(link(LOW), p(1, PurposeAutoFail, camera)), ev: bd(1000, 1, BatchFailed), change: gone(1), recErr: true},
-		evRow{name: "BD-F-1/AutoRecover", setup: all(own(OwnerAuto, camera), p(1, PurposeAutoRecover, "")), ev: bd(1000, 1, BatchFailed),
+		evRow{name: "BD-F-1/AutoFail/0c", setup: all(link(LOW), p(1, PurposeAutoFail, camera), sentAt(PurposeAutoFail, 800)), ev: bd(1000, 1, BatchFailed), change: gone(1), recErr: true},
+		evRow{name: "BD-F-1/AutoRecover/0c", setup: all(own(OwnerAuto, camera), p(1, PurposeAutoRecover, ""), sentAt(PurposeAutoRecover, 800)), ev: bd(1000, 1, BatchFailed),
 			change: gone(1), recErr: true},
 		evRow{name: "BD-F-2/StandbyOn", setup: p(1, PurposeStandbyOn, camera), ev: bd(1000, 1, BatchFailed), change: gone(1), recErr: true},
 		evRow{name: "BD-F-2/StandbyOffMonitored", setup: all(own(OwnerManual, camera), p(1, PurposeStandbyOffMonitored, "")),
@@ -513,7 +517,7 @@ func TestRowsBatchDone(t *testing.T) {
 		evRow{name: "BD-F-2/StopStream", setup: p(1, PurposeStopStream, ""), ev: bd(1000, 1, BatchFailed), change: gone(1), recErr: true},
 		evRow{name: "BD-F-3", setup: all(startAt(opening), p(1, PurposeStartScene, "")), ev: bd(1000, 1, BatchFailed), change: gone(1), recErr: true},
 		evRow{name: "BD-R-1/AutoFail", setup: p(1, PurposeAutoFail, camera), ev: bd(1000, 1, BatchRejected), change: gone(1)},
-		evRow{name: "BD-R-1/AutoRecover", setup: all(own(OwnerAuto, camera), p(1, PurposeAutoRecover, "")), ev: bd(1000, 1, BatchRejected), change: gone(1)},
+		evRow{name: "BD-R-1/AutoRecover/0c", setup: all(own(OwnerAuto, camera), p(1, PurposeAutoRecover, ""), sentAt(PurposeAutoRecover, 800)), ev: bd(1000, 1, BatchRejected), change: gone(1)},
 	)
 	for _, pp := range []Purpose{PurposeStandbyOn, PurposeStandbyOffMonitored, PurposeStandbyOffOther, PurposeStartStream, PurposeStopStream} {
 		rows = append(rows, evRow{name: "BD-R-2/" + pp.String(), setup: p(1, pp, ""), ev: bd(1000, 1, BatchRejected), change: gone(1), recErr: true})
@@ -533,9 +537,11 @@ func TestRowsBatchDone(t *testing.T) {
 			ev: bd(1000, 1, BatchRejected), change: gone(1)},
 		evRow{name: "BD-R-4", setup: all(startAt(opening), p(1, PurposeStartScene, ""), manualRej), ev: bd(1000, 1, BatchRejected), change: gone(1)},
 		evRow{name: "BD-R-5", setup: all(startAt(opening), p(1, PurposeStartScene, "")), ev: bd(1000, 1, BatchRejected), change: gone(1), recErr: true},
-		evRow{name: "BD-J-1", setup: all(link(LOW), p(1, PurposeStandbyOn, camera)), ev: bd(1000, 1, BatchCompleted), change: gone(1)},
-		evRow{name: "BD-J-1/start_scene", setup: all(startAt(camera), link(LOW), p(1, PurposeStartScene, "")), ev: bd(1000, 1, BatchCompleted),
-			change: gone(1)},
+		// /0c: BatchDone は未完了の解消後にその場で判断する（BD-J-1 の置き換え。次の Tick まで待たない）。
+		evRow{name: "BD-J-1/0c", setup: all(link(LOW), p(1, PurposeStandbyOn, camera)), ev: bd(1000, 1, BatchCompleted), change: gone(1),
+			out: PurposeAutoFail},
+		evRow{name: "BD-J-1/start_scene/0c", setup: all(startAt(camera), link(LOW), p(1, PurposeStartScene, "")), ev: bd(1000, 1, BatchCompleted),
+			change: gone(1), out: PurposeAutoFail},
 		evRow{name: "BD-X-1", setup: p(1, PurposeAutoFail, camera), ev: bd(1000, 9, BatchFailed)},
 	)
 	runEvRows(t, rows)

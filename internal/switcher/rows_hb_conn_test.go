@@ -391,7 +391,9 @@ func TestHB接続配信設定StudioMode(t *testing.T) {
 			h.bdone(1100, bs[0].BatchID, BatchCompleted, errTest)
 			h.out(h.ev(StudioModeChanged{At: at(7000), Enabled: false}), "Sc(s)[R(is),x]")
 		}},
-		{"HB-SM-05", func(t *testing.T) {
+		// /0c: Studio off で A は健康 OK でも、表示中の悪い s が隠れるまで戻らない（逆向きの待ち。FB-CC-04）。
+		// 0b の [R(A),Hc(s)] を [Hc(s)] にし、x の false を確かめたあとに R(A)。
+		{"HB-SM-05/0c", func(t *testing.T) {
 			h := newHB(t, hbStudio())
 			bs := h.sIs(1000, DOWN)
 			h.out(bs, "F(A)")
@@ -401,8 +403,9 @@ func TestHB接続配信設定StudioMode(t *testing.T) {
 				t.Fatalf("auto/A でない: %+v", st)
 			}
 			bs = h.ev(StudioModeChanged{At: at(7000), Enabled: false})
-			h.out(bs, "R(A) Hc(s)[x,y]")
+			h.out(bs, "Hc(s)[x,y]")
 			h.wantHealth(camera, OK)
+			h.sendFalseOut(bs[0], 7100, kx, "R(A)") // x（A の s）が非表示になったとき、逆向きの待ちが解けて R
 		}},
 		{"HB-SM-06", func(t *testing.T) {
 			h := newHB(t)

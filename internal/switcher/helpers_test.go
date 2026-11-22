@@ -321,6 +321,9 @@ func cloneState(s state) state {
 	for k, v := range s.LastAutoSent {
 		c.LastAutoSent[k] = v
 	}
+	c.LastCandidateSent = cloneMap(s.LastCandidateSent)
+	c.Stack = slices.Clone(s.Stack)
+	c.Fallbacks = slices.Clone(s.Fallbacks)
 	// 0b の状態も深く複製する（浅いと before / want / m.st が同じ map を共有して、行が中身を見ずに通る）。
 	c.Hidden = cloneEntries(s.Hidden)
 	c.Retained = cloneEntries(s.Retained)
@@ -372,6 +375,15 @@ func normState(s state) state {
 	}
 	if len(c.ItemExpectations) == 0 {
 		c.ItemExpectations = nil
+	}
+	if len(c.Stack) == 0 {
+		c.Stack = nil
+	}
+	if len(c.Fallbacks) == 0 {
+		c.Fallbacks = nil
+	}
+	if len(c.LastCandidateSent) == 0 {
+		c.LastCandidateSent = nil
 	}
 	return c
 }
@@ -490,26 +502,61 @@ func baseMulti(s *state) {
 // inStandby は待機シーンにいて、持ち主 o、戻り先 ret の状態にする。
 func inStandby(s *state, o Owner, ret string) {
 	s.Scene = s.StandbyUUID
-	s.StandbyOwner = o
-	s.ReturnScene = ret
+	ownerIs(s, o, ret)
 }
 
-// clearOwner は持ち主と戻り先を消す。
+// ownerIs は持ち主と戻り先だけを変える（auto のスタックは戻り先1つ）。
+func ownerIs(s *state, o Owner, ret string) {
+	s.StandbyOwner = o
+	s.ReturnScene = ret
+	s.Stack = nil
+	if o == OwnerAuto {
+		s.Stack = []string{ret}
+	}
+}
+
+// toAutoOwner は今の戻り先（manual の単独の戻り先）を、auto のスタックの1段にする。
+func toAutoOwner(s *state) {
+	s.StandbyOwner = OwnerAuto
+	s.Stack = []string{s.ReturnScene}
+}
+
+// clearOwner は持ち主と戻り先とスタックを消す。
 func clearOwner(s *state) {
 	s.StandbyOwner = OwnerNone
 	s.ReturnScene = ""
+	s.Stack = nil
+}
+
+// defaultPlan は 0b までの行が書かない到着後の計画の既定値（退避元 ret の1段の履歴）。
+func defaultPlan(p Purpose, to, ret string) ArrivalPlan {
+	switch p {
+	case PurposeAutoFail:
+		return ArrivalPlan{Plan: Plan{Kind: PlanEscape, Target: to, Append: []string{ret}}}
+	case PurposeAutoRecover:
+		return ArrivalPlan{Plan: Plan{Kind: PlanReturn, Target: to}}
+	}
+	return ArrivalPlan{}
 }
 
 // pend は今の Epoch で未完了のバッチを足す。ret はバッチが持つ戻り先。
 func pend(s *state, id int, p Purpose, ret string) {
+	to := ""
+	switch p {
+	case PurposeAutoFail:
+		to = s.StandbyUUID
+	case PurposeAutoRecover:
+		to = s.ReturnScene
+	}
 	s.Pending[id] = PendingBatch{BatchID: id, Purpose: p, SceneEpoch: s.SceneEpoch,
-		ConnEpoch: s.ConnEpoch, StreamEpoch: s.StreamEpoch, ConfigEpoch: s.ConfigEpoch, ReturnScene: ret}
+		ConnEpoch: s.ConnEpoch, StreamEpoch: s.StreamEpoch, ConfigEpoch: s.ConfigEpoch, ReturnScene: ret,
+		Plan: defaultPlan(p, to, ret)}
 }
 
 // waiting は今の設定の世代で登録した、応答待ちの期待を返す。
 func waiting(s *state, req int, scene string, p Purpose, ret string) Expectation {
 	return Expectation{ReqID: req, Scene: scene, Purpose: p, ReturnScene: ret, ConfigEpoch: s.ConfigEpoch,
-		RegisteredAt: at(0), Override: OverrideNone{}, TransitionMs: ip(300)}
+		RegisteredAt: at(0), Override: OverrideNone{}, TransitionMs: ip(300), Plan: defaultPlan(p, scene, ret)}
 }
 
 // answered は x を応答済みにする。
@@ -532,6 +579,16 @@ func manualChange(s *state, scene string) {
 	s.SceneEpoch++
 	s.Expectations = nil
 	s.LastAutoSent = map[Purpose]time.Time{}
+	s.LastCandidateSent = map[candKey]time.Time{}
+	clearOwner(s)
+}
+
+// releasedAll は手動共通解除（戻り先の削除）の変化: SceneEpoch+1、シーンの期待と再送の時刻を全部消し、持ち主・戻り先・スタックを消す。
+func releasedAll(s *state) {
+	s.SceneEpoch++
+	s.Expectations = nil
+	s.LastAutoSent = map[Purpose]time.Time{}
+	s.LastCandidateSent = map[candKey]time.Time{}
 	clearOwner(s)
 }
 
@@ -540,10 +597,17 @@ func manualChange(s *state, scene string) {
 func wantB(s *state, p Purpose, to, ret string, atT time.Time, inputs []string, bad string) *Batch {
 	id := s.NextBatchID
 	s.NextBatchID++
+	plan := defaultPlan(p, to, ret)
 	s.Pending[id] = PendingBatch{BatchID: id, Purpose: p, SceneEpoch: s.SceneEpoch, ConnEpoch: s.ConnEpoch,
-		StreamEpoch: s.StreamEpoch, ConfigEpoch: s.ConfigEpoch, ReturnScene: ret}
+		StreamEpoch: s.StreamEpoch, ConfigEpoch: s.ConfigEpoch, ReturnScene: ret, Plan: plan}
 	if p.IsAuto() {
+		for k := range s.LastCandidateSent { // 古い世代の候補の時刻は、バッチを出すときに捨てる
+			if k.ConnEpoch != s.ConnEpoch || k.StreamEpoch != s.StreamEpoch || k.SceneEpoch != s.SceneEpoch || k.ConfigEpoch != s.ConfigEpoch {
+				delete(s.LastCandidateSent, k)
+			}
+		}
 		s.LastAutoSent[p] = atT
+		s.LastCandidateSent[makeCandKey(s, p, to, plan)] = atT
 	}
 	if inputs == nil {
 		inputs = []string{inMain}
@@ -554,7 +618,8 @@ func wantB(s *state, p Purpose, to, ret string, atT time.Time, inputs []string, 
 		bad = camMain
 	}
 	return &Batch{BatchID: id, Purpose: p, SceneEpoch: s.SceneEpoch, ConnEpoch: s.ConnEpoch,
-		StreamEpoch: s.StreamEpoch, ConfigEpoch: s.ConfigEpoch, ReturnScene: ret, BadCamera: bad, Actions: actsForIn(p, to, inputs)}
+		StreamEpoch: s.StreamEpoch, ConfigEpoch: s.ConfigEpoch, ReturnScene: ret, BadCamera: bad, Actions: actsForIn(p, to, inputs),
+		Plan: plan}
 }
 
 // defaultTarget は、行が切替先と戻り先を書かないときの既定値。
@@ -726,7 +791,7 @@ func runApRows(t *testing.T, rows []apRow) {
 					pb := before.Pending[1]
 					want.Expectations = append(want.Expectations, Expectation{
 						ReqID: before.NextReqID, Scene: r.action.(SetScene).SceneUUID, Purpose: pb.Purpose,
-						ReturnScene: pb.ReturnScene, ConfigEpoch: before.ConfigEpoch, RegisteredAt: atT,
+						ReturnScene: pb.ReturnScene, Plan: pb.Plan, ConfigEpoch: before.ConfigEpoch, RegisteredAt: atT,
 						Override: ov, TransitionMs: before.TransitionMs})
 					want.NextReqID++
 				} else if p.ReqID != 0 {

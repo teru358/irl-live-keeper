@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/teru358/irl-live-keeper/internal/switcher"
@@ -219,7 +220,8 @@ func (c *Core) logStateChanges(ms switcher.Snapshot) {
 	if ms.SceneEpoch != prev.SceneEpoch {
 		c.log.Info("scene changed by user", "from", c.sceneLabel(prev.Scene, prev.SceneName), "to", c.sceneLabel(ms.Scene, ms.SceneName))
 	}
-	if ms.Standby != prev.Standby {
+	if ms.Standby.Owner != prev.Standby.Owner || ms.Standby.ReturnScene != prev.Standby.ReturnScene ||
+		ms.Standby.ReturnSceneName != prev.Standby.ReturnSceneName || !slices.Equal(ms.Standby.Stack, prev.Standby.Stack) {
 		c.log.Info("standby changed", "owner", ms.Standby.Owner.String(), "return_scene", c.sceneLabel(ms.Standby.ReturnScene, ms.Standby.ReturnSceneName))
 	}
 }

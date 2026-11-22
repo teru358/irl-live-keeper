@@ -1,7 +1,9 @@
 package switcher
 
 import (
+	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/teru358/irl-live-keeper/internal/scenemap"
@@ -49,11 +51,12 @@ func New(cfg Config) *Machine {
 			RetryInterval: 5 * time.Second,
 		},
 		st: state{
-			CameraStates: map[string]scenemap.CameraState{},
-			Pending:      map[int]PendingBatch{},
-			LastAutoSent: map[Purpose]time.Time{},
-			NextBatchID:  1,
-			NextReqID:    1,
+			CameraStates:      map[string]scenemap.CameraState{},
+			Pending:           map[int]PendingBatch{},
+			LastAutoSent:      map[Purpose]time.Time{},
+			NextBatchID:       1,
+			LastCandidateSent: map[candKey]time.Time{},
+			NextReqID:         1,
 
 			Unsent:         map[scenemap.ItemKey]int{},
 			ItemReceipts:   map[uint64]ItemReceipt{},
@@ -71,14 +74,18 @@ func New(cfg Config) *Machine {
 func (m *Machine) Snapshot() Snapshot {
 	s := &m.st
 	snap := Snapshot{
-		Connected:   s.Connected,
-		Streaming:   s.Streaming,
-		Scene:       s.Scene,
-		SceneName:   m.nameInMap(s.Scene),
-		Class:       m.classOf(s.Scene),
-		Standby:     StandbyStatus{Owner: s.StandbyOwner, ReturnScene: s.ReturnScene, ReturnSceneName: m.nameInMap(s.ReturnScene)},
+		Connected: s.Connected,
+		Streaming: s.Streaming,
+		Scene:     s.Scene,
+		SceneName: m.nameInMap(s.Scene),
+		Class:     m.classOf(s.Scene),
+		Standby: StandbyStatus{Owner: s.StandbyOwner, ReturnScene: s.ReturnScene, ReturnSceneName: m.nameInMap(s.ReturnScene),
+			Stack: slices.Clone(s.Stack)},
 		AutoEnabled: s.AutoEnabled,
 		SceneEpoch:  s.SceneEpoch,
+	}
+	for _, u := range s.Stack {
+		snap.Standby.StackNames = append(snap.Standby.StackNames, m.nameInMap(u))
 	}
 	if s.Connected && s.Map != nil {
 		snap.VisibleCameras = m.visibleCameras(s.Scene)
@@ -186,7 +193,7 @@ func (m *Machine) jb(at time.Time, isTick bool) []Batch {
 		return nil
 	}
 	var out []Batch
-	if b := m.judge(at, isTick); b != nil {
+	if b := m.judge(at); b != nil {
 		out = append(out, *b)
 	}
 	return append(out, m.itemJudge(at)...)
@@ -217,10 +224,51 @@ func copyString(p *string) *string {
 	return &v
 }
 
-// clearOwner は持ち主と戻り先を消す。今いるシーンは変えない。
+// clearOwner は持ち主、戻り先、スタックを消す（共通の変化 C）。今いるシーンも期待も世代も変えない。
 func (m *Machine) clearOwner() {
 	m.st.StandbyOwner = OwnerNone
 	m.st.ReturnScene = ""
+	m.st.Stack = nil
+}
+
+// setAuto は auto のスタックを k にする。空なら持ち主は none。ReturnScene は k の最下段。
+func (m *Machine) setAuto(k []string) {
+	if len(k) == 0 {
+		m.clearOwner()
+		return
+	}
+	m.st.StandbyOwner = OwnerAuto
+	m.st.Stack = slices.Clone(k)
+	m.st.ReturnScene = k[0]
+}
+
+// stackNow は auto のスタックの写し。auto でなければ nil。
+func (m *Machine) stackNow() []string {
+	if m.st.StandbyOwner != OwnerAuto {
+		return nil
+	}
+	return slices.Clone(m.st.Stack)
+}
+
+// releaseAll は人の切替と同じ共通の変化（コア spec v2.16 第6章）: SceneEpoch を進め、シーンの期待と再送の時刻を全部消し、
+// 持ち主・戻り先・スタックを捨てる。
+func (m *Machine) releaseAll() {
+	s := &m.st
+	s.SceneEpoch++
+	s.Expectations = nil
+	s.LastAutoSent = map[Purpose]time.Time{}
+	s.LastCandidateSent = map[candKey]time.Time{}
+	m.clearOwner()
+}
+
+// disableExpectations は、今の設定の世代で登録した残りのシーンの期待を、照合だけして作用を当てないものにする
+// （古い設定の世代の期待は、世代の違いですでに作用しない）。
+func (m *Machine) disableExpectations() {
+	for i := range m.st.Expectations {
+		if m.st.Expectations[i].ConfigEpoch == m.st.ConfigEpoch {
+			m.st.Expectations[i].Plan.EffectsDisabled = true
+		}
+	}
 }
 
 func (m *Machine) recordError(at time.Time, msg string) {
@@ -239,7 +287,34 @@ func (m *Machine) sameConfig(e ScenesConfigured) bool {
 	if studioHideOf(e) != s.StudioModeHide {
 		return false
 	}
-	return slices.Equal(e.Cameras, s.Cameras)
+	if !slices.Equal(e.Cameras, s.Cameras) {
+		return false
+	}
+	return sameFallbacks(e.SceneFallbacks, s.Fallbacks)
+}
+
+// normFallbacks は scene → fallback の対応（同じ scene は先の行）。行の並べ替えは同値にするための正規形。
+func normFallbacks(rows []FallbackRow) map[string]string {
+	out := make(map[string]string, len(rows))
+	for _, r := range rows {
+		if _, dup := out[r.Scene]; !dup {
+			out[r.Scene] = r.Fallback
+		}
+	}
+	return out
+}
+
+func sameFallbacks(a, b []FallbackRow) bool {
+	na, nb := normFallbacks(a), normFallbacks(b)
+	if len(na) != len(nb) {
+		return false
+	}
+	for k, v := range na {
+		if w, ok := nb[k]; !ok || w != v {
+			return false
+		}
+	}
+	return true
 }
 
 func studioHideOf(e ScenesConfigured) string {
@@ -287,11 +362,12 @@ func (m *Machine) onConfigured(e ScenesConfigured) []Batch {
 	}
 	s.AutoEnabled = e.AutoEnabled
 	s.StartScene = copyString(e.StartScene)
+	s.Fallbacks = slices.Clone(e.SceneFallbacks)
 	s.ConfigEpoch++
 	switch {
 	case s.StandbyOwner == OwnerNone:
 	case renamed:
-		m.clearOwner()
+		m.clearOwner() // 旧い設定の世代の期待は、到着しても作用しない（世代で無効）
 	case s.StandbyOwner == OwnerAuto && !s.AutoEnabled:
 		m.clearOwner()
 	}
@@ -300,12 +376,15 @@ func (m *Machine) onConfigured(e ScenesConfigured) []Batch {
 }
 
 // refine は「整える」共通の手順。ScenesConfigured、SceneMapChanged、ItemEnabledChanged、OBSConnected、
-// SceneChanged の更新のあと、判断の前に行う。
-//  1. 待機と開始時の名前を今の地図で引き直す。
-//  2. 接続中で、持ち主が none 以外なのに現在のシーンが待機 UUID でなければ C。
-//  3. 接続中で、持ち主が auto なのに戻り先が監視対象でなければ C。
+// SceneChanged の更新のあと、判断の前に行う（表 0c 2）。
+//  1. 待機と開始時の名前を今の地図で引き直す。待機の解決結果が変わったら（名前・UUID の変更や消失）、auto も manual も C にし、
+//     残っているシーンの期待は照合だけにする（作用を無効化）。
+//  2. auto の履歴を整える: 重複（下を残す）、現在のシーンとそれより上、削除（下が消えたら手動共通解除、途中は外すだけ）、
+//     管理外化（外す）。空になれば none。
+//  3. manual の戻り先が削除されたら手動共通解除。manual は現在のシーンが待機であることを要する。
 func (m *Machine) refine() {
 	s := &m.st
+	old := s.StandbyUUID
 	s.StandbyUUID = m.resolve(s.Standby)
 	s.StartSceneUUID = ""
 	if s.StartScene != nil {
@@ -314,11 +393,54 @@ func (m *Machine) refine() {
 	if !s.Connected {
 		return
 	}
-	if s.StandbyOwner != OwnerNone && (s.StandbyUUID == "" || s.Scene != s.StandbyUUID) {
+	if old != "" && old != s.StandbyUUID {
+		m.disableExpectations()
 		m.clearOwner()
 	}
-	if s.StandbyOwner == OwnerAuto && !m.isMonitored(s.ReturnScene) {
+	m.tidyHistory()
+	if s.StandbyOwner == OwnerManual && (s.StandbyUUID == "" || s.Scene != s.StandbyUUID) {
 		m.clearOwner()
+	}
+}
+
+// tidyHistory は auto のスタックと manual の戻り先を、今の地図で整える。空の地図（シーンの一覧がない）では存在を見ない。
+func (m *Machine) tidyHistory() {
+	s := &m.st
+	switch s.StandbyOwner {
+	case OwnerAuto:
+		var k []string
+		for _, u := range s.Stack {
+			if !slices.Contains(k, u) { // 不正な重複は下側を残す
+				k = append(k, u)
+			}
+		}
+		if i := slices.Index(k, s.Scene); i >= 0 {
+			k = k[:i] // 現在のシーンとそれより上は履歴でない
+		}
+		if len(k) == 0 {
+			m.clearOwner()
+			return
+		}
+		if !mapIsEmpty(s.Map) {
+			if _, ok := s.Map.Scenes[k[0]]; !ok {
+				m.releaseAll() // 戻り先の削除は人の操作と同じ（削除を管理外化より先に判定）
+				return
+			}
+			var kept []string
+			for _, u := range k {
+				if _, ok := s.Map.Scenes[u]; ok && m.isMonitored(u) {
+					kept = append(kept, u)
+				}
+			}
+			k = kept
+		}
+		m.setAuto(k)
+	case OwnerManual:
+		if s.ReturnScene != "" && !mapIsEmpty(s.Map) {
+			if _, ok := s.Map.Scenes[s.ReturnScene]; !ok {
+				m.releaseAll()
+			}
+		}
 	}
 }
 
@@ -406,6 +528,7 @@ func (m *Machine) onConnected(e OBSConnected) []Batch {
 	if sceneDiffers || streamDiffers || collectionDiffers {
 		m.clearOwner()
 	}
+	s.StandbyUUID = s.PrevConnStandby // 新しい地図の解決結果を、切断の直前と比べる
 	m.resplit()
 	m.reconcile(e.At)
 	m.refine()
@@ -424,26 +547,26 @@ func (m *Machine) onDisconnected() {
 	if s.Map != nil {
 		s.PrevConnCollection = s.Map.Collection
 	}
+	if s.StandbyUUID != "" {
+		s.PrevConnStandby = s.StandbyUUID
+	}
 	s.Map = nil
 	s.StandbyUUID = ""
 	s.StartSceneUUID = ""
 }
 
-// onSceneChanged は期待と照らし、本体の切替か手動の切替かを見分ける。
+// onSceneChanged は期待と照らし、本体の切替か手動の切替かを見分ける。期待と一致したら、その期待の計画を1回だけ当てる。
 func (m *Machine) onSceneChanged(e SceneChanged) []Batch {
 	s := &m.st
 	s.Scene = e.SceneUUID
 	i := slices.IndexFunc(s.Expectations, func(x Expectation) bool { return x.Scene == e.SceneUUID })
 	if i < 0 {
-		// 手動（外部）の切替。人がシーンを変えたので、再送の時刻も数え直す。
-		s.SceneEpoch++
-		s.Expectations = nil
-		s.LastAutoSent = map[Purpose]time.Time{}
-		m.clearOwner()
+		// 手動（外部）の切替。人がシーンを変えたので、共通の変化を当てる。
+		m.releaseAll()
 		m.refine()
 		return m.jb(e.At, false)
 	}
-	// 本体の切替。一致した期待とそれより前の期待、同じシーンの期待を消す。
+	// 本体の切替。一致した期待とそれより前の期待、同じシーンの期待を消す。当てるのは一致した1件の計画だけ。
 	hit := s.Expectations[i]
 	var kept []Expectation
 	for _, x := range s.Expectations[i+1:] {
@@ -452,21 +575,31 @@ func (m *Machine) onSceneChanged(e SceneChanged) []Batch {
 		}
 	}
 	s.Expectations = kept
+	fresh := hit.ConfigEpoch == s.ConfigEpoch && !hit.Plan.EffectsDisabled
 	switch hit.Purpose {
-	case PurposeAutoFail, PurposeStandbyOn:
-		// 設定が変わる前の期待では、持ち主と戻り先を入れない。
-		if hit.ConfigEpoch == s.ConfigEpoch {
-			s.StandbyOwner = OwnerAuto
-			if hit.Purpose == PurposeStandbyOn {
-				s.StandbyOwner = OwnerManual
-			}
-			s.ReturnScene = hit.ReturnScene
+	case PurposeAutoFail:
+		// 設定が変わる前の期待、作用を無効にした期待では、履歴を追加せず持ち主を入れない。
+		if fresh {
+			m.setAuto(ApplyPlan(m.stackNow(), hit.Plan.Plan, e.SceneUUID))
 		}
-	case PurposeAutoRecover, PurposeStandbyOffMonitored, PurposeStandbyOffOther:
+	case PurposeStandbyOn:
+		if fresh {
+			s.StandbyOwner = OwnerManual
+			s.ReturnScene = hit.ReturnScene
+			s.Stack = nil
+		}
+	case PurposeAutoRecover:
+		if fresh {
+			m.setAuto(ApplyPlan(m.stackNow(), hit.Plan.Plan, e.SceneUUID))
+		} else {
+			// 古い復帰は部分的に当てず、全解除する（V-07）。
+			m.clearOwner()
+		}
+	case PurposeStandbyOffMonitored, PurposeStandbyOffOther:
 		// 戻り先へ届いたので、設定の世代によらず消す。
 		m.clearOwner()
 	}
-	// 期待の照合のあとに整える（待機でなくなった期待や、戻り先が監視対象外の期待は持ち主を残さない）。
+	// 期待の照合のあとに整える。
 	m.refine()
 	return m.jb(e.At, false)
 }
@@ -482,6 +615,7 @@ func (m *Machine) onStreamState(e StreamStateChanged) []Batch {
 		m.clearOwner()
 		s.Expectations = nil
 		s.LastAutoSent = map[Purpose]time.Time{}
+		s.LastCandidateSent = map[candKey]time.Time{}
 		clear(s.UserShown)
 		return m.jb(e.At, false)
 	}
@@ -497,7 +631,7 @@ func (m *Machine) onStreamState(e StreamStateChanged) []Batch {
 		m.recordError(e.At, "配信開始時の切替先（"+*s.StartScene+"）が OBS にない")
 		return m.jb(e.At, false)
 	}
-	b := m.emit(PurposeStartScene, e.At, []Action{SetScene{SceneUUID: s.StartSceneUUID}}, "", "")
+	b := m.emit(PurposeStartScene, e.At, []Action{SetScene{SceneUUID: s.StartSceneUUID}}, "", "", ArrivalPlan{})
 	return append([]Batch{*b}, m.itemJudge(e.At)...)
 }
 
@@ -583,7 +717,9 @@ func (m *Machine) onBatchDone(e BatchDone) []Batch {
 			m.recordError(e.At, pb.Purpose.String()+" は実行の直前に状況が変わったため取りやめた")
 		}
 	}
-	return nil
+	// 未完了が解消したので判断し直す（StartScene・AutoRecover・OFF の未完了の抑止、承認で却下した候補の再判断）。
+	m.refine()
+	return m.jb(e.At, false)
 }
 
 // onItemBatchDone は項目のバッチの終わり: 未送信の予約を戻し、Hide / Show は失敗の回数を数える。
@@ -636,49 +772,90 @@ func (m *Machine) suppressed() bool {
 	return false
 }
 
-// autoNeed は今の状態で自動切替が要るかを決める。要るなら Purpose と切替先を返し、要らなければ 0。
-// Handle の判定と、Auto のバッチの承認の両方がこの1か所を使う。健康はいつも今の材料から計算する。
-//   - AutoFail: 現在が監視対象で、健康が不良、持ち主 none。切替先は待機 UUID（引けなければ出さない）。
-//   - AutoRecover: 現在が待機、持ち主 auto、戻り先が監視対象で、戻り先の健康が OK。切替先は戻り先。
-func (m *Machine) autoNeed() (Purpose, string) {
-	s := &m.st
-	if !s.Connected || !s.Streaming || !s.AutoEnabled || m.suppressed() {
-		return 0, ""
-	}
-	switch c := m.classOf(s.Scene); {
-	case c == ClassMonitored && s.StandbyOwner == OwnerNone:
-		h, _, has := m.healthOf(s.Scene)
-		if isBad(h, has) && s.StandbyUUID != "" {
-			return PurposeAutoFail, s.StandbyUUID
-		}
-	case c == ClassStandby && s.StandbyOwner == OwnerAuto:
-		if h, _, has := m.healthOf(s.ReturnScene); has && h == scenemap.StateOK {
-			return PurposeAutoRecover, s.ReturnScene
-		}
-	}
-	return 0, ""
+// recoverInFlight は AutoRecover の未完了か期待が残っているか。残る間は AutoFail を出さない（到着してから通常判断する）。
+func (m *Machine) recoverInFlight() bool {
+	return m.hasPending(PurposeAutoRecover) ||
+		slices.ContainsFunc(m.st.Expectations, func(x Expectation) bool { return x.Purpose == PurposeAutoRecover })
 }
 
-// judge は自動切替の判定。要るときで、同じ Purpose の未完了のバッチも切替先への期待もなく、
-// Tick なら前回の送出から再送の間隔がたっているときだけ、バッチを返す。
-func (m *Machine) judge(at time.Time, isTick bool) *Batch {
+// autoDecision は自動切替の判断の結果: 目的、切替先、届いたときに当てる計画、悪い代表のカメラ（AutoFail）。
+type autoDecision struct {
+	Purpose Purpose
+	Target  string
+	Plan    ArrivalPlan
+	Bad     string
+}
+
+// decide は今の状態で自動切替が要るかを決める（表 0c 3.2）。要るなら ok。Handle の判定と、Auto のバッチの承認の
+// 両方がこの1か所を使う（Pending や再送の時刻は見ない）。健康はいつも今の材料から計算する。
+//  1. auto なら、スタックを下から見て、戻る方向で最初に入れる要素へ戻る（AutoRecover）。
+//  2. 戻れず、現在が不良の監視対象で、持ち主が none か auto なら、逃がす（AutoFail）。
+func (m *Machine) decide() (autoDecision, bool) {
 	s := &m.st
-	p, target := m.autoNeed()
-	if p == 0 || m.hasPending(p) || m.expecting(target) {
+	if !s.Connected || !s.Streaming || !s.AutoEnabled || m.suppressed() || s.StandbyOwner == OwnerManual {
+		return autoDecision{}, false
+	}
+	enter := m.enterFunc()
+	stack := m.stackNow()
+	if i := slices.Index(stack, s.Scene); i >= 0 {
+		stack = stack[:i] // 現在のシーンとそれより上は履歴でない（整理の前でも同じに扱う）
+	}
+	if len(stack) > 0 {
+		if pl := FindReturn(stack, enter); pl.Kind == PlanReturn {
+			return autoDecision{Purpose: PurposeAutoRecover, Target: pl.Target, Plan: ArrivalPlan{Plan: pl}}, true
+		}
+	}
+	if m.classOf(s.Scene) != ClassMonitored {
+		return autoDecision{}, false
+	}
+	h, bad, has := m.healthOf(s.Scene)
+	if !isBad(h, has) || m.recoverInFlight() {
+		return autoDecision{}, false
+	}
+	pl := FindEscape(EscapeInput{Current: s.Scene, Stack: stack, Chain: m.resolved(), Enter: enter})
+	switch pl.Kind {
+	case PlanEscape:
+		return autoDecision{Purpose: PurposeAutoFail, Target: pl.Target, Plan: ArrivalPlan{Plan: pl}, Bad: bad}, true
+	case PlanReturn:
+		// 手順1で先に選ぶので通常は届かない（防御）。
+		return autoDecision{Purpose: PurposeAutoRecover, Target: pl.Target, Plan: ArrivalPlan{Plan: pl}}, true
+	}
+	return autoDecision{}, false
+}
+
+// resolved は設定の名前を今の地図で引き直した結果。
+func (m *Machine) resolved() Resolved {
+	return ResolveFallbacks(m.st.Map, m.st.Standby, m.st.Fallbacks)
+}
+
+// judge は自動切替の判定。要るときで、同じ Purpose の未完了のバッチも切替先への期待もなく、同じ候補の前回の送出から
+// 再送の間隔がたっているときだけ、バッチを返す。同じ候補の歯止めは全入口（Tick、BatchDone、Event）に当て、
+// 別の候補（行き先・計画が違う）は直ちに判断する。
+func (m *Machine) judge(at time.Time) *Batch {
+	s := &m.st
+	d, ok := m.decide()
+	if !ok || m.hasPending(d.Purpose) || m.expecting(d.Target) {
 		return nil
 	}
-	if p == PurposeAutoRecover && m.waitingHidden(target) {
-		// 戻り先が待っている隠した項目がある間は、戻さない（先に表示へ戻す）。生成だけを止める。
+	key := m.candidateKey(d.Purpose, d.Target, d.Plan)
+	if last, ok := s.LastCandidateSent[key]; ok && at.Sub(last) < m.cfg.RetryInterval {
 		return nil
 	}
-	if last, ok := s.LastAutoSent[p]; isTick && ok && at.Sub(last) < m.cfg.RetryInterval {
-		return nil
+	s.LastCandidateSent[key] = at
+	if d.Purpose == PurposeAutoFail {
+		return m.emit(d.Purpose, at, []Action{SetScene{SceneUUID: d.Target}}, s.Scene, d.Bad, d.Plan)
 	}
-	if p == PurposeAutoFail {
-		_, bad, _ := m.healthOf(s.Scene)
-		return m.emit(p, at, []Action{SetScene{SceneUUID: target}}, s.Scene, bad)
-	}
-	return m.emit(p, at, m.restoreActions(target), "", "")
+	return m.emit(d.Purpose, at, m.restoreActions(d.Target), "", "", d.Plan)
+}
+
+// candidateKey は候補の識別（再送の歯止めの鍵）。
+func (m *Machine) candidateKey(p Purpose, target string, plan ArrivalPlan) candKey {
+	return makeCandKey(&m.st, p, target, plan)
+}
+
+func makeCandKey(s *state, p Purpose, target string, plan ArrivalPlan) candKey {
+	return candKey{Purpose: p, ConnEpoch: s.ConnEpoch, StreamEpoch: s.StreamEpoch, SceneEpoch: s.SceneEpoch, ConfigEpoch: s.ConfigEpoch,
+		Target: target, Plan: fmt.Sprintf("%d|%s|%s", plan.Plan.Kind, plan.Plan.Target, strings.Join(plan.Plan.Append, ","))}
 }
 
 func (m *Machine) hasPending(ps ...Purpose) bool {
@@ -695,23 +872,30 @@ func (m *Machine) expecting(scene string) bool {
 	return slices.ContainsFunc(m.st.Expectations, func(x Expectation) bool { return x.Scene == scene })
 }
 
-// emit はバッチを1本作り、未完了として持つ。ret はバッチが持つ戻り先、bad は AutoFail の悪い代表のカメラ。
-func (m *Machine) emit(p Purpose, at time.Time, actions []Action, ret, bad string) *Batch {
+// emit はバッチを1本作り、未完了として持つ。ret はバッチが持つ戻り先、bad は AutoFail の悪い代表のカメラ、
+// plan は届いたときに当てる計画。
+func (m *Machine) emit(p Purpose, at time.Time, actions []Action, ret, bad string, plan ArrivalPlan) *Batch {
 	s := &m.st
 	id := s.NextBatchID
 	s.NextBatchID++
 	s.Pending[id] = PendingBatch{
 		BatchID: id, Purpose: p,
 		SceneEpoch: s.SceneEpoch, ConnEpoch: s.ConnEpoch, StreamEpoch: s.StreamEpoch, ConfigEpoch: s.ConfigEpoch,
-		ReturnScene: ret,
+		ReturnScene: ret, Plan: plan,
 	}
 	if p.IsAuto() {
 		s.LastAutoSent[p] = at
+		// 古い世代の候補の時刻は捨てる。
+		for k := range s.LastCandidateSent {
+			if k.ConnEpoch != s.ConnEpoch || k.StreamEpoch != s.StreamEpoch || k.SceneEpoch != s.SceneEpoch || k.ConfigEpoch != s.ConfigEpoch {
+				delete(s.LastCandidateSent, k)
+			}
+		}
 	}
 	return &Batch{
 		BatchID: id, Purpose: p,
 		SceneEpoch: s.SceneEpoch, ConnEpoch: s.ConnEpoch, StreamEpoch: s.StreamEpoch, ConfigEpoch: s.ConfigEpoch,
-		ReturnScene: ret, BadCamera: bad, Actions: actions,
+		ReturnScene: ret, BadCamera: bad, Actions: actions, Plan: plan,
 	}
 }
 
@@ -729,23 +913,23 @@ func (m *Machine) onCommand(e Command) (*Batch, error) {
 	}
 	switch e.Kind {
 	case CmdStreamStart:
-		return m.emit(PurposeStartStream, e.At, []Action{StartStream{}}, "", ""), nil
+		return m.emit(PurposeStartStream, e.At, []Action{StartStream{}}, "", "", ArrivalPlan{}), nil
 	case CmdStreamStop:
-		return m.emit(PurposeStopStream, e.At, []Action{StopStream{}}, "", ""), nil
+		return m.emit(PurposeStopStream, e.At, []Action{StopStream{}}, "", "", ArrivalPlan{}), nil
 	case CmdStandbyOn:
-		return m.emit(PurposeStandbyOn, e.At, []Action{SetScene{SceneUUID: s.StandbyUUID}}, s.Scene, ""), nil
+		return m.emit(PurposeStandbyOn, e.At, []Action{SetScene{SceneUUID: s.StandbyUUID}}, s.Scene, "", ArrivalPlan{}), nil
 	case CmdStandbyOff:
 		ret := s.ReturnScene
 		if !m.isMonitored(ret) {
 			// 戻り先が管理外（地図から消えた場合を含む）。再起動なしで切り替える。
-			return m.emit(PurposeStandbyOffOther, e.At, []Action{SetScene{SceneUUID: ret}}, "", ""), nil
+			return m.emit(PurposeStandbyOffOther, e.At, []Action{SetScene{SceneUUID: ret}}, "", "", ArrivalPlan{}), nil
 		}
 		if h, _, has := m.healthOf(ret); s.AutoEnabled && (isBad(h, has) || m.waitingHidden(ret)) {
 			// 回線が悪いまま、または隠した項目が待っているままカメラ映像へ戻さない。回復したら AutoRecover で戻る。
-			s.StandbyOwner = OwnerAuto
+			m.setAuto([]string{ret})
 			return nil, nil
 		}
-		return m.emit(PurposeStandbyOffMonitored, e.At, m.restoreActions(ret), "", ""), nil
+		return m.emit(PurposeStandbyOffMonitored, e.At, m.restoreActions(ret), "", "", ArrivalPlan{}), nil
 	}
 	return nil, ErrInvalidState{Reason: "未知の操作"}
 }

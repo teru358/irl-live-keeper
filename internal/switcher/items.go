@@ -212,46 +212,97 @@ func (m *Machine) validEntry(k scenemap.ItemKey, it scenemap.Item, calc *scenema
 	return e
 }
 
+// itemCounts は項目 it を「映る」（actual=false）か「実際に表示」（actual=true）に数えるか。
+// extra は仮に非表示とする項目（actual のとき）。
+func (m *Machine) itemCounts(k scenemap.ItemKey, it scenemap.Item, calc *scenemap.Map, actual bool, extra map[scenemap.ItemKey]bool) bool {
+	s := &m.st
+	if actual && extra[k] {
+		return false
+	}
+	if e := m.validEntry(k, it, calc); e != nil {
+		if !actual {
+			return true
+		}
+		switch e.State {
+		case HiddenH:
+			return false
+		case HiddenP:
+			if _, unsent := s.Unsent[k]; unsent {
+				return it.Enabled
+			}
+			return false
+		case HiddenU:
+			// 未決着は表示と数える（spec の明示例外）。ただし新しい false を送って応答前か OK の間は、非表示と数える。
+			if qi := m.qIdx(k, false); qi >= 0 {
+				if q := s.ItemExpectations[qi]; !q.Responded || q.Result == ItemOK {
+					return false
+				}
+			}
+			return true
+		}
+	}
+	return it.Enabled
+}
+
 // cameraSet はシーン uuid に映る（actual=false）か実際に表示（actual=true）のカメラの id。
 // extra は仮に非表示とする項目（actual のとき）。
 func (m *Machine) cameraSet(uuid string, actual bool, extra map[scenemap.ItemKey]bool) []string {
-	s := &m.st
-	if s.Map == nil {
+	if m.st.Map == nil {
 		return nil
 	}
 	calc := m.calcMap()
 	ids := scenemap.CamerasInWith(calc, uuid, func(k scenemap.ItemKey, it scenemap.Item) bool {
-		if actual && extra[k] {
-			return false
-		}
-		if e := m.validEntry(k, it, &calc); e != nil {
-			if !actual {
-				return true
-			}
-			switch e.State {
-			case HiddenH:
-				return false
-			case HiddenP:
-				if _, unsent := s.Unsent[k]; unsent {
-					return it.Enabled
-				}
-				return false
-			case HiddenU:
-				// 未決着は表示と数える（spec の明示例外）。ただし新しい false を送って応答前か OK の間は、非表示と数える。
-				if qi := m.qIdx(k, false); qi >= 0 {
-					if q := s.ItemExpectations[qi]; !q.Responded || q.Result == ItemOK {
-						return false
-					}
-				}
-				return true
-			}
-		}
-		return it.Enabled
+		return m.itemCounts(k, it, &calc, actual, extra)
 	})
 	if len(ids) == 0 {
 		return nil
 	}
 	return ids
+}
+
+// actualInputs はシーン uuid に実際に表示されるカメラの入力の UUID（入れ子の有効な道も数える）。
+func (m *Machine) actualInputs(uuid string) map[string]bool {
+	out := map[string]bool{}
+	if m.st.Map == nil {
+		return out
+	}
+	calc := m.calcMap()
+	active := map[string]bool{}
+	var walk func(u string, kind scenemap.SourceKind)
+	walk = func(u string, kind scenemap.SourceKind) {
+		key := string(kind) + "\x00" + u
+		if active[key] {
+			return
+		}
+		var c scenemap.Container
+		var ok bool
+		switch kind {
+		case scenemap.SceneSource:
+			c, ok = calc.Scenes[u]
+		case scenemap.GroupSource:
+			c, ok = calc.Groups[u]
+		}
+		if !ok {
+			return
+		}
+		active[key] = true
+		defer delete(active, key)
+		for _, it := range c.Items {
+			if !m.itemCounts(scenemap.ItemKey{ContainerUUID: u, ItemID: it.ID}, it, &calc, true, nil) {
+				continue
+			}
+			switch it.SourceKind {
+			case scenemap.InputSource:
+				if in, ok := calc.Inputs[it.SourceUUID]; ok && in.CameraID != "" {
+					out[it.SourceUUID] = true
+				}
+			case scenemap.SceneSource, scenemap.GroupSource:
+				walk(it.SourceUUID, it.SourceKind)
+			}
+		}
+	}
+	walk(uuid, scenemap.SceneSource)
+	return out
 }
 
 func (m *Machine) actualCameras(uuid string, extra map[scenemap.ItemKey]bool) []string {

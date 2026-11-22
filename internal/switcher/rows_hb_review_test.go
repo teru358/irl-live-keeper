@@ -42,14 +42,17 @@ func TestHBIR再起動の対象は有効な動きで決める(t *testing.T) {
 			// I(A) は standby のカメラだけ（hide の s は含めない）。送出の記録がなくても同じ。
 			h.wantRestartActions(bs[0], RestartMedia{Inputs: []string{inMain}, Wait: W}, SetScene{SceneUUID: camera})
 		}},
-		{"HB-SM-05/I(A)", func(t *testing.T) {
+		// /0c: Studio off で A は健康 OK でも、表示中の悪い s が隠れるまで戻らない（逆向きの待ち）。Hc だけを出し、
+		// x の false を確かめたあとに R(A)（HB-SM-05 の置き換え。FB-CC-04）。I(A) は standby の m だけ。
+		{"HB-SM-05/I(A)/0c", func(t *testing.T) {
 			h := newHB(t, hbStudio())
 			bs := h.sIs(1000, DOWN)
 			h.proceed2scene(bs[0], 1100)
 			h.scene(1500, standby)
 			bs = h.ev(StudioModeChanged{At: at(7000), Enabled: false})
-			h.out(bs, "R(A) Hc(s)[x,y]")
-			h.wantRestartActions(bs[0], RestartMedia{Inputs: []string{inMain}, Wait: W}, SetScene{SceneUUID: camera})
+			h.out(bs, "Hc(s)[x,y]")
+			rs := h.sendFalseOut(bs[0], 7100, kx, "R(A)")
+			h.wantRestartActions(rs[0], RestartMedia{Inputs: []string{inMain}, Wait: W}, SetScene{SceneUUID: camera})
 		}},
 		{"HB-SQ-02/t9 R(D)", func(t *testing.T) {
 			h := newHB(t, hbAt(deskScene))
@@ -68,17 +71,20 @@ func TestHBIR再起動の対象は有効な動きで決める(t *testing.T) {
 		}},
 		{"I(R)/Studio on standby は含める", func(t *testing.T) {
 			h := newHB(t, hbStudio())
+			h.m.st.Scene = standby // /0c: 今の program（配信に実表示）の入力は除外するので、戻り先とは別のシーンにいる状態で確かめる
 			got := h.m.restartInputs(camera)
 			if len(got) != 2 || got[0] != inMain || got[1] != inSub {
 				t.Fatalf("on/standby の I(A): %v", got)
 			}
 			for _, mode := range []string{StudioHideIgnore, StudioHideHide} {
 				h := newHB(t, hbStudio(), hbStudioHide(mode))
+				h.m.st.Scene = standby
 				if got := h.m.restartInputs(camera); len(got) != 1 || got[0] != inMain {
 					t.Fatalf("on/%s の I(A): %v", mode, got)
 				}
 			}
 			h2 := newHB(t)
+			h2.m.st.Scene = standby
 			if got := h2.m.restartInputs(camera); len(got) != 1 || got[0] != inMain {
 				t.Fatalf("off の I(A): %v", got)
 			}

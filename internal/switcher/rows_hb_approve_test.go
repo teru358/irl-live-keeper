@@ -298,21 +298,21 @@ func TestHBApprove(t *testing.T) {
 			h.out(bs, "MA[x,y]")
 			h.proceed(bs[0], 1100, ky, true)
 		}},
-		{"HB-AP-23", func(t *testing.T) {
+		// /0c: 0b の「承認では戻り先の待ちを見ない」を撤回し、承認でも逆向きの待ちと OK の非表示の記録を検査する（HB-AP-23 の置き換え）。
+		// R(A) は逆向きの待ちが解けたあとに出る。生成後に s が OK に戻ると、x の記録が OK の非表示の記録になり、SetScene は却下。
+		{"HB-AP-23/0c", func(t *testing.T) {
 			h := newHB(t, hbStudio())
 			bs := h.sIs(1000, DOWN)
 			h.out(bs, "F(A)")
 			h.proceed2scene(bs[0], 1100)
 			h.scene(1500, standby)
 			bs = h.ev(StudioModeChanged{At: at(7000), Enabled: false})
-			h.out(bs, "R(A) Hc(s)[x,y]")
-			r := bs[0]
-			h.yOff()
-			h.seedH(kx)
-			// 生成後に待つ項目ができた。承認の条件には足さない。
-			got := h.m.Approve(r.BatchID, SetScene{SceneUUID: camera}, OverrideNone{}, at(7100))
-			if _, ok := got.(Proceed); !ok {
-				t.Fatalf("Approve = %#v", got)
+			h.out(bs, "Hc(s)[x,y]")
+			r := h.sendFalseOut(bs[0], 7100, kx, "R(A)")[0]
+			h.sIs(7400, OK) // 生成後に待つ項目（s の本体の非表示の記録）ができた
+			got := h.m.Approve(r.BatchID, SetScene{SceneUUID: camera}, OverrideNone{}, at(7500))
+			if got != (Reject{}) {
+				t.Fatalf("Approve = %#v, want Reject", got)
 			}
 		}},
 		{"HB-AP-24", func(t *testing.T) {

@@ -1,6 +1,7 @@
 package switcher
 
 import (
+	"slices"
 	"time"
 
 	"github.com/teru358/irl-live-keeper/internal/scenemap"
@@ -221,6 +222,9 @@ type ScenesConfigured struct {
 	StartScene  *string
 	// StudioModeHide は Studio Mode のとき on_bad=hide のカメラをどう扱うか（standby / ignore / hide）。空は standby。
 	StudioModeHide string
+	// SceneFallbacks は 0c のシーンごとの逃がし先（名前のまま）。空なら共通の待機シーンだけ。
+	// 行の並べ替えだけは同値（scene → fallback の対応として比べる）。
+	SceneFallbacks []FallbackRow
 }
 
 // Studio Mode のときの hide のカメラの扱い（obs.studio_mode_hide）。
@@ -495,6 +499,26 @@ type Batch struct {
 	RestoreScope RestoreScope
 	// FromCommand は手動の Command 由来のバッチか（手動の「すべて表示に戻す」）。
 	FromCommand bool
+	// Plan は届いたときにスタックと持ち主へ当てる変更（0c）。生成の時点で固定し、期待どおりの SceneChanged に1回だけ当てる。
+	Plan ArrivalPlan
+}
+
+// ArrivalPlan は、切替が期待どおりに届いたときに当てる変更（表 0c 1.1）。Batch、PendingBatch、Expectation が持ち、
+// 承認で Expectation に写す（後から Batch 側を変えても届かない）。
+//   - AutoFail: Plan.Kind=PlanEscape、Plan.Append を既存のスタックに積む。
+//   - AutoRecover: Plan.Kind=PlanReturn、Plan.Target 自身と上を捨てる。
+//
+// StandbyOn と手動の OFF の到着後の持ち主は、Purpose と ReturnScene（Expectation / PendingBatch / Batch）で決まる。
+type ArrivalPlan struct {
+	Plan Plan
+	// EffectsDisabled は照合だけして作用（持ち主・スタック・戻り先）を当てない印。
+	EffectsDisabled bool
+}
+
+// samePlan は2つの計画の意味が同じか（承認で最新の探索結果と比べる）。EffectsDisabled は比べない。
+func samePlan(a, b ArrivalPlan) bool {
+	return a.Plan.Kind == b.Plan.Kind && a.Plan.Target == b.Plan.Target &&
+		slices.Equal(a.Plan.Append, b.Plan.Append)
 }
 
 // BatchItem は項目のバッチの対象の項目と、固定した入力の UUID。
@@ -611,10 +635,12 @@ type ErrorInfo struct {
 
 // Expectation は送った SetScene の期待。
 type Expectation struct {
-	ReqID        int
-	Scene        string // 切替先の UUID
-	Purpose      Purpose
-	ReturnScene  string // 戻り先の UUID。AutoFail、StandbyOn だけ。ほかは空
+	ReqID       int
+	Scene       string // 切替先の UUID
+	Purpose     Purpose
+	ReturnScene string // 戻り先の UUID。AutoFail（退避元）、StandbyOn だけ。ほかは空
+	// Plan は届いたときに当てる変更（Proceed でバッチの Plan を写す）。
+	Plan         ArrivalPlan
 	ConfigEpoch  int
 	RegisteredAt time.Time
 	Override     Override
@@ -634,6 +660,8 @@ type PendingBatch struct {
 	StreamEpoch int
 	ConfigEpoch int
 	ReturnScene string
+	// Plan は届いたときに当てる変更（0c）。
+	Plan ArrivalPlan
 	// 0b: 項目のバッチ。
 	CameraID string
 	// Z はバッチを作った時の接続先とコレクション。巻き戻しは、この Z の記録だけに及ぶ。
@@ -658,6 +686,8 @@ type state struct {
 	AutoEnabled bool
 	StartScene  *string
 	ConfigEpoch int
+	// Fallbacks は設定の scene_fallbacks（名前のまま）。解決結果は地図から必要なときに計算する。
+	Fallbacks []FallbackRow
 
 	// StandbyUUID と StartSceneUUID は、設定の名前を今の地図で引いた UUID。引けなければ空。
 	StandbyUUID    string
@@ -673,18 +703,26 @@ type state struct {
 	PrevConnScene      string
 	PrevConnStreaming  bool
 	PrevConnCollection string
-	StandbyOwner       Owner
-	ReturnScene        string // 戻り先の UUID
-	Expectations       []Expectation
-	Pending            map[int]PendingBatch
-	LastAutoSent       map[Purpose]time.Time
-	SceneEpoch         int
-	ConnEpoch          int
-	StreamEpoch        int
-	TransitionMs       *int
-	LastError          *ErrorInfo
-	NextBatchID        int
-	NextReqID          int
+	// PrevConnStandby は切断の直前に解決していた待機の UUID（再接続の新しい地図で変化を見る。空は情報なし）。
+	PrevConnStandby string
+	StandbyOwner    Owner
+	// ReturnScene は manual の単独の戻り先、auto なら Stack[0]（派生値。auto で none なら空）。UUID。
+	ReturnScene string
+	// Stack は auto の未復帰の退避履歴（下→上）。現在の退避先を含めない。auto 以外は空。プロセス内だけ（0c）。
+	Stack        []string
+	Expectations []Expectation
+	Pending      map[int]PendingBatch
+	// LastAutoSent は目的別の最後の自動切替の送出時刻（診断用。再送の判断には使わない）。
+	LastAutoSent map[Purpose]time.Time
+	// LastCandidateSent は候補ごとの送出時刻（0c）。同じ候補の再送は最短5秒、新しい候補は即時。
+	LastCandidateSent map[candKey]time.Time
+	SceneEpoch        int
+	ConnEpoch         int
+	StreamEpoch       int
+	TransitionMs      *int
+	LastError         *ErrorInfo
+	NextBatchID       int
+	NextReqID         int
 
 	// ---- 0b ----
 
@@ -714,6 +752,15 @@ type state struct {
 	// MAFloor は手動の「すべて表示に戻す」を受け付けた時点の次の BatchID。それより前の Hide は却下する。
 	MAFloor        int
 	HiddenRevision int
+}
+
+// candKey は自動切替の候補の識別（再送の5秒の歯止めの鍵）。目的、4つの世代、行き先、履歴計画の意味的な内容を含む。
+// Append の順も含める。同じ UUID でも履歴計画が違えば別の要求。
+type candKey struct {
+	Purpose                                         Purpose
+	ConnEpoch, StreamEpoch, SceneEpoch, ConfigEpoch int
+	Target                                          string
+	Plan                                            string
 }
 
 // zone は接続先とシーンコレクション。
@@ -811,4 +858,8 @@ type StandbyStatus struct {
 	ReturnScene string
 	// ReturnSceneName は戻り先の今の地図での名前（地図になければ空）。
 	ReturnSceneName string
+	// Stack は auto のスタック（UUID、下→上）。写しで、外から変えても内部は変わらない。auto 以外は空。
+	Stack []string
+	// StackNames は Stack の今の地図での名前（地図になければ空文字列）。
+	StackNames []string
 }

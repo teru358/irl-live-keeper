@@ -69,7 +69,8 @@ func TestRowsApproveAutoFail(t *testing.T) {
 		{name: "AP-AUTOFAIL-2", setup: all(link(LOW), af, link(OK)), action: set(standby), atMs: 1000, res: Reject{}},
 		{name: "AP-AUTOFAIL-3", setup: all(link(LOW), af, scn(standby)), action: set(standby), atMs: 1000, res: Skip{}},
 		{name: "AP-AUTOFAIL-4/other", setup: all(link(LOW), af, scn(talk)), action: set(standby), atMs: 1000, res: Reject{}},
-		{name: "AP-AUTOFAIL-4/owner_not_none", setup: all(link(LOW), af, func(s *state) { s.StandbyOwner, s.ReturnScene = OwnerAuto, camera2 }),
+		// /0c: 持ち主 auto でも AutoFail は有効になった（スタックへ積む）。持ち主の不適格は manual で確かめる。
+		{name: "AP-AUTOFAIL-4/owner_not_none", setup: all(link(LOW), af, func(s *state) { ownerIs(s, OwnerManual, camera2) }),
 			action: set(standby), atMs: 1000, res: Reject{}},
 		{name: "AP-AUTOFAIL-5/pending", setup: all(link(LOW), af, p(2, PurposeStandbyOn, camera)), action: set(standby), atMs: 1000, res: Reject{}},
 		{name: "AP-AUTOFAIL-5/expectation", setup: all(link(LOW), af, startAt(opening), x(1, opening, PurposeStartScene, "")),
@@ -100,14 +101,14 @@ func TestRowsApproveStandbyOn(t *testing.T) {
 		{name: "AP-SON-1/other", setup: all(scn(talk), p(1, PurposeStandbyOn, talk), link(LOW)), action: set(standby), atMs: 1000,
 			res: Proceed{}, register: true},
 		{name: "AP-SON-2", setup: all(on, scn(standby)), action: set(standby), atMs: 1000, res: Reject{}},
-		{name: "AP-SON-3", setup: all(on, func(s *state) { s.StandbyOwner, s.ReturnScene = OwnerManual, talk }), action: set(standby),
+		{name: "AP-SON-3", setup: all(on, func(s *state) { ownerIs(s, OwnerManual, talk) }), action: set(standby),
 			atMs: 1000, res: Reject{}},
 	})
 }
 
 func TestRowsApproveStandbyOffMonitored(t *testing.T) {
 	off := all(own(OwnerManual, camera), p(1, PurposeStandbyOffMonitored, ""))
-	toAuto := func(s *state) { s.StandbyOwner = OwnerAuto }
+	toAuto := toAutoOwner
 	runApRows(t, []apRow{
 		{name: "AP-SOFFM-1", setup: off, action: restart, atMs: 1000, res: Proceed{}},
 		{name: "AP-SOFFM-2", setup: off, action: set(camera), atMs: 1000, res: Proceed{}, register: true},
@@ -130,7 +131,7 @@ func TestRowsApproveStandbyOffOther(t *testing.T) {
 		{name: "AP-SOFFO-1/ok", setup: off, action: set(talk), atMs: 1000, res: Proceed{}, register: true},
 		{name: "AP-SOFFO-1/bad_auto_off", setup: all(autoOff, off, link(LOW)), action: set(talk), atMs: 1000, res: Proceed{}, register: true},
 		{name: "AP-SOFFO-2", setup: all(off, scn(talk), clearOwner), action: set(talk), atMs: 1000, res: Skip{}},
-		{name: "AP-SOFFO-3/not_manual", setup: all(off, func(s *state) { s.StandbyOwner = OwnerAuto }), action: set(talk), atMs: 1000, res: Reject{}},
+		{name: "AP-SOFFO-3/not_manual", setup: all(off, toAutoOwner), action: set(talk), atMs: 1000, res: Reject{}},
 		{name: "AP-SOFFO-3/elsewhere", setup: all(off, scn(camera2), clearOwner), action: set(talk), atMs: 1000, res: Reject{}},
 	})
 }

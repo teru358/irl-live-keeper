@@ -41,11 +41,11 @@ func (m *Machine) Approve(batchID int, action Action, override Override, at time
 	if isSet {
 		target = set.SceneUUID
 	}
-	switch m.purposeValid(pb.Purpose, isSet, target) {
+	switch m.purposeValid(pb, isSet, target) {
 	case verdictProceed:
 	case verdictReplace:
 		// 受信状態だけが悪くなった。その場で持ち主を auto にし、回復したら AutoRecover で戻す。
-		s.StandbyOwner = OwnerAuto
+		m.setAuto([]string{s.ReturnScene})
 		pb.Replaced = true
 		s.Pending[batchID] = pb
 		return Replace{Batch: nil}
@@ -65,6 +65,7 @@ func (m *Machine) Approve(batchID int, action Action, override Override, at time
 		Scene:        set.SceneUUID,
 		Purpose:      pb.Purpose,
 		ReturnScene:  pb.ReturnScene,
+		Plan:         pb.Plan,
 		ConfigEpoch:  s.ConfigEpoch,
 		RegisteredAt: at,
 		Override:     override,
@@ -94,7 +95,8 @@ const (
 // purposeValid は Purpose ごとの有効条件を今の状態（地図・健康・待機 UUID）で確かめる。
 // SetScene の Action では、バッチを作ったときに固定した切替先 target が、今の待機・戻り先と一致することも確かめる
 // （地図の変更は ConfigEpoch を進めないので、承認で古い切替先を止める。W-02）。
-func (m *Machine) purposeValid(p Purpose, isSet bool, target string) verdict {
+func (m *Machine) purposeValid(pb PendingBatch, isSet bool, target string) verdict {
+	p := pb.Purpose
 	s := &m.st
 	ok := func(c bool) verdict {
 		if c {
@@ -105,8 +107,9 @@ func (m *Machine) purposeValid(p Purpose, isSet bool, target string) verdict {
 	inStandby := s.StandbyUUID != "" && s.Scene == s.StandbyUUID
 	switch p {
 	case PurposeAutoFail, PurposeAutoRecover:
-		need, to := m.autoNeed()
-		return ok(need == p && (!isSet || target == to))
+		// 承認では最新の状態から候補と方向・履歴計画を計算し直し、バッチの行き先・計画と違えば却下する（別の行き先に書き換えない）。
+		d, has := m.decide()
+		return ok(has && d.Purpose == p && samePlan(d.Plan, pb.Plan) && (!isSet || target == d.Target))
 	case PurposeStandbyOn:
 		return ok(s.Streaming && s.StandbyOwner == OwnerNone && !inStandby && (!isSet || target == s.StandbyUUID))
 	case PurposeStandbyOffMonitored:

@@ -638,3 +638,13 @@ func (h *hb) sendTrueOut(b Batch, ms int, k scenemap.ItemKey, want string) []Bat
 	h.out(bs, want)
 	return bs
 }
+
+// sendFalseOut は false の承認・OK・イベントを流し、応答とイベントで出た列（合わせて）が want であることを確かめる。
+func (h *hb) sendFalseOut(b Batch, ms int, k scenemap.ItemKey, want string) []Batch {
+	h.t.Helper()
+	p := h.proceed(b, ms, k, false)
+	bs := h.itemDone(ms, p.ItemReqID, ItemOK)
+	bs = append(bs, h.itemEv(ms, k, false)...)
+	h.out(bs, want)
+	return bs
+}

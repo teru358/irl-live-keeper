@@ -229,10 +229,11 @@ func TestSeqRepeatedSwitching(t *testing.T) {
 		q.none(sc(2000, camera2))
 		q.epochDelta(e, 1, 0, 0, 0)
 		q.approve(1, set(standby), 2500, Reject{})
-		q.none(bd(2500, 1, BatchRejected))
-		q.pending()
+		// /0c: BatchDone で未完了が解消したその場で判断する（次の Tick まで待たない。BD-J-1 の置き換え）。
+		q.batch(bd(2500, 1, BatchRejected), 2, af, standby, camera2)
+		q.pending(2)
 		q.noErr()
-		q.batch(tick(3000), 2, af, standby, camera2)
+		q.none(tick(3000))
 		q.none(tick(6000))
 	})
 }
@@ -416,8 +417,8 @@ func TestSeqReplace(t *testing.T) {
 		q.none(lc(1200, LOW))
 		q.approve(2, set(camera), 1500, Replace{})
 		q.none(lc(1600, OK))
-		q.none(bd(1700, 2, BatchRejected))
-		q.batch(tick(2000), 3, ar, camera, "")
+		// /0c: BatchDone でその場で判断する（BD-J-1 の置き換え）。
+		q.batch(bd(1700, 2, BatchRejected), 3, ar, camera, "")
 	})
 }
 
@@ -460,9 +461,9 @@ func TestSeqStartScene(t *testing.T) {
 		q.none(sc(1300, camera))
 		q.epochDelta(e, 0, 0, 1, 0)
 		q.none(srd(1400, 1, RequestOK))
-		q.none(bd(1400, 1, BatchCompleted))
-		q.pending()
-		q.batch(tick(2000), 2, af, standby, camera)
+		// /0c: StartScene の未完了が解消した BatchDone でその場で判断する（BD-J-1/start_scene の置き換え）。
+		q.batch(bd(1400, 1, BatchCompleted), 2, af, standby, camera)
+		q.pending(2)
 	})
 	t.Run("SQ-10c", func(t *testing.T) {
 		q := newSeq(t).P(camera, false, LOW)
@@ -668,10 +669,10 @@ func TestSeqConfigAndOwner(t *testing.T) {
 		q.batch(lc(1000, LOW), 1, af, standby, camera)
 		q.none(cfg(1100, camera3))
 		q.approve(1, set(standby), 1200, Reject{})
-		q.none(bd(1200, 1, BatchRejected))
+		// /0c: BatchDone でその場で判断する（新しい設定の世代の候補なので即時。BD-J-1 の置き換え）。
+		q.batch(bd(1200, 1, BatchRejected), 2, af, standby, camera)
 		q.noErr()
-		q.ticks(2000, 5000, 1000)
-		q.batch(tick(6000), 2, af, standby, camera)
+		q.ticks(2000, 6000, 1000)
 	})
 	t.Run("SQ-14h2", func(t *testing.T) {
 		q := newSeq(t).PA(camera)
@@ -679,9 +680,9 @@ func TestSeqConfigAndOwner(t *testing.T) {
 		q.none(cfg(1100, camera3))
 		q.owner(OwnerAuto, camera)
 		q.approve(2, restart, 1200, Reject{})
-		q.none(bd(1200, 2, BatchRejected))
+		// /0c: BatchDone でその場で判断する（新しい設定の世代の候補なので即時。BD-J-1 の置き換え）。
+		q.batch(bd(1200, 2, BatchRejected), 3, ar, camera, "")
 		q.noErr()
-		q.batch(tick(6000), 3, ar, camera, "")
 	})
 	t.Run("SQ-14h3", func(t *testing.T) {
 		q := newSeq(t).PM(camera, OK)
@@ -974,17 +975,20 @@ func TestSeqRecoverThenDrop(t *testing.T) {
 			q.none(bd(1700, 2, BatchCompleted))
 		}
 		e := q.epochs()
-		q.batch(sc(1900, camera), 3, af, standby, camera)
+		// /0c: 同じ候補 F(S;+[A]) は前回（t=0.1）から5秒は全入口で再送しない（FB-TK-04）。5.1秒の Tick で出る。
+		q.none(sc(1900, camera))
 		q.epochDelta(e, 0, 0, 0, 0)
 		q.owner(OwnerNone, "")
 		if !doneFirst {
 			q.none(srd(1900, 2, RequestOK))
 			q.none(bd(1900, 2, BatchCompleted))
 		}
-		q.approve(3, set(standby), 1900, Proceed{ReqID: 3})
-		q.none(srd(2000, 3, RequestOK))
-		q.none(bd(2000, 3, BatchCompleted))
-		q.none(sc(2300, standby))
+		q.none(tick(5000))
+		q.batch(tick(5100), 3, af, standby, camera)
+		q.approve(3, set(standby), 5100, Proceed{ReqID: 3})
+		q.none(srd(5200, 3, RequestOK))
+		q.none(bd(5200, 3, BatchCompleted))
+		q.none(sc(5300, standby))
 		q.owner(OwnerAuto, camera)
 	}
 	t.Run("SQ-19", func(t *testing.T) { run(t, true) })
@@ -1199,7 +1203,9 @@ func TestSeqValidity(t *testing.T) {
 		q.none(bd(1500, 2, BatchRejected))
 		q.noErr()
 		q.owner(OwnerAuto, camera)
-		q.batch(lc(3000, OK), 3, ar, camera, "")
+		// /0c: 同じ候補 R(A) は前回（t=1）から5秒は全入口で再送しない。
+		q.none(lc(3000, OK))
+		q.batch(tick(6000), 3, ar, camera, "")
 	})
 	t.Run("SQ-23b", func(t *testing.T) {
 		q := recovering(t)
@@ -1226,10 +1232,9 @@ func TestSeqValidity(t *testing.T) {
 		q.none(disc(1200))
 		q.none(conn(1600, true, standby, ip(300)))
 		q.approve(2, set(camera), 1700, Reject{})
-		q.none(bd(1700, 2, BatchRejected))
+		// /0c: BatchDone でその場で判断する（再接続で世代が進んだ新しい候補なので即時。BD-J-1 の置き換え）。
+		q.batch(bd(1700, 2, BatchRejected), 3, ar, camera, "")
 		q.owner(OwnerAuto, camera)
-		q.ticks(2000, 5000, 1000)
-		q.batch(tick(6000), 3, ar, camera, "")
 	})
 	t.Run("SQ-23e", func(t *testing.T) {
 		q := newSeq(t).P(talk, true, OK)
@@ -1514,7 +1519,9 @@ func TestSeqRetryInterval(t *testing.T) {
 		q.approve(1, set(standby), 1000, Proceed{ReqID: 1})
 		q.none(srd(1100, 1, RequestError))
 		q.none(bd(1100, 1, BatchFailed))
-		q.batch(lc(2000, DOWN), 2, af, standby, camera)
+		// /0c: 同じ候補の再送は全入口で最短5秒（FB-CC-10。0a のイベント起点の例外を置き換えた）。
+		q.none(lc(2000, DOWN))
+		q.batch(tick(6000), 2, af, standby, camera)
 	})
 }
 
@@ -1537,7 +1544,8 @@ func TestSnapshot(t *testing.T) {
 	q.none(sc(500, standby))
 	s = q.m.Snapshot()
 	want := Snapshot{Connected: true, Streaming: true, Scene: standby, SceneName: "Standby", Class: ClassStandby,
-		Standby:     StandbyStatus{Owner: OwnerAuto, ReturnScene: camera, ReturnSceneName: "Camera"},
+		Standby: StandbyStatus{Owner: OwnerAuto, ReturnScene: camera, ReturnSceneName: "Camera",
+			Stack: []string{camera}, StackNames: []string{"Camera"}},
 		AutoEnabled: true}
 	// 0b で足した読み口（記録の写し、Studio Mode、カメラ別の状態）は別の行で確かめる。
 	s.HiddenEntries, s.RetainedEntries, s.HiddenRevision, s.StudioMode, s.Cameras = nil, nil, 0, false, nil

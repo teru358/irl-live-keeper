@@ -89,8 +89,20 @@ func statesTo(m, sub, d scenemap.CameraState) func(s *state) {
 	}
 }
 
-// failed は、前の AutoFail が失敗済みで、未完了も期待もないこと（再送時刻が近くても、イベント起点の判断は出す）。
-var failed = sentAt(PurposeAutoFail, 800)
+// effectsDisabledOf は ReqID req の期待の作用を無効にした変化。
+func effectsDisabledOf(req int) func(s *state) {
+	return func(s *state) {
+		for i := range s.Expectations {
+			if s.Expectations[i].ReqID == req {
+				s.Expectations[i].Plan.EffectsDisabled = true
+			}
+		}
+	}
+}
+
+// failed は、前の AutoFail が失敗済みで、未完了も期待もないこと。/0c: 同じ候補の再送は全入口で最短5秒なので、
+// 前の送出を5秒以上前（-4.5秒）に置き、イベント起点（t=1秒）の判断が出る前提を保つ。0a までの「イベントは時刻が近くても出す」を置き換えた。
+var failed = sentAt(PurposeAutoFail, -4500)
 
 // wantSnap は Snapshot の分類・健康・映るカメラ・悪い代表を確かめる。
 func wantSnap(class SceneClass, has bool, h scenemap.CameraState, bad string, visible ...string) func(t *testing.T, m *Machine) {
@@ -193,13 +205,16 @@ func TestMCRestartInputs(t *testing.T) {
 	})
 	t.Run("MC-I-1/actions", func(t *testing.T) {
 		// 対象のあるシーンは、1つの RestartMedia（設定順、同カメラ内は UUID の辞書順）と SetScene。
+		// /0c: 今の program（配信に実表示）の入力は再起動しないので、戻り先とは別のシーン（待機）にいる状態で確かめる。
+		m.st.Scene = standby
 		want := []Action{RestartMedia{Inputs: []string{inMain, inSub}, Wait: W}, SetScene{SceneUUID: camera}}
 		if got := m.restoreActions(camera); !reflect.DeepEqual(got, want) {
 			t.Errorf("got %+v, want %+v", got, want)
 		}
 	})
 	t.Run("MC-I-order", func(t *testing.T) {
-		// 設定の順を s、m、d にすると、入力の順も s が先になる（W-03）。
+		// 設定の順を s、m、d にすると、入力の順も s が先になる（W-03）。/0c: program は待機（実表示の入力を除外しない状態）。
+		m.st.Scene = standby
 		m.st.Cameras = []CameraConfig{cam(camSub), cam(camMain), cam(camDesk)}
 		if got := m.restoreActions(camera); !reflect.DeepEqual(got[0], RestartMedia{Inputs: []string{inSub, inMain}, Wait: W}) {
 			t.Errorf("W-03 の順: got %+v", got[0])
@@ -260,8 +275,9 @@ func TestMCSceneMapChanged(t *testing.T) {
 			}},
 		{name: "MC-MAP-6", base: baseMulti, setup: all(useMap(aOnlyM), own(OwnerAuto, camera)), ev: smcMap(1000, aNone),
 			change: all(toMap(aNone), clearOwner), check: wantSnap(ClassStandby, false, "", "")},
-		{name: "MC-MAP-7", base: baseMulti, setup: all(own(OwnerAuto, camera), p(1, PurposeAutoRecover, "")),
-			ev: smcMap(1000, mm(dropped(camera))), change: all(toMap(mm(dropped(camera))), clearOwner),
+		// /0c: 戻り先（スタックの最下段）の削除は人の操作と同じ全解除（SceneEpoch+1。FB-MP-02）。
+		{name: "MC-MAP-7/0c", base: baseMulti, setup: all(own(OwnerAuto, camera), p(1, PurposeAutoRecover, "")),
+			ev: smcMap(1000, mm(dropped(camera))), change: all(toMap(mm(dropped(camera))), releasedAll),
 			check: func(t *testing.T, m *Machine) {
 				if got := m.Approve(1, restartOf(inMain, inSub), OverrideNone{}, at(1100)); got != (Reject{}) {
 					t.Errorf("R の Approve = %#v, want Reject", got)
@@ -293,7 +309,7 @@ func TestMCSceneMapChanged(t *testing.T) {
 			ev:     smcMap(1000, editMap(aOnlyM, func(m *scenemap.Map) { m.Inputs[inMain] = scenemap.Input{Name: "main-src", CameraID: camSub} })),
 			change: toMap(editMap(aOnlyM, func(m *scenemap.Map) { m.Inputs[inMain] = scenemap.Input{Name: "main-src", CameraID: camSub} })),
 			out:    PurposeAutoFail, bad: camSub, check: wantSnap(ClassMonitored, true, DOWN, camSub, camSub)},
-		{name: "MC-MAP-17", base: baseMulti, setup: all(own(OwnerAuto, camera), failed, sentAt(PurposeAutoRecover, 800)),
+		{name: "MC-MAP-17", base: baseMulti, setup: all(own(OwnerAuto, camera), failed, sentAt(PurposeAutoRecover, -4500)),
 			ev: smcMap(1000, mm(renamed(camera, "Camera-renamed"))), change: toMap(mm(renamed(camera, "Camera-renamed"))),
 			out: PurposeAutoRecover, in: []string{inMain, inSub}},
 		// J の抑止（切替中・未完了・期待）。地図は更新するが、バッチは出さない。
@@ -320,7 +336,8 @@ func TestMCSceneMapChanged(t *testing.T) {
 				wantSnap(ClassOther, false, "", "")(t, m)
 			}},
 		{name: "MC-MAP-S2", base: baseMulti, setup: all(states(DOWN, OK, OK), x(1, standby, PurposeAutoFail, camera)),
-			ev: smcMap(1000, mm(standbyIsS2)), change: toMap(mm(standbyIsS2)), out: PurposeAutoFail, to: standby2, bad: camMain},
+			// /0c: 待機の解決結果が変わった入口で、残る期待は照合だけ（作用を無効化。FB-ST-14）。
+			ev: smcMap(1000, mm(standbyIsS2)), change: all(toMap(mm(standbyIsS2)), effectsDisabledOf(1)), out: PurposeAutoFail, to: standby2, bad: camMain},
 		{name: "MC-MAP-OWNER/auto", base: baseMulti, setup: own(OwnerAuto, camera), ev: smcMap(1000, mm(standbyIsS2)),
 			change: all(toMap(mm(standbyIsS2)), clearOwner), check: func(t *testing.T, m *Machine) {
 				if m.st.StandbyUUID != standby2 {
@@ -432,9 +449,10 @@ func TestMCConnect(t *testing.T) {
 			ev: connM(1000, true, camera, mm(renamed(camera, "Camera-renamed"))), change: reconnected(mm(renamed(camera, "Camera-renamed"))),
 			out: PurposeAutoFail, bad: camMain},
 		{name: "MC-OC-2/auto", base: baseMulti, setup: all(own(OwnerAuto, camera), disconnected),
-			ev: connM(1000, true, standby, aGone), change: all(reconnected(aGone), clearOwner)},
-		{name: "MC-OC-2/manual", base: baseMulti, setup: all(own(OwnerManual, camera), disconnected),
-			ev: connM(1000, true, standby, aGone), change: reconnected(aGone)},
+			ev: connM(1000, true, standby, aGone), change: all(reconnected(aGone), releasedAll)},
+		// /0c: manual の戻り先の削除も全解除（W-04 の「manual の戻り先がなくなっても消さない」を置き換えた。FB-ST-10）。
+		{name: "MC-OC-2/manual/0c", base: baseMulti, setup: all(own(OwnerManual, camera), disconnected),
+			ev: connM(1000, true, standby, aGone), change: all(reconnected(aGone), releasedAll)},
 		{name: "MC-OC-3", base: baseMulti, setup: all(own(OwnerAuto, camera), disconnected),
 			ev: connM(1000, true, standby, emptyMap()), change: all(reconnected(emptyMap()), clearOwner),
 			check: wantSnap(ClassStandby, false, "", "")},
@@ -471,7 +489,8 @@ func TestMCSceneChanged(t *testing.T) {
 		{name: "MC-SC-2", base: baseMulti, setup: all(own(OwnerAuto, camera), x(1, camera, PurposeAutoRecover, "")),
 			ev: SceneChanged{At: at(1000), Scene: "Camera", SceneUUID: camera2}, change: manualTo(camera2)},
 		{name: "MC-SC-3/auto_fail", base: baseMulti, setup: all(useMap(mm(standbyIsS2)), x(1, standby, PurposeAutoFail, camera)),
-			ev: sc(1000, standby), change: arrived(standby), check: wantSnap(ClassOther, false, "", "")},
+			ev: sc(1000, standby), change: all(arrived(standby), setOwner(OwnerAuto, camera)), out: PurposeAutoRecover, in: []string{inMain, inSub},
+			check: wantSnap(ClassOther, false, "", "")}, // /0c: auto の現在シーンが待機という前提を廃止（W-02）。画像のシーンにも auto で着き、戻る
 		{name: "MC-SC-3/standby_on", base: baseMulti, setup: all(useMap(mm(standbyIsS2)), x(1, standby, PurposeStandbyOn, camera)),
 			ev: sc(1000, standby), change: arrived(standby), check: wantSnap(ClassOther, false, "", "")},
 		// SCE-1/0a、SCE-2/0a: AutoFail の期待の戻り先が地図で監視対象外なら、到着時も auto を入れない（W-02）。
@@ -554,7 +573,7 @@ func TestMCCommands(t *testing.T) {
 		{name: "CMD-SOFF-5/0a/multi", base: baseMulti, setup: own(OwnerManual, camera), ev: cmd(1000, CmdStandbyOff),
 			out: PurposeStandbyOffMonitored, in: []string{inMain, inSub}},
 		{name: "CMD-SOFF-6/0a/multi", base: baseMulti, setup: all(own(OwnerManual, camera), states(OK, LOW, OK)), ev: cmd(1000, CmdStandbyOff),
-			change: func(s *state) { s.StandbyOwner = OwnerAuto }},
+			change: toAutoOwner},
 		{name: "MC-CMD-2", base: baseMulti, setup: useMap(mm(renamed(standby, "Gone"))), ev: cmd(1000, CmdStandbyOn),
 			err: invalid, reason: ReasonStandbyNotFound},
 		{name: "MC-CMD-2/after_streaming_check", base: baseMulti, setup: all(useMap(mm(renamed(standby, "Gone"))), notStreaming),
@@ -579,7 +598,7 @@ func TestMCApprove(t *testing.T) {
 	renamedA := mm(renamed(camera, "Camera-renamed"))
 	standbyMoved := mm(standbyIsS2)
 	aBad := states(OK, DOWN, OK)
-	toAuto := func(s *state) { s.StandbyOwner = OwnerAuto }
+	toAuto := toAutoOwner
 	runApRows(t, []apRow{
 		{name: "MC-AP-1", base: baseMulti, setup: all(own(OwnerAuto, camera), p(1, PurposeAutoRecover, ""), useMap(mm(dropped(camera))), clearOwner),
 			action: set(camera), atMs: 1000, res: Reject{}},
@@ -623,7 +642,7 @@ func TestApproveMultiHealth(t *testing.T) {
 		{name: "AP-AUTOREC-3/0a/multi", base: baseMulti, setup: all(own(OwnerAuto, camera), states(OK, LOW, OK), p(1, PurposeAutoRecover, "")),
 			action: set(camera), atMs: 1000, res: Reject{}},
 		{name: "AP-SOFFM-3/0a/multi", base: baseMulti, setup: all(own(OwnerManual, camera), states(LOW, OK, OK), p(1, PurposeStandbyOffMonitored, "")),
-			action: restartOf(inMain, inSub), atMs: 1000, res: Replace{}, change: all(func(s *state) { s.StandbyOwner = OwnerAuto }, markReplaced)},
+			action: restartOf(inMain, inSub), atMs: 1000, res: Replace{}, change: all(toAutoOwner, markReplaced)},
 		{name: "AP-SOFFM-4/0a/multi", base: baseMulti, setup: all(autoOff, own(OwnerManual, camera), states(LOW, OK, OK), p(1, PurposeStandbyOffMonitored, "")),
 			action: set(camera), atMs: 1000, res: Proceed{}, register: true},
 	})

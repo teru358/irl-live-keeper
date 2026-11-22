@@ -54,8 +54,8 @@ func TestRows0aCamerasChanged(t *testing.T) {
 		{name: "LC-2/0a", ev: ccs(1000, DOWN), change: subTo(DOWN), out: PurposeAutoFail, bad: camSub},
 		{name: "LC-3/0a", setup: all(sub(LOW), p(1, PurposeAutoFail, camera)), ev: ccs(1000, DOWN), change: subTo(DOWN)},
 		{name: "LC-4/0a", setup: all(sub(LOW), x(1, standby, PurposeAutoFail, camera)), ev: ccs(1000, DOWN), change: subTo(DOWN)},
-		{name: "LC-5/0a", setup: all(sub(LOW), sentAt(PurposeAutoFail, 800)), ev: ccs(1000, DOWN), change: subTo(DOWN),
-			out: PurposeAutoFail, bad: camSub},
+		// /0c: 同じ候補の再送は全入口で最短5秒（FB-CC-10）。0a の「Tick だけの再送の歯止め」を置き換えた。
+		{name: "LC-5/0a/0c", setup: all(sub(LOW), sentAt(PurposeAutoFail, 800)), ev: ccs(1000, DOWN), change: subTo(DOWN)},
 		{name: "LC-6/0a", setup: sub(LOW), ev: ccs(1000, OK), change: subTo(OK)},
 		{name: "LC-6/0a/DOWN", setup: sub(DOWN), ev: ccs(1000, OK), change: subTo(OK)},
 		{name: "LC-7/0a", setup: all(sub(LOW), p(1, PurposeAutoFail, camera)), ev: ccs(1000, OK), change: subTo(OK),
@@ -119,10 +119,10 @@ func TestRows0aCamerasChanged(t *testing.T) {
 func afterResolvedTick(id int) func(t *testing.T, m *Machine) {
 	return func(t *testing.T, m *Machine) {
 		t.Helper()
-		handle1(m, BatchDone{At: at(1500), BatchID: id, Result: BatchCompleted})
-		b, _ := handle1(m, tick(2000))
+		// /0c: 未完了が解消した BatchDone で、その場で判断する（次の Tick まで待たない）。
+		b, _ := handle1(m, BatchDone{At: at(1500), BatchID: id, Result: BatchCompleted})
 		if b == nil || b.Purpose != PurposeAutoFail || b.BadCamera != camSub {
-			t.Errorf("抑止の解除後の Tick: got %+v, want AutoFail(bad=sub)", b)
+			t.Errorf("抑止の解除後の BatchDone: got %+v, want AutoFail(bad=sub)", b)
 		}
 	}
 }
