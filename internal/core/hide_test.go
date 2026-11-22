@@ -380,17 +380,22 @@ func TestMustPersistTimeoutIs1s(t *testing.T) {
 // 通常の保存（「隠した」への更新）が失敗しても警告を出し、一定の間隔で書き直す（H-06）。
 func TestAsyncPersistFailureRetries(t *testing.T) {
 	var mu sync.Mutex
-	calls := 0
+	failed := 0 // 失敗させた書き込みの数
 	var failing bool
 	var real func(string, []byte) error = atomicWrite
+	// 失敗させるのは「隠した」を含む中身の書き込みだけ。隠す前の同期の保存（pending）は通す。
+	// 書き込みの順や回数には頼らない（非同期の保存と同期の保存の順は決まっていない）。
 	h, path := hideHarness(t, withHiddenRetry(20*time.Millisecond), withHiddenWrite(func(p string, b []byte) error {
+		es, err := decodeHidden(b)
 		mu.Lock()
-		calls++
-		n, f := calls, failing
-		mu.Unlock()
-		if n > 1 && f {
+		f := failing
+		hiddenState := err == nil && slices.ContainsFunc(es, func(e switcher.HiddenEntry) bool { return e.State == switcher.HiddenH })
+		if f && hiddenState {
+			failed++
+			mu.Unlock()
 			return errors.New("disk full")
 		}
+		mu.Unlock()
 		return real(p, b)
 	}))
 	mu.Lock()
@@ -402,8 +407,23 @@ func TestAsyncPersistFailureRetries(t *testing.T) {
 	h.connectMap(true, camera, hideMap())
 	h.waitCall("item:Camera:2:false")
 	h.waitSnap("書けない警告", func(s Snapshot) bool {
+		h.tick(h.clk.Advance(time.Millisecond)) // 警告は Snapshot の作り直しで付く（保存の失敗だけでは作り直されない）
 		return slices.ContainsFunc(s.OBS.Warnings, func(w string) bool { return strings.Contains(w, "hidden.json") })
 	})
+	// 書き直し（再試行）が実際に起きる（失敗が2回以上）まで待ってから、書けるようにする
+	deadline := time.Now().Add(wait)
+	for {
+		mu.Lock()
+		n := failed
+		mu.Unlock()
+		if n >= 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("書き直しが起きない: 失敗 %d 回", n)
+		}
+		time.Sleep(time.Millisecond)
+	}
 	mu.Lock()
 	failing = false
 	mu.Unlock()
@@ -768,14 +788,28 @@ var _ = ingest.SampleSet{}
 // 非同期の保存が止まったままでも、取り消したあと Run は期限の内に戻る（ディスクの処理だけが残る）。
 func TestRunReturnsWhenAsyncWriteIsStuck(t *testing.T) {
 	var n atomic.Int32
+	var active atomic.Int32 // 書き込みの関数の中にいる数（止められているものを含む）
 	block := make(chan struct{})
 	h, path := hideHarness(t, withHiddenWrite(func(p string, b []byte) error {
+		active.Add(1)
+		defer active.Add(-1)
 		if n.Add(1) > 1 { // 最初の同期の保存だけ通し、あとの非同期の保存は止める
 			<-block
 		}
 		return atomicWrite(p, b)
 	}))
-	t.Cleanup(func() { close(block) })
+	// 後片づけは逆順に走る。TempDir の削除（先に登録済み）より前に、止めた書き込みを解いて、
+	// 終わるのを待つ（待たないと、解かれた書き込みが削除の最中にファイルを作り、RemoveAll が落ちる）。
+	t.Cleanup(func() {
+		close(block)
+		deadline := time.Now().Add(wait)
+		for active.Load() > 0 && time.Now().Before(deadline) {
+			time.Sleep(time.Millisecond)
+		}
+		if active.Load() > 0 {
+			t.Error("止めた書き込みが終わらない")
+		}
+	})
 	_ = path
 	h.itemWorld()
 	h.start()

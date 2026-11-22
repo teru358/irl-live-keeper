@@ -342,8 +342,12 @@ func TestStudioModeChangedBeforeAndAfterSnapshot(t *testing.T) {
 			return auxReply{}, false
 		}
 		switch r.Type {
-		case "GetStudioModeEnabled":
-			// 応答より前にイベントを送る（同じ接続で、イベント、応答の順に届く）
+		case "GetCurrentProgramScene":
+			// Studio Mode の応答より前にイベントを送る（同じ接続で、イベント、応答の順に届く）。
+			// GetStudioModeEnabled の hook で送ると、本体の pump がイベントを読んで数える前に
+			// 境界（mark）が確定し、前のイベントが後ろ扱いになる（mark の既知の制約の窓。-race なしだと
+			// ほぼ毎回起きる）。次の要求は、この応答を読んでから送られるので、1往復ぶん前に送れば
+			// pump が数え終えたあとに境界が確定する。
 			s.sendEvent(1, "StudioModeStateChanged", map[string]any{"studioModeEnabled": true})
 		case "GetCurrentSceneTransition":
 			// Studio Mode の応答より後
