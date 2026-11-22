@@ -513,6 +513,8 @@ type ArrivalPlan struct {
 	Plan Plan
 	// EffectsDisabled は照合だけして作用（持ち主・スタック・戻り先）を当てない印。
 	EffectsDisabled bool
+	// DisabledByOn は、待機で auto の ON の特例が無効にした印（古い設定の世代の期待にも付く）。待機名の変更などによる無効化と分け、FB-SC-11 の通知はこの印で判断する。
+	DisabledByOn bool
 }
 
 // clone は計画の写し（Append を共有しない）。

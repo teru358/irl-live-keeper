@@ -595,7 +595,7 @@ func (m *Machine) onSceneChanged(e SceneChanged) []Batch {
 		} else {
 			// 古い復帰は部分的に当てず、全解除する（V-07）。
 			// 待機の ON の特例のあとに先の戻りの切替が届いたときは、戻り先に残って手動の待機を解き、知らせる（FB-SC-11）。
-			afterOn := hit.Plan.EffectsDisabled && s.StandbyOwner == OwnerManual && e.SceneUUID != s.StandbyUUID
+			afterOn := hit.Plan.DisabledByOn && s.StandbyOwner == OwnerManual && e.SceneUUID != s.StandbyUUID
 			m.clearOwner()
 			if afterOn {
 				m.recordError(e.At, "待機 ON の前に送った戻りの切替が届いたため、"+m.sceneLabel(e.SceneUUID)+
@@ -943,6 +943,11 @@ func (m *Machine) onCommand(e Command) (*Batch, error) {
 			s.StandbyOwner = OwnerManual
 			s.Stack = nil
 			m.disableExpectations()
+			for i := range s.Expectations {
+				if s.Expectations[i].Purpose.IsAuto() {
+					s.Expectations[i].Plan.DisabledByOn = true // 古い設定の世代の期待にも付ける
+				}
+			}
 			return nil, nil
 		}
 		return m.emit(PurposeStandbyOn, e.At, []Action{SetScene{SceneUUID: s.StandbyUUID}}, m.onReturnTarget(), "", ArrivalPlan{}), nil

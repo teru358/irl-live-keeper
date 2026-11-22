@@ -162,7 +162,7 @@ func (c *Core) publish() {
 	}
 	if c.warnings != nil {
 		if w := c.warnings(); len(w) > 0 {
-			s.OBS.Warnings = append([]string(nil), w...)
+			s.OBS.Warnings = append(s.OBS.Warnings, w...)
 		}
 	}
 	if c.media != nil {

@@ -914,6 +914,7 @@ func TestExecuteRestartSubset(t *testing.T) {
 // status の warnings: 名前が OBS で引けない scene_fallbacks の行を、行番号（1 始まり）と名前つきで出す（0c T4）。
 func TestSnapshotFallbackWarnings(t *testing.T) {
 	h := newHarness(t, func(_ *switcher.Config, d *Deps) {
+		d.Warnings = func() []string { return []string{"既存の警告"} }
 		d.SceneFallbacks = []switcher.FallbackRow{
 			{Scene: "NoSuchScene", Fallback: camera},
 			{Scene: camera, Fallback: "GoneScene"},
@@ -930,6 +931,9 @@ func TestSnapshotFallbackWarnings(t *testing.T) {
 		if strings.Contains(w, "scene_fallbacks") {
 			got = append(got, w)
 		}
+	}
+	if !slices.Contains(s.OBS.Warnings, "既存の警告") {
+		t.Fatalf("既存の警告が消えた: %v", s.OBS.Warnings)
 	}
 	if len(got) != 2 || !strings.Contains(got[0], "NoSuchScene") || !strings.Contains(got[1], "scene_fallbacks の 2 行目") || !strings.Contains(got[1], "GoneScene") {
 		t.Fatalf("warnings = %v", got)

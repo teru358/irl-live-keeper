@@ -391,3 +391,24 @@ func TestFBAPRestart(t *testing.T) {
 		h.wantRestartActions(f[0], SetScene{SceneUUID: deskScene})
 	})
 }
+
+func TestFBSC11StaleConfig(t *testing.T) {
+	// FB-SC-11 別列: R(A) の SetScene 承認のあと、ON より前に設定が変わって期待が古い世代になっても、ON 特例のあとの到着で通知する。
+	h := newHB(t, fbAD)
+	h.withRecoverExp()
+	c := h.cfg
+	c.At = at(8850)
+	c.SceneFallbacks = []FallbackRow{fbRow(camera, deskScene), fbRow(deskScene, talk)}
+	h.ev(c)
+	if _, err := h.cmdOn(8900); err != nil {
+		t.Fatal(err)
+	}
+	h.wantOwner(OwnerManual, camera)
+	h.scene(9000, camera)
+	h.wantScene(camera)
+	h.wantOwner(OwnerNone, "")
+	le := h.m.Snapshot().LastError
+	if le == nil || !strings.HasPrefix(le.Msg, "待機 ON の前に送った戻りの切替が届いたため、") {
+		t.Fatalf("last_error = %+v", le)
+	}
+}
