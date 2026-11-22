@@ -5,7 +5,7 @@
 **前提・守ること・道具・準備・片づけは、同じフォルダの `hide-agent-brief.md` のとおりにする。** 違うのは次の点だけ:
 
 - 記録のファイルは `fallback-result.md`、見張りのファイルは `status-fb.txt` と `obs-fb.txt`
-- 本体は**新しい `irl-live-keeper.exe`（2026-11-22 20:16 の版、14,224,384 バイト）**、`ctl.exe` も新しい版（11,396,608 バイト）。準備 1 で、ユーザーに exe を入れ替えたことを確かめてもらう
+- 本体は**新しい `irl-live-keeper.exe`（2026-11-22 20:16 の版、14,224,384 バイト）**、`ctl.exe` も新しい版（11,415,040 バイト。`test setup` が T-A の cam-main を左上、cam-sub を右下に半分の大きさで置き、T-B と T-Sub は全画面にする。重ならないので、どちらが映っているかを目で見分けやすい）。準備 1 で、ユーザーに exe を入れ替えたことを確かめてもらう
 - 道具に `standby.ps1` が増えた: `powershell -ExecutionPolicy Bypass -File .\standby.ps1 on`（または `off`）で、手動の待機の ON / OFF を押す（パスワードは `config.yaml` から読み、表示しない）
 - **`config.yaml` は、ユーザーに手で書き足してもらう**（あなたは書き換えない）。`obs:` の下に次の2行を足し、本体を起動し直してもらう:
   ```yaml
@@ -13,6 +13,7 @@
       - {scene: T-A, fallback: T-Sub}
   ```
   `main` は `on_bad: standby`、`sub` は `on_bad: hide` のまま。**`test setup` の前に本体を起動すると、T-A と T-Sub がまだないので、status の `warnings` に「scene_fallbacks の 1 行目: scene「T-A」が OBS にない…」が出る。`test setup` のあとで消えることも確かめる**（W0c-0）
+- **送り方と回線**: 2台とも **RTMP** で送る（It's My Live の SRT は映像の track を宣言しないので映らない。T-15 の記録）。`main`（Android）は **LAN**、`sub`（iOS）は **キャリアのモバイル回線から Tailscale** で送る（`hide-agent-brief.md` の「回線」のとおり。It's My Live の URL のホストだけを Windows の Tailscale のアドレスに替える）。項目の結果に、sub の回線を書く
 - 片づけの最後に、ユーザーに `scene_fallbacks` の2行を消してもらうかどうかを聞く（残しても、T-A がなければ警告が出るだけで害はない）
 
 ## 背景（0c）

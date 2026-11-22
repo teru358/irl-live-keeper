@@ -168,6 +168,9 @@ func testSetup(c *goobs.Client) error {
 			return err
 		}
 	}
+	// 2台が重ならないように置く（T-A はメインを左上、サブを右下に半分の大きさで。T-B と T-Sub は全画面）。
+	// 名前の文字はいちばん上へ。置けなくても試験は続ける。
+	layoutTestScenes(c, [][3]string{{sA, in1, "tl"}, {sA, in2, "br"}, {sB, in1, "full"}, {sSub, in2, "full"}}, []string{sA, sB, sSub})
 	if _, err := c.Scenes.SetCurrentProgramScene(&scenes.SetCurrentProgramSceneParams{SceneName: &sB}); err != nil {
 		return err
 	}
@@ -415,4 +418,62 @@ func waitReady(c *goobs.Client) error {
 func notFound(err error) bool {
 	msg := err.Error()
 	return strings.Contains(msg, "ResourceNotFound") || strings.Contains(msg, "(600)")
+}
+
+// layoutTestScenes は、試験のシーンの項目の位置と大きさを決める（place は "tl"〔左上の 1/4〕、"br"〔右下の 1/4〕、"full"）。
+// SetSceneItemTransform は渡した値をすべて当てるので、今の値を読んでから位置と境界だけを変える。
+func layoutTestScenes(c *goobs.Client, items [][3]string, sceneNames []string) {
+	vs, err := c.Config.GetVideoSettings()
+	if err != nil {
+		fmt.Println("注意: 画面の大きさを読めないので、項目を置き直さない:", err)
+		return
+	}
+	w, h := vs.BaseWidth, vs.BaseHeight
+	for _, it := range items {
+		scene, source, place := it[0], it[1], it[2]
+		id, err := c.SceneItems.GetSceneItemId(&sceneitems.GetSceneItemIdParams{SceneName: &scene, SourceName: &source})
+		if err != nil {
+			fmt.Println("注意: 項目が見つからない:", scene, source, err)
+			continue
+		}
+		tr, err := c.SceneItems.GetSceneItemTransform(&sceneitems.GetSceneItemTransformParams{SceneName: &scene, SceneItemId: &id.SceneItemId})
+		if err != nil || tr.SceneItemTransform == nil {
+			fmt.Println("注意: 項目の位置を読めない:", scene, source, err)
+			continue
+		}
+		t := *tr.SceneItemTransform
+		x, y, bw, bh := 0.0, 0.0, w, h
+		switch place {
+		case "tl":
+			bw, bh = w/2, h/2
+		case "br":
+			x, y, bw, bh = w/2, h/2, w/2, h/2
+		}
+		t.PositionX, t.PositionY = x, y
+		t.Alignment = 5 // 左上
+		t.BoundsType = "OBS_BOUNDS_SCALE_INNER"
+		t.BoundsAlignment = 0
+		t.BoundsWidth, t.BoundsHeight = bw, bh
+		if t.ScaleX == 0 || t.ScaleY == 0 {
+			t.ScaleX, t.ScaleY = 1, 1
+		}
+		if _, err := c.SceneItems.SetSceneItemTransform(&sceneitems.SetSceneItemTransformParams{SceneName: &scene, SceneItemId: &id.SceneItemId, SceneItemTransform: &t}); err != nil {
+			fmt.Println("注意: 項目を置き直せない:", scene, source, err)
+		}
+	}
+	for _, scene := range sceneNames {
+		label := "label-" + scene
+		id, err := c.SceneItems.GetSceneItemId(&sceneitems.GetSceneItemIdParams{SceneName: &scene, SourceName: &label})
+		if err != nil {
+			continue
+		}
+		list, err := c.SceneItems.GetSceneItemList(&sceneitems.GetSceneItemListParams{SceneName: &scene})
+		if err != nil {
+			continue
+		}
+		top := len(list.SceneItems) - 1
+		if _, err := c.SceneItems.SetSceneItemIndex(&sceneitems.SetSceneItemIndexParams{SceneName: &scene, SceneItemId: &id.SceneItemId, SceneItemIndex: &top}); err != nil {
+			fmt.Println("注意: 名前の文字を上に出せない:", scene, err)
+		}
+	}
 }
