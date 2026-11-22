@@ -34,7 +34,10 @@ const (
 	stableAfter  = 60 * time.Second // これだけ動けば待ち時間を戻す
 	earlyExit    = 5 * time.Second  // これより早く落ちたら起動失敗として扱う
 	defaultGrace = 5 * time.Second  // 終了を求めてから kill するまで
-	ymlName      = "mediamtx.yml"
+	// defaultExitSettle は、子が思いがけず終わったときに、本体の終了が続いて来るかを待つ長さ。
+	// Windows でコンソールの Ctrl+C や窓を閉じる操作は、同じコンソールの子にも同時に届き、子が本体より一瞬早く終わる。
+	defaultExitSettle = time.Second
+	ymlName           = "mediamtx.yml"
 )
 
 // Status は MediaMTX の現在の状態。
@@ -54,6 +57,8 @@ type Supervisor struct {
 	now   func() time.Time
 	sleep func(ctx context.Context, d time.Duration) error
 	grace time.Duration
+	// exitSettle は defaultExitSettle（テストで差し替える）。
+	exitSettle time.Duration
 
 	// api の資格情報。New で1回だけ作り、プロセスが終わるまで変えない
 	// （Poller は作成時に受け取った資格情報で API を呼び続けるため）。
@@ -72,10 +77,11 @@ func New(cfg *config.Config, binPath, workDir string, log *slog.Logger) *Supervi
 	}
 	s := &Supervisor{
 		cfg: cfg, binPath: binPath, workDir: workDir, log: log,
-		now:    time.Now,
-		sleep:  sleepCtx,
-		grace:  defaultGrace,
-		status: Status{State: StateDown},
+		now:        time.Now,
+		sleep:      sleepCtx,
+		grace:      defaultGrace,
+		exitSettle: defaultExitSettle,
+		status:     Status{State: StateDown},
 	}
 	s.apiUser, s.apiPass, s.credErr = newCredentials()
 	return s
@@ -199,14 +205,28 @@ func (s *Supervisor) runOnce(ctx context.Context) (time.Duration, error) {
 	}
 	s.setStatus(StateRunning, "")
 
+	stopped := false
 	select {
 	case <-c.done:
 	case <-ctx.Done():
 		s.stop(c)
+		stopped = true
 	}
 	lw.flush()
 	ran := s.now().Sub(start)
+	if !stopped && ctx.Err() == nil && s.exitSettle > 0 {
+		// 子が先に終わった。本体の終了が少し遅れて来ることがあるので、少しの間待つ。
+		t := time.NewTimer(s.exitSettle)
+		select {
+		case <-ctx.Done():
+		case <-t.C:
+		}
+		t.Stop()
+	}
 	if ctx.Err() != nil {
+		if !stopped {
+			s.log.Info("MediaMTX が終了しました（本体の終了と同時）", "after", ran.String(), "error", c.err)
+		}
 		return ran, nil
 	}
 

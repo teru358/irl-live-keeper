@@ -387,3 +387,46 @@ func TestRealMediaMTX(t *testing.T) {
 		t.Fatal("Run が戻りません")
 	}
 }
+
+// 子が本体より一瞬早く終わり（Windows でコンソールの Ctrl+C や窓を閉じる操作は、同じコンソールの子にも同時に届く）、
+// そのすぐあとに本体の終了（ctx）が来たときは、思いがけない終了として WARN を出さない（M-13 の Windows の確認）。
+func TestExitJustBeforeShutdownIsNotWarned(t *testing.T) {
+	s, buf := newSup(t, "exit")
+	s.exitSettle = 5 * time.Second
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		// 子はすぐ終わる。本体の終了はそのあとに来る
+		for s.Status().State != StateRunning {
+			time.Sleep(5 * time.Millisecond)
+		}
+		time.Sleep(300 * time.Millisecond)
+		cancel()
+	}()
+	done := make(chan struct{})
+	go func() { s.Run(ctx); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Run が戻らない")
+	}
+	if strings.Contains(buf.String(), "level=WARN") {
+		t.Errorf("本体の終了の直前の子の終了で WARN が出た:\n%s", buf.String())
+	}
+	if !strings.Contains(buf.String(), "MediaMTX が終了しました（本体の終了と同時）") {
+		t.Errorf("終了の INFO の行がない:\n%s", buf.String())
+	}
+}
+
+// 本体が終わらないまま子が終わったら、待ったあとで今までどおり WARN を出して起動し直す。
+func TestUnexpectedExitStillWarnsAfterSettle(t *testing.T) {
+	s, buf := newSup(t, "exit")
+	s.exitSettle = 20 * time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s.sleep = func(context.Context, time.Duration) error { cancel(); return context.Canceled }
+	s.Run(ctx)
+	if !strings.Contains(buf.String(), `level=WARN msg="MediaMTX が終了しました"`) {
+		t.Errorf("思いがけない終了の WARN がない:\n%s", buf.String())
+	}
+}
