@@ -675,10 +675,10 @@ func TestStatusHiddenFields(t *testing.T) {
 
 func TestStudioModeWarnings(t *testing.T) {
 	cases := []struct{ mode, want string }{
-		{"", "Studio Mode のため、隠す動きの代わりに待機シーンへ送っています"},
-		{switcher.StudioHideStandby, "Studio Mode のため、隠す動きの代わりに待機シーンへ送っています"},
-		{switcher.StudioHideIgnore, "Studio Mode のため、隠す動きを止めています"},
-		{switcher.StudioHideHide, "Studio Mode でも隠しています（OBS の『シーンを複製』を切っていないと配信に効きません）"},
+		{"", "屋外配信では Studio Mode を勧めません。Studio Mode のため、隠す動きの代わりに待機シーンへ送っています"},
+		{switcher.StudioHideStandby, "屋外配信では Studio Mode を勧めません。Studio Mode のため、隠す動きの代わりに待機シーンへ送っています"},
+		{switcher.StudioHideIgnore, "屋外配信では Studio Mode を勧めません。Studio Mode のため、隠す動きを止めています"},
+		{switcher.StudioHideHide, "屋外配信では Studio Mode を勧めません。Studio Mode でも隠しています（OBS の『シーンを複製』を切っていないと配信に効きません）"},
 	}
 	for _, c := range cases {
 		t.Run(c.mode, func(t *testing.T) {

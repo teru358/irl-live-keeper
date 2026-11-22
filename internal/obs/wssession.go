@@ -241,7 +241,22 @@ type sess struct {
 	quiet      <-chan time.Time
 	quietD     time.Duration // 切替の最中に、次のイベントを待つ長さ
 	first      bool          // まだ1回も読み取りを終えていない（版を読む）
+
+	// Studio Mode を切るときの一瞬の切替（spec F-9）を捨てるための状態。
+	studio    bool             // 今の Studio Mode（読み取りの結果と、そのあとの StudioModeStateChanged）
+	pend      []pendingEv      // 取っておいているイベント（届いた順）
+	progPrev  string           // 取っておき始める前の program のシーン（sceneID）
+	bounceEnd <-chan time.Time // 取っておく窓の終わり。窓がなければ nil
 }
+
+// pendingEv は、Studio Mode の間に取っておいているイベント1つ。
+type pendingEv struct {
+	ev any
+	at time.Time
+}
+
+// studioBounceWindow は、Studio Mode の間の program の切替を取っておく長さ（最初の1つが届いてから）。
+const studioBounceWindow = 250 * time.Millisecond
 
 // session は1回の接続を、切れるか ctx が終わるまで扱う。OBSConnected を流せたかを返す。
 func (w *WS) session(ctx context.Context) (connected bool) {
@@ -310,6 +325,9 @@ func (s *sess) run(addr string) {
 			s.quiet = nil
 			w.log.Info("OBS のイベントが途切れた。読み直す")
 			s.startReload()
+		case <-s.bounceEnd:
+			// 窓の終わりまでに StudioModeStateChanged false が来なかった。人の切替として流す。
+			s.flushBounce()
 		}
 	}
 }
@@ -320,6 +338,7 @@ func (s *sess) startReload() {
 	s.state = stateReloading
 	s.quiet = nil
 	s.held, s.heldTrans, s.heldKick = nil, false, false
+	s.dropBounce()
 	s.reloadGen++
 	gen := s.reloadGen
 	rctx, cancel := context.WithCancel(s.ctx)
@@ -426,6 +445,8 @@ func (s *sess) connect(r reloadResult, addr string) bool {
 	s.q.initCur(r.connected.SceneUUID, r.bnd.scene)
 	c.legacy.Store(r.legacy)
 	s.curUUID = r.connected.SceneUUID
+	s.studio = r.connected.StudioMode
+	s.dropBounce()
 	w.mu.Lock()
 	w.legacy = r.legacy
 	w.mapFails = 0
@@ -532,6 +553,7 @@ func (s *sess) beginSwitch(wait time.Duration) {
 	w := s.w
 	s.cancelReload()
 	s.held, s.heldTrans, s.heldKick = nil, false, false
+	s.dropBounce()
 	if s.state == stateRunning || s.ep != nil {
 		s.endEpoch()
 	}
@@ -605,8 +627,105 @@ func (s *sess) sceneID(uuid, name string) string {
 	return uuid
 }
 
-// handleRunning は動作中のイベント1つを写して流す。要求は送らない。
+// dropBounce は、取っておいたイベントを流さずに捨てる（切断、読み直し、コレクションの切替）。
+// 今のシーンは、つなぎ直しの読み取りで読む。
+func (s *sess) dropBounce() {
+	s.pend, s.bounceEnd, s.progPrev = nil, nil, ""
+}
+
+// bounceHandle は Studio Mode を切るときの一瞬の切替（spec 第1節の F-9）の、取っておく・捨てる・流す。
+// 取っておく・捨てるなら true（呼び出し側は何も流さない）。
+//   - Studio Mode がオンと知っている間の CurrentProgramSceneChanged は、すぐ流さず、最初の1つから
+//     studioBounceWindow の間、取っておく。取っておく間に届いた、Event に写して流すもの
+//     （ItemEnabledChanged など）も、順を保つため後ろに並べる。
+//   - Event を流さないもの（地図の読み直しを頼むだけの refresher.kick、トランジションの取り直しの kick、
+//     InputSettingsChanged）は、順を保つ必要がないので、今までどおりすぐ扱う（false を返す）。
+//   - curUUID（SceneRemoved の判定）は、届いたとおりに更新する。pump の closeGateEarly も届いたとおりに
+//     更新して門を閉じており、実際の OBS の program は届いたシーンなので、それと揃える。
+//     取っておく前の program のシーンは progPrev に別に覚える。
+func (s *sess) bounceHandle(ev any, at time.Time) bool {
+	pending := len(s.pend) > 0
+	switch e := ev.(type) {
+	case *events.CurrentProgramSceneChanged:
+		if !s.studio && !pending {
+			return false
+		}
+		if !pending {
+			s.progPrev = s.curUUID
+			s.bounceEnd = s.w.clock.After(studioBounceWindow)
+		}
+		s.curUUID = s.sceneID(e.SceneUuid, e.SceneName)
+		s.pend = append(s.pend, pendingEv{ev, at})
+		return true
+	case *events.StudioModeStateChanged:
+		s.studio = e.StudioModeEnabled
+		if !pending {
+			return false
+		}
+		if e.StudioModeEnabled {
+			s.pend = append(s.pend, pendingEv{ev, at})
+		} else {
+			s.resolveBounce(ev, at)
+		}
+		return true
+	case *events.CurrentSceneTransitionDurationChanged, *events.StreamStateChanged, *events.SceneItemEnableStateChanged:
+		if !pending {
+			return false
+		}
+		s.pend = append(s.pend, pendingEv{ev, at})
+		return true
+	}
+	return false
+}
+
+// resolveBounce は、取っておく間に StudioModeStateChanged false が届いたときの扱い。
+func (s *sess) resolveBounce(off any, at time.Time) {
+	pend, prev := s.pend, s.progPrev
+	s.dropBounce()
+	last := -1
+	var names []string
+	for i, p := range pend {
+		if e, ok := p.ev.(*events.CurrentProgramSceneChanged); ok {
+			last = i
+			names = append(names, e.SceneName)
+		}
+	}
+	le := pend[last].ev.(*events.CurrentProgramSceneChanged)
+	bounce := s.sceneID(le.SceneUuid, le.SceneName) == prev
+	if bounce {
+		s.w.log.Info("studio mode off bounce ignored", "scenes", names)
+	}
+	for i, p := range pend {
+		if _, ok := p.ev.(*events.CurrentProgramSceneChanged); ok && (bounce || i != last) {
+			continue // 捨てる。最後が違うときも、間の一瞬の切替は流さない
+		}
+		s.dispatch(p.ev, p.at)
+	}
+	s.dispatch(off, at)
+}
+
+// flushBounce は、窓が終わったときに、取っておいたイベントを届いた順に、届いた時刻のまま流す。
+func (s *sess) flushBounce() {
+	pend := s.pend
+	s.dropBounce()
+	if s.state != stateRunning {
+		return
+	}
+	for _, p := range pend {
+		s.dispatch(p.ev, p.at)
+	}
+}
+
+// handleRunning は動作中のイベント1つを写して流す（Studio Mode を切るときの一瞬の切替は取っておく）。
 func (s *sess) handleRunning(ev any, at time.Time) {
+	if s.bounceHandle(ev, at) {
+		return
+	}
+	s.dispatch(ev, at)
+}
+
+// dispatch は動作中のイベント1つを写して流す。要求は送らない。
+func (s *sess) dispatch(ev any, at time.Time) {
 	w := s.w
 	switch e := ev.(type) {
 	case *events.CurrentSceneTransitionChanged:

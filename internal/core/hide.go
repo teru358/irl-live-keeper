@@ -356,9 +356,9 @@ func (c *Core) warnStudioMode(ms switcher.Snapshot) string {
 	}
 	switch strings.TrimSpace(c.studioHide) {
 	case switcher.StudioHideIgnore:
-		return "Studio Mode のため、隠す動きを止めています"
+		return "屋外配信では Studio Mode を勧めません。Studio Mode のため、隠す動きを止めています"
 	case switcher.StudioHideHide:
-		return "Studio Mode でも隠しています（OBS の『シーンを複製』を切っていないと配信に効きません）"
+		return "屋外配信では Studio Mode を勧めません。Studio Mode でも隠しています（OBS の『シーンを複製』を切っていないと配信に効きません）"
 	}
-	return "Studio Mode のため、隠す動きの代わりに待機シーンへ送っています"
+	return "屋外配信では Studio Mode を勧めません。Studio Mode のため、隠す動きの代わりに待機シーンへ送っています"
 }

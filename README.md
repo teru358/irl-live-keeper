@@ -129,6 +129,8 @@ cameras:
 
 `on_bad: hide` と Studio Mode: OBS の既定（「シーンを複製」がオン）では、Studio Mode の間は program のシーンの項目を隠しても配信の画面に効かず、次のシーンの遷移で効きます。本ツールは OBS からこの設定を読めないので、Studio Mode がオンの間の `hide` のカメラの動きを `obs.studio_mode_hide` で選びます。既定の `standby` は待機シーンへ送るので安全です。`hide` は、OBS の「シーンを複製」を切っているときだけ選んでください。Studio Mode がオフのときは、どの値でもふだんの「隠す」の動きです。Studio Mode がオンの間は、`status` の `warnings` に、そのときの動き（待機シーンへ送っている / 止めている / 隠している）が出ます。`ignore` では、すでに本体が隠している項目も、Studio Mode をオンにしただけでは戻しませんが、そのカメラが OK になる、配信を止める、`switch.auto_enabled` を false にする、`on_bad` を `standby` に変える、のどれかが起きたら、Studio Mode の間でも表示に戻します。
 
+屋外配信では Studio Mode を勧めません。屋外からは OBS を操作できず、Studio Mode の間は隠す動きが効かないか（`standby`・`ignore`）、「シーンを複製」の設定しだいになる（`hide`）ためです。なお OBS は Studio Mode を切るとき、program を一瞬 preview のシーンにしてから元へ戻します。本体はこの一瞬の切替を人の切替とは受け取らず、無視します（待機の持ち主や戻り先が消えないようにするため）。
+
 全項目は、初回に作られる `config.yaml` のコメントを見てください。
 
 ## セキュリティ
