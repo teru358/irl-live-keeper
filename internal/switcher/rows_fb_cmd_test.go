@@ -10,8 +10,10 @@ import (
 // 表 0c 4.7（Command）FB-ON・FB-OFF・FB-MA。T4: 手動の待機の ON / OFF。
 
 // cmdOn / cmdOff は Command を流して (出す列, cmdErr) を返す。
-func (h *hb) cmdOn(ms int) ([]Batch, error)  { return h.evErr(Command{At: at(ms), Kind: CmdStandbyOn}) }
-func (h *hb) cmdOff(ms int) ([]Batch, error) { return h.evErr(Command{At: at(ms), Kind: CmdStandbyOff}) }
+func (h *hb) cmdOn(ms int) ([]Batch, error) { return h.evErr(Command{At: at(ms), Kind: CmdStandbyOn}) }
+func (h *hb) cmdOff(ms int) ([]Batch, error) {
+	return h.evErr(Command{At: at(ms), Kind: CmdStandbyOff})
+}
 
 // mustCmd は cmdErr がないことを確かめて列を返す。
 func (h *hb) mustCmd(bs []Batch, err error) []Batch {
