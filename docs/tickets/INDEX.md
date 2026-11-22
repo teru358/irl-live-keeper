@@ -1,25 +1,14 @@
 # チケット一覧
 
 自動生成: `ticket.py index` (tickets skill)。手で編集しない。
-<<<<<<< HEAD
 未完了: 2 件。完了分は closed/。
 
-## 実装待ち (1)
+## 実装待ち (2)
 
-### 保守 (1)
+### 保守 (2)
 
 | id | 優先 | 起票 | 概要 |
 |---|---|---|---|
+| [fb-integ-status-mismatch](open/fb-integ-status-mismatch.md) | 中 | 2026-11-23 | 0c の結合のテストが一括の実行でまれに status の食い違いで落ちる |
 | [integ-tempdir-leak](open/integ-tempdir-leak.md) | 低 | 2026-11-23 | 結合のテストの一時フォルダが /tmp に残ることがある |
-
-## 設計待ち (1)
-
-### 機能 (1)
-
-| id | 優先 | 起票 | 概要 |
-|---|---|---|---|
-| [reader-too-slow](open/reader-too-slow.md) | 中 | 2026-11-22 | OBS の読み取りが追いつかない（reader is too slow）を status に出す |
-=======
-未完了: 0 件。完了分は closed/。
->>>>>>> ea737a7 (OBS の読み取りが追いつかない（MediaMTX の reader is too slow）を status の warnings に出す)
 
