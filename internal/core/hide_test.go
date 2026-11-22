@@ -84,21 +84,38 @@ func withRestored(es ...switcher.HiddenEntry) option {
 // hideHarness は main（standby）と sub（hide）の2台で、hidden.json を一時のフォルダに置く。
 func hideHarness(t *testing.T, opts ...option) (*harness, string) {
 	t.Helper()
-	// persister の worker は、Run が戻ったあとも書き込みを終えるまで残る（既知の制約）。t.TempDir の削除は
-	// その書き込みと競って "directory not empty" になることがあるので、自分で作り、消えるまで消し直す。
-	// 後片づけは逆順なので、newHarness の Run を止める後片づけより後に走る。
-	dir, err := os.MkdirTemp("", "hide")
-	if err != nil {
-		t.Fatal(err)
-	}
+	path := filepath.Join(t.TempDir(), "state", "hidden.json")
+	// persister の worker は、Run が戻ったあとも書き込みを終えるまで残る（既知の制約）。TempDir の削除と
+	// 競って "directory not empty" になるので、書き込みの途中の数（atomic）が 0 になり、しばらく新しい
+	// 書き込みが始まらないことを待つ。後片づけは逆順なので、newHarness の Run を止める後片づけより後、
+	// TempDir の削除より前に走る。WaitGroup は Add と Wait が競うので使わない。
+	var inflight, lastEdge atomic.Int64
 	t.Cleanup(func() {
 		deadline := time.Now().Add(wait)
-		for os.RemoveAll(dir) != nil && time.Now().Before(deadline) {
+		for time.Now().Before(deadline) {
+			if inflight.Load() == 0 && time.Since(time.Unix(0, lastEdge.Load())) >= 20*time.Millisecond {
+				return
+			}
 			time.Sleep(time.Millisecond)
 		}
 	})
-	path := filepath.Join(dir, "state", "hidden.json")
+	track := func(_ *switcher.Config, d *Deps) {
+		inner := d.HiddenWrite
+		if inner == nil {
+			inner = atomicWrite
+		}
+		d.HiddenWrite = func(p string, b []byte) error {
+			inflight.Add(1)
+			lastEdge.Store(time.Now().UnixNano())
+			defer func() {
+				lastEdge.Store(time.Now().UnixNano())
+				inflight.Add(-1)
+			}()
+			return inner(p, b)
+		}
+	}
 	all := append([]option{twoCameras, withEndpoint, withHiddenPath(path)}, opts...)
+	all = append(all, track)
 	return newHarness(t, all...), path
 }
 
