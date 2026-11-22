@@ -84,6 +84,20 @@
 - 本体が隠している間の `scene_cameras` は `[main, sub]`（カメラの spec 第3節: 本体が隠した項目は「映る」では表示として、「実際に表示」では非表示として数える）。C-4 で ctl が手で隠したときの `[main]` とは数え方が違う
 - 起動し直した直後に、猶予なく待機へ移った（本体の MediaMTX が一緒に止まり、スマホの接続が切れていたため。配信の画面はすでに止まっていた）
 
+## 3.6 シーンごとの逃がし先（0c、スマホ2台）
+
+2026-11-22 に Windows の Claude Code のセッションが代理で進めた（指示書は `m9-windows/fallback-agent-brief.md`、結果は `m9-windows/fallback-result.md`）。本体は 2026-11-22 20:16 の版（14,224,384 バイト）、`config.yaml` に `scene_fallbacks: [{scene: T-A, fallback: T-Sub}]`。main（Android、LAN、RTMP）は `on_bad: standby`、sub（iOS、キャリア回線から Tailscale、RTMP）は `on_bad: hide`。Linux の確かめは `2026-11-22-0c-linux-results.md`（L-1〜L-13 合格）。
+
+| # | 確かめること | 結果 |
+|---|---|---|
+| W0c-0 | `test setup` の前の名前の警告と、あとで消えること | 2026-11-22: 合格 |
+| W0c-1〜4 | T-A で main が悪い → T-Sub、sub も悪い → 待機、sub が戻る → T-Sub、main も戻る → T-A（stack の変化） | 2026-11-22: 合格 |
+| W0c-5 | 逃がしている間の人の切替（T-B） | 2026-11-22: 合格 |
+| W0c-6 | 手動の待機の ON → OFF（main は悪いまま。OFF で T-Sub へ） | 2026-11-22: 合格（`standby.ps1` は `-Config` を渡して動かした。下の F-10） |
+| W0c-7 | 自動の待機中の ON の特例（2台が戻っても待機のまま） | 2026-11-22: 合格。OFF から切替のログまで約1秒（戻る前のメディアソースの再起動の待ち。W0c-6 の T-Sub への OFF は約20ms） |
+| W0c-8 | sub だけ悪い → 隠す（0b のまま） | 2026-11-22: 合格 |
+| W0c-9 | 2台が同時に悪くなる（記録のみ） | 2026-11-22: T-Sub を経ずに待機へ直接、stack `["T-A","T-Sub"]`。`camera hidden`（T-A の sub）が待機への切替の確認より約0.3秒早かった。T-A には main が映ったままなので「今のシーンを空にしない」に当たらず、規則どおり（切替を送ってから OBS のトランジションが終わるまでの間に隠した） |
+
 ## 3.5 確認の途中で見つけて直したこと
 
 | # | 見つけたこと | 直し | 結果 |
@@ -96,6 +110,7 @@
 | F-7 | 試験の道具: `ctl.exe test restore` が、program に出ていた試験のシーンをトランジションの途中で消し、本体がシーンコレクションの切替とみなして読み直した（害はない）。`ctl.exe watch` を PowerShell の `>` で書くと、止めたときに最後の行が欠けた | restore はトランジションの長さ + 1秒待ってから消す。watch はファイルを引数で渡すと直接書く（tools/obsctl） | Linux で確かめた |
 | F-8 | iPhone の配信アプリで、配信中に縦と横を切り替えると、OBS の映像の縦横の比率がうまく追従しないことがある（本体はメディアソースの位置と大きさに触れない。OBS の側の動き） | 既知の症状として保留（2026-11-21 のユーザーの裁定）。境界ボックスは、もとから「内側に合わせる」で、原因ではなかった。配信の前にアプリで向きを固定する。崩れたら OBS でソースのプロパティを開いて OK（開き直す）。屋外からはボタンを押せないので、開き直すボタンは作らない。解像度の変化を本体が見つけて自動で開き直す案は、MediaMTX から読めるかがわかってからの候補 | |
 | F-9 | Studio Mode を切ると、OBS が program を一瞬 preview のシーンにしてから戻す（`CurrentProgramSceneChanged <preview>` → `CurrentProgramSceneChanged <program>` → `StudioModeStateChanged false` の順に、同じミリ秒で届く。Windows の H-8 の片づけと、Linux の OBS 33.0.0 で確かめた）。本体は2つとも人の切替と受け取る。**本体が自動で待機にいて（持ち主 `auto`）、preview が健康の良い監視対象のシーンのとき、持ち主が `none` になり、カメラが戻っても待機のまま戻らない**（Linux で再現: return A、preview H、Studio Mode を切る → `scene changed by user Standby→H`、`H→Standby`、owner `none`、main が OK になっても Standby のまま）。preview が悪いシーンのときは、本体がすぐ待機へ送り直したが、戻り先が preview のシーンに置き換わり、カメラが戻ると元のシーンでなく preview のシーンへ戻った（承認とイベントの順しだいでは持ち主 `none` で止まる）。preview が program と同じでも、同じシーンへの切替が2回届き、持ち主 `none` で止まった。手動の待機でも持ち主と戻り先が消え、待機の OFF で戻らなかった。イベントの順は `CurrentProgramSceneChanged <preview>` → `<元の program>` → `StudioModeStateChanged false`（数ミリ秒の間） | カメラの spec v0.17: obs の層で、Studio Mode の間の program の切替を 250ms 取っておき、`StudioModeStateChanged false` が続いて元のシーンに戻っていれば捨てる。あわせて、屋外配信では Studio Mode を勧めない（2026-11-22 のユーザーの裁定）。実装は 1d89661、4016dc1 | 2026-11-22: Linux で合格。自動の待機で preview が Standby・H・B、手動の待機で preview が H の4つで `studio mode off bounce ignored`、持ち主と戻り先が残り、カメラが戻る（手動は OFF）と A へ戻った。Studio Mode の中の人の切替は、ふだんどおり人の切替として届いた。2026-11-22: Windows で合格（`m9-windows/studio-agent-brief.md`、`studio-result.md`。exe は 14:35 の版 14,135,808 バイト、sub は Tailscale、main は LAN）。S-1〜S-3（preview が T-Sub、⚠回線待機中、T-B）で `studio off` のたびに `bounce ignored` が1行、`scene changed by user` は出ず、owner `auto` return `T-A` のまま、main が戻ると3つとも T-A へ（S-3 も T-B でなく T-A）。S-4 の Studio Mode の中の人の切替は2回とも人の切替として届いた。S-5 で起動のときに `隠した項目の記録を読んだ items=2` が出た |
+| F-10 | `standby.ps1` が Windows PowerShell 5.1 で `Join-Path : Cannot bind argument to parameter 'Path' because it is an empty string.` で止まった（param の既定値の中の `$PSScriptRoot` が空。`[Parameter(Mandatory)]` を付けた形で起きた見立て） | 4つのスクリプト（show-all、standby、watch-status、watch-obs）の既定のパスを、param の既定値でなく本文で決める | |
 | F-2 | ログの kbps が長い小数で読みにくい | 小数1桁に丸める（568cd6b） | 2026-11-21: 合格（`kbps=1827.7`） |
 
 ## 4. 終わったら

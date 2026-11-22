@@ -11,8 +11,10 @@ param(
   [Parameter(Mandatory = $true, Position = 0)][ValidateSet("on", "off")][string]$Action,
   [string]$Password = "",
   [string]$Url = "http://127.0.0.1:8787",
-  [string]$Config = (Join-Path $PSScriptRoot "config.yaml")
+  [string]$Config = ""
 )
+$here = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
+if ($Config -eq "") { $Config = Join-Path $here "config.yaml" }  # param の既定値では $PSScriptRoot が空になることがある（Windows PowerShell 5.1）
 
 function Read-AdminPassword([string]$path) {
   if (-not (Test-Path $path)) { return "" }

@@ -12,8 +12,10 @@ param(
   [int]$Seconds = 300,
   [string]$Out = ".\watch.txt",
   [string]$Addr = "127.0.0.1:4455",
-  [string]$PasswordFile = (Join-Path $PSScriptRoot "ws-password.txt")
+  [string]$PasswordFile = ""
 )
+$here = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
+if ($PasswordFile -eq "") { $PasswordFile = Join-Path $here "ws-password.txt" }  # param の既定値では $PSScriptRoot が空になることがある（Windows PowerShell 5.1）
 
 if (-not (Test-Path $PasswordFile)) {
   $sec = Read-Host -AsSecureString "OBS の WebSocket のパスワード（ツール → WebSocket サーバー設定）"
@@ -28,6 +30,6 @@ $OutputEncoding = [Text.Encoding]::UTF8
 
 $env:OBS_WS_ADDR = $Addr
 $env:OBS_WS_PASSWORD_FILE = (Resolve-Path $PasswordFile).Path
-$ctl = Join-Path $PSScriptRoot "ctl.exe"
+$ctl = Join-Path $here "ctl.exe"
 # Tee-Object は Windows PowerShell 5.1 では -Encoding を持たない（ファイルは UTF-16 で書かれ、化けない）
 & $ctl watch $Seconds | Tee-Object -FilePath $Out
