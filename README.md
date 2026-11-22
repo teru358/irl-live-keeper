@@ -121,6 +121,7 @@ cameras:
 | `stream.publish_rtmp_port` / `publish_srt_port` | `0` / `0` | 送信用 URL に出す RTMP と SRT のポート。0 なら受信のポート（`mediamtx.rtmp_port` / `srt_port`）と同じ。ルーターのポート転送で外側のポートを変えたときに書く |
 | `admin.port` / `admin.lan` | `8787` / `false` | 管理 API のポートと、LAN に公開するか。false なら `127.0.0.1` だけで待ち受ける。別の PC から操作するときと、LAN の中継 PC に置くときだけ true にする |
 | `obs.standby_scene` | `Standby` | 回線が悪い間に出す待機シーン |
+| `obs.scene_fallbacks` | 空 | シーンごとの逃がし先の一覧（`scene`: 元のシーン、`fallback`: 逃がし先）。書かないシーンは `obs.standby_scene` へ逃がす。`fallback` に別の行の `scene` を書くと3段以上つなげられる（`fallback` に `standby_scene` を明示してもよい）。同じ `scene` は1回だけ、輪にしない、`scene` に待機シーンは書けない。名前は OBS の実名のまま（前後の空白も含む）で、OBS で改名したら書き直す。`standby_scene` を変えて保存したとき、前の待機シーンの名前がこの一覧に残っていれば警告が出る（その名前は普通のシーンとして残る） |
 | `obs.studio_mode_hide` | `standby` | OBS の Studio Mode がオンの間の、`on_bad: hide` のカメラの動き。`standby`（隠す代わりに待機シーンへ送る）/ `ignore`（何もしない。乱れた映像が出ることがある）/ `hide`（隠す。OBS の「シーンを複製」を切っているときだけ配信に効く） |
 | `cameras` | `main` の1台 | カメラの一覧（`id`、`name`、`on_bad`、省略可の `switch`）。上の「複数のカメラ」 |
 | `mediamtx.rtmp_enabled` / `srt_enabled` | `true` / `true` | RTMP と SRT の受付。使わない方を止められる（再起動で反映） |

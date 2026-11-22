@@ -130,6 +130,8 @@ type OBS struct {
 	Password string `yaml:"password"`
 	// StandbyScene は回線が悪い間に出す待機シーン名（1つ）。
 	StandbyScene string `yaml:"standby_scene"`
+	// SceneFallbacks はシーンごとの逃がし先。書かないシーンは StandbyScene（共通の逃がし先）へ逃がす。
+	SceneFallbacks []SceneFallback `yaml:"scene_fallbacks"`
 	// StudioModeHide は、Studio Mode がオンの間の、on_bad: hide のカメラの動き。standby / ignore / hide。
 	StudioModeHide string `yaml:"studio_mode_hide"`
 }
@@ -267,6 +269,9 @@ obs:
   port: 4455
   password: ""               # 空なら認証なしで接続する（OBS 側で認証を無効にしている場合）
   standby_scene: Standby     # 待機シーン（1つ）。回線が悪い間に出す OBS のシーン名。既定値は Standby。カメラのメディアソースは OBS から自動で調べる（cameras の id ごとに、URL が rtsp://…/<id> のメディアソースを作る）
+  scene_fallbacks: []        # シーンごとの逃がし先（書かないシーンは standby_scene へ逃がす）。元のシーンが悪いとき fallback のシーンへ逃がす。fallback に別の行の scene を書けば 3 段以上つなげられる。同じ scene は 1 回だけ、輪にしない、scene に待機シーンは書けない。名前は OBS の実名のまま（前後の空白も含む）
+  #  - scene: シーン1
+  #    fallback: シーン2
   studio_mode_hide: standby   # Studio Mode がオンの間の、on_bad: hide のカメラの動き。standby（既定）: 隠す代わりに待機シーンへ送る / ignore: 何もしない（乱れた映像が出ることがある） / hide: 隠す（OBS の「シーンを複製」を切っているときだけ配信に効く）
 
 on_stream_start:             # 配信開始時の切替（安全機能）
@@ -471,6 +476,8 @@ func (c *Config) Validate() error {
 			add("on_stream_start.scene", "obs.standby_scene と異なるシーンにしてください（待機シーンで配信が始まると自動で戻らないため）")
 		}
 	}
+
+	c.validateSceneFallbacks(add)
 
 	if c.Admin.Password == "" {
 		add("admin.password", "空にできません")
