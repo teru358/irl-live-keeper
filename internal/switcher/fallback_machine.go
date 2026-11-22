@@ -67,11 +67,11 @@ func (m *Machine) okHiddenRecord(r string) bool {
 	return false
 }
 
-// reverseWait は戻る先 r に逆向きの待ちの対象があるか。表示の有無は候補の実際の表示の集合から、有効な動きは motionOf から作る。
+// reverseWait は戻る先 r に逆向きの待ちの対象があるか。表示の有無は confirmedShown（未確認の false は表示中）で、有効な動きは motionOf から作る。
 // HideValid は canHide をもとにし、「今のシーンを空にしない」制限（genHides の wouldEmpty）は含めない（FB-RW-02）。
 func (m *Machine) reverseWait(r string) bool {
 	s := &m.st
-	actual := m.actualCameras(r, nil)
+	actual := m.confirmedShown(r)
 	var cams []BadCamera
 	for _, c := range m.cameraSet(r, false, nil) {
 		cc, ok := m.cameraCfg(c)
@@ -84,4 +84,20 @@ func (m *Machine) reverseWait(r string) bool {
 		})
 	}
 	return ReverseWait(cams)
+}
+
+// confirmedShown は逆向きの待ちのための「表示中」のカメラ。本体が隠した項目は、false が確かめられた（H）ものだけ非表示と数える。
+// Proceed 済みでイベントがまだ届いていない false（P・U）は表示中のまま（地図の値）。項目のイベントか決着の処理による地図の更新で解ける。
+// 「今のシーンを空にしない」の計算（actualCameras。送った false を非表示と数える）とは分けている。
+func (m *Machine) confirmedShown(uuid string) []string {
+	if m.st.Map == nil {
+		return nil
+	}
+	calc := m.calcMap()
+	return scenemap.CamerasInWith(calc, uuid, func(k scenemap.ItemKey, it scenemap.Item) bool {
+		if e := m.validEntry(k, it, &calc); e != nil && e.State == HiddenH {
+			return false
+		}
+		return it.Enabled
+	})
 }

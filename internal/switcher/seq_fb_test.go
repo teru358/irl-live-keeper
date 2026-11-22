@@ -95,8 +95,7 @@ func TestFBSQ04(t *testing.T) {
 	h.setAuto(standby, camera, deskScene)
 	hc := h.cams(1000, OK, DOWN)
 	h.outP(hc, "Hc(s)[x,y]") // A 健康 OK、逆待あり、R なし
-	// 項目の応答（OK）が先に届いた時点で、x は実表示から外れる（0b: 送った false は非表示と数える）。ここで最後の待ちが解消する。
-	// 表の「IR OK（イベント未着）→ R なし」とは違う（FB-IR-01 と同じ扱い。表の不明点として報告）。
+	// 応答だけでは解けず、x の false のイベントで待ちが解消して R。
 	r := h.sendFalseOut(hc[0], 1100, kx, "R(A)")
 	h.wantStack("A,D") // K は到着まで保持
 	h.outP(h.settle(r[0], 1500), "")
@@ -106,15 +105,18 @@ func TestFBSQ04(t *testing.T) {
 }
 
 func TestFBSQ04ReleasePoint(t *testing.T) {
-	// 逆向きの待ちが解ける時点: false の承認（Proceed）の後は、実表示の計算で x は非表示と数えるので、
-	// 次の入口（応答・イベントの前の Tick）で R(A) が出る。表の「IR OK（イベント未着）で R なし」とは違う（表の不明点）。
+	// 逆向きの待ちは、false が確かめられる（項目のイベントが届く）まで解けない。Proceed・応答だけでは R なし。
 	h := newHB(t, fbAD)
 	h.setStates(OK, DOWN)
 	h.setAuto(standby, camera, deskScene)
 	hc := h.tick(1000)
 	h.outP(hc, "Hc(s)[x,y]")
-	h.proceed(hc[0], 1100, kx, false)
-	h.outP(h.tick(1150), "R(A)")
+	p := h.proceed(hc[0], 1100, kx, false)
+	h.outP(h.tick(1150), "")
+	h.outP(h.itemDone(1200, p.ItemReqID, ItemOK), "")
+	h.outP(h.tick(1250), "")
+	// SetScene 直前の検査でも待つ（生成の前に承認が来た場合）。
+	h.outP(h.itemEv(1300, kx, false), "R(A)")
 }
 
 func TestFBSQ04Columns(t *testing.T) {

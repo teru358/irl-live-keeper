@@ -637,7 +637,7 @@ SCはSceneChanged、SRDはSceneRequestDone、BDはBatchDone、IRはItemRequestDo
 |---|---|---|---|
 | 0 | auto/[A,D]、S、R(D;[A])生成 | [R(D;[A])] | 固定Iから現program実表示入力を除外済み |
 | 0.1 | Restart承認・実行 | — | 入力順固定、W開始 |
-| 0.5 | 待ち中にDが表示0へ | [] | 待ち終了後SetScene承認でReject、K維持 |
+| 0.5 | 待ち中にDが表示0へ | [] | 待ち終了後SetScene承認でReject。Dは表示0（記録なし）で管理外になるため、整理でK=[A]（FB-ST-12） |
 | 1.2 | BD Rejected | []（m不良でA不可、D表示0・記録なし、hide動作なし） | 同一候補の5秒制限は維持 |
 
 別列a: SetScene承認後、設定変更→古い復帰のSC一致なら部分復帰せずC。

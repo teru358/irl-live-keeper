@@ -80,7 +80,8 @@ func TestFBIE(t *testing.T) {
 			bs := h.tick(1000)
 			h.outP(bs, "Hc(s)[x,y]")
 			p := h.proceed(bs[0], 1100, kx, false)
-			h.outP(h.itemDone(1100, p.ItemReqID, ItemOK), "R(A)")
+			h.outP(h.itemDone(1100, p.ItemReqID, ItemOK), "") // 応答だけでは、隠れたと確かめられない
+			h.outP(h.itemEv(1150, kx, false), "R(A)")
 		}},
 		{"FB-IR-02", func(t *testing.T) {
 			// ItemError/NotFound: 待ちは解消しない。履歴不変。

@@ -500,3 +500,30 @@ func TestFBW03(t *testing.T) {
 		t.Fatalf("非表示の入力は対象のまま: %v", got)
 	}
 }
+
+func TestFBEnterMissing(t *testing.T) {
+	// 地図にない UUID は、classOf が Other を返しても画像として入れず、逃がす・戻るのどちらでも Missing で、戻り先に選ばれない。
+	const gone = "uuid-gone"
+	h := newHB(t, fbAD)
+	for _, dir := range []Direction{DirEscape, DirReturn} {
+		f := h.m.enterFacts(gone, dir)
+		if f.Exists {
+			t.Fatalf("存在しない UUID が Exists: %+v", f)
+		}
+		if r := CanEnter(f, dir); r.Allowed || r.Reason != ReasonMissing {
+			t.Fatalf("dir=%d: %+v", dir, r)
+		}
+	}
+	if got := FindReturn([]string{gone, camera}, h.m.enterFunc()); got.Target != camera {
+		t.Fatalf("戻り先に地図にない UUID を選んだ: %+v", got)
+	}
+	// 逃がす列の途中にある地図にない UUID は飛ばされ、積まれない。
+	h2 := newHB(t, hbFB(FallbackRow{Scene: nameOf(camera), Fallback: "Gone"}))
+	h2.m.st.Map.Scenes[gone] = scenemapContainer("Gone")
+	h2.m.refine()
+	delete(h2.m.st.Map.Scenes, gone)
+	plan := FindEscape(EscapeInput{Current: camera, Chain: Resolved{Next: map[string]string{camera: gone}, Standby: standby}, Enter: h2.m.enterFunc()})
+	if plan.Target != standby || len(plan.Append) != 1 || plan.Append[0] != camera {
+		t.Fatalf("地図にない UUID を飛ばして S へ: %+v", plan)
+	}
+}
