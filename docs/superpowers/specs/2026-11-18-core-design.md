@@ -1,7 +1,7 @@
 # irl-live-keeper 設計 — 全体構成と第1段階（コア）
 
 - 作成日: 2026-11-18
-- 版: v2.17（変更は末尾の変更履歴を参照）
+- 版: v2.18（変更は末尾の変更履歴を参照）
 - **複数のカメラ（v2.15）**: 4章〜10章の一部（1本の path と1つの受信状態、`stream.name`、`obs.media_source`、`obs.monitored_scenes`、`LinkChanged`、分類、AutoFail と AutoRecover の条件など）は、`docs/superpowers/specs/2026-11-21-multi-camera-design.md`（第2段階の区切り0）で置き換える。置き換える箇所はその文書の第10節の表。食い違うときはその文書を優先する
 - 状態: ユーザー承認済みの設計（セクション1〜5）を文書化したもの。v2.0 でシーンのモデルを 2026-11-19 のユーザーの裁定に合わせて書き直した（6章の末尾に「実装前に決めたこと」がある）
 - 対象バージョン: MediaMTX v1.21.4（2026-11-15 リリース）、obs-websocket v5
@@ -537,6 +537,7 @@ type Client interface {
 - MediaMTX の API の応答は、ログにそのまま書かない。`/v3/rtmp/conns/list` は RTMP の publisher のクエリ（`user=…&pass=…`）を平文で返す（spike ③ で確認）
 
 送信用 URL（status と、起動時の標準出力に表示する。10章のログの規則を参照）。ポートは `stream.publish_rtmp_port` / `stream.publish_srt_port` が 0 でなければその値、0 なら受信のポート（`mediamtx.rtmp_port` / `srt_port`）。`<host>` は `stream.publish_host` が空でなければその値（手動）、空なら起動時に1回調べた LAN の IPv4（自動。ネットワークインターフェースのうち、有効で loopback でないものの、プライベートアドレス〔`net.IP.IsPrivate`〕の IPv4 を、インターフェースの順で最初の1つ。外部への通信はしない）。自動で見つからなければ `127.0.0.1` にして警告をログに出す。第2段階では、管理ページで URL の項目（`stream.publish_host`、`publish_rtmp_port`、`publish_srt_port`、`obs_read_host`）を変えたときにも決め直す（第2段階の spec 7章）。自動のときは、起動時の表示に「屋外から送るときは、host をポート転送やトンネルのアドレスに置き換える（`stream.publish_host` で固定できる）」と添える:
+（`<name>` は、複数のカメラのあとはカメラの path〔`<stream.app>/<カメラの id>`、既定 `live/<id>`〕に置き換わる。カメラの spec v0.18 第2節。以下の形はそれで読む）
 - SRT: `srt://<host>:<srt_port>?streamid=publish:<name>:<user>:<pass>`
 - RTMP: `rtmp://<host>:<rtmp_port>/<name>?user=<user>&pass=<pass>`
 
@@ -787,4 +788,5 @@ goobs のラッパーは実際の OBS を相手に手動で確かめる。自動
 | 2026-11-20 | v2.14 | 2章の古い文を直した（生成物の置き場所に `history/`、`sources.yaml`、`--dir` を足し、部品の図の「オーバーレイ」を「ソースのページ」に） | 第2段階の task 表を作る中で見つかった | この版の commit |
 | 2026-11-21 | v2.15 | 冒頭に、複数のカメラの spec（2026-11-21-multi-camera-design.md）で置き換える箇所への参照を足した（本文は変えず、その文書の置き換える箇所の表で置き換える） | 2026-11-21 のユーザーの裁定（複数のカメラを第2段階に入れる） | f704f2c |
 | 2026-11-22 | v2.16 | 6章「外部からの手動切替」に、Studio Mode を切るときの一瞬の切替は obs の層で流さない、を足した（参照のみ。規則はカメラの spec v0.17 第1節） | M-13 の Windows の確認（F-9） | 4010a28 |
-| 2026-11-22 | v2.17 | 9章の status の例のあとに、`srt.loss_rate` の単位（%）と `recv_mbps` の意味を書いた | M-9 の Windows の T-15（Larix の SRT で 0.76）、gosrt v0.13.0 のソース | この版の commit |
+| 2026-11-22 | v2.17 | 9章の status の例のあとに、`srt.loss_rate` の単位（%）と `recv_mbps` の意味を書いた | M-9 の Windows の T-15（Larix の SRT で 0.76）、gosrt v0.13.0 のソース | c8533c2 |
+| 2026-11-22 | v2.18 | 9章の送信用 URL の `<name>` が、カメラの path（`<stream.app>/<id>`）に置き換わることを注記した | path の2段（カメラの spec v0.18） | この版の commit |
