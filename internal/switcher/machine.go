@@ -881,7 +881,7 @@ func (m *Machine) emit(p Purpose, at time.Time, actions []Action, ret, bad strin
 	s.Pending[id] = PendingBatch{
 		BatchID: id, Purpose: p,
 		SceneEpoch: s.SceneEpoch, ConnEpoch: s.ConnEpoch, StreamEpoch: s.StreamEpoch, ConfigEpoch: s.ConfigEpoch,
-		ReturnScene: ret, Plan: plan,
+		ReturnScene: ret, Plan: plan.clone(),
 	}
 	if p.IsAuto() {
 		s.LastAutoSent[p] = at
@@ -895,7 +895,7 @@ func (m *Machine) emit(p Purpose, at time.Time, actions []Action, ret, bad strin
 	return &Batch{
 		BatchID: id, Purpose: p,
 		SceneEpoch: s.SceneEpoch, ConnEpoch: s.ConnEpoch, StreamEpoch: s.StreamEpoch, ConfigEpoch: s.ConfigEpoch,
-		ReturnScene: ret, BadCamera: bad, Actions: actions, Plan: plan,
+		ReturnScene: ret, BadCamera: bad, Actions: actions, Plan: plan.clone(),
 	}
 }
 

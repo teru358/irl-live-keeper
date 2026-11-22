@@ -515,6 +515,12 @@ type ArrivalPlan struct {
 	EffectsDisabled bool
 }
 
+// clone は計画の写し（Append を共有しない）。
+func (a ArrivalPlan) clone() ArrivalPlan {
+	a.Plan.Append = slices.Clone(a.Plan.Append)
+	return a
+}
+
 // samePlan は2つの計画の意味が同じか（承認で最新の探索結果と比べる）。EffectsDisabled は比べない。
 func samePlan(a, b ArrivalPlan) bool {
 	return a.Plan.Kind == b.Plan.Kind && a.Plan.Target == b.Plan.Target &&

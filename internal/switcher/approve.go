@@ -65,7 +65,7 @@ func (m *Machine) Approve(batchID int, action Action, override Override, at time
 		Scene:        set.SceneUUID,
 		Purpose:      pb.Purpose,
 		ReturnScene:  pb.ReturnScene,
-		Plan:         pb.Plan,
+		Plan:         pb.Plan.clone(),
 		ConfigEpoch:  s.ConfigEpoch,
 		RegisteredAt: at,
 		Override:     override,
