@@ -35,11 +35,14 @@
 
 | # | 手順 | 記録すること |
 |---|---|---|
-| T15-1 | 前半（SRT、20分）: ユーザーに Larix で送り始めてもらう。最初の10分はスマホを置いたまま、次の10分はスマホを持って歩いてもらう（建物の中を移動するなど、無理のない範囲で。ユーザーに始まりと終わりの時刻を言ってもらう） | 本体のログの `[SRT] [conn 100.…] opened`、`is publishing to path 'sub'`（tracks の数）、`camera changed`、`scene switch`。CSV から、置いたまま・歩いたときそれぞれの kbps の最小・平均・最大、LOW と DOWN の回数と長さ、待機への切替の回数、RTT とロス率の最小・平均・最大 |
-| T15-2 | 後半（RTMP、20分）: ユーザーに Larix を止め、It's My Live の RTMP で送ってもらう。T15-1 と同じく、置いたまま10分、歩いて10分 | T15-1 と同じ（RTT とロス率は出ない） |
+| T15-1 | 前半（SRT）: ユーザーに Larix で送り始めてもらう。**今夜（1日目）は、スマホを置いたまま10分だけ**（家の中、キャリア回線）。外を歩く10分は2日目に別に行う（下の「2日目」） | 本体のログの `[SRT] [conn 100.…] opened`、`is publishing to path 'sub'`（tracks の数）、`camera changed`、`scene switch`。CSV から、置いたまま・歩いたときそれぞれの kbps の最小・平均・最大、LOW と DOWN の回数と長さ、待機への切替の回数、RTT とロス率の最小・平均・最大 |
+| T15-2 | 後半（RTMP）: ユーザーに Larix を止め、It's My Live の RTMP で送ってもらう。**今夜は置いたまま10分だけ** | T15-1 と同じ（RTT とロス率は出ない） |
 | T15-2b | おまけ（Larix の RTMP、5分）: Larix の接続を RTMP に替えて送ってもらう | 弾かれずにつながるか（本体のログの `[RTMP] [conn 100.…] is publishing to path 'live/sub'`）、OK になるか、OBS で映るか（ユーザーに見てもらう） |
+| T15-2c | IRL Pro（Android、LAN）の RTMP、3分: ユーザーに、Android の IRL Pro で、URL の欄に `rtmp://<Windows の LAN のアドレス>:1935/live`、キーの欄に `main?user=…&pass=…`（認証の欄は空）を入れて送ってもらう。iPhone は止めてよい | 本体のログの `[RTMP] [conn 192.168.…] is publishing to path 'live/main'`、`main` が OK になるか。`T-A` か `T-B` に切り替えて OBS で映るか（ユーザーに見てもらう）。終わったら `T-Sub` に戻す |
 | T15-3 | まちがった切替の判断 | 待機への切替が起きたとき、その直前の kbps と、スマホの画面（ユーザーに聞く）や回線の様子を並べ、本当に映像が乱れていたのか（正しい切替）、乱れていないのに切り替えたのか（まちがった切替）を書く |
 | T15-4 | 長い時間の様子 | 本体のログの MediaMTX の WARN（`reader is too slow` など）の数、本体の `media source refreshed` の数、OBS のメディアソースが止まったか（`.\ctl.exe inputs` を5分ごと）、メモリの変化 |
+
+**2日目（外を歩く）**: 同じ準備のあと、Larix の SRT で10分、It's My Live の RTMP で10分、ユーザーにスマホを持って外を歩いてもらう（始まりと終わりの時刻を言ってもらう）。見張りのファイルは `status-t15-srt-walk.txt` / `t15-srt-walk.csv` と `status-t15-rtmp-walk.txt` / `t15-rtmp-walk.csv`。記録は同じ `t15-result.md` に「2日目」として足し、1日目の置いたままの数字と並べて比べる。
 
 CSV の集計は PowerShell で行ってよい（例: `Import-Csv .\t15-srt.csv | Where-Object id -eq 'sub' | Measure-Object kbps -Minimum -Average -Maximum`）。集計に使ったコマンドも記録に書く。
 
