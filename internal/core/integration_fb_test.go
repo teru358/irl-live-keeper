@@ -81,7 +81,7 @@ func (r *runner) injectConfig() {
 }
 
 func (w *world) fbQuietLocked() bool {
-	return w.connected && len(w.pending) == 0 && len(w.late) == 0 && len(w.hung) == 0
+	return w.inflight.Load() == 0 && w.connected && len(w.pending) == 0 && len(w.late) == 0 && len(w.hung) == 0
 }
 
 func stackEq(a, b []string) bool { return slices.Equal(a, b) }
@@ -531,17 +531,28 @@ func (r *runner) fbCheckOff(pre Snapshot, cfg0 int) {
 
 var fbWarnRe = regexp.MustCompile(`^scene_fallbacks の (\d+) 行目: (scene|fallback)「(.*)」が`)
 
+// fbSync は、実行中の OBS の要求が終わるのを待ち（上限あり）、core がそれまでに受けたイベントの処理と publish を
+// 終えたことを Tick の受理で確かめる（Tick は core の1回のループが終わってからしか受け取られない）。
+func (r *runner) fbSync() {
+	for i := 0; i < 2000 && r.w.inflight.Load() > 0; i++ {
+		time.Sleep(100 * time.Microsecond)
+	}
+	r.sendTick()
+}
+
 func (r *runner) fbCheck(where string) {
 	w := r.w
 	if w.fb == nil || r.cur == nil {
 		return
 	}
+	r.fbSync()
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if len(w.violations) > 0 {
 		return
 	}
 	f := w.fb
+	quiet0, seq0 := w.fbQuietLocked(), w.reqSeq.Load()
 	snap := r.fbSnap()
 	st := snap.OBS.Standby
 	owner := st.Owner
@@ -609,14 +620,19 @@ func (r *runner) fbCheck(where string) {
 			// 増えるのは、本体の SetScene の適用（遅れて届く SceneChanged）か Command の OFF だけ。増えた回数が、適用の数を超えない。
 			if f.appSwitches-f.consumed > 0 {
 				f.consumed++
+				f.count("履歴が増えた到着")
 			} else if cur.cmd == f.prev.cmd {
 				vf("FB-INV-05: 本体の SetScene の適用（未消化 %d）も Command もないのにスタックが増えた: %v → %v", f.appSwitches-f.consumed, f.prev.stack, cur.stack)
 				return
 			}
 		}
 	}
+	if f.prev.valid && len(cur.stack) < len(f.prev.stack) && cur.app != f.prev.app {
+		f.count("履歴が減った到着")
+	}
 	f.prev = cur
-	if !(w.fbQuietLocked() && snap.OBS.Connected) {
+	// 静かな時点: 前後で OBS の要求が1つも始まっていない（status を読む間に世界が変わっていない）。
+	if !(quiet0 && w.reqSeq.Load() == seq0 && w.fbQuietLocked() && snap.OBS.Connected) {
 		return
 	}
 	// ここから静かな時点（流れていないイベントなし、本体と世界が静まった）。
@@ -797,7 +813,16 @@ func (r *runner) fbStable(label string, vec map[string]float64, repair bool) {
 	r.settle()
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if len(w.violations) > 0 || !w.fbQuietLocked() {
+	excl := func(why string) {
+		if repair {
+			w.fb.count("安定区間(全復旧): 除外 " + why)
+		}
+	}
+	if len(w.violations) > 0 {
+		return
+	}
+	if !w.fbQuietLocked() {
+		excl("静かでない")
 		return
 	}
 	snap := r.fbSnap()
@@ -816,39 +841,52 @@ func (r *runner) fbStable(label string, vec map[string]float64, repair bool) {
 	}
 	for _, cs := range snap.Cameras {
 		if cs.Unusable || cs.UserShown {
-			return // 使えない・人の印は、独立の計算が及ばない（待ちの例外）
+			excl("使えない・人の印") // 独立の計算が及ばない（待ちの例外）
+			return
 		}
 	}
 	if owner == "manual" || !snap.OBS.Streaming {
+		excl("manual か配信なし")
 		return
 	}
 	if w.monitoredLocked(w.program) && w.badLocked(w.program) {
 		vf("今のシーン %s は監視対象で悪いのに、逃がしていない（待機は必ず入れる）", w.sceneNameLocked(w.program))
 		return
 	}
+	enterable := func(n string) bool {
+		u := w.byNameLocked(n)
+		return u != "" && w.monitoredLocked(u) && !w.badLocked(u) && len(w.exceptUnusable(w.okHiddenRecordLocked(u), snap)) == 0 &&
+			len(w.visibleLocked(u, false, nil)) > 0 && len(w.reverseWaitLocked(u, snap)) == 0
+	}
 	if owner == "auto" {
 		for _, n := range st {
-			u := w.byNameLocked(n)
-			if u == "" || !w.monitoredLocked(u) {
-				continue
-			}
-			if !w.badLocked(u) && len(w.exceptUnusable(w.okHiddenRecordLocked(u), snap)) == 0 && len(w.visibleLocked(u, false, nil)) > 0 && len(w.reverseWaitLocked(u, snap)) == 0 {
+			if enterable(n) {
 				vf("履歴の %s は入ってよい（健康 OK、Show 済み、実表示あり、逆向きの待ちなし）のに、戻っていない", n)
 				return
 			}
 		}
 	}
-	if repair && owner == "none" {
-		w.fb.count("安定区間(全復旧): none・スタック空に到達")
-		if wantBottom != "" && w.monitoredLocked(wantBottom) {
-			if w.program != wantBottom {
-				vf("全カメラ OK で、最後は本体が最初に離れたシーン %s にいるはずが %s", w.sceneNameLocked(wantBottom), w.sceneNameLocked(w.program))
+	if !repair {
+		return
+	}
+	// 全カメラ OK・全 Show 成功（benign）の区間: none と空のスタックへの到達は必須。入れない構成（人が消した項目など）は別に数える。
+	if owner != "none" || len(st) != 0 {
+		for _, n := range st {
+			if !enterable(n) {
+				excl("戻り先が入れない構成")
 				return
 			}
-			w.fb.count("安定区間(全復旧): 底へ戻った")
 		}
-	} else if repair && owner != "none" {
-		w.fb.count("安定区間(全復旧): noneに戻らなかった")
+		vf("全カメラ OK・全 Show 成功なのに、持ち主 none・空のスタックに到達していない")
+		return
+	}
+	w.fb.count("安定区間(全復旧): 検証した(none・スタック空)")
+	if wantBottom != "" && w.monitoredLocked(wantBottom) {
+		if w.program != wantBottom {
+			vf("全カメラ OK で、最後は本体が最初に離れたシーン %s にいるはずが %s", w.sceneNameLocked(wantBottom), w.sceneNameLocked(w.program))
+			return
+		}
+		w.fb.count("安定区間(全復旧): 底へ戻った")
 	}
 }
 
@@ -862,7 +900,16 @@ func (w *world) fbStatesLocked() string {
 
 // ---- 1つの種の実行 ----
 
-func runSeedFB(t *testing.T, seed int64, faulty bool, steps int) {
+// 列のプロファイル:
+//
+//	normal  通常の保証の範囲（応答は5秒以内、本体は落ちない、イベントは欠けない。遅延・重複・地図の読み直しの順の入れ替えは含む）。
+//	        確かめる性質: 全 FB-INV、HB-INV-01〜04、独立の入場判定、静かな時点の status、安定区間の到達（全復旧で none・空）。
+//	fault   OBS の応答の Timeout・イベントの欠落（保証外）。確かめる性質: 落ちない、構造の不変条件（FB-INV-01〜03）、
+//	        回復の区間で隠した項目がすべて戻る（記録回収の到達性）。
+//	late    12〜15秒のシーンの遅着（期待の期限切れ）と本体の再起動（保証外）。確かめる性質: 構造の不変条件（FB-INV-01〜05・07・09 相当）、
+//	        独立の入場判定、回復の区間で none・空のスタックへ到達すること（履歴の底の照合は、遅着・再起動を含む区間では無効にする）。
+func runSeedFB(t *testing.T, seed int64, profile string, steps int) {
+	faulty := profile == "fault"
 	dir := t.TempDir()
 	path := filepath.Join(dir, "state", "hidden.json")
 	clk := newClock()
@@ -873,6 +920,7 @@ func runSeedFB(t *testing.T, seed int64, faulty bool, steps int) {
 		rows = fbSpecRows()
 	}
 	w.enableFB(rows)
+	w.fb.late = profile == "late"
 	r := &runner{t: t, w: w, clk: clk, rng: rand.New(rand.NewSource(seed ^ 0x5eed)), path: path, logBuf: &syncBuf{}}
 	defer w.close()
 	r.startGen(true, switcher.StudioHideStandby)
@@ -917,7 +965,11 @@ func runSeedFB(t *testing.T, seed int64, faulty bool, steps int) {
 		case x < 103:
 			r.fbRevive()
 		case x < 105:
-			r.restart()
+			if profile == "late" {
+				r.restart()
+			} else {
+				r.idle()
+			}
 		case x < 111:
 			r.fbOnDuringReturn()
 		default:
@@ -1019,6 +1071,9 @@ func TestIntegrationFallbackInvariants(t *testing.T) {
 			t.Errorf("goroutine が残っている: %d（開始時 %d）\n%s", n, base, sb.String())
 		}
 	})
+	fbCovMu.Lock()
+	clear(fbCov) // 呼び出しごとに初期化（-count で持ち越さない）
+	fbCovMu.Unlock()
 	t.Cleanup(func() {
 		fbCovMu.Lock()
 		defer fbCovMu.Unlock()
@@ -1036,7 +1091,9 @@ func TestIntegrationFallbackInvariants(t *testing.T) {
 			return
 		}
 		for _, k := range []string{"戻る切替", "監視対象への逃がす切替", "待機への切替", "深さ2以上", "個別の退避先にいる", "RestartMedia", "ON特例(待機のauto)",
-			"OFF(manual)", "設定の変更", "改名", "削除", "復活", "名前がないfallbackの警告とOBSの警告の同時", "底の照合(FB-INV-10)", "安定区間"} {
+			"OFF(manual)", "設定の変更", "改名", "削除", "復活", "名前がないfallbackの警告とOBSの警告の同時", "底の照合(FB-INV-10)", "安定区間",
+			"履歴が増えた到着", "履歴が減った到着", "ON特例の後に、古い戻りの切替が届いた", "ON特例の後の遅着: last_error の通知",
+			"安定区間(全復旧): 検証した(none・スタック空)", "安定区間(全復旧): 底へ戻った", "遅着のシーン切替", "地図の読み直しが先のイベントを追い越した"} {
 			if fbCov[k] == 0 {
 				t.Errorf("乱数の列が %q に一度も届いていない（入力の混ぜ方の見直しが要る）", k)
 			}
@@ -1044,19 +1101,20 @@ func TestIntegrationFallbackInvariants(t *testing.T) {
 	})
 	steps := 100
 	sem := make(chan struct{}, 3)
-	run := func(name string, faulty bool, n int, seedBase int64) {
+	run := func(name string, n int, seedBase int64) {
 		for i := 0; i < n; i++ {
 			seed := seedBase + int64(i)
 			t.Run(fmt.Sprintf("%s/seed%d", name, seed), func(t *testing.T) {
 				t.Parallel()
 				sem <- struct{}{}
 				defer func() { <-sem }()
-				runSeedFB(t, seed, faulty, steps)
+				runSeedFB(t, seed, name, steps)
 			})
 		}
 	}
-	run("normal", false, fbSeedCount(6, 40), 20000)
-	run("fault", true, fbSeedCount(3, 16), 25000)
+	run("normal", fbSeedCount(6, 24), 20000)
+	run("fault", fbSeedCount(3, 8), 25000)
+	run("late", fbSeedCount(4, 16), 30000)
 }
 
 // ---- 固定の列（spec 第3節の例、ログ、共有入力の再起動） ----

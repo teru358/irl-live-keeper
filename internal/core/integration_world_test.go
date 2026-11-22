@@ -118,6 +118,8 @@ type world struct {
 	violations []string
 	trace      []string
 	activity   atomic.Int64
+	reqSeq     atomic.Int64 // 始まった OBS の要求の通し番号
+	inflight   atomic.Int64 // 実行中の OBS の要求の数（0c: 静かな時点の判定）
 	evCount    atomic.Int64 // 本体へ流したイベントの数（0c: 履歴が変わるのはイベントかコマンドのあと）
 	stats      worldStats
 
@@ -327,6 +329,20 @@ func (w *world) enqueueLocked(ev switcher.Event, human bool, k ik, val bool) {
 	due := w.clk.Now()
 	if !w.benign && w.rng.Intn(3) > 0 {
 		due = due.Add(time.Duration(w.rng.Intn(3000)) * time.Millisecond)
+	}
+	if _, isMap := ev.(switcher.SceneMapChanged); isMap && w.fb != nil && !w.benign && w.rng.Intn(4) == 0 {
+		// 地図の読み直しは補助の接続の結果で、本来の接続のイベントと順が入れ替わりうる（先に届く）。
+		due = w.clk.Now()
+		idx := len(w.pending)
+		for i, p := range w.pending {
+			if p.due.After(due) {
+				idx = i
+				w.fb.count("地図の読み直しが先のイベントを追い越した")
+				break
+			}
+		}
+		w.pending = slices.Insert(w.pending, idx, pendEv{due: due, ev: ev, human: human, key: k, val: val})
+		return
 	}
 	if w.forceDelay > 0 {
 		due = w.clk.Now().Add(w.forceDelay)

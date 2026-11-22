@@ -71,6 +71,9 @@ type fbWorld struct {
 	keyAt       map[string]time.Time
 
 	cov map[string]int
+
+	// late は「遅着・再起動」のプロファイル（通常の保証の外: 12〜15秒のシーンの遅着、本体の再起動）。
+	late bool
 }
 
 func newFBWorld() *fbWorld {
@@ -402,7 +405,7 @@ func (w *world) fbMapMutatedLocked() {
 // fbLateSceneLocked は、次の SceneChanged を期待の期限のあとに届かせることがある（遅着。人の切替として扱われる）。
 func (w *world) fbLateSceneLocked() {
 	f := w.fb
-	if f == nil || w.benign || w.rng.Intn(30) != 0 {
+	if f == nil || !f.late || w.benign || w.rng.Intn(8) != 0 {
 		return
 	}
 	w.forceDelay = time.Duration(12+w.rng.Intn(4)) * time.Second

@@ -30,6 +30,9 @@ func (g *genClient) Events() <-chan switcher.Event {
 func (g *genClient) current() bool { return g.w.gen == g.gen }
 
 func (g *genClient) StartStream() error {
+	g.w.reqSeq.Add(1)
+	g.w.inflight.Add(1) // OBS の要求の実行中（世界の更新から、イベントを送り終えるまで）は静かな時点ではない
+	defer g.w.inflight.Add(-1)
 	g.w.activity.Add(1)
 	defer g.w.activity.Add(1)
 	g.w.mu.Lock()
@@ -45,6 +48,9 @@ func (g *genClient) StartStream() error {
 }
 
 func (g *genClient) StopStream() error {
+	g.w.reqSeq.Add(1)
+	g.w.inflight.Add(1) // OBS の要求の実行中（世界の更新から、イベントを送り終えるまで）は静かな時点ではない
+	defer g.w.inflight.Add(-1)
 	g.w.activity.Add(1)
 	defer g.w.activity.Add(1)
 	g.w.mu.Lock()
@@ -70,6 +76,9 @@ func (g *genClient) SceneTransitionOverrideUUID(string) (*int, bool, error) {
 }
 
 func (g *genClient) RestartMediaInputs(inputs []string) error {
+	g.w.reqSeq.Add(1)
+	g.w.inflight.Add(1) // OBS の要求の実行中（世界の更新から、イベントを送り終えるまで）は静かな時点ではない
+	defer g.w.inflight.Add(-1)
 	g.w.mu.Lock()
 	defer g.w.mu.Unlock()
 	if !g.current() || !g.w.connected {
@@ -80,6 +89,9 @@ func (g *genClient) RestartMediaInputs(inputs []string) error {
 }
 
 func (g *genClient) SetSceneUUID(name string) error {
+	g.w.reqSeq.Add(1)
+	g.w.inflight.Add(1) // OBS の要求の実行中（世界の更新から、イベントを送り終えるまで）は静かな時点ではない
+	defer g.w.inflight.Add(-1)
 	g.w.activity.Add(1)
 	defer g.w.activity.Add(1)
 	g.w.mu.Lock()
@@ -163,6 +175,9 @@ func (w *world) pickMode() reqMode {
 }
 
 func (g *genClient) SetSceneItemEnabled(scene string, id int, en bool) error {
+	g.w.reqSeq.Add(1)
+	g.w.inflight.Add(1) // OBS の要求の実行中（世界の更新から、イベントを送り終えるまで）は静かな時点ではない
+	defer g.w.inflight.Add(-1)
 	w := g.w
 	w.activity.Add(1)
 	defer w.activity.Add(1)

@@ -178,7 +178,7 @@ func (r *runner) settle() {
 		r.sendTick()
 		r.sendTick()
 		time.Sleep(80 * time.Microsecond)
-		if r.w.activity.Load() == before {
+		if r.w.activity.Load() == before && (r.w.fb == nil || r.w.faulty || r.w.inflight.Load() == 0) {
 			quiet++
 		} else {
 			quiet = 0
