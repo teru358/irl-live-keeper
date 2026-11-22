@@ -97,6 +97,10 @@ type pfake struct {
 	strictHidden map[pkey]bool   // 本体が false を送って、Timeout でない項目
 	interval     map[string]bool // 人が戻した、同じ不調の区間
 	stopped      bool
+
+	// 0c（prop_fb_test.go）: scene_fallbacks を加えて、履歴の不変条件も見る。
+	fbOn   bool
+	fbRows []FallbackRow
 }
 
 func pkeyName(k pkey) string { return fmt.Sprintf("%s#%d", letter(k.ContainerUUID), k.ItemID) }
@@ -195,7 +199,8 @@ func (f *pfake) cfgEv() Event {
 		return scenemap.MotionStandby
 	}
 	return ScenesConfigured{At: f.at(), Standby: "Standby", AutoEnabled: f.autoOn, StudioModeHide: f.studioHd,
-		Cameras: []CameraConfig{{ID: camMain, OnBad: on(camMain)}, {ID: camSub, OnBad: on(camSub)}}}
+		Cameras:        []CameraConfig{{ID: camMain, OnBad: on(camMain)}, {ID: camSub, OnBad: on(camSub)}},
+		SceneFallbacks: append([]FallbackRow(nil), f.fbRows...)}
 }
 
 // truthMap は偽の OBS の今の値で作った地図。
@@ -252,10 +257,12 @@ func (f *pfake) handle(ev Event) {
 	f.t.Helper()
 	f.observe(ev)
 	f.logf("-> %T %s", ev, shortEv(ev))
+	before := f.fbStack()
 	bs, err := f.m.Handle(ev)
 	if err != nil {
 		f.logf("   cmdErr %v", err)
 	}
+	f.fbAfterEvent(ev, before)
 	for _, b := range bs {
 		f.logf("   out %s #%d", desc(b), b.BatchID)
 		f.queue = append(f.queue, &pbatchRun{b: b})
@@ -427,6 +434,7 @@ func (f *pfake) cameras(u string, enabled func(pkey) bool) map[string]bool {
 
 func (f *pfake) check() {
 	f.t.Helper()
+	f.fbCheck()
 	s := &f.m.st
 	// 記録の構造
 	seen := map[pkey]bool{}
@@ -661,8 +669,10 @@ func (f *pfake) execStep(_ bool) {
 		return
 	}
 	a := b.Actions[run.next]
+	st0 := f.fbStack()
 	r := f.m.Approve(b.BatchID, a, OverrideNone{}, at(f.now))
 	f.logf("approve #%d %T -> %T", b.BatchID, a, r)
+	f.fbNoGrow(st0, "Approve")
 	switch r := r.(type) {
 	case Reject, Replace:
 		finish(BatchRejected)
@@ -754,6 +764,10 @@ func (f *pfake) randomStep(allowCmd bool) {
 	f.t.Helper()
 	f.now += f.rng.Intn(1500)
 	f.deliver()
+	if f.fbOn && f.rng.Intn(100) < 5 {
+		f.fbReconfig()
+		return
+	}
 	n := f.rng.Intn(100)
 	switch {
 	case n < 28:
