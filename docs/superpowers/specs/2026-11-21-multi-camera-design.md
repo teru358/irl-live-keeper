@@ -47,6 +47,8 @@
   - **捨てる**: 取っておく間に `StudioModeStateChanged false` が届き、取っておいた `CurrentProgramSceneChanged` の最後のシーンが、取っておく前の program のシーンと同じなら、取っておいた `CurrentProgramSceneChanged` をすべて捨てる。ほかのイベントと `StudioModeChanged` は、届いた順に流す。最後のシーンが違えば、最後の1つだけを `SceneChanged` として流す（間の一瞬の切替は流さない）。捨てたときはログ `studio mode off bounce ignored`（`scenes`: 捨てたシーンの名前）を出す
   - **流す**: 250ms たっても `StudioModeStateChanged false` が届かなければ、取っておいたイベントを届いた順に、届いた時刻（`At`）のまま流す。Studio Mode の間の人の切替は、250ms 遅れて本体に届く。本体の切替の期待の期限は秒の単位なので、照合には響かない
   - **やめる**: 切断、読み直しの始まり、コレクションの切替では、取っておいたイベントを捨てる。今のシーンは、つなぎ直しの読み取りで読む
+  - **先に流す**（sol のレビュー I-1）: 取っておく間に、エポックの goroutine に頼むイベント（トランジションの取り直し、地図の読み直しを起こすもの、`InputSettingsChanged`、program でない `SceneRemoved`）が届いたら、取っておいたものを窓の終わりと同じに流してから、そのイベントを扱う（取り直しの新しい値のあとに、取っておいた古い値が届かないため）。Studio Mode を切る瞬間には、program の切替2つと `StudioModeStateChanged` だけが届き、これらは混ざらない（Linux の実機で確かめた）ので、一瞬の切替は漏れない
+  - **既知の制約**（I-2）: つなぎ直しの読み取りの最中に Studio Mode を切ると、シーンと Studio Mode の読み取りの境界をまたいで、一瞬の切替が人の切替として届くことがある。読み取りは短く、その最中に切ることはまれで、屋外配信では Studio Mode を勧めないため、直さない
   - Studio Mode がオフのふだんの使い方では、何も変わらない（取っておかない）
 
   **屋外配信では Studio Mode を勧めない**（2026-11-22 のユーザーの裁定）。屋外からは OBS の画面を操作できず、Studio Mode の間は隠す動きが効かないか（`standby`・`ignore`）、「シーンを複製」の設定しだいになる（`hide`）ため。README に書き、Studio Mode がオンの間の `warnings` の文の頭に「屋外配信では Studio Mode を勧めません。」を足す
@@ -375,4 +377,4 @@ OBS のメディアソース（`ffmpeg_source`）は、OBS の起動の直後に
 | 2026-11-21 | v0.14 | 第4節: 回復のログとできごとの代表のカメラを、戻り先に映るカメラのうち最後に OK になったものにした（前は kbps がいちばん低いもの） | M-9 の Windows の確認（F-6）、ユーザーの裁定 | 24fbfa6 |
 | 2026-11-21 | v0.15 | 第1節: Studio Mode の `ignore` でも、ほかの戻す理由では隠した項目を戻す（H-07）。第6節: 空にしない検査に、本体の切替の期待が残る切替先を入れる、StartScene の期待が残る間は隠さない（C-2）。第7節: すべて表示に戻すの対象と記録を消す時点（C-1）、期待を応答から2秒残す・切断でも応答を Timeout で返す（I-1、I-2）、空の地図のあとの最初の地図での照合（H-02） | M-11 の表の Fable のレビュー、H-07 は sol の助言とユーザーの裁定（案 A） | 1e90ae7 |
 | 2026-11-21 | v0.16 | 第6節「戻り先が待っている隠した項目」に、戻り先の実際に表示されているカメラが0のときも待つ、を足した | M-11 の性質のテスト（INV-02）で見つけた列 | 0c1c747 |
-| 2026-11-22 | v0.17 | 第1節の Studio Mode に「Studio Mode を切るときの一瞬の切替」を足した（obs の層で、Studio Mode の間の program の切替を 250ms 取っておき、`StudioModeStateChanged false` が続いて元のシーンに戻っていれば捨てる。Machine と 0a・0b の表は変えない）。屋外配信では Studio Mode を勧めない（README と第1節） | M-13 の Windows の確認（F-9）と Linux の再現、2026-11-22 のユーザーの裁定（非推奨にし、直しも入れる） | この版の commit |
+| 2026-11-22 | v0.17 | 第1節の Studio Mode に「Studio Mode を切るときの一瞬の切替」を足した（obs の層で、Studio Mode の間の program の切替を 250ms 取っておき、`StudioModeStateChanged false` が続いて元のシーンに戻っていれば捨てる。Machine と 0a・0b の表は変えない）。屋外配信では Studio Mode を勧めない（README と第1節） | M-13 の Windows の確認（F-9）と Linux の再現、2026-11-22 のユーザーの裁定（非推奨にし、直しも入れる）。先に流す・既知の制約は、実装の sol のレビュー（I-1、I-2） | この版の commit |
