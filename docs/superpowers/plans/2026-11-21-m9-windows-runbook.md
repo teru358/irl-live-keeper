@@ -45,7 +45,7 @@
 | # | 確かめること | 結果 |
 |---|---|---|
 | T-12 | 配信中に上り回線を一時的に切って、OBS の出力が再接続しても、待機の持ち主と戻り先が保たれる | 2026-11-21: 合格（Windows の Claude Code のセッションが代理で進めた。指示書と結果は `docs/superpowers/plans/m9-windows/` の `t12-agent-brief.md` と `t12-result.md`。`ctl.exe t12` の命令は、あとで `ctl.exe test`〔tools/obsctl〕に置き換えた）。WAN の線を抜けないので、試験だけのプロファイル（`ctl.exe t12 setup`。配信先は PC の中の試験だけの MediaMTX `127.0.0.1:21935`）で配信し、その MediaMTX を止めた。OBS の `OUTPUT_RECONNECTING`（17:56:39.8）から `OUTPUT_RECONNECTED`（17:57:14.7）までの約35秒、status の全行で `streaming=True`、owner `auto`、return `Camera`。本体のログには何も出ない。そのあとカメラを送ると Camera へ戻った（owner none）。元のプロファイルに戻したことを確かめた。`scene switch` のログから `standby changed` まで約5秒あるのは、T-11 で設定したフェード 5000ms が残っていたため（ログはトランジションの始まり、持ち主の変化は終わり） |
-| T-15 | 実際のスマホの配信アプリ（SRT か RTMP）で、屋外に近い回線（モバイル回線など）から送り、kbps の揺れと、誤った切替が起きないか。SRT の RTT とロス率が status に出るか（Tailscale で送るときは `stream.publish_host` に Tailscale のアドレスを書く） || 2026-11-21: 一部。RTMP の接続だけ確かめた: iPhone 15 Pro（It's My Live）をモバイル回線にし、Tailscale（`direct`）で Windows の Tailscale のアドレスへ送ると、つながって約 2 Mbps で OK になった。そのために、今のフォルダの mediamtx.exe の受信を Tailscale（プライベート）で許す規則を足した（もとの規則はパブリックだけだった）。kbps の揺れ、SRT、長い時間はこれから |
+| T-15 | 実際のスマホの配信アプリ（SRT か RTMP）で、屋外に近い回線（モバイル回線など）から送り、kbps の揺れと、誤った切替が起きないか。SRT の RTT とロス率が status に出るか。**回線の分け方: Android（main）は LAN だけ、iOS（sub）を WAN（キャリアのモバイル回線）から Tailscale で送る**。It's My Live の URL のホストだけを Windows の Tailscale のアドレスに替える（`stream.publish_host` は変えない。変えると Android の URL も変わる） || 2026-11-21: 一部。RTMP の接続だけ確かめた: iPhone 15 Pro（It's My Live）をモバイル回線にし、Tailscale（`direct`）で Windows の Tailscale のアドレスへ送ると、つながって約 2 Mbps で OK になった。そのために、今のフォルダの mediamtx.exe の受信を Tailscale（プライベート）で許す規則を足した（もとの規則はパブリックだけだった）。kbps の揺れ、SRT、長い時間はこれから |
 
 ## 3. 複数のカメラ（スマホ2台）
 
@@ -59,7 +59,7 @@
 | C-2 | B にいるとき、サブの送信を止める → 何も起きない（B にサブは映らない） || 2026-11-21: 合格。T-B では sub が止まっても何も起きない |
 | C-3 | 使わない日のカメラの運用: B にいる → Sub へ切り替える（サブはまだ送っていない）→ 待機へ → サブを送り始める → OK になったら Sub へ戻る。戻すときは、先に B へ切り替えてからサブを止める → 何も起きない || 2026-11-21: 合格。T-Sub にした直後に待機へ（return T-Sub）、sub が OK になると T-Sub へ。T-B に戻してから sub を止めても何も起きない |
 | C-4 | OBS で A のサブの項目を手で非表示にする → サブが悪くても A は待機へ行かない || 2026-11-21: 合格（2回目。1回目は Android のアプリの5分の制限で main が止まった）。cam-sub を隠している間は T-A のまま、表示に戻すと待機へ、sub が OK になると T-A へ |
-| C-5 | 2台を同じ上り回線（同じモバイルルーター）から送ったときの乱れ方と、別の回線から送ったときの違い || 2026-11-21: 記録のみ。同じ Wi-Fi で60秒、main 平均 3,733 kbps、sub 平均 2,110 kbps、LOW / DOWN なし。片方が下がると片方が上がる様子はなかった（相関 0.14）。別の回線はモバイル回線の用意がなく、できなかった |
+| C-5 | 2台を同じ上り回線（同じモバイルルーター）から送ったときの乱れ方と、別の回線から送ったときの違い（別の回線: Android は LAN、iOS は WAN〔モバイル回線 + Tailscale〕） || 2026-11-21: 記録のみ。同じ Wi-Fi で60秒、main 平均 3,733 kbps、sub 平均 2,110 kbps、LOW / DOWN なし。片方が下がると片方が上がる様子はなかった（相関 0.14）。別の回線はモバイル回線の用意がなく、できなかった |
 | C-6 | OBS の負荷: メディアソース2本のデコード（「ハードウェアデコードを使用」の有無で CPU と GPU の使い方を比べる） || 2026-11-21: 記録のみ。試験のソース2つのハードウェアデコードを切ると、obs64 の CPU が論理コア1つ分の 25% → 31%、GPU のビデオデコードは 13.3% → 11.7%（もとからある IRL と メディア はハードウェアデコードのまま）。`reader is too slow` は on・off とも0件 |
 | C-7 | status（`curl.exe`）で、`cameras` に2台、`scene_cameras`、`scene_health` が出る || 2026-11-21: 合格。`cameras` に2台、`scene_cameras` は T-B で [main]、T-A で [main, sub]、`scene_health` はどちらも OK |
 

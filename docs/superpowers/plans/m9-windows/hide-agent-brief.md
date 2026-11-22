@@ -4,7 +4,8 @@
 
 ## 前提
 
-- カメラは2台。`main` = Android（RTMP Streamer。`on_bad: standby`）、`sub` = iOS（It's My Live。**`on_bad: hide`**。Tailscale でモバイル回線から送ることがある）。Android の無料の版は約5分で送信が止まるので、長い項目は止まったら送り直してもらう
+- カメラは2台。`main` = Android（RTMP Streamer。`on_bad: standby`）、`sub` = iOS（It's My Live。**`on_bad: hide`**）。
+- **回線**: `main`（Android）は **LAN（同じ Wi-Fi）からだけ**送る。`sub`（iOS）は、LAN から送るときと、**WAN（キャリアのモバイル回線）から Tailscale を通して**送るときがある（Wi-Fi を切り、It's My Live の URL のホストだけを Windows の Tailscale のアドレス `100.…` に替える。`config.yaml` の `stream.publish_host` は**変えない**〔変えると Android の URL も変わるため〕）。どちらの回線で送っているかは、本体のログの `[RTMP] [conn <アドレス>:…] opened` のアドレスでわかる（`192.168.…` なら LAN、`100.…` なら Tailscale）。項目の結果に、そのときの sub の回線を書く。Android の無料の版は約5分で送信が止まるので、長い項目は止まったら送り直してもらう
 - **隠す・戻す**（`on_bad: hide` のカメラ）: そのカメラが悪くなると、本体は、そのカメラのメディアソースの項目を**全部のシーンで**非表示にする（シーンは変えない）。良くなると表示に戻す。今のシーンのカメラが全部隠れてしまうときは、隠さずに待機へ送る。隠した項目は `state\hidden.json` に記録し、本体を止めるとき（Ctrl+C、コンソールを閉じる）は2秒以内に表示に戻してから止まる。落ちたときは、次の起動で記録から照合して戻す
 - 本体は、配信中だけシーンを切り替える。今のシーンに映るカメラが1台でも悪くなると待機シーン（`config.yaml` の `obs.standby_scene`。以下「待機」）へ送り、全部良くなると元のシーンへ戻す。人が切り替えたシーンは「持ち主 none」で、本体は戻さない
 - 配信は、試験だけのプロファイルで、PC の中の試験だけの MediaMTX（`127.0.0.1:21935`）へ流す。本物の配信先（Twitch など）には流れない
