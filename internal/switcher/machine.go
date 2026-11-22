@@ -594,11 +594,22 @@ func (m *Machine) onSceneChanged(e SceneChanged) []Batch {
 			m.setAuto(ApplyPlan(m.stackNow(), hit.Plan.Plan, e.SceneUUID))
 		} else {
 			// 古い復帰は部分的に当てず、全解除する（V-07）。
+			// 待機の ON の特例のあとに先の戻りの切替が届いたときは、戻り先に残って手動の待機を解き、知らせる（FB-SC-11）。
+			afterOn := hit.Plan.EffectsDisabled && s.StandbyOwner == OwnerManual && e.SceneUUID != s.StandbyUUID
 			m.clearOwner()
+			if afterOn {
+				m.recordError(e.At, "待機 ON の前に送った戻りの切替が届いたため、"+m.sceneLabel(e.SceneUUID)+
+					" に戻りました。待機にするには、もう一度 ON を押してください")
+			}
 		}
 	case PurposeStandbyOffMonitored, PurposeStandbyOffOther:
-		// 戻り先へ届いたので、設定の世代によらず消す。
-		m.clearOwner()
+		// 戻り先へ届けば解除。途中の逃がし先へ届けば、OFF 専用の計画（戻り先と飛ばした監視対象）で auto にする。
+		// 古い設定の世代・無効にした期待は部分的に当てず、全解除する。
+		if fresh && hit.Plan.Plan.Kind == PlanEscape {
+			m.setAuto(ApplyPlan(nil, hit.Plan.Plan, e.SceneUUID))
+		} else {
+			m.clearOwner()
+		}
 	}
 	// 期待の照合のあとに整える。
 	m.refine()
