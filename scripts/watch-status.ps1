@@ -4,9 +4,12 @@
 .DESCRIPTION
   パスワードは -Password で渡すか、省略すれば同じフォルダの config.yaml の admin.password を読む。
   -Log を付けると、表示と同じ行をファイルにも書く。Ctrl+C で止める。
+  -Csv を付けると、カメラごとの値（時刻、id、state、kbps、protocol、SRT の rtt_ms・loss_rate〔%〕・recv_mbps、
+  scene、owner、stack）を CSV にも書く（T-15 の揺れの記録用。表計算ソフトで開ける）。
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File .\watch-status.ps1
   powershell -ExecutionPolicy Bypass -File .\watch-status.ps1 -Log .\status-c1.txt
+  powershell -ExecutionPolicy Bypass -File .\watch-status.ps1 -Log .\status-t15.txt -Csv .\t15.csv -IntervalMs 1000
   powershell -ExecutionPolicy Bypass -File .\watch-status.ps1 -Once   # status の JSON を1回だけ出す（資格情報の入る urls を除く）
 #>
 param(
@@ -14,6 +17,7 @@ param(
   [string]$Url = "http://127.0.0.1:8787",
   [int]$IntervalMs = 500,
   [string]$Log = "",
+  [string]$Csv = "",
   [string]$Config = "",
   [switch]$Once
 )
@@ -45,6 +49,10 @@ if ($Once) {
   exit 0
 }
 
+if ($Csv -ne "" -and -not (Test-Path $Csv)) {
+  Add-Content -Path $Csv -Value "time,id,state,kbps,protocol,rtt_ms,loss_rate,recv_mbps,scene,owner,stack" -Encoding UTF8
+}
+
 while ($true) {
   $now = Get-Date -Format "HH:mm:ss.fff"
   try {
@@ -60,5 +68,15 @@ while ($true) {
   }
   Write-Output $line
   if ($Log -ne "") { Add-Content -Path $Log -Value $line -Encoding UTF8 }
+  if ($Csv -ne "" -and $null -ne $s -and $null -ne $s.cameras) {
+    $stack = (@($s.obs.standby.stack) -join "|")
+    $rows = $s.cameras | ForEach-Object {
+      $rtt = ""; $loss = ""; $recv = ""
+      if ($null -ne $_.srt) { $rtt = "{0:F1}" -f $_.srt.rtt_ms; $loss = "{0:F3}" -f $_.srt.loss_rate; $recv = "{0:F3}" -f $_.srt.recv_mbps }
+      "{0},{1},{2},{3:F0},{4},{5},{6},{7},{8},{9},{10}" -f $now, $_.id, $_.state, $_.kbps, $_.protocol, $rtt, $loss, $recv, $s.obs.scene, $s.obs.standby.owner, $stack
+    }
+    Add-Content -Path $Csv -Value $rows -Encoding UTF8
+  }
+  $s = $null
   Start-Sleep -Milliseconds $IntervalMs
 }
