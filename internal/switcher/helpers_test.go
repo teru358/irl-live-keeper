@@ -970,6 +970,15 @@ func (q *seq) approve(id int, a Action, ms int, want ApproveResult) {
 func (q *seq) approveOv(id int, a Action, ov Override, ms int, want ApproveResult) {
 	q.t.Helper()
 	got := q.m.Approve(id, a, ov, at(ms))
+	// RestartMedia の Proceed は実行する入力の部分集合を持つ（C-03）。want が指定しなければ「固定した入力すべて」。
+	if _, ok := got.(Proceed); ok {
+		if rm, isRM := a.(RestartMedia); isRM {
+			if wp, ok := want.(Proceed); ok && wp.RestartInputs == nil {
+				wp.RestartInputs = rm.Inputs
+				want = wp
+			}
+		}
+	}
 	if !reflect.DeepEqual(got, want) {
 		q.t.Fatalf("Approve(%d, %+v) at %dms: got %#v, want %#v", id, a, ms, got, want)
 	}

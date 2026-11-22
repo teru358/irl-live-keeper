@@ -41,16 +41,22 @@ func (m *Machine) Approve(batchID int, action Action, override Override, at time
 	if isSet {
 		target = set.SceneUUID
 	}
-	switch m.purposeValid(pb, isSet, target) {
-	case verdictProceed:
-	case verdictReplace:
-		// 受信状態だけが悪くなった。その場で持ち主を auto にし、回復したら AutoRecover で戻す。
-		m.setAuto([]string{s.ReturnScene})
-		pb.Replaced = true
-		s.Pending[batchID] = pb
-		return Replace{Batch: nil}
-	default:
+	if m.purposeValid(pb, isSet, target) != verdictProceed {
 		return Reject{}
+	}
+	if rm, ok := action.(RestartMedia); ok {
+		// 実行する入力は、固定した入力から今の program に実表示されているものを外した部分集合（C-03）。空なら送らず、待ちもしない。
+		shown := m.actualInputs(s.Scene)
+		var sub []string
+		for _, in := range rm.Inputs {
+			if !shown[in] {
+				sub = append(sub, in)
+			}
+		}
+		if len(sub) == 0 {
+			return Skip{}
+		}
+		return Proceed{RestartInputs: sub}
 	}
 	if !isSet {
 		return Proceed{ReqID: 0}
@@ -89,7 +95,6 @@ type verdict int
 const (
 	verdictReject verdict = iota
 	verdictProceed
-	verdictReplace
 )
 
 // purposeValid は Purpose ごとの有効条件を今の状態（地図・健康・待機 UUID）で確かめる。
@@ -111,21 +116,16 @@ func (m *Machine) purposeValid(pb PendingBatch, isSet bool, target string) verdi
 		d, has := m.decide()
 		return ok(has && d.Purpose == p && samePlan(d.Plan, pb.Plan) && (!isSet || target == d.Target))
 	case PurposeStandbyOn:
-		return ok(s.Streaming && s.StandbyOwner == OwnerNone && !inStandby && (!isSet || target == s.StandbyUUID))
-	case PurposeStandbyOffMonitored:
-		// 戻り先が監視対象でなくなっていたら押し直しで目的を選び直す。
-		if !s.Streaming || s.StandbyOwner != OwnerManual || !inStandby || !m.isMonitored(s.ReturnScene) ||
-			(isSet && target != s.ReturnScene) {
+		// 受付条件を再検査する。戻り先（auto なら最下段、none なら今のシーン）が変わっていたら却下する（manual 化しない）。
+		return ok(s.Streaming && s.StandbyUUID != "" && (s.StandbyOwner == OwnerNone || s.StandbyOwner == OwnerAuto) && !inStandby &&
+			(!isSet || target == s.StandbyUUID) && m.onReturnTarget() == pb.ReturnScene)
+	case PurposeStandbyOffMonitored, PurposeStandbyOffOther:
+		// 最新の状態から OFF の計画を計算し直し、バッチと違えば却下する（auto 化へ置き換えない。押し直しで選び直す）。
+		if !s.Streaming || s.StandbyOwner != OwnerManual || !inStandby {
 			return verdictReject
 		}
-		if h, _, has := m.healthOf(s.ReturnScene); s.AutoEnabled && isBad(h, has) {
-			// 戻り先の健康だけが悪くなった。その場で持ち主を auto にし、回復したら AutoRecover で戻す。
-			return verdictReplace
-		}
-		return verdictProceed
-	case PurposeStandbyOffOther:
-		return ok(s.Streaming && s.StandbyOwner == OwnerManual && inStandby && !m.isMonitored(s.ReturnScene) &&
-			(!isSet || target == s.ReturnScene))
+		op, reason := m.offPlan()
+		return ok(reason == "" && !op.Immediate && op.Purpose == p && samePlan(op.Plan, pb.Plan) && (!isSet || target == op.Target))
 	case PurposeStartScene:
 		return ok(s.Streaming)
 	case PurposeStartStream:

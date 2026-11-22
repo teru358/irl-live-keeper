@@ -48,9 +48,14 @@ func (c *Core) execute(ctx context.Context, b *switcher.Batch) {
 		}
 		var reqID int
 		var itemReq uint64
+		sendAct := a
 		switch r := res.(type) {
 		case switcher.Proceed:
 			reqID, itemReq = r.ReqID, r.ItemReqID
+			if rm, ok := a.(switcher.RestartMedia); ok && len(r.RestartInputs) > 0 {
+				// 承認が決めた部分集合だけを再起動する（今の program に実表示されている入力は外れている。C-03）。
+				sendAct = switcher.RestartMedia{Inputs: r.RestartInputs, Wait: rm.Wait}
+			}
 		case switcher.Skip:
 			continue
 		default: // Reject、Replace（代わりのバッチは中核ループが列の先頭に入れている）
@@ -58,7 +63,7 @@ func (c *Core) execute(ctx context.Context, b *switcher.Batch) {
 			return
 		}
 
-		err, ok := callOBS(ctx, func() error { return c.send(a) })
+		err, ok := callOBS(ctx, func() error { return c.send(sendAct) })
 		if !ok {
 			return
 		}

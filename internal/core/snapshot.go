@@ -62,9 +62,13 @@ type OBSStatus struct {
 }
 
 // StandbyStatus は待機の持ち主と戻り先（シーンの名前）。戻り先がなければ ReturnScene は null。
+//
+// Stack は auto のスタック（下→上、今の地図での名前。0c）。auto 以外は空。ReturnScene は manual の単独の戻り先、
+// auto ならスタックの最下段。
 type StandbyStatus struct {
-	Owner       string  `json:"owner"` // none / auto / manual
-	ReturnScene *string `json:"return_scene"`
+	Owner       string   `json:"owner"` // none / auto / manual
+	ReturnScene *string  `json:"return_scene"`
+	Stack       []string `json:"stack"` // 空でも [] にする
 }
 
 // LastError は最後に記録したエラー。Source は switcher か mediamtx。
@@ -103,7 +107,7 @@ func (c *Core) publish() {
 			SceneClass:   ms.Class.String(),
 			SceneCameras: append([]string{}, ms.VisibleCameras...),
 			StudioMode:   ms.Connected && ms.StudioMode,
-			Standby:      StandbyStatus{Owner: ms.Standby.Owner.String()},
+			Standby:      StandbyStatus{Owner: ms.Standby.Owner.String(), Stack: []string{}},
 			AutoEnabled:  ms.AutoEnabled,
 			Warnings:     []string{},
 		},
@@ -139,6 +143,22 @@ func (c *Core) publish() {
 	if r := ms.Standby.ReturnScene; r != "" {
 		name := c.sceneLabel(r, ms.Standby.ReturnSceneName)
 		s.OBS.Standby.ReturnScene = &name
+	}
+	for i, u := range ms.Standby.Stack {
+		name := ""
+		if i < len(ms.Standby.StackNames) {
+			name = ms.Standby.StackNames[i]
+		}
+		s.OBS.Standby.Stack = append(s.OBS.Standby.Stack, c.sceneLabel(u, name))
+	}
+	for _, w := range ms.FallbackWarnings {
+		switch {
+		case w.Index < 0:
+		case w.Field == "scene":
+			s.OBS.Warnings = append(s.OBS.Warnings, fmt.Sprintf("scene_fallbacks の %d 行目: scene「%s」が OBS にないため、この行は使われません", w.Index+1, w.Name))
+		default:
+			s.OBS.Warnings = append(s.OBS.Warnings, fmt.Sprintf("scene_fallbacks の %d 行目: fallback「%s」が OBS にないため、共通の待機シーンへ逃がします", w.Index+1, w.Name))
+		}
 	}
 	if c.warnings != nil {
 		if w := c.warnings(); len(w) > 0 {

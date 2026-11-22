@@ -584,6 +584,9 @@ type Proceed struct {
 	// MustPersist は、この承認の Proceed を返す前に、隠した項目の一覧を同期で保存しなければならないこと
 	// （最初の false の承認。保存に失敗したら HiddenWriteFailed を渡し、実行役には Reject を返す）。
 	MustPersist bool
+	// RestartInputs は RestartMedia の承認で、実際に実行する入力の部分集合（固定した入力から、今の program に実表示されているものを外す。C-03）。
+	// 空でない。実行役は固定した Inputs ではなくこちらだけを実行する。RestartMedia 以外、項目の Show の Restart では nil（固定どおり）。
+	RestartInputs []string
 }
 
 // Skip は送らずに成功とみなすこと（現在のシーンがすでに切替先のシーン）。
@@ -629,6 +632,8 @@ const (
 	ReasonStandbyNotFound = "待機シーンが OBS にない"
 	// ReasonStopping は本体の停止中で Command を受け付けないこと。
 	ReasonStopping = "終了中"
+	// ReasonOffNoTarget は手動の待機の OFF で、切替先の名前が OBS の地図でどれも引けないこと（C-01）。
+	ReasonOffNoTarget = "切替先が OBS にないため、待機のままです"
 )
 
 // ErrorInfo は記録したエラー（時刻と文）。status の last_error になる。
@@ -847,6 +852,8 @@ type Snapshot struct {
 	StudioMode      bool
 	// Cameras は設定の順のカメラ別の状態。
 	Cameras []CameraItemStatus
+	// FallbackWarnings は scene_fallbacks と待機シーンの名前が地図で引けなかった所（行番号は Index の 0 始まり）。地図がなければ空。
+	FallbackWarnings []NameWarning
 }
 
 // CameraItemStatus はカメラ別の項目の表示・非表示の状態。

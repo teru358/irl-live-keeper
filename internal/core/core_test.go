@@ -167,9 +167,9 @@ func TestApproveRejectsWhenLinkDropsDuringRestart(t *testing.T) {
 	}
 }
 
-// 手動の待機を戻す StandbyOffMonitored の待ちの間に受信が悪化したら、Replace（代わりのバッチなし）
-// になり、持ち主が auto になる。列に入るバッチはなく、先に並んでいた StopStream がそのまま次に実行される。
-func TestReplaceWithoutBatch(t *testing.T) {
+// 手動の待機を戻す StandbyOffMonitored の待ちの間に受信が悪化したら、OFF の計画が変わるので承認で Reject になる
+// （0c: auto 化へ置き換えない）。持ち主は manual のまま、last_error に取りやめを残す。先に並んでいた StopStream がそのまま次に実行される。
+func TestOffRejectedWhenPlanChanges(t *testing.T) {
 	h := newHarness(t)
 	release := make(chan struct{})
 	h.obs.onRestart = func(string) error { h.obs.gate(release); return nil } // StandbyOff で初めて呼ばれる
@@ -193,19 +193,20 @@ func TestReplaceWithoutBatch(t *testing.T) {
 	})
 	if !slices.ContainsFunc(seen, func(v any) bool {
 		a, ok := v.(approval)
-		return ok && reflect.DeepEqual(a.Result, switcher.Replace{})
+		_, isSet := a.Action.(switcher.SetScene)
+		return ok && isSet && reflect.DeepEqual(a.Result, switcher.Reject{})
 	}) {
-		t.Errorf("Replace{nil} の承認がない: %#v", seen)
+		t.Errorf("OFF の SetScene の Reject がない: %#v", seen)
 	}
 	want := []string{"restart:IRL", "override:Camera", "stop"}
 	if got := callsSince(h.obs, n); !reflect.DeepEqual(got, want) {
 		t.Errorf("calls = %v, want %v", got, want)
 	}
 	s := h.core.Snapshot()
-	if s.LastError != nil {
-		t.Errorf("置き換えた却下を last_error に残した: %+v", *s.LastError)
+	if s.LastError == nil || !strings.Contains(s.LastError.Message, "取りやめた") {
+		t.Errorf("手動の OFF の却下を last_error に残す: %+v", s.LastError)
 	}
-	if !standbyIs("auto", camera)(s) || s.OBS.Scene != standby {
+	if !standbyIs("manual", camera)(s) || s.OBS.Scene != standby {
 		t.Errorf("Snapshot = %+v", s.OBS)
 	}
 }
@@ -606,7 +607,7 @@ const specStatusJSON = `{
   ],
   "obs":     {"connected": true, "streaming": false, "scene": "Camera", "scene_class": "monitored",
               "scene_cameras": ["main"], "scene_health": "LOW", "studio_mode": false,
-              "standby": {"owner": "none", "return_scene": null},
+              "standby": {"owner": "none", "return_scene": null, "stack": []},
               "auto_enabled": true,
               "warnings": []},
   "mediamtx": "running",
@@ -644,7 +645,7 @@ func TestSnapshotJSONShape(t *testing.T) {
 	if v, ok := obsPart["scene_health"]; !ok || v != nil {
 		t.Errorf("scene_health = %#v, want null", v)
 	}
-	wantStandby := map[string]any{"owner": "none", "return_scene": nil}
+	wantStandby := map[string]any{"owner": "none", "return_scene": nil, "stack": []any{}}
 	if !reflect.DeepEqual(obsPart["standby"], wantStandby) {
 		t.Errorf("standby = %#v, want %#v", obsPart["standby"], wantStandby)
 	}
@@ -721,7 +722,7 @@ func TestSnapshotReturnScene(t *testing.T) {
 	h.start()
 	h.autoStandby(camera)
 	obsPart := marshalMap(t, h.core.Snapshot())["obs"].(map[string]any)
-	want := map[string]any{"owner": "auto", "return_scene": "Camera"}
+	want := map[string]any{"owner": "auto", "return_scene": "Camera", "stack": []any{"Camera"}}
 	if !reflect.DeepEqual(obsPart["standby"], want) || obsPart["scene_class"] != "standby" {
 		t.Errorf("obs = %#v", obsPart)
 	}

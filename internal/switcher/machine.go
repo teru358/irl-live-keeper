@@ -95,6 +95,9 @@ func (m *Machine) Snapshot() Snapshot {
 		e := *s.LastError
 		snap.LastError = &e
 	}
+	if s.Connected && s.Map != nil {
+		snap.FallbackWarnings = m.resolved().Warnings
+	}
 	snap.HiddenEntries = cloneHidden(s.Hidden)
 	snap.RetainedEntries = cloneHidden(s.Retained)
 	snap.HiddenRevision = s.HiddenRevision
@@ -711,7 +714,7 @@ func (m *Machine) onBatchDone(e BatchDone) []Batch {
 		}
 		m.recordError(e.At, msg)
 	case BatchRejected:
-		if (pb.Purpose.FromCommand() || pb.Purpose == PurposeStartScene) && !pb.Replaced && !pb.ManualRejected {
+		if (pb.Purpose.FromCommand() || pb.Purpose == PurposeStartScene) && !pb.ManualRejected {
 			m.recordError(e.At, pb.Purpose.String()+" は実行の直前に状況が変わったため取りやめた")
 		}
 	}
@@ -771,9 +774,17 @@ func (m *Machine) suppressed() bool {
 }
 
 // recoverInFlight は AutoRecover の未完了か期待が残っているか。残る間は AutoFail を出さない（到着してから通常判断する）。
+// 手動の待機の OFF の未完了・期待も同じに扱う（FB-TK-08）。
 func (m *Machine) recoverInFlight() bool {
-	return m.hasPending(PurposeAutoRecover) ||
-		slices.ContainsFunc(m.st.Expectations, func(x Expectation) bool { return x.Purpose == PurposeAutoRecover })
+	in := func(p Purpose) bool {
+		return p == PurposeAutoRecover || p == PurposeStandbyOffMonitored || p == PurposeStandbyOffOther
+	}
+	for _, pb := range m.st.Pending {
+		if in(pb.Purpose) {
+			return true
+		}
+	}
+	return slices.ContainsFunc(m.st.Expectations, func(x Expectation) bool { return in(x.Purpose) })
 }
 
 // autoDecision は自動切替の判断の結果: 目的、切替先、届いたときに当てる計画、悪い代表のカメラ（AutoFail）。
@@ -915,19 +926,29 @@ func (m *Machine) onCommand(e Command) (*Batch, error) {
 	case CmdStreamStop:
 		return m.emit(PurposeStopStream, e.At, []Action{StopStream{}}, "", "", ArrivalPlan{}), nil
 	case CmdStandbyOn:
-		return m.emit(PurposeStandbyOn, e.At, []Action{SetScene{SceneUUID: s.StandbyUUID}}, s.Scene, "", ArrivalPlan{}), nil
-	case CmdStandbyOff:
-		ret := s.ReturnScene
-		if !m.isMonitored(ret) {
-			// 戻り先が管理外（地図から消えた場合を含む）。再起動なしで切り替える。
-			return m.emit(PurposeStandbyOffOther, e.At, []Action{SetScene{SceneUUID: ret}}, "", "", ArrivalPlan{}), nil
-		}
-		if h, _, has := m.healthOf(ret); s.AutoEnabled && (isBad(h, has) || m.waitingHidden(ret)) {
-			// 回線が悪いまま、または隠した項目が待っているままカメラ映像へ戻さない。回復したら AutoRecover で戻る。
-			m.setAuto([]string{ret})
+		if s.Scene == s.StandbyUUID && s.StandbyOwner == OwnerAuto {
+			// 今すでに待機で auto の ON は、切替を送らず、Handle の中で manual に固定する（裁定 9）。戻り先はスタックの最下段（ReturnScene）。
+			// 残っている自動の期待は照合だけにする（持ち主・スタック・戻り先へ作用しない）。
+			s.StandbyOwner = OwnerManual
+			s.Stack = nil
+			m.disableExpectations()
 			return nil, nil
 		}
-		return m.emit(PurposeStandbyOffMonitored, e.At, m.restoreActions(ret), "", "", ArrivalPlan{}), nil
+		return m.emit(PurposeStandbyOn, e.At, []Action{SetScene{SceneUUID: s.StandbyUUID}}, m.onReturnTarget(), "", ArrivalPlan{}), nil
+	case CmdStandbyOff:
+		op, reason := m.offPlan()
+		if reason != "" {
+			if reason == ReasonOffNoTarget {
+				m.recordError(e.At, reason)
+			}
+			return nil, ErrInvalidState{Reason: reason}
+		}
+		if op.Immediate {
+			// 候補が今の待機。切替を送らず、その場で auto と計画した履歴を確定する（明示的な所有権変更）。
+			m.setAuto(ApplyPlan(nil, op.Plan.Plan, s.Scene))
+			return nil, nil
+		}
+		return m.emit(op.Purpose, e.At, op.Actions, "", "", op.Plan), nil
 	}
 	return nil, ErrInvalidState{Reason: "未知の操作"}
 }
@@ -952,15 +973,18 @@ func (m *Machine) commandRefusal(k CommandKind) string {
 			return ReasonSamePending
 		}
 	case CmdStandbyOn:
+		inStandby := s.StandbyUUID != "" && s.Scene == s.StandbyUUID
 		switch {
 		case !s.Streaming:
 			return ReasonNotStreaming
 		case s.StandbyUUID == "":
 			return ReasonStandbyNotFound
-		case s.Scene == s.StandbyUUID || s.StandbyOwner != OwnerNone:
+		case s.StandbyOwner == OwnerManual || (inStandby && s.StandbyOwner == OwnerNone):
 			return ReasonAlreadyStandby
 		case m.hasPending(PurposeStandbyOn):
 			return ReasonSamePending
+		case inStandby:
+			// 待機で auto の ON は、切替の未完了・期待が残っていても受け付ける（裁定 9。Handle の中で manual に固定する）。
 		case m.hasPending(PurposeStartScene, PurposeAutoFail, PurposeAutoRecover) || len(s.Expectations) > 0:
 			// タイムアウトのあとも、期待が残る間は OBS が後から切り替えうる。
 			return ReasonSwitchInProcess
