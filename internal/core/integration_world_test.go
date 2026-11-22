@@ -49,9 +49,10 @@ func (c *wCont) find(id int) *wItem {
 }
 
 type pendEv struct {
-	due   time.Time
-	ev    switcher.Event
-	human bool
+	due      time.Time
+	ev       switcher.Event
+	human    bool
+	appScene bool // 0c: 本体の SetScene の適用で出た SceneChanged
 	key   ik // 人の項目の変化のとき
 	val   bool
 }
@@ -117,7 +118,15 @@ type world struct {
 	violations []string
 	trace      []string
 	activity   atomic.Int64
+	evCount    atomic.Int64 // 本体へ流したイベントの数（0c: 履歴が変わるのはイベントかコマンドのあと）
 	stats      worldStats
+
+	// 0c の拡張（nil なら 0b と同じ世界）。
+	fb       *fbWorld
+	humanWin bool // この1秒に人の操作があった（本体の判断と偽の OBS の事実がずれうる窓。0c の判定を控える）
+	nextApp  bool // 次に enqueueLocked するイベントは本体の SetScene 由来
+	// forceDelay は次の enqueueLocked の遅れ（期待の期限を超えさせる。0c）。
+	forceDelay time.Duration
 }
 
 type worldStats struct {
@@ -319,12 +328,18 @@ func (w *world) enqueueLocked(ev switcher.Event, human bool, k ik, val bool) {
 	if !w.benign && w.rng.Intn(3) > 0 {
 		due = due.Add(time.Duration(w.rng.Intn(3000)) * time.Millisecond)
 	}
+	if w.forceDelay > 0 {
+		due = w.clk.Now().Add(w.forceDelay)
+		w.forceDelay = 0
+	}
 	if n := len(w.pending); n > 0 && w.pending[n-1].due.After(due) {
 		due = w.pending[n-1].due
 	}
-	w.pending = append(w.pending, pendEv{due: due, ev: ev, human: human, key: k, val: val})
+	app := w.nextApp
+	w.nextApp = false
+	w.pending = append(w.pending, pendEv{due: due, ev: ev, human: human, key: k, val: val, appScene: app})
 	if !w.benign && w.rng.Intn(8) == 0 { // 重なり
-		w.pending = append(w.pending, pendEv{due: due, ev: ev, human: human, key: k, val: val})
+		w.pending = append(w.pending, pendEv{due: due, ev: ev, human: human, key: k, val: val, appScene: app})
 	}
 }
 
@@ -332,6 +347,7 @@ func (w *world) enqueueLocked(ev switcher.Event, human bool, k ik, val bool) {
 func (w *world) send(ch chan switcher.Event, gd chan struct{}, ev switcher.Event) {
 	select {
 	case ch <- ev:
+		w.evCount.Add(1)
 		w.activity.Add(1)
 	case <-gd:
 	case <-w.done:

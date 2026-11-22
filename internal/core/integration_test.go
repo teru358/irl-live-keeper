@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/pprof"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -44,6 +45,8 @@ type runner struct {
 	cur   *gen
 	steps []string
 	fail  bool
+
+	logBuf *syncBuf // 0c: 本体のログ（nil なら捨てる）
 }
 
 func (r *runner) stepf(f string, a ...any) {
@@ -77,6 +80,7 @@ func (r *runner) startGen(autoOn bool, studioHide string) {
 	w.autoOn, w.studioHid = autoOn, studioHide
 	w.resetJudges()
 	gnum := w.gen
+	w.fbOnNewGenLocked()
 	w.mu.Unlock()
 	entries, warn := LoadHidden(r.path)
 	g := &gen{samples: make(chan ingest.SampleSet), ticks: make(chan time.Time), done: make(chan struct{})}
@@ -88,7 +92,21 @@ func (r *runner) startGen(autoOn bool, studioHide string) {
 		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 	deps.Machine = switcher.New(switcher.Config{RestartWait: time.Millisecond, Endpoint: testEndpoint})
+	if w.fb != nil {
+		w.mu.Lock()
+		deps.SceneFallbacks = slices.Clone(w.fb.rows)
+		w.mu.Unlock()
+		deps.Warnings = func() []string { return []string{fbObsWarning} }
+		if r.logBuf != nil {
+			deps.Log = slog.New(slog.NewTextHandler(r.logBuf, nil))
+		}
+	}
 	g.core = New(deps)
+	if w.fb != nil {
+		w.mu.Lock()
+		w.fb.snap = g.core.Snapshot
+		w.mu.Unlock()
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	g.cancel = cancel
 	go func() { defer close(g.done); g.core.Run(ctx) }()
@@ -108,7 +126,7 @@ func (r *runner) sendConnected() {
 	w := r.w
 	w.mu.Lock()
 	w.pending = nil
-	ev := switcher.OBSConnected{At: r.clk.Now(), Streaming: w.streaming, Scene: w.program, SceneUUID: w.program,
+	ev := switcher.OBSConnected{At: r.clk.Now(), Streaming: w.streaming, Scene: w.sceneNameLocked(w.program), SceneUUID: w.program,
 		Map: w.snapshotMapLocked(), StudioMode: w.studio}
 	ch, gd := w.evCh, w.genDone
 	w.connected = true
@@ -171,9 +189,15 @@ func (r *runner) settle() {
 func (r *runner) second() {
 	w := r.w
 	now := r.clk.Advance(time.Second)
+	w.mu.Lock()
+	w.humanWin = false
+	w.mu.Unlock()
 	w.runLate(now)
 	w.releaseHungDue(now)
 	w.deliverDue(false)
+	if w.fb != nil {
+		r.settle() // 配った SceneChanged などで起きた本体の動きを、Sample より前に済ませる（0c の判定が競合しないように）
+	}
 	// 独立の Judge で、カメラの状態を追う。OK になったら、人が戻した印を消す。
 	w.mu.Lock()
 	set := ingest.SampleSet{At: now}
@@ -210,6 +234,7 @@ func (r *runner) second() {
 		}
 		time.Sleep(time.Millisecond) // 非同期の書き直しを待つ
 	}
+	r.fbCheck("1秒の終わり")
 }
 
 func (w *world) fatalLocked() bool { return len(w.violations) > 0 }
@@ -297,6 +322,8 @@ func (r *runner) humanToggle() {
 	delete(w.trueIssued, k)
 	ev := switcher.ItemEnabledChanged{At: r.clk.Now(), SceneUUID: k.c, ItemID: k.id, Enabled: v}
 	w.enqueueLocked(ev, true, k, v)
+	w.fbOnHumanLocked("人の項目の切替", false)
+	w.fbMapMutatedLocked()
 	w.mu.Unlock()
 	if r.rng.Intn(2) == 0 {
 		w.deliverDue(true)
@@ -323,7 +350,8 @@ func (r *runner) humanScene() {
 	to := names[r.rng.Intn(len(names))]
 	r.stepfLocked("人がシーンを %s に切替", to)
 	w.program = to
-	w.enqueueLocked(switcher.SceneChanged{At: r.clk.Now(), Scene: to, SceneUUID: to}, true, ik{}, false)
+	w.fbOnHumanLocked("人のシーン切替", true)
+	w.enqueueLocked(switcher.SceneChanged{At: r.clk.Now(), Scene: w.sceneNameLocked(to), SceneUUID: to}, true, ik{}, false)
 	w.mu.Unlock()
 	if r.rng.Intn(2) == 0 {
 		w.deliverDue(true)
@@ -335,6 +363,7 @@ func (r *runner) streamToggle() {
 	w := r.w
 	w.mu.Lock()
 	w.streaming = !w.streaming
+	w.fbOnStreamLocked()
 	r.stepfLocked("配信を %v に", w.streaming)
 	if !w.streaming {
 		w.clearMarksLocked("配信の停止")
@@ -350,6 +379,7 @@ func (r *runner) studioToggle() {
 	w.studio = !w.studio
 	r.stepfLocked("Studio Mode を %v に", w.studio)
 	w.clearMarksLocked("Studio Mode の変化")
+	w.fbOnConnLocked()
 	w.enqueueLocked(switcher.StudioModeChanged{At: r.clk.Now(), Enabled: w.studio}, false, ik{}, false)
 	w.mu.Unlock()
 	r.settle()
@@ -363,6 +393,7 @@ func (r *runner) disconnect() {
 		return
 	}
 	r.stepfLocked("OBS との接続が切れる")
+	w.fbOnDisconnectLocked()
 	w.pending = nil
 	w.connected = false
 	w.humanRestoredOwned = map[ik]bool{}
@@ -381,6 +412,7 @@ func (r *runner) reconnect() {
 		return
 	}
 	r.stepfLocked("OBS につなぎ直す")
+	w.fbOnConnLocked()
 	w.mu.Unlock()
 	r.sendConnected()
 	r.settle()
@@ -428,6 +460,8 @@ func (r *runner) humanAddRemove() {
 	}
 	ev := switcher.SceneMapChanged{At: r.clk.Now(), Map: w.snapshotMapLocked()}
 	w.enqueueLocked(ev, true, ik{}, false)
+	w.fbOnHumanLocked("人の項目の追加・削除", false)
+	w.fbMapMutatedLocked()
 	w.mu.Unlock()
 	if r.rng.Intn(2) == 0 {
 		w.deliverDue(true)
@@ -517,6 +551,7 @@ func (r *runner) recoverAll() {
 	switch mode {
 	case 0:
 		w.streaming = false
+		w.fbOnStreamLocked()
 		w.clearMarksLocked("回復: 配信の停止")
 		r.stepfLocked("回復: 配信を止める")
 		w.enqueueLocked(switcher.StreamStateChanged{At: r.clk.Now(), Streaming: false}, false, ik{}, false)

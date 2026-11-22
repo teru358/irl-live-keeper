@@ -38,6 +38,7 @@ func (g *genClient) StartStream() error {
 		return errors.New("OBS に未接続")
 	}
 	g.w.streaming = true
+	g.w.fbOnStreamLocked()
 	g.w.mu.Unlock()
 	g.w.sendNow(switcher.StreamStateChanged{At: g.w.clk.Now(), Streaming: true})
 	return nil
@@ -52,6 +53,7 @@ func (g *genClient) StopStream() error {
 		return errors.New("OBS に未接続")
 	}
 	g.w.streaming = false
+	g.w.fbOnStreamLocked()
 	g.w.clearMarksLocked("配信の停止")
 	g.w.mu.Unlock()
 	g.w.sendNow(switcher.StreamStateChanged{At: g.w.clk.Now(), Streaming: false})
@@ -67,12 +69,13 @@ func (g *genClient) SceneTransitionOverrideUUID(string) (*int, bool, error) {
 	return nil, false, nil
 }
 
-func (g *genClient) RestartMediaInputs([]string) error {
+func (g *genClient) RestartMediaInputs(inputs []string) error {
 	g.w.mu.Lock()
 	defer g.w.mu.Unlock()
 	if !g.current() || !g.w.connected {
 		return errors.New("OBS に未接続")
 	}
+	g.w.fbOnRestartLocked(inputs)
 	return nil
 }
 
@@ -88,13 +91,26 @@ func (g *genClient) SetSceneUUID(name string) error {
 		g.w.mu.Unlock()
 		return errors.New("request SetCurrentProgramScene: ResourceNotFound (600)")
 	}
+	if g.w.fb != nil && g.w.program == name {
+		// 人が先に同じ行き先を選んでいた: 本体の期待は、あとから届く人の切替のイベントと一致して履歴を足しうる（spec の既知の制約）。
+		g.w.fb.appSwitches++
+		g.w.fb.epValid = false
+		g.w.mu.Unlock()
+		return nil // 同じシーンへの切替は OBS ではイベントなしの空振り
+	}
+	from := g.w.program
+	g.w.fbBeforeAppSceneLocked(from, name)
 	g.w.program = name
 	g.w.logf("本体: シーンを %s に切替", name)
 	g.w.checkNotEmptyLocked("本体の SetScene の適用直後", nil)
-	ev := switcher.SceneChanged{At: g.w.clk.Now(), Scene: name, SceneUUID: name}
+	g.w.fbAfterAppSceneLocked(from, name)
+	ev := switcher.SceneChanged{At: g.w.clk.Now(), Scene: g.w.sceneNameLocked(name), SceneUUID: name}
 	sync := g.w.benign || g.w.rng.Intn(2) == 0
 	if !sync {
+		g.w.nextApp = true
+		g.w.fbLateSceneLocked()
 		g.w.enqueueLocked(ev, false, ik{}, false)
+		g.w.nextApp = false
 	}
 	g.w.mu.Unlock()
 	if sync {
