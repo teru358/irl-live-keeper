@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/andreykaipov/goobs"
@@ -102,6 +103,10 @@ type WS struct {
 	// eventQueueMax は、goobs から読んだイベントを core へ流すまで取っておく上限。
 	eventQueueMax int
 	aux           *Aux
+
+	// bounceArmed と bounceBuffered は、Studio Mode の一瞬の切替の取っておく処理の進みの印（テストが待つ）。
+	// 窓の待ちを置いた回数と、取っておいたイベントの数。
+	bounceArmed, bounceBuffered atomic.Int64
 
 	// wg は goroutine を数える。stopped が true になったら、spawn は何も始めない。
 	spawnMu sync.Mutex

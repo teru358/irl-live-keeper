@@ -445,6 +445,11 @@ func (s *sess) connect(r reloadResult, addr string) bool {
 	s.q.initCur(r.connected.SceneUUID, r.bnd.scene)
 	c.legacy.Store(r.legacy)
 	s.curUUID = r.connected.SceneUUID
+	// 既知の制約（レビュー I-2）: つなぎ直しの読み取りの最中に Studio Mode を切ると、境界をまたいで
+	// 一瞬の切替が漏れうる。例: GetCurrentProgramScene が A を返す → H → A → Studio false →
+	// GetStudioModeEnabled が false を返す。H・A はシーンの境界より後なので残り、false は Studio Mode の
+	// 境界以前なので除外され、s.studio=false で H・A が即 SceneChanged になる。
+	// 直さない理由: 読み取りは短く、その最中に切ることはまれで、屋外配信では Studio Mode を勧めない。
 	s.studio = r.connected.StudioMode
 	s.dropBounce()
 	w.mu.Lock()
@@ -653,9 +658,11 @@ func (s *sess) bounceHandle(ev any, at time.Time) bool {
 		if !pending {
 			s.progPrev = s.curUUID
 			s.bounceEnd = s.w.clock.After(studioBounceWindow)
+			s.w.bounceArmed.Add(1)
 		}
 		s.curUUID = s.sceneID(e.SceneUuid, e.SceneName)
 		s.pend = append(s.pend, pendingEv{ev, at})
+		s.w.bounceBuffered.Add(1)
 		return true
 	case *events.StudioModeStateChanged:
 		s.studio = e.StudioModeEnabled
@@ -664,6 +671,7 @@ func (s *sess) bounceHandle(ev any, at time.Time) bool {
 		}
 		if e.StudioModeEnabled {
 			s.pend = append(s.pend, pendingEv{ev, at})
+			s.w.bounceBuffered.Add(1)
 		} else {
 			s.resolveBounce(ev, at)
 		}
@@ -673,9 +681,37 @@ func (s *sess) bounceHandle(ev any, at time.Time) bool {
 			return false
 		}
 		s.pend = append(s.pend, pendingEv{ev, at})
+		s.w.bounceBuffered.Add(1)
 		return true
+	case *events.SceneRemoved:
+		// program のシーンなら、dispatch が beginSwitch で取っておいたものを捨てる。
+		if !e.IsGroup && s.curUUID != "" && s.sceneID(e.SceneUuid, e.SceneName) == s.curUUID {
+			return false
+		}
+		s.flushBeforeEpoch(pending)
+	case *events.CurrentSceneTransitionChanged, *events.SceneCreated, *events.SceneNameChanged,
+		*events.SceneItemCreated, *events.SceneItemRemoved, *events.InputCreated, *events.InputRemoved,
+		*events.InputNameChanged, *events.InputSettingsChanged:
+		s.flushBeforeEpoch(pending)
 	}
 	return false
+}
+
+// flushBeforeEpoch は、エポックの goroutine（トランジションの取り直し、地図の読み直し）に頼むイベントが
+// 届いたとき、先に取っておいたものを窓の終わりと同じに流す（窓も消す）。そのあとで、呼び出し側が
+// そのイベントを今までどおり扱う。
+// 理由: エポックの goroutine は取っておく列を通らず emitEpoch で直接流すので、取っておいたまま頼むと、
+// 取り直しの新しい値のあとに古い TransitionDurationChanged や ItemEnabledChanged が届き、巻き戻る。
+// 先に流しても一瞬の切替は漏れない: Linux の実機で調べたところ、Studio Mode を切る瞬間に届くのは
+// CurrentProgramSceneChanged が2つと StudioModeStateChanged だけで、これらのイベントは混ざらない。
+// ItemEnabledChanged の巻き戻り（確かめた結果）: core は SceneMapChanged で、写しにある項目の Enabled を
+// 写しの値で引き継ぎ（overlayEnabled）、ItemEnabledChanged は写しに当てる。ItemEnabledChanged は
+// 届いた順に流れ、OBS は項目の変化のたびにイベントを出すので、最後に流れる値は OBS の今の値になる。
+// 30秒ごとの kick なしの読み直しでも、遅れて届く古い値は途中の一時的なもので、最後の値で上書きされる。
+func (s *sess) flushBeforeEpoch(pending bool) {
+	if pending {
+		s.flushBounce()
+	}
 }
 
 // resolveBounce は、取っておく間に StudioModeStateChanged false が届いたときの扱い。
