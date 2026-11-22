@@ -84,7 +84,20 @@ func withRestored(es ...switcher.HiddenEntry) option {
 // hideHarness は main（standby）と sub（hide）の2台で、hidden.json を一時のフォルダに置く。
 func hideHarness(t *testing.T, opts ...option) (*harness, string) {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "state", "hidden.json")
+	// persister の worker は、Run が戻ったあとも書き込みを終えるまで残る（既知の制約）。t.TempDir の削除は
+	// その書き込みと競って "directory not empty" になることがあるので、自分で作り、消えるまで消し直す。
+	// 後片づけは逆順なので、newHarness の Run を止める後片づけより後に走る。
+	dir, err := os.MkdirTemp("", "hide")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		deadline := time.Now().Add(wait)
+		for os.RemoveAll(dir) != nil && time.Now().Before(deadline) {
+			time.Sleep(time.Millisecond)
+		}
+	})
+	path := filepath.Join(dir, "state", "hidden.json")
 	all := append([]option{twoCameras, withEndpoint, withHiddenPath(path)}, opts...)
 	return newHarness(t, all...), path
 }
@@ -295,6 +308,22 @@ func TestExecutorDisconnectMidRequestIsTimeout(t *testing.T) {
 	h.obsEvent(switcher.OBSDisconnected{At: h.clk.Now()})
 	h.settle()
 	close(release)
+	got := h.waitSeen("ItemRequestDone", func(v any) bool { _, ok := v.(switcher.ItemRequestDone); return ok })
+	done := got[len(got)-1].(switcher.ItemRequestDone)
+	if done.Result != switcher.ItemTimeout {
+		t.Fatalf("Result = %v, want Timeout", done.Result)
+	}
+}
+
+// 切断のイベントより先に、接続が切れたことによる失敗が返っても（順は決まらない）Timeout にする。
+func TestExecutorConnectionLostErrorBeforeDisconnectEventIsTimeout(t *testing.T) {
+	h, _ := hideHarness(t)
+	h.obs.onItem = func(string, int, bool) error {
+		return errors.New("write tcp 127.0.0.1:1->127.0.0.1:4455: use of closed network connection")
+	}
+	h.start()
+	h.mainOKSubDown()
+	h.connectMap(true, camera, hideMap())
 	got := h.waitSeen("ItemRequestDone", func(v any) bool { _, ok := v.(switcher.ItemRequestDone); return ok })
 	done := got[len(got)-1].(switcher.ItemRequestDone)
 	if done.Result != switcher.ItemTimeout {

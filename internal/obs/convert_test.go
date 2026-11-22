@@ -144,3 +144,28 @@ func TestMapEvent(t *testing.T) {
 		t.Error("関係のないイベントは流さない")
 	}
 }
+
+// 接続が切れたことによる失敗は、切断のイベントより先に返ることがある。適用されたかわからないので、
+// 文から Timeout に分ける（送れなかった "client already disconnected" は分けない）。
+func TestConnectionLostIsTimeout(t *testing.T) {
+	for _, msg := range []string{
+		"write tcp 127.0.0.1:1->127.0.0.1:4455: use of closed network connection",
+		"write tcp 127.0.0.1:1->127.0.0.1:4455: write: broken pipe",
+		"read tcp 127.0.0.1:1->127.0.0.1:4455: read: connection reset by peer",
+		"websocket: close sent",
+		"websocket: close 1006 (abnormal closure): unexpected EOF",
+		"EOF",
+	} {
+		err := fmt.Errorf("request SetSceneItemEnabled: %s", msg)
+		if got := classifyError(err); !errors.Is(got, ErrTimeout) {
+			t.Errorf("classifyError(%q) = %v, want ErrTimeout", msg, got)
+		}
+		if got := ClassifyItemResult(err); got != switcher.ItemTimeout {
+			t.Errorf("ClassifyItemResult(%q) = %v, want Timeout", msg, got)
+		}
+	}
+	notSent := fmt.Errorf("request X: client already disconnected")
+	if got := ClassifyItemResult(notSent); got != switcher.ItemError {
+		t.Errorf("送れなかった失敗は Error のまま: %v", got)
+	}
+}

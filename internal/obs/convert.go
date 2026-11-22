@@ -22,13 +22,18 @@ const goobsTimeoutText = "timeout waiting for response from server"
 // 「適用されたかわからない」ので、同じ扱いにする。
 const goobsMismatchText = "mismatched ID"
 
-// classifyError は goobs のエラーを、応答待ちの超過か ID のずれなら ErrTimeout を包んだ形にして返す。
-// それ以外はそのまま返す。
+// 接続が切れたことによる失敗の文。切断のイベントより先に、要求の失敗として返ることがある（順は決まらない）。
+// 送ったかどうか、OBS が適用したかどうかがわからないので、応答待ちの超過と同じ「未決着」として扱う。
+// goobs が「送らなかった」と返す "client already disconnected" は含めない。
+var connLostRe = regexp.MustCompile(`use of closed network connection|broken pipe|connection reset|websocket: close|unexpected EOF|: EOF$|^EOF$`)
+
+// classifyError は goobs のエラーを、応答待ちの超過か ID のずれ、接続が切れたことによる失敗なら
+// ErrTimeout を包んだ形にして返す。それ以外はそのまま返す。
 func classifyError(err error) error {
 	if err == nil {
 		return nil
 	}
-	if msg := err.Error(); strings.Contains(msg, goobsTimeoutText) || strings.Contains(msg, goobsMismatchText) {
+	if msg := err.Error(); strings.Contains(msg, goobsTimeoutText) || strings.Contains(msg, goobsMismatchText) || connLostRe.MatchString(msg) {
 		return fmt.Errorf("%w: %v", ErrTimeout, err)
 	}
 	return err
@@ -104,6 +109,8 @@ func ClassifyItemResult(err error) switcher.ItemResult {
 	case err == nil:
 		return switcher.ItemOK
 	case errors.Is(err, ErrTimeout):
+		return switcher.ItemTimeout
+	case connLostRe.MatchString(err.Error()):
 		return switcher.ItemTimeout
 	case notFoundRe.MatchString(err.Error()):
 		return switcher.ItemNotFound
