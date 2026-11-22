@@ -59,6 +59,7 @@ irl-live-keeper は、MediaMTX が受け取ったバイト数の差分から、�
      - 入力欄が「URL」と「Stream ID」（または「Key」）に分かれているアプリでは、`?streamid=` より前を URL に、後ろ（`publish:…`）を Stream ID に入れます。パスフレーズ（暗号化）は空のままにします
      - status の `cameras[].srt` の `loss_rate` は %（再送された割合）、`recv_mbps` は SRT の段階で受け取った速さです。`recv_mbps` が十分あるのに `kbps` が低いときは、アプリの送り方が MediaMTX と合っていません（映像の track を始めに宣言しないアプリなど）
    - RTMP: `rtmp://<この PC のアドレス>:1935/<カメラの id>?user=<ユーザー>&pass=<パスワード>`
+     - Larix Broadcaster の RTMP は、この URL の形（`/` のあとが1段）を受け付けません（アプリ名とストリームキーの2段を求めるため）。Larix は SRT で送ってください（動作を確かめています）
 7. 外から送る場合は、ルーターで 1935/TCP と 8890/UDP だけを、この PC へ転送する
 
 ## 複数のカメラ
