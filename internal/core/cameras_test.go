@@ -176,7 +176,7 @@ func TestSceneSwitchLogsBadCamera(t *testing.T) {
 	}
 	h.waitCall("scene:" + standby)
 	h.waitSeen("BatchDone", isBatchDone(switcher.BatchCompleted))
-	want := `msg="scene switch" from=Camera to=Standby reason=fallback camera=sub kbps=0`
+	want := `msg="scene switch" from=Camera to=Standby reason=low camera=sub kbps=0`
 	if out := h.log.String(); !strings.Contains(out, want) {
 		t.Errorf("ログに %q がない:\n%s", want, out)
 	}
@@ -206,7 +206,7 @@ func TestExecutorUsesUUIDsAndNames(t *testing.T) {
 	if calls := h.obs.Calls(); !reflect.DeepEqual(calls, []string{"override:u-standby", "scene:u-standby"}) {
 		t.Errorf("calls = %v", calls)
 	}
-	if want := `msg="scene switch" from=Camera to=Standby reason=fallback camera=main kbps=0`; !strings.Contains(h.log.String(), want) {
+	if want := `msg="scene switch" from=Camera to=Standby reason=low camera=main kbps=0`; !strings.Contains(h.log.String(), want) {
 		t.Errorf("ログに %q がない:\n%s", want, h.log.String())
 	}
 	n := len(h.obs.Calls())

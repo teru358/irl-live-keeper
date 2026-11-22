@@ -720,7 +720,7 @@ seed、名前対応、地図、全Event、Approve結果、適用、応答、SC�
 - scenemapのHealthと表示経路を再利用するが、入場・方向・履歴探索はswitcherの責務。
 - config検証は保存前、switcherは検証済みのScenesConfiguredを受ける契約のまま。
 - 保存API/画面/status配線、READMEの改名・手動非表示・プロセス再起動の説明はS2へ渡す。
-- scene switch退避reason=fallback、元と先を記録。BadCamera/kbpsは退避元から、同率は設定順。
+- scene switch の退避の reason は 0b のまま low / down（悪い代表のカメラの状態）。行き先は to に出る（reason を変えると、空の設定で 0b とログが変わるため。指揮者の判断、2026-11-22）。BadCamera/kbpsは退避元から、同率は設定順。
 - 回復camera/kbpsは戻り先で最後にOKになったカメラ。画像/手動に架空のカメラを作らない。
 - Fableレビュー→sonnet実装、0b M-13 Windows確認後に0cを入れる順序を維持する。
 - 文書確認は行IDの重複、入口/必須列の網羅、specとの差分、変更ファイル限定を検査する。
