@@ -37,6 +37,18 @@
     "mediamtx.credentials": "Cannot create API credentials: {error}",
     "mediamtx.port": "Cannot use mediamtx.{name} port {port} ({network}). Check whether a previous mediamtx is still running: {error}",
     "external.detail": "{detail}",
+    "service.root": "Registering a --system service requires root. Run sudo irl-live-keeper service install --system --run-as <user>.",
+    "service.root_user": "The service cannot run as root. Set --run-as to a regular user.",
+    "service.write_error": "Could not write the service definition. Run with sudo.",
+    "service.missing": "The service definition was not found.",
+    "service.install_user": "Installed. Start it with: systemctl --user daemon-reload && systemctl --user enable --now irl-live-keeper.service",
+    "service.linger": "To keep it running while logged out, run loginctl enable-linger <user>.",
+    "service.install_system": "Installed. Start it with: sudo systemctl daemon-reload && sudo systemctl enable --now irl-live-keeper.service",
+    "service.uninstall_user": "Removed the definition and its autostart link. Run: systemctl --user stop irl-live-keeper.service && systemctl --user daemon-reload",
+    "service.uninstall_system": "Removed the definition and its autostart link. Run: sudo systemctl stop irl-live-keeper.service && sudo systemctl daemon-reload",
+    "service.url": "Admin page: http://127.0.0.1:{port}/",
+    "service.lan": "To open it from a LAN device, set admin.lan to true in config.yaml.",
+    "service.vpn": "To open it from outside over a VPN such as Tailscale, also set admin.lan to true and use the VPN address. Do not forward the port on your router.",
     "hidden.version": "Unknown version {version}",
     "hidden.entry": "entries[{index}] is invalid (state={state})",
     "purpose.auto_fail": "auto standby",
@@ -124,7 +136,11 @@
     "console.executable": "Cannot find the executable location: {error}",
     "console.pause": "Press Enter to close",
     "console.config_invalid": "Invalid configuration:\n  - {details}",
-    "console.rollback": "To restore config.yaml.bak, copy it over config.yaml and restart."
+    "console.rollback": "To restore config.yaml.bak, copy it over config.yaml and restart.",
+    "service.usage": "Specify service install or service uninstall.",
+    "service.linux_only": "service is available on Linux only.",
+    "service.need_value": "{flag} needs a value.",
+    "service.unknown_arg": "Unknown argument: {arg}"
   },
   "ui": {}
 }

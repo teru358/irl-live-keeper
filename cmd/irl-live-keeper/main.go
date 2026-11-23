@@ -15,7 +15,10 @@ import (
 )
 
 func main() {
-	dataDir := flag.String("dir", "", "設定とデータの置き場所")
+	if len(os.Args) > 1 && os.Args[1] == "service" {
+		os.Exit(runService(os.Args[2:], os.Stdout, os.Stderr))
+	}
+	dataDir := flag.String("dir", "", "folder for config.yaml, logs and data (default: the executable's folder)")
 	flag.Parse()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

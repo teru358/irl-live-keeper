@@ -43,6 +43,8 @@ irl-live-keeper は、MediaMTX が受け取ったバイト数の差分から、�
 
 ## 使い方（予定）
 
+Linux では `irl-live-keeper service install` で user サービスを登録できます（既定）。ログアウト中も動かす場合は `loginctl enable-linger <ユーザー>` を設定してください。system サービスは `sudo irl-live-keeper service install --system --run-as <ユーザー>` で登録します。解除は `irl-live-keeper service uninstall [--system]` です。登録後の `systemctl` 手順と管理ページ URL はコマンドが表示します。
+
 1. zip を展開し、`irl-live-keeper(.exe)` を実行する。初回は `config.yaml` ができ、送信用 URL とパスワードが表示される
 2. OBS の「ツール → WebSocket サーバー設定」でサーバーを有効にし、パスワードを `config.yaml` の `obs.password` に書く
 3. OBS に待機シーンを作り、`config.yaml` の `obs.standby_scene` にその名前を書く。監視対象のシーン（カメラ映像が映るシーン）は、書かなくてよい。OBS の中身（カメラのメディアソースが映るシーン）から自動で決める

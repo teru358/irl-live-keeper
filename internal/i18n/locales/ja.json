@@ -37,6 +37,18 @@
     "mediamtx.credentials": "api の資格情報を作れません: {error}",
     "mediamtx.port": "mediamtx.{name} のポート {port}（{network}）を使えません。前回の mediamtx が残っていないか確認してください: {error}",
     "external.detail": "{detail}",
+    "service.root": "--system の登録には root 権限が必要です。sudo irl-live-keeper service install --system --run-as <ユーザー> を実行してください",
+    "service.root_user": "root はサービスの実行ユーザーにできません。--run-as に通常ユーザーを指定してください",
+    "service.write_error": "サービス定義を書き込めません。sudo で実行してください",
+    "service.missing": "サービス定義は見つかりませんでした",
+    "service.install_user": "登録しました。systemctl --user daemon-reload && systemctl --user enable --now irl-live-keeper.service で開始します",
+    "service.linger": "ログインしていない間も動かす場合は loginctl enable-linger <ユーザー> を実行してください",
+    "service.install_system": "登録しました。sudo systemctl daemon-reload && sudo systemctl enable --now irl-live-keeper.service で開始します",
+    "service.uninstall_user": "定義と自動起動の登録を削除しました。systemctl --user stop irl-live-keeper.service && systemctl --user daemon-reload を実行してください",
+    "service.uninstall_system": "定義と自動起動の登録を削除しました。sudo systemctl stop irl-live-keeper.service && sudo systemctl daemon-reload を実行してください",
+    "service.url": "管理ページ: http://127.0.0.1:{port}/",
+    "service.lan": "LAN の機器から開くには config.yaml の admin.lan を true にしてください",
+    "service.vpn": "Tailscale などの VPN で外から開くときも、admin.lan を true にし、VPN のアドレスで開いてください。ルーターでポートを転送しないでください",
     "hidden.version": "知らない版 {version}",
     "hidden.entry": "entries[{index}] が不正（state={state}）",
     "purpose.auto_fail": "自動の待機",
@@ -124,7 +136,11 @@
     "console.executable": "実行ファイルの場所を調べられません: {error}",
     "console.pause": "Enter キーを押すと閉じます",
     "console.config_invalid": "設定が不正です:\n  - {details}",
-    "console.rollback": "config.yaml.bak から戻すには、config.yaml にコピーしてから再起動してください。"
+    "console.rollback": "config.yaml.bak から戻すには、config.yaml にコピーしてから再起動してください。",
+    "service.usage": "service install か service uninstall を指定してください",
+    "service.linux_only": "service は Linux だけで使えます",
+    "service.need_value": "{flag} に値が必要です",
+    "service.unknown_arg": "知らない引数です: {arg}"
   },
   "ui": {}
 }

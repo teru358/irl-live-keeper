@@ -1,0 +1,12 @@
+[Unit]
+Description=irl-live-keeper
+After=network.target
+
+[Service]
+Type=simple
+ExecStart={{EXECUTABLE}} --dir {{DIRECTORY}}
+Restart=on-failure
+KillSignal=SIGTERM
+{{USER}}
+[Install]
+WantedBy={{TARGET}}
