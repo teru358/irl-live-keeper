@@ -5,6 +5,8 @@ import (
 	"errors"
 	"github.com/teru358/irl-live-keeper/internal/obs"
 	"github.com/teru358/irl-live-keeper/internal/switcher"
+	"sync/atomic"
+	"time"
 )
 
 var ErrSceneMissing = errors.New("シーンが見つからない")
@@ -23,10 +25,10 @@ func (c *Core) Scenes() ([]obs.Scene, error) {
 	return nil, obs.ErrAuxUnavailable
 }
 
-// SelectScene は補助の接続でシーンを切り替え、成功したら人の切替の入力を中核ループへ渡す。
-// OBS への要求（一覧の確認と切り替え。それぞれ補助の接続の期限つき）は呼び出し側の goroutine で行い、
-// 中核ループを待たせない（コアの spec 9章: 中核ループは止まらない）。OBS からの SceneChanged が
-// この入力より先に届いても、あとの入力で期待・スタック・持ち主を消すので、結果は人の切替になる。
+var sceneIntentID atomic.Uint64
+var errSceneAlreadyCurrent = errors.New("今のシーン")
+
+// SelectScene は意図を先に中核へ登録し、補助接続の要求は呼び出し側で待つ。
 func (c *Core) SelectScene(ctx context.Context, uuid string) error {
 	a, ok := c.obs.(sceneAccess)
 	if !ok || !c.Snapshot().OBS.Connected {
@@ -45,10 +47,25 @@ func (c *Core) SelectScene(ctx context.Context, uuid string) error {
 	if !found {
 		return ErrSceneMissing
 	}
-	if err := a.SelectScene(uuid); err != nil {
+
+	intent := switcher.HumanSceneSelected{ID: sceneIntentID.Add(1), SceneUUID: uuid}
+	if err := c.sendSceneIntent(ctx, intent); err != nil {
+		if errors.Is(err, errSceneAlreadyCurrent) {
+			return nil
+		}
 		return err
 	}
-	req := cmdReq{scene: uuid, reply: make(chan error, 1)}
+	err = a.SelectScene(uuid)
+	if err != nil && !errors.Is(err, obs.ErrAuxTimeout) && !errors.Is(err, obs.ErrAuxMismatch) {
+		intent.Cancel = true
+		// 登録済みの意図の後始末は、呼び出し元の期限に左右されない。
+		_ = c.sendSceneIntent(context.Background(), intent)
+	}
+	return err
+}
+
+func (c *Core) sendSceneIntent(ctx context.Context, intent switcher.HumanSceneSelected) error {
+	req := cmdReq{intent: &intent, reply: make(chan error, 1)}
 	select {
 	case c.cmds <- req:
 	case <-c.stopped:
@@ -56,15 +73,25 @@ func (c *Core) SelectScene(ctx context.Context, uuid string) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+	// 受理された入力の結果まで確認してから OBS に送る。
 	select {
 	case err := <-req.reply:
 		return err
-	case <-ctx.Done():
-		return ctx.Err()
+	case <-c.stopped:
+		return ErrStopped
 	}
 }
 
-// selectScene は中核ループの中で、人の切替の入力を Machine に渡すだけ（OBS には何も要求しない）。
-func (c *Core) selectScene(uuid string) error {
-	return c.handle(switcher.HumanSceneSelected{At: c.now(), SceneUUID: uuid})
+func (c *Core) selectScene(intent switcher.HumanSceneSelected) error {
+	if !intent.Cancel && !c.m.Snapshot().Connected {
+		return obs.ErrAuxUnavailable
+	}
+	intent.At = c.now()
+	intent.Deadline = intent.At.Add(7 * time.Second) // 補助接続の2秒 + 余裕5秒
+	same := !intent.Cancel && c.m.Snapshot().Scene == intent.SceneUUID
+	err := c.handle(intent)
+	if err == nil && same {
+		return errSceneAlreadyCurrent
+	}
+	return err
 }

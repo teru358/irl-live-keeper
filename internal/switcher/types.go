@@ -695,6 +695,7 @@ type PendingBatch struct {
 // ConfigEpoch が 0 の間は、設定をまだ受けていない。
 // 分類と健康は保存せず、Map と CameraStates から必要なときに計算する。
 type state struct {
+	HumanIntent *HumanSceneSelected
 	Standby     string // 設定の名前
 	Cameras     []CameraConfig
 	AutoEnabled bool
@@ -920,8 +921,11 @@ func (e ErrInvalidState) Message() i18n.Msg {
 	return m
 }
 
-// HumanSceneSelected は管理画面から成功した人の切替。
+// HumanSceneSelected は要求を送る前の人の意図。Cancel は同じ ID の意図だけを取り消す。
 type HumanSceneSelected struct {
+	ID        uint64
+	Deadline  time.Time
+	Cancel    bool
 	At        time.Time
 	SceneUUID string
 }

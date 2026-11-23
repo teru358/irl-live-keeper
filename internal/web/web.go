@@ -261,7 +261,7 @@ func serveScenes(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.La
 	switch {
 	case errors.Is(err, core.ErrSceneMissing):
 		code, msg = 404, "api.scene_missing"
-	case errors.Is(err, obs.ErrAuxUnavailable), errors.Is(err, obs.ErrAuxClosed), errors.Is(err, obs.ErrAuxTimeout), errors.Is(err, core.ErrStopped), errors.Is(err, context.DeadlineExceeded):
+	case errors.Is(err, obs.ErrAuxUnavailable), errors.Is(err, obs.ErrAuxClosed), errors.Is(err, obs.ErrAuxTimeout), errors.Is(err, obs.ErrAuxMismatch), errors.Is(err, core.ErrStopped), errors.Is(err, context.DeadlineExceeded):
 		code, msg = 503, "api.disconnected"
 	}
 	writeError(w, code, lang, i18n.New(msg))

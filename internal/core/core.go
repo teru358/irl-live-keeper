@@ -184,9 +184,9 @@ type approveReq struct {
 
 // cmdReq は Command の要求。reply は容量1。
 type cmdReq struct {
-	scene string
-	kind  switcher.CommandKind
-	reply chan error
+	intent *switcher.HumanSceneSelected
+	kind   switcher.CommandKind
+	reply  chan error
 }
 
 // approval は observe に渡す承認の記録。
@@ -348,8 +348,8 @@ func (c *Core) loop(ctx context.Context, tick <-chan time.Time) {
 			c.handle(switcher.Tick{At: at})
 		case req := <-c.cmds:
 			// reply は容量1なので止まらない。
-			if req.scene != "" {
-				req.reply <- c.selectScene(req.scene)
+			if req.intent != nil {
+				req.reply <- c.selectScene(*req.intent)
 			} else {
 				req.reply <- c.handle(switcher.Command{At: c.now(), Kind: req.kind})
 			}

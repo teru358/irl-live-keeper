@@ -143,8 +143,19 @@ func (m *Machine) Handle(ev Event) ([]Batch, error) {
 	case OBSDisconnected:
 		m.onDisconnected()
 	case HumanSceneSelected:
-		m.st.Expectations = nil
-		return m.onSceneChanged(SceneChanged{At: e.At, SceneUUID: e.SceneUUID}), nil
+		if e.Cancel {
+			if m.st.HumanIntent != nil && m.st.HumanIntent.ID == e.ID {
+				m.st.HumanIntent = nil
+			}
+			return m.jb(e.At), nil
+		}
+		m.st.HumanIntent = &e
+		if m.st.Scene == e.SceneUUID {
+			m.st.HumanIntent = nil
+			m.releaseAll()
+			m.refine()
+		}
+		return nil, nil
 	case SceneChanged:
 		return m.onSceneChanged(e), nil
 	case TransitionChanged:
@@ -546,6 +557,7 @@ func (m *Machine) onConnected(e OBSConnected) []Batch {
 
 // onDisconnected は期待をすべて消し、地図と解決した UUID を消す。持ち主と戻り先は再接続まで保つ。
 func (m *Machine) onDisconnected() {
+	m.st.HumanIntent = nil
 	s := &m.st
 	s.Connected = false
 	s.ConnEpoch++
@@ -566,6 +578,12 @@ func (m *Machine) onDisconnected() {
 func (m *Machine) onSceneChanged(e SceneChanged) []Batch {
 	s := &m.st
 	s.Scene = e.SceneUUID
+	if s.HumanIntent != nil && s.HumanIntent.SceneUUID == e.SceneUUID {
+		s.HumanIntent = nil
+		m.releaseAll()
+		m.refine()
+		return m.jb(e.At)
+	}
 	i := slices.IndexFunc(s.Expectations, func(x Expectation) bool { return x.Scene == e.SceneUUID })
 	if i < 0 {
 		// 手動（外部）の切替。人がシーンを変えたので、共通の変化を当てる。
@@ -636,7 +654,7 @@ func (m *Machine) onStreamState(e StreamStateChanged) []Batch {
 		clear(s.UserShown)
 		return m.jb(e.At)
 	}
-	if s.StartScene == nil {
+	if s.HumanIntent != nil || s.StartScene == nil {
 		return m.jb(e.At)
 	}
 	// 配信開始時の切替。受信状態は見ない。前の配信の StartScene が残っていれば重ねない。
@@ -694,6 +712,9 @@ func (m *Machine) expectWindow(x Expectation) time.Duration {
 // 扱わない。StartScene と Command 由来の切替の期限切れは記録する（Auto は Tick で再送する）。
 func (m *Machine) expire(at time.Time) {
 	s := &m.st
+	if s.HumanIntent != nil && at.After(s.HumanIntent.Deadline) {
+		s.HumanIntent = nil
+	}
 	var kept []Expectation
 	for _, x := range s.Expectations {
 		if !x.Responded || !at.After(x.Deadline) {
@@ -817,7 +838,7 @@ type autoDecision struct {
 //  2. 戻れず、現在が不良の監視対象で、持ち主が none か auto なら、逃がす（AutoFail）。
 func (m *Machine) decide() (autoDecision, bool) {
 	s := &m.st
-	if !s.Connected || !s.Streaming || !s.AutoEnabled || m.suppressed() || s.StandbyOwner == OwnerManual {
+	if s.HumanIntent != nil || !s.Connected || !s.Streaming || !s.AutoEnabled || m.suppressed() || s.StandbyOwner == OwnerManual {
 		return autoDecision{}, false
 	}
 	enter := m.enterFunc()
