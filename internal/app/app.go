@@ -138,6 +138,9 @@ type generation struct {
 	mu       sync.Mutex
 	stopped  bool
 	exitCode int
+	wg       sync.WaitGroup
+	serveErr chan error
+	app      *App
 }
 
 type App struct {
@@ -222,17 +225,48 @@ func run(ctx context.Context, base string, stdout, stderr io.Writer) int {
 }
 
 func (a *App) runApp(ctx context.Context) int {
-	base, stdout, stderr, initErr := a.opts.BaseDir, a.opts.Stdout, a.opts.Stderr, a.initErr
+	g, err := a.createGeneration(ctx)
+	if err != nil {
+		fmt.Fprintln(a.opts.Stderr, err)
+		return 1
+	}
+	code := 0
+	select {
+	case <-ctx.Done():
+		g.logger.Slog().Info("止める操作を受けました。終了します")
+	case err := <-g.serveErr:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			g.logger.Slog().Error("管理 API が止まりました", "error", err)
+			fmt.Fprintf(a.opts.Stderr, "管理 API が止まりました: %v\n", err)
+			code = 1
+		}
+	}
+	g.exitCode = code
+	g.stopGeneration()
+	return code
+}
+
+// generationError は表示する理由と、内部で使う失敗段を分けて保持する。
+type generationError struct {
+	stage string
+	err   error
+}
+
+func (e *generationError) Error() string { return e.err.Error() }
+func (e *generationError) Unwrap() error { return e.err }
+
+// createGeneration は途中の世代を公開せず、全段の成功後に反映する。
+func (a *App) createGeneration(ctx context.Context) (*generation, error) {
+	base, stdout, initErr := a.opts.BaseDir, a.opts.Stdout, a.initErr
 	a.setApply(Apply{State: ApplyApplying})
 	stage := a.deps.stage
 	stage("config.load")
 	// 設定。なければ生成する
 	cfg, generated, raw, err := a.deps.loadConfig(base)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
 		a.setApply(Apply{State: ApplyFailed, Reason: err.Error()})
 		stage("apply.failed")
-		return 1
+		return nil, &generationError{"config.load", err}
 	}
 	candidate := sha256.Sum256(raw)
 	masker := redact.New(cfg.Admin.Password, cfg.Stream.PublishPass, cfg.Stream.ReadPass, cfg.OBS.Password)
@@ -255,11 +289,10 @@ func (a *App) runApp(ctx context.Context) int {
 		Secrets:  []string{cfg.Admin.Password, cfg.Stream.PublishPass, cfg.Stream.ReadPass, cfg.OBS.Password},
 	})
 	if err != nil {
-		fmt.Fprintln(stderr, "ログを開けません:", err)
 		showGeneratedPassword()
 		a.setApply(Apply{State: ApplyFailed, Reason: masker.Mask(err.Error())})
 		stage("apply.failed")
-		return 1
+		return nil, &generationError{"logger.open", fmt.Errorf("ログを開けません: %s", masker.Mask(err.Error()))}
 	}
 	log := logger.Slog()
 	for _, w := range cfg.Warnings() {
@@ -274,13 +307,12 @@ func (a *App) runApp(ctx context.Context) int {
 	stage("ports.check")
 	if err := a.deps.checkPorts(cfg); err != nil {
 		log.Error("ポートの事前確認に失敗しました", "error", err)
-		fmt.Fprintln(stderr, err)
 		showGeneratedPassword()
 		_ = logger.Close()
 		stage("logger.close")
 		a.setApply(Apply{State: ApplyFailed, Reason: masker.Mask(err.Error())})
 		stage("apply.failed")
-		return 1
+		return nil, &generationError{"ports.check", errors.New(masker.Mask(err.Error()))}
 	}
 
 	// 送信用 URL の host。起動時に1回だけ決める
@@ -307,10 +339,10 @@ func (a *App) runApp(ctx context.Context) int {
 	// Stopping と HTTP の停止のあとで、shutdown が cancel を呼ぶ。
 	stage("process.configure")
 	stage("parts.create")
-	g := &generation{logger: logger}
+	g := &generation{logger: logger, app: a}
 	runCtx, cancel := partsContext(ctx)
 	g.ctx, g.cancel = runCtx, cancel
-	var wg sync.WaitGroup
+	wg := &g.wg
 
 	sup := a.deps.newSupervisor(cfg, binPath, base, log)
 	apiUser, apiPass := sup.APICredentials()
@@ -360,21 +392,21 @@ func (a *App) runApp(ctx context.Context) int {
 
 	// 管理 API。待ち受けに失敗したときも、部品を止めてから終了する
 	srv := a.deps.newHTTP(c, cfg.Admin.Password)
-	serveErr := make(chan error, 1)
+	g.serveErr = make(chan error, 1)
 	addr := listenAddr(cfg.Admin.Port, cfg.Admin.LAN)
 	stage("http.listen")
 	ln, err := a.deps.listen("tcp", addr)
 	if err != nil {
 		log.Error("管理 API のポート（admin.port）で待ち受けできません", "listen", addr, "error", err)
-		a.stopGeneration(g, nil, &wg)
-		fmt.Fprintf(stderr, "管理 API のポート（admin.port）%d で待ち受けできません（%s）: %v\n", cfg.Admin.Port, addr, err)
+		g.stopGeneration()
+
 		a.setApply(Apply{State: ApplyFailed, Reason: masker.Mask(err.Error())})
 		stage("apply.failed")
-		return 1
+		return nil, &generationError{"http.listen", fmt.Errorf("管理 API のポート（admin.port）%d で待ち受けできません（%s）: %s", cfg.Admin.Port, addr, masker.Mask(err.Error()))}
 	}
 	g.server = srv
 	stage("http.serve")
-	wg.Go(func() { serveErr <- srv.Serve(ln) })
+	wg.Go(func() { g.serveErr <- srv.Serve(ln) })
 	a.mu.Lock()
 	a.hash = candidate
 	a.current = g
@@ -382,24 +414,11 @@ func (a *App) runApp(ctx context.Context) int {
 	stage("config.commit")
 	a.setApply(Apply{State: ApplyApplied})
 
-	code := 0
-	select {
-	case <-ctx.Done():
-		// 止めた時刻をログでわかるようにする（Ctrl+C、SIGTERM、Windows のコンソールを閉じる操作）
-		log.Info("止める操作を受けました。終了します")
-	case err := <-serveErr:
-		log.Error("管理 API が止まりました", "error", err)
-		fmt.Fprintf(stderr, "管理 API が止まりました: %v\n", err)
-		code = 1
-	}
-
-	// core に Stopping を渡して隠した項目を戻し（最大2秒）、HTTP サーバーを止め、ctx を取り消し、MediaMTX が止まるのを待つ
-	g.exitCode = code
-	a.stopGeneration(g, srv, &wg)
-	return code
+	return g, nil
 }
 
-func (a *App) stopGeneration(g *generation, srv httpServer, wg *sync.WaitGroup) {
+func (g *generation) stopGeneration() {
+	a, srv, wg := g.app, g.server, &g.wg
 	g.mu.Lock()
 	if g.stopped {
 		g.mu.Unlock()
