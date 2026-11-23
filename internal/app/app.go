@@ -278,7 +278,7 @@ func (a *App) Restart() error {
 
 // Run はコンソール用 app を起動し、終了コードを返す。
 func Run(ctx context.Context, opts Options) int {
-	return newApp(opts, appDeps{}).run(ctx)
+	return Prepare(opts)(ctx)
 }
 
 func (a *App) run(ctx context.Context) int {
@@ -747,4 +747,10 @@ func (b *pageBackend) SelectScene(ctx context.Context, uuid string) error {
 	return b.Backend.(interface {
 		SelectScene(context.Context, string) error
 	}).SelectScene(ctx, uuid)
+}
+
+// Prepare は Job を初期化し、世代を開始する関数を返す。GUI はこの間に窓を作る。
+func Prepare(opts Options) func(context.Context) int {
+	a := newApp(opts, appDeps{})
+	return a.run
 }

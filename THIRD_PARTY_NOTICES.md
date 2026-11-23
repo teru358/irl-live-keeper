@@ -21,6 +21,7 @@ irl-live-keeper（MIT License）は、次のソフトウェアを利用してい
 |---|---|---|
 | github.com/andreykaipov/goobs | v1.11.1 | Apache-2.0 |
 | gopkg.in/yaml.v3 | v3.0.1 | MIT と Apache-2.0 |
+| github.com/rodrigocfd/windigo | v0.2.7 | MIT |
 | golang.org/x/sys | v0.50.0 | BSD-3-Clause |
 | github.com/gorilla/websocket | v1.5.3 | BSD-2-Clause |
 | github.com/buger/jsonparser | v1.6.1 | MIT |

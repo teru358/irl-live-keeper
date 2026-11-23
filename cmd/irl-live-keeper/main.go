@@ -3,8 +3,8 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -24,8 +24,16 @@ func runMain() int {
 	if len(os.Args) > 1 && os.Args[1] == "service" {
 		return runService(os.Args[2:], os.Stdout, os.Stderr)
 	}
-	dataDir := flag.String("dir", "", "folder for config.yaml, logs and data (default: the executable's folder)")
-	flag.Parse()
+	args, err := parseArgs(os.Args[1:])
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	mode, err := prepareMode(args.cli)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -35,12 +43,21 @@ func runMain() int {
 		return 1
 	}
 	exeDir := base
-	if *dataDir != "" {
-		base, err = filepath.Abs(*dataDir)
+	if args.dir != "" {
+		base, err = filepath.Abs(args.dir)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, i18n.Render(i18n.OSLang(), i18n.New("console.executable", "error", err.Error())))
 			return 1
 		}
+	}
+	release, hash, duplicate, err := acquireInstance(base, mode.gui)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	defer release()
+	if duplicate {
+		return 0
 	}
 	crashDir, crashPath, cleanupCrash, crashErr := prepareCrashOutput(base, started)
 	if crashErr != nil {
@@ -50,9 +67,12 @@ func runMain() int {
 	defer cleanupCrash()
 	st, statErr := os.Stdout.Stat()
 	terminal := statErr == nil && st.Mode()&os.ModeCharDevice != 0
-	code := app.Run(ctx, app.Options{BaseDir: base, ExeDir: exeDir, Stdout: os.Stdout, Stderr: os.Stderr,
+	out := outputForMode(mode.gui, os.Stdout)
+	errOut := outputForMode(mode.gui, os.Stderr)
+	run := app.Prepare(app.Options{BaseDir: base, ExeDir: exeDir, Stdout: out, Stderr: errOut,
 		StdoutIsTerminal: func() bool { return terminal }, InvocationID: os.Getenv("INVOCATION_ID"), CrashDir: crashDir, CrashPath: crashPath, StartedAt: started})
-	if shouldPause(code, consoleProcessCount) {
+	code := runMode(ctx, stop, mode.gui, hash, run)
+	if mode.pause && shouldPause(code, consoleProcessCount) {
 		waitEnterLanguage(os.Stdin, os.Stderr, i18n.OSLang())
 	}
 	return code
@@ -69,4 +89,11 @@ func baseDir() (string, error) {
 		return "", err
 	}
 	return filepath.Dir(exe), nil
+}
+
+func outputForMode(gui bool, console io.Writer) io.Writer {
+	if gui {
+		return io.Discard
+	}
+	return console
 }
