@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"errors"
+	"github.com/teru358/irl-live-keeper/internal/i18n"
 	"slices"
 	"strings"
 	"time"
@@ -350,15 +351,15 @@ func (c *Core) finishStop() {
 }
 
 // warnStudioMode は Studio Mode の間の隠す動きの文（spec 第1節）。on_bad=hide のカメラがなければ空。
-func (c *Core) warnStudioMode(ms switcher.Snapshot) string {
+func (c *Core) warnStudioMode(ms switcher.Snapshot) i18n.Msg {
 	if !ms.Connected || !ms.StudioMode || !c.anyHide {
-		return ""
+		return i18n.Msg{}
 	}
 	switch strings.TrimSpace(c.studioHide) {
 	case switcher.StudioHideIgnore:
-		return "屋外配信では Studio Mode を勧めません。Studio Mode のため、隠す動きを止めています"
+		return i18n.New("studio.ignore")
 	case switcher.StudioHideHide:
-		return "屋外配信では Studio Mode を勧めません。Studio Mode でも隠しています（OBS の『シーンを複製』を切っていないと配信に効きません）"
+		return i18n.New("studio.hide")
 	}
-	return "屋外配信では Studio Mode を勧めません。Studio Mode のため、隠す動きの代わりに待機シーンへ送っています"
+	return i18n.New("studio.standby")
 }

@@ -1,8 +1,10 @@
 package core
 
 import (
-	"fmt"
+	"github.com/teru358/irl-live-keeper/internal/i18n"
+	"reflect"
 	"slices"
+	"strconv"
 	"time"
 
 	"github.com/teru358/irl-live-keeper/internal/ingest"
@@ -62,7 +64,7 @@ type OBSStatus struct {
 	StudioMode  bool          `json:"studio_mode"`
 	Standby     StandbyStatus `json:"standby"`
 	AutoEnabled bool          `json:"auto_enabled"`
-	Warnings    []string      `json:"warnings"` // 空でも [] にする
+	Warnings    []i18n.Msg    `json:"warnings"` // 空でも [] にする
 }
 
 // StandbyStatus は待機の持ち主と戻り先（シーンの名前）。戻り先がなければ ReturnScene は null。
@@ -79,7 +81,7 @@ type StandbyStatus struct {
 type LastError struct {
 	At      time.Time `json:"at"`
 	Source  string    `json:"source"`
-	Message string    `json:"message"`
+	Message i18n.Msg  `json:"message"`
 }
 
 // last_error の出どころ。
@@ -113,7 +115,7 @@ func (c *Core) publish() {
 			StudioMode:   ms.Connected && ms.StudioMode,
 			Standby:      StandbyStatus{Owner: ms.Standby.Owner.String(), Stack: []string{}},
 			AutoEnabled:  ms.AutoEnabled,
-			Warnings:     []string{},
+			Warnings:     []i18n.Msg{},
 		},
 		URLs: make([]CameraURLs, len(c.cams)),
 	}
@@ -159,36 +161,47 @@ func (c *Core) publish() {
 		switch {
 		case w.Index < 0:
 		case w.Field == "scene":
-			s.OBS.Warnings = append(s.OBS.Warnings, fmt.Sprintf("scene_fallbacks の %d 行目: scene「%s」が OBS にないため、この行は使われません", w.Index+1, w.Name))
+			s.OBS.Warnings = append(s.OBS.Warnings, i18n.New("fallback.scene", "row", strconv.Itoa(w.Index+1), "name", w.Name))
 		default:
-			s.OBS.Warnings = append(s.OBS.Warnings, fmt.Sprintf("scene_fallbacks の %d 行目: fallback「%s」が OBS にないため、共通の待機シーンへ逃がします", w.Index+1, w.Name))
+			s.OBS.Warnings = append(s.OBS.Warnings, i18n.New("fallback.target", "row", strconv.Itoa(w.Index+1), "name", w.Name))
 		}
 	}
-	if c.warnings != nil {
+	if c.warningMessages != nil {
+		s.OBS.Warnings = append(s.OBS.Warnings, c.warningMessages()...)
+	} else if c.warnings != nil {
 		if w := c.warnings(); len(w) > 0 {
-			s.OBS.Warnings = append(s.OBS.Warnings, w...)
+			s.OBS.Warnings = append(s.OBS.Warnings, i18n.Messages(w)...)
 		}
 	}
 	if c.media != nil {
-		s.OBS.Warnings = append(s.OBS.Warnings, c.media.w.Warnings()...)
+		if w, ok := c.media.w.(interface{ WarningMessages() []i18n.Msg }); ok {
+			s.OBS.Warnings = append(s.OBS.Warnings, w.WarningMessages()...)
+		} else {
+			s.OBS.Warnings = append(s.OBS.Warnings, i18n.Messages(c.media.w.Warnings())...)
+		}
 	}
 	s.OBS.Warnings = append(s.OBS.Warnings, c.slowReaderWarnings()...)
-	if w := c.warnStudioMode(ms); w != "" {
+	if w := c.warnStudioMode(ms); w.Code != "" {
 		s.OBS.Warnings = append(s.OBS.Warnings, w)
 	}
 	if n := len(ms.RetainedEntries); ms.Connected && n > 0 {
-		s.OBS.Warnings = append(s.OBS.Warnings, fmt.Sprintf("別の OBS かシーンコレクションで隠した項目の記録が %d 件残っています（その OBS とコレクションにつなぐと戻します）", n))
+		s.OBS.Warnings = append(s.OBS.Warnings, i18n.New("hidden.retained", "count", strconv.Itoa(n)))
 	}
-	if c.loadWarning != "" {
-		s.OBS.Warnings = append(s.OBS.Warnings, c.loadWarning)
+	if c.loadMessage.Code != "" {
+		s.OBS.Warnings = append(s.OBS.Warnings, c.loadMessage)
+	} else if c.loadWarning != "" {
+		s.OBS.Warnings = append(s.OBS.Warnings, i18n.FromJapanese(c.loadWarning))
 	}
 	if c.store != nil && c.store.failing.Load() {
-		s.OBS.Warnings = append(s.OBS.Warnings, "隠した項目の記録（state/hidden.json）を書けません。書けるまで一定の間隔で書き直します")
+		s.OBS.Warnings = append(s.OBS.Warnings, i18n.New("hidden.write"))
 	}
 	if c.mediamtx != nil {
 		st := c.mediamtx()
 		s.MediaMTX = st.State
 		c.noteMediaMTXError(st.LastError)
+		if c.lastErr != nil && c.lastErr.Source == SourceMediaMTX && st.LastMessage.Code != "" {
+			c.lastErr.Message = st.LastMessage
+		}
 	}
 	c.noteSwitcherError(ms.LastError)
 	if c.lastErr != nil {
@@ -207,12 +220,15 @@ func (c *Core) noteSwitcherError(e *switcher.ErrorInfo) {
 	if e == nil {
 		return
 	}
-	if p := c.prevSwErr; p != nil && p.At.Equal(e.At) && p.Msg == e.Msg {
+	v := *e
+	if v.Localized.Code == "" {
+		v.Localized = i18n.FromJapanese(e.Msg)
+	}
+	if p := c.prevSwErr; p != nil && p.At.Equal(v.At) && reflect.DeepEqual(p.Localized, v.Localized) {
 		return
 	}
-	v := *e
 	c.prevSwErr = &v
-	c.offerError(LastError{At: e.At, Source: SourceSwitcher, Message: e.Msg})
+	c.offerError(LastError{At: v.At, Source: SourceSwitcher, Message: v.Localized})
 }
 
 // noteMediaMTXError は supervisor の LastError を見る。空になっても前の記録は消さない。
@@ -222,7 +238,7 @@ func (c *Core) noteMediaMTXError(msg string) {
 	}
 	c.prevMtxErr = msg
 	if msg != "" {
-		c.offerError(LastError{At: c.now(), Source: SourceMediaMTX, Message: msg})
+		c.offerError(LastError{At: c.now(), Source: SourceMediaMTX, Message: i18n.FromJapanese(msg)})
 	}
 }
 
@@ -254,7 +270,7 @@ func (c *Core) logStateChanges(ms switcher.Snapshot) {
 
 // slowReaderWarnings は、読み手（OBS）が追いつかないカメラの警告をカメラごとに1行返す。
 // 切り替わりはログに出す。警告だけで、健康や切替には関わらない。
-func (c *Core) slowReaderWarnings() []string {
+func (c *Core) slowReaderWarnings() []i18n.Msg {
 	if c.slowRead == nil {
 		return nil
 	}
@@ -263,7 +279,7 @@ func (c *Core) slowReaderWarnings() []string {
 		slow[r.Path] = r
 	}
 	now := c.now()
-	var out []string
+	var out []i18n.Msg
 	for _, cam := range c.cams {
 		r, ok := slow[cam.cfg.Path]
 		if cam.cfg.Path == "" {
@@ -279,9 +295,7 @@ func (c *Core) slowReaderWarnings() []string {
 			ok = false
 		}
 		if ok {
-			out = append(out, fmt.Sprintf("%s の映像を OBS が読み切れていません（MediaMTX が映像を捨てています）。"+
-				"つなぎ直した直後なら、しばらくで消えることがあります。続くときは、送るビットレートや解像度を下げてください。"+
-				"OBS のメディアソースの「ハードウェアデコードを使用」が切れていれば、入れてください", cam.cfg.Name))
+			out = append(out, i18n.New("obs.slow_reader", "name", cam.cfg.Name))
 		}
 		if ok != cam.slow {
 			cam.slow = ok
@@ -297,4 +311,25 @@ func (c *Core) slowReaderWarnings() []string {
 		}
 	}
 	return out
+}
+
+// Render は共有の Snapshot を変えず、表示文だけを要求の言語にする。
+func (s Snapshot) Render(lang i18n.Lang) any {
+	type obsStatus struct {
+		OBSStatus
+		Warnings []string `json:"warnings"`
+	}
+	type lastError struct {
+		*LastError
+		Message string `json:"message"`
+	}
+	var last *lastError
+	if s.LastError != nil {
+		last = &lastError{s.LastError, i18n.Render(lang, s.LastError.Message)}
+	}
+	return struct {
+		Snapshot
+		OBS       obsStatus  `json:"obs"`
+		LastError *lastError `json:"last_error"`
+	}{s, obsStatus{s.OBS, i18n.Strings(lang, s.OBS.Warnings)}, last}
 }

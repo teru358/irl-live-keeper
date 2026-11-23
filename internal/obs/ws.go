@@ -3,6 +3,7 @@ package obs
 import (
 	"context"
 	"fmt"
+	"github.com/teru358/irl-live-keeper/internal/i18n"
 	"log/slog"
 	"net"
 	"net/http"
@@ -122,10 +123,10 @@ type WS struct {
 	switching bool      // シーンコレクションの切替中
 	legacy    bool      // 古い OBS（警告のため）
 	gen       uint64    // 門が開くたびに進む世代
-	warnBase  []string
-	warnMap   string   // 地図を読めずに空の地図でつないだときの理由
-	warnCams  []string // 地図で見つからなかったカメラ
-	mapFails  int      // 続けて地図を読めなかった接続の数
+	warnBase  []i18n.Msg
+	warnMap   string     // 地図を読めずに空の地図でつないだときの理由
+	warnCams  []i18n.Msg // 地図で見つからなかったカメラ
+	mapFails  int        // 続けて地図を読めなかった接続の数
 }
 
 var _ Client = (*WS)(nil)
@@ -150,18 +151,20 @@ func (w *WS) Events() <-chan switcher.Event { return w.events }
 func (w *WS) Aux() *Aux { return w.aux }
 
 // Warnings は最後の接続で見つかった警告（存在しないシーン名やメディアソース、古い OBS、切替中）。
-func (w *WS) Warnings() []string {
+func (w *WS) Warnings() []string { return i18n.Strings(i18n.JA, w.WarningMessages()) }
+
+func (w *WS) WarningMessages() []i18n.Msg {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
-	var out []string
+	var out []i18n.Msg
 	if w.switching {
-		out = append(out, switchingWarning)
+		out = append(out, i18n.New("obs.switching"))
 	}
 	if w.legacy {
-		out = append(out, legacyWarning)
+		out = append(out, i18n.New("obs.legacy"))
 	}
 	if w.warnMap != "" {
-		out = append(out, "シーンの地図を読めないため、カメラの対応と項目を空にしています（理由: "+w.warnMap+"）")
+		out = append(out, i18n.New("obs.map", "reason", w.warnMap))
 	}
 	out = append(out, w.warnCams...)
 	return append(out, w.warnBase...)

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/teru358/irl-live-keeper/internal/i18n"
 	"reflect"
 	"slices"
 	"sort"
@@ -203,7 +204,7 @@ func TestOffRejectedWhenPlanChanges(t *testing.T) {
 		t.Errorf("calls = %v, want %v", got, want)
 	}
 	s := h.core.Snapshot()
-	if s.LastError == nil || !strings.Contains(s.LastError.Message, "取りやめた") {
+	if s.LastError == nil || !strings.Contains(i18n.Render(i18n.JA, s.LastError.Message), "取りやめた") {
 		t.Errorf("手動の OFF の却下を last_error に残す: %+v", s.LastError)
 	}
 	if !standbyIs("manual", camera)(s) || s.OBS.Scene != standby {
@@ -317,7 +318,7 @@ func TestRestartFailureContinuesToSetScene(t *testing.T) {
 		t.Errorf("calls = %v, want %v", got, want)
 	}
 	s := h.waitSnap("camera と last_error", func(s Snapshot) bool { return sceneIs(camera)(s) && s.LastError != nil })
-	if e := s.LastError; e == nil || e.Source != SourceSwitcher || !strings.Contains(e.Message, "input not found") {
+	if e := s.LastError; e == nil || e.Source != SourceSwitcher || !strings.Contains(i18n.Render(i18n.JA, e.Message), "input not found") {
 		t.Errorf("last_error = %+v", e)
 	}
 }
@@ -337,7 +338,7 @@ func TestSetSceneFailureEndToEnd(t *testing.T) {
 		t.Errorf("SceneRequestDone{Error} がない: %#v", seen)
 	}
 	s := h.waitSnap("last_error", func(s Snapshot) bool { return s.LastError != nil })
-	if e := s.LastError; e.Source != SourceSwitcher || !strings.Contains(e.Message, "scene not found") || !e.At.Equal(h.clk.Now()) {
+	if e := s.LastError; e.Source != SourceSwitcher || !strings.Contains(i18n.Render(i18n.JA, e.Message), "scene not found") || !e.At.Equal(h.clk.Now()) {
 		t.Errorf("last_error = %+v", e)
 	}
 }
@@ -738,7 +739,7 @@ func TestLastErrorNewestWins(t *testing.T) {
 	check := func(step, source, msg string, at time.Time) {
 		t.Helper()
 		e := c.lastErr
-		if e == nil || e.Source != source || e.Message != msg || !e.At.Equal(at) {
+		if e == nil || e.Source != source || i18n.Render(i18n.JA, e.Message) != msg || !e.At.Equal(at) {
 			t.Fatalf("%s: last_error = %+v, want %s %q at %s", step, e, source, msg, at)
 		}
 	}
@@ -789,7 +790,9 @@ func TestLastErrorThroughLoop(t *testing.T) {
 
 	h.setMediaMTX(supervisor.Status{State: supervisor.StateRunning, LastError: "bind failed 2"})
 	h.tick(h.clk.Advance(time.Second))
-	s := h.waitSnap("mediamtx 2", func(s Snapshot) bool { return s.LastError != nil && s.LastError.Message == "bind failed 2" })
+	s := h.waitSnap("mediamtx 2", func(s Snapshot) bool {
+		return s.LastError != nil && i18n.Render(i18n.JA, s.LastError.Message) == "bind failed 2"
+	})
 	if !s.LastError.At.Equal(h.clk.Now()) {
 		t.Errorf("last_error.at = %s, want %s", s.LastError.At, h.clk.Now())
 	}
@@ -797,7 +800,7 @@ func TestLastErrorThroughLoop(t *testing.T) {
 
 func marshalMap(t *testing.T, s Snapshot) map[string]any {
 	t.Helper()
-	b, err := json.Marshal(s)
+	b, err := json.Marshal(s.Render(i18n.JA))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -924,16 +927,16 @@ func TestSnapshotFallbackWarnings(t *testing.T) {
 	h.start()
 	h.connect(true, camera)
 	s := h.waitSnap("警告", func(s Snapshot) bool {
-		return slices.ContainsFunc(s.OBS.Warnings, func(w string) bool { return strings.Contains(w, "scene_fallbacks の 1 行目") })
+		return slices.ContainsFunc(i18n.Strings(i18n.JA, s.OBS.Warnings), func(w string) bool { return strings.Contains(w, "scene_fallbacks の 1 行目") })
 	})
 	var got []string
-	for _, w := range s.OBS.Warnings {
+	for _, w := range i18n.Strings(i18n.JA, s.OBS.Warnings) {
 		if strings.Contains(w, "scene_fallbacks") {
 			got = append(got, w)
 		}
 	}
-	if !slices.Contains(s.OBS.Warnings, "既存の警告") {
-		t.Fatalf("既存の警告が消えた: %v", s.OBS.Warnings)
+	if !slices.Contains(i18n.Strings(i18n.JA, s.OBS.Warnings), "既存の警告") {
+		t.Fatalf("既存の警告が消えた: %v", i18n.Strings(i18n.JA, s.OBS.Warnings))
 	}
 	if len(got) != 2 || !strings.Contains(got[0], "NoSuchScene") || !strings.Contains(got[1], "scene_fallbacks の 2 行目") || !strings.Contains(got[1], "GoneScene") {
 		t.Fatalf("warnings = %v", got)

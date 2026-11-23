@@ -2,6 +2,7 @@ package obs
 
 import (
 	"context"
+	"github.com/teru358/irl-live-keeper/internal/i18n"
 	"maps"
 	"sync"
 	"time"
@@ -199,7 +200,7 @@ func (w *WS) emitMap(ep *epoch, m *scenemap.Map) bool {
 // setMapWarnings は、地図を読むたびに警告を作り直す。emptyReason があれば、読めずに空の地図で
 // つないだこと。古い OBS と空の地図では、カメラごとの警告は出さない。
 func (w *WS) setMapWarnings(m *scenemap.Map, emptyReason string) {
-	var cams []string
+	var cams []i18n.Msg
 	if emptyReason == "" && !w.isLegacy() {
 		cams = cameraWarnings(w.cfg.Cameras, m)
 	}

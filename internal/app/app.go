@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"github.com/teru358/irl-live-keeper/internal/i18n"
 	"io"
 	"log/slog"
 	"net"
@@ -73,7 +74,7 @@ type appDeps struct {
 	newPoller     func(string, string, string, []string, []string) pollRunner
 	newOBS        func(obs.Config, *slog.Logger) obsRunner
 	newMediaWatch func(obsRunner, *slog.Logger) mediaWatcher
-	loadHidden    func(string) ([]switcher.HiddenEntry, string)
+	loadHidden    func(string) ([]switcher.HiddenEntry, i18n.Msg)
 	newCore       func(core.Deps) coreRunner
 	newHTTP       func(coreRunner, string) servingHTTP
 }
@@ -197,7 +198,7 @@ func newApp(opts Options, deps appDeps) *App {
 		}
 	}
 	if deps.loadHidden == nil {
-		deps.loadHidden = core.LoadHidden
+		deps.loadHidden = core.LoadHiddenMessage
 	}
 	if deps.newCore == nil {
 		deps.newCore = func(d core.Deps) coreRunner { return core.New(d) }
@@ -431,8 +432,8 @@ func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 	// 隠した項目の記録。core を作る前に読む（読めなければ警告を出して空として扱い、元のファイルは .broken に残す）
 	stage("hidden.load")
 	hidden, hiddenWarn := a.deps.loadHidden(hiddenPath(base))
-	if hiddenWarn != "" {
-		log.Warn(hiddenWarn)
+	if hiddenWarn.Code != "" {
+		log.Warn(i18n.Render(i18n.JA, hiddenWarn))
 	}
 	if len(hidden) > 0 {
 		// 落ちたあとの起動で記録を引き継いだことを、あとで追えるようにする（M-13 の Windows の確認）
@@ -440,7 +441,8 @@ func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 	}
 
 	deps := coreDeps(cfg, cameraURLs)
-	deps.HiddenPath, deps.HiddenRestored, deps.HiddenLoadWarning = hiddenPath(base), hidden, hiddenWarn
+	deps.HiddenPath, deps.HiddenRestored, deps.HiddenLoadWarning = hiddenPath(base), hidden, i18n.Render(i18n.JA, hiddenWarn)
+	deps.HiddenLoadMessage = hiddenWarn
 	deps.Machine = switcher.New(switcher.Config{
 		RestartWait: restartWait,
 		Endpoint:    switcher.Endpoint{Host: cfg.OBS.Host, Port: cfg.OBS.Port},
@@ -450,6 +452,9 @@ func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 	deps.MediaMTX = sup.Status
 	deps.SlowReaders = sup.SlowReaders
 	deps.Warnings = obsClient.Warnings
+	if w, ok := obsClient.(interface{ WarningMessages() []i18n.Msg }); ok {
+		deps.WarningMessages = w.WarningMessages
+	}
 	mediaWatch := a.deps.newMediaWatch(obsClient, log)
 	deps.MediaWatch = mediaWatch
 	deps.Log = log

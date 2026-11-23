@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"github.com/teru358/irl-live-keeper/internal/i18n"
 	"math/rand"
 	"regexp"
 	"runtime"
@@ -491,7 +492,7 @@ func (r *runner) fbOnDuringReturn() {
 		if snap.OBS.Standby.Owner == "manual" {
 			w.violate("ON 特例: 待機 ON の前に送った戻りの切替が %s へ届いたのに、手動の待機（manual）のまま残っている", w.sceneNameLocked(dest))
 		}
-		if !reconf && snap.LastError != nil && strings.Contains(snap.LastError.Message, "もう一度 ON を押してください") {
+		if !reconf && snap.LastError != nil && strings.Contains(i18n.Render(i18n.JA, snap.LastError.Message), "もう一度 ON を押してください") {
 			w.fb.count("ON特例の後の遅着: last_error の通知")
 		}
 		return
@@ -678,7 +679,7 @@ func (r *runner) fbCheck(where string) {
 		}
 	}
 	gotWarn, gotIdx, obsWarn := map[string]bool{}, map[string]bool{}, false
-	for _, m := range snap.OBS.Warnings {
+	for _, m := range i18n.Strings(i18n.JA, snap.OBS.Warnings) {
 		if m == fbObsWarning {
 			obsWarn = true
 		}
@@ -688,7 +689,7 @@ func (r *runner) fbCheck(where string) {
 		}
 	}
 	if !obsWarn {
-		vf("OBS の既存の警告が status から消えている: %v", snap.OBS.Warnings)
+		vf("OBS の既存の警告が status から消えている: %v", i18n.Strings(i18n.JA, snap.OBS.Warnings))
 		return
 	}
 	if !maps_equal(wantWarn, gotWarn) {

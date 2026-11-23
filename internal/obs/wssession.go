@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/teru358/irl-live-keeper/internal/i18n"
 	"net"
 	"strconv"
 	"sync"
@@ -900,11 +901,11 @@ func (w *WS) fetchConnected(ctx context.Context, c *mainConn, legacy bool, now f
 // checkNames は config のシーン名（待機シーンと開始時のシーン）が OBS にあるかを確かめ、なければ警告にする。
 // カメラのメディアソースの警告は、地図から作る。
 func (w *WS) checkNames(ctx context.Context, c *mainConn) {
-	var warns []string
+	var warns []i18n.Msg
 	if l, err := mcall(w, ctx, c, "GetSceneList", func(cli *goobs.Client) (*scenes.GetSceneListResponse, error) {
 		return cli.Scenes.GetSceneList()
 	}); err != nil {
-		warns = append(warns, "シーン一覧を取得できない: "+err.Error())
+		warns = append(warns, i18n.New("obs.scene_list", "error", err.Error()))
 	} else {
 		have := map[string]bool{}
 		for _, s := range l.Scenes {
@@ -912,12 +913,12 @@ func (w *WS) checkNames(ctx context.Context, c *mainConn) {
 		}
 		for _, n := range w.cfg.Scenes {
 			if n != "" && !have[n] {
-				warns = append(warns, fmt.Sprintf("シーン %q が OBS にない", n))
+				warns = append(warns, i18n.New("obs.scene_missing", "name", fmt.Sprintf("%q", n)))
 			}
 		}
 	}
 	for _, m := range warns {
-		w.log.Warn("OBS の設定の警告", "msg", m)
+		w.log.Warn("OBS の設定の警告", "msg", i18n.Render(i18n.JA, m))
 	}
 	w.mu.Lock()
 	w.warnBase = warns

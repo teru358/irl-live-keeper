@@ -3,6 +3,7 @@ package obs
 import (
 	"context"
 	"fmt"
+	"github.com/teru358/irl-live-keeper/internal/i18n"
 	"sort"
 
 	"github.com/andreykaipov/goobs"
@@ -260,14 +261,14 @@ func matchInputSettings(settings map[string]any, cameras []scenemap.CameraPath, 
 
 // cameraWarnings は、メディアソースが見つからないカメラの警告（設定の順）と、URL が古い1段の形の
 // メディアソースの警告（入力の名前の順）。
-func cameraWarnings(cameras []CameraConfig, m *scenemap.Map) []string {
+func cameraWarnings(cameras []CameraConfig, m *scenemap.Map) []i18n.Msg {
 	have := map[string]bool{}
 	for _, in := range m.Inputs {
 		if in.CameraID != "" {
 			have[in.CameraID] = true
 		}
 	}
-	var out []string
+	var out []i18n.Msg
 	for _, c := range cameras {
 		if have[c.ID] {
 			continue
@@ -276,20 +277,19 @@ func cameraWarnings(cameras []CameraConfig, m *scenemap.Map) []string {
 		if name == "" {
 			name = c.ID
 		}
-		out = append(out, name+" のメディアソースが OBS に見つかりません")
+		out = append(out, i18n.New("obs.source_missing", "name", name))
 	}
 	paths := map[string]string{}
 	for _, c := range cameras {
 		paths[c.ID] = c.cameraPath()
 	}
-	var legacy []string
+	var legacy []i18n.Msg
 	for _, in := range m.Inputs {
 		if in.LegacyCameraID != "" {
-			legacy = append(legacy, fmt.Sprintf("メディアソース %s の URL が古い形（…/%s）です。…/%s に直してください",
-				in.Name, in.LegacyCameraID, paths[in.LegacyCameraID]))
+			legacy = append(legacy, i18n.New("obs.legacy_url", "name", in.Name, "old", in.LegacyCameraID, "path", paths[in.LegacyCameraID]))
 		}
 	}
-	sort.Strings(legacy)
+	sort.Slice(legacy, func(i, j int) bool { return i18n.Render(i18n.JA, legacy[i]) < i18n.Render(i18n.JA, legacy[j]) })
 	return append(out, legacy...)
 }
 

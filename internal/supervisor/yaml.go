@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"fmt"
+	"github.com/teru358/irl-live-keeper/internal/i18n"
 	"net"
 	"strconv"
 	"strings"
@@ -176,8 +177,7 @@ func CheckPorts(cfg *config.Config) error {
 			closer, err = net.Listen(c.network, addr)
 		}
 		if err != nil {
-			return fmt.Errorf("mediamtx.%s のポート %d（%s）を使えません。前回の mediamtx が残っていないか確認してください: %w",
-				c.name, c.port, c.network, err)
+			return i18n.Error{Message: i18n.New("mediamtx.port", "name", c.name, "port", fmt.Sprint(c.port), "network", c.network, "error", err.Error()), Cause: err}
 		}
 		closer.Close()
 	}

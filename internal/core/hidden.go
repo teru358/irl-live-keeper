@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/teru358/irl-live-keeper/internal/i18n"
 	"os"
 	"path/filepath"
 	"sync"
@@ -93,13 +94,13 @@ func decodeHidden(b []byte) ([]switcher.HiddenEntry, error) {
 		return nil, err
 	}
 	if f.Version != hiddenFileVersion {
-		return nil, fmt.Errorf("知らない版 %d", f.Version)
+		return nil, i18n.Error{Message: i18n.New("hidden.version", "version", fmt.Sprint(f.Version))}
 	}
 	var out []switcher.HiddenEntry
 	for i, r := range f.Entries {
 		st, ok := stateOf(r.State)
 		if !ok || r.Container == "" {
-			return nil, fmt.Errorf("entries[%d] が不正（state=%q）", i, r.State)
+			return nil, i18n.Error{Message: i18n.New("hidden.entry", "index", fmt.Sprint(i), "state", fmt.Sprintf("%q", r.State))}
 		}
 		e := switcher.HiddenEntry{CameraID: r.Camera, Host: r.Host, Port: r.Port, Collection: r.Collection,
 			ContainerUUID: r.Container, ItemID: r.Item, SourceUUID: r.Source, State: st, WrittenAt: r.WrittenAt}
@@ -116,21 +117,31 @@ func decodeHidden(b []byte) ([]switcher.HiddenEntry, error) {
 // 読めない（壊れている、知らない版）ときは、空として扱い、警告の文を返し、元のファイルは
 // hidden.json.broken に名前を替えて残す。
 func LoadHidden(path string) (entries []switcher.HiddenEntry, warning string) {
+	entries, msg := LoadHiddenMessage(path)
+	return entries, i18n.Render(i18n.JA, msg)
+}
+
+// LoadHiddenMessage は表示言語を決めずに読取り結果を返す。
+func LoadHiddenMessage(path string) (entries []switcher.HiddenEntry, warning i18n.Msg) {
 	b, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, ""
+		return nil, i18n.Msg{}
 	}
 	if err == nil {
 		entries, err = decodeHidden(b)
 		if err == nil {
-			return entries, ""
+			return entries, i18n.Msg{}
 		}
 	}
 	broken := path + ".broken"
 	if rerr := os.Rename(path, broken); rerr != nil {
-		return nil, fmt.Sprintf("hidden.json を読めなかったため（%v）、空として扱います。元のファイルを hidden.json.broken に残せませんでした（%v）", err, rerr)
+		m := i18n.New("hidden.load_failed", "rename_error", rerr.Error())
+		m.Values["error"] = i18n.Reason(err)
+		return nil, m
 	}
-	return nil, fmt.Sprintf("hidden.json を読めなかったため（%v）、空として扱います。元のファイルは hidden.json.broken に残しました", err)
+	m := i18n.New("hidden.load")
+	m.Values["error"] = i18n.Reason(err)
+	return nil, m
 }
 
 // atomicWrite は path の中身を data にする。同じフォルダの一時ファイルに書いてから名前を替える。

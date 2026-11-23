@@ -1,6 +1,7 @@
 package switcher
 
 import (
+	"github.com/teru358/irl-live-keeper/internal/i18n"
 	"slices"
 	"sort"
 	"time"
@@ -1084,7 +1085,7 @@ func (m *Machine) onHiddenWriteFailed(e HiddenWriteFailed) {
 	pb.WriteFailed = true
 	m.rollbackBatch(&pb, true)
 	s.Pending[e.BatchID] = pb
-	m.recordError(e.At, "隠した項目を記録できないため、隠すのを止めました")
+	m.recordError(e.At, i18n.New("switch.persist_failed"))
 }
 
 // rollbackBatch は、バッチが作った未送信の予約を予約前へ戻す。all なら送った分（保存に失敗した最初の false）の期待と台帳も戻す。

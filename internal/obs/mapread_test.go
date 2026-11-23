@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/teru358/irl-live-keeper/internal/i18n"
 	"reflect"
 	"testing"
 
@@ -226,7 +227,7 @@ func TestReadSceneListOnly(t *testing.T) {
 func TestCameraWarnings(t *testing.T) {
 	cams := []CameraConfig{{ID: "cam1", Name: "メイン"}, {ID: "cam2", Name: "サブ"}, {ID: "cam3"}}
 	m := &scenemap.Map{Inputs: map[string]scenemap.Input{"i": {Name: "x", CameraID: "cam1"}, "j": {Name: "y"}}}
-	got := cameraWarnings(cams, m)
+	got := i18n.Strings(i18n.JA, cameraWarnings(cams, m))
 	want := []string{"サブ のメディアソースが OBS に見つかりません", "cam3 のメディアソースが OBS に見つかりません"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("警告: %v", got)
@@ -260,7 +261,7 @@ func TestMatchInputSettingsTwoLevel(t *testing.T) {
 func TestCameraWarningsLegacyURL(t *testing.T) {
 	cams := []CameraConfig{{ID: "main", Name: "メイン", Path: "live/main"}}
 	m := &scenemap.Map{Inputs: map[string]scenemap.Input{"i": {Name: "旧メイン", LegacyCameraID: "main"}}}
-	got := cameraWarnings(cams, m)
+	got := i18n.Strings(i18n.JA, cameraWarnings(cams, m))
 	want := []string{
 		"メイン のメディアソースが OBS に見つかりません",
 		"メディアソース 旧メイン の URL が古い形（…/main）です。…/live/main に直してください",

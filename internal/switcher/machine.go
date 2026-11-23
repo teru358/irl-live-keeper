@@ -2,6 +2,7 @@ package switcher
 
 import (
 	"fmt"
+	"github.com/teru358/irl-live-keeper/internal/i18n"
 	"slices"
 	"strings"
 	"time"
@@ -274,8 +275,8 @@ func (m *Machine) disableExpectations() {
 	}
 }
 
-func (m *Machine) recordError(at time.Time, msg string) {
-	m.st.LastError = &ErrorInfo{At: at, Msg: msg}
+func (m *Machine) recordError(at time.Time, msg i18n.Msg) {
+	m.st.LastError = &ErrorInfo{At: at, Msg: i18n.Render(i18n.JA, msg), Localized: msg}
 }
 
 // sameConfig は e が今の設定と同じ内容かを返す。Cameras は順序つきで比べる（順の変更は設定の変更）。
@@ -600,8 +601,7 @@ func (m *Machine) onSceneChanged(e SceneChanged) []Batch {
 			afterOn := hit.Plan.DisabledByOn && s.StandbyOwner == OwnerManual && e.SceneUUID != s.StandbyUUID
 			m.clearOwner()
 			if afterOn {
-				m.recordError(e.At, "待機 ON の前に送った戻りの切替が届いたため、"+m.sceneLabel(e.SceneUUID)+
-					" に戻りました。待機にするには、もう一度 ON を押してください")
+				m.recordError(e.At, i18n.New("switch.return", "scene", m.sceneLabel(e.SceneUUID)))
 			}
 		}
 	case PurposeStandbyOffMonitored, PurposeStandbyOffOther:
@@ -642,7 +642,7 @@ func (m *Machine) onStreamState(e StreamStateChanged) []Batch {
 	}
 	if s.StartSceneUUID == "" {
 		// 開始シーンが地図で引けない。バッチは出さず（再送もしない）警告を記録し、ほかの判断は続ける。
-		m.recordError(e.At, "配信開始時の切替先（"+*s.StartScene+"）が OBS にない")
+		m.recordError(e.At, i18n.New("switch.start_missing", "scene", *s.StartScene))
 		return m.jb(e.At)
 	}
 	b := m.emit(PurposeStartScene, e.At, []Action{SetScene{SceneUUID: s.StartSceneUUID}}, "", "", ArrivalPlan{})
@@ -698,7 +698,7 @@ func (m *Machine) expire(at time.Time) {
 			continue
 		}
 		if x.Purpose == PurposeStartScene || x.Purpose.FromCommand() {
-			m.recordError(at, x.Purpose.String()+" の切替（"+m.sceneLabel(x.Scene)+"）を確かめられなかった")
+			m.recordError(at, i18n.New("switch.unconfirmed", "purpose", x.Purpose.String(), "scene", m.sceneLabel(x.Scene)))
 		}
 	}
 	s.Expectations = kept
@@ -718,17 +718,17 @@ func (m *Machine) onBatchDone(e BatchDone) []Batch {
 	switch e.Result {
 	case BatchCompleted:
 		if e.Err != nil {
-			m.recordError(e.At, pb.Purpose.String()+" の一部が失敗した: "+e.Err.Error())
+			m.recordError(e.At, i18n.New("switch.partial", "purpose", pb.Purpose.String(), "error", e.Err.Error()))
 		}
 	case BatchFailed:
-		msg := pb.Purpose.String() + " が失敗した"
+		msg := i18n.New("switch.failed", "purpose", pb.Purpose.String())
 		if e.Err != nil {
-			msg += ": " + e.Err.Error()
+			msg = i18n.New("switch.failed_detail", "purpose", pb.Purpose.String(), "error", e.Err.Error())
 		}
 		m.recordError(e.At, msg)
 	case BatchRejected:
 		if (pb.Purpose.FromCommand() || pb.Purpose == PurposeStartScene) && !pb.ManualRejected {
-			m.recordError(e.At, pb.Purpose.String()+" は実行の直前に状況が変わったため取りやめた")
+			m.recordError(e.At, i18n.New("switch.rejected", "purpose", pb.Purpose.String()))
 		}
 	}
 	// 未完了が解消したので判断し直す（StartScene・AutoRecover・OFF の未完了の抑止、承認で却下した候補の再判断）。
@@ -754,14 +754,14 @@ func (m *Machine) onItemBatchDone(e BatchDone, pb PendingBatch) []Batch {
 		case failed:
 			s.ItemFailures[c]++
 			if s.ItemFailures[c] == itemFailLimit {
-				m.recordError(e.At, "カメラ "+c+" の項目を隠す・戻す操作に続けて"+"3回失敗した")
+				m.recordError(e.At, i18n.New("switch.item_failed", "camera", c))
 			}
 		case e.Result == BatchCompleted && pb.Sent > 0:
 			delete(s.ItemFailures, c)
 		}
 	case PurposeRestoreAll:
 		if pb.Scope == RestoreAllCameraItems && failed {
-			m.recordError(e.At, "表示に戻せなかった項目があります。もう一度押してください")
+			m.recordError(e.At, i18n.New("switch.restore_failed"))
 		}
 	}
 	m.refine()
@@ -957,7 +957,7 @@ func (m *Machine) onCommand(e Command) (*Batch, error) {
 		op, reason := m.offPlan()
 		if reason != "" {
 			if reason == ReasonOffNoTarget {
-				m.recordError(e.At, reason)
+				m.recordError(e.At, i18n.New("switch.no_target"))
 			}
 			return nil, ErrInvalidState{Reason: reason}
 		}

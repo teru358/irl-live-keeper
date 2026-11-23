@@ -1,6 +1,7 @@
 package core
 
 import (
+	"github.com/teru358/irl-live-keeper/internal/i18n"
 	"reflect"
 	"sync"
 	"sync/atomic"
@@ -163,11 +164,13 @@ func TestMediaWatchWarningsMerged(t *testing.T) {
 	})
 	h.start()
 	h.sample(goodKbps)
-	h.waitSnap("obs の警告のみ", func(s Snapshot) bool { return reflect.DeepEqual(s.OBS.Warnings, []string{"obs の警告"}) })
+	h.waitSnap("obs の警告のみ", func(s Snapshot) bool {
+		return reflect.DeepEqual(i18n.Strings(i18n.JA, s.OBS.Warnings), []string{"obs の警告"})
+	})
 	w.setWarnings("IRL が映っていない可能性があります")
 	h.sample(goodKbps)
 	h.waitSnap("合わせた警告", func(s Snapshot) bool {
-		return reflect.DeepEqual(s.OBS.Warnings, []string{"obs の警告", "IRL が映っていない可能性があります"})
+		return reflect.DeepEqual(i18n.Strings(i18n.JA, s.OBS.Warnings), []string{"obs の警告", "IRL が映っていない可能性があります"})
 	})
 }
 

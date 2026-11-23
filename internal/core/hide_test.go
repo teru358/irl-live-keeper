@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/teru358/irl-live-keeper/internal/i18n"
 	"os"
 	"path/filepath"
 	"slices"
@@ -356,11 +357,11 @@ func TestMustPersistFailureRejectsAndWarns(t *testing.T) {
 	h.connectMap(true, camera, hideMap())
 	h.waitSeen("却下", isBatchDone(switcher.BatchRejected))
 	s := h.waitSnap("last_error", func(s Snapshot) bool { return s.LastError != nil })
-	if !strings.Contains(s.LastError.Message, "隠した項目を記録できないため、隠すのを止めました") {
-		t.Errorf("last_error = %q", s.LastError.Message)
+	if !strings.Contains(i18n.Render(i18n.JA, s.LastError.Message), "隠した項目を記録できないため、隠すのを止めました") {
+		t.Errorf("last_error = %q", i18n.Render(i18n.JA, s.LastError.Message))
 	}
-	if !slices.ContainsFunc(s.OBS.Warnings, func(w string) bool { return strings.Contains(w, "hidden.json") }) {
-		t.Errorf("warnings = %v, want hidden.json を書けない旨", s.OBS.Warnings)
+	if !slices.ContainsFunc(i18n.Strings(i18n.JA, s.OBS.Warnings), func(w string) bool { return strings.Contains(w, "hidden.json") }) {
+		t.Errorf("warnings = %v, want hidden.json を書けない旨", i18n.Strings(i18n.JA, s.OBS.Warnings))
 	}
 	if calls := h.obs.Calls(); hasItemCall(calls, "item:") {
 		t.Errorf("記録できないのに OBS へ送った: %v", calls)
@@ -390,8 +391,8 @@ func TestMustPersistTimeoutIs1s(t *testing.T) {
 		t.Errorf("諦めたあとの Tick の処理に %v", d)
 	}
 	s := h.waitSnap("警告", func(s Snapshot) bool { return s.LastError != nil })
-	if !strings.Contains(s.LastError.Message, "隠した項目を記録できないため") {
-		t.Errorf("last_error = %q", s.LastError.Message)
+	if !strings.Contains(i18n.Render(i18n.JA, s.LastError.Message), "隠した項目を記録できないため") {
+		t.Errorf("last_error = %q", i18n.Render(i18n.JA, s.LastError.Message))
 	}
 }
 
@@ -426,7 +427,7 @@ func TestAsyncPersistFailureRetries(t *testing.T) {
 	h.waitCall("item:Camera:2:false")
 	h.waitSnap("書けない警告", func(s Snapshot) bool {
 		h.tick(h.clk.Advance(time.Millisecond)) // 警告は Snapshot の作り直しで付く（保存の失敗だけでは作り直されない）
-		return slices.ContainsFunc(s.OBS.Warnings, func(w string) bool { return strings.Contains(w, "hidden.json") })
+		return slices.ContainsFunc(i18n.Strings(i18n.JA, s.OBS.Warnings), func(w string) bool { return strings.Contains(w, "hidden.json") })
 	})
 	// 書き直し（再試行）が実際に起きる（失敗が2回以上）まで待ってから、書けるようにする
 	deadline := time.Now().Add(wait)
@@ -449,7 +450,7 @@ func TestAsyncPersistFailureRetries(t *testing.T) {
 	waitFile(t, path, func(es []fileEntry) bool { return len(es) == 1 && es[0].State == "hidden" })
 	h.waitSnap("警告が消える", func(s Snapshot) bool {
 		h.tick(h.clk.Advance(time.Millisecond))
-		return !slices.ContainsFunc(s.OBS.Warnings, func(w string) bool { return strings.Contains(w, "hidden.json") })
+		return !slices.ContainsFunc(i18n.Strings(i18n.JA, s.OBS.Warnings), func(w string) bool { return strings.Contains(w, "hidden.json") })
 	})
 }
 
@@ -554,8 +555,8 @@ func TestLoadWarningShownInStatus(t *testing.T) {
 		d.HiddenLoadWarning = "hidden.json を読めなかったため、空として扱いました"
 	})
 	s := h.core.Snapshot()
-	if !slices.ContainsFunc(s.OBS.Warnings, func(w string) bool { return strings.Contains(w, "hidden.json を読めなかった") }) {
-		t.Errorf("warnings = %v", s.OBS.Warnings)
+	if !slices.ContainsFunc(i18n.Strings(i18n.JA, s.OBS.Warnings), func(w string) bool { return strings.Contains(w, "hidden.json を読めなかった") }) {
+		t.Errorf("warnings = %v", i18n.Strings(i18n.JA, s.OBS.Warnings))
 	}
 }
 
@@ -729,13 +730,13 @@ func TestStudioModeWarnings(t *testing.T) {
 			}
 			h.obsEvent(switcher.StudioModeChanged{At: h.clk.Now(), Enabled: true})
 			s := h.waitSnap("Studio Mode", func(s Snapshot) bool { return s.OBS.StudioMode })
-			if !slices.Contains(s.OBS.Warnings, c.want) {
-				t.Errorf("warnings = %v, want %q", s.OBS.Warnings, c.want)
+			if !slices.Contains(i18n.Strings(i18n.JA, s.OBS.Warnings), c.want) {
+				t.Errorf("warnings = %v, want %q", i18n.Strings(i18n.JA, s.OBS.Warnings), c.want)
 			}
 			h.obsEvent(switcher.StudioModeChanged{At: h.clk.Now(), Enabled: false})
 			s = h.waitSnap("Studio Mode オフ", func(s Snapshot) bool { return !s.OBS.StudioMode })
 			if len(s.OBS.Warnings) != 0 {
-				t.Errorf("オフに戻ったのに警告: %v", s.OBS.Warnings)
+				t.Errorf("オフに戻ったのに警告: %v", i18n.Strings(i18n.JA, s.OBS.Warnings))
 			}
 		})
 	}
@@ -754,8 +755,8 @@ func TestRetainedEntriesWarning(t *testing.T) {
 	h.start()
 	h.connectMap(false, camera, hideMap())
 	s := h.waitSnap("接続", func(s Snapshot) bool { return s.OBS.Connected })
-	if !slices.ContainsFunc(s.OBS.Warnings, func(w string) bool { return strings.Contains(w, "記録が 1 件") }) {
-		t.Errorf("warnings = %v", s.OBS.Warnings)
+	if !slices.ContainsFunc(i18n.Strings(i18n.JA, s.OBS.Warnings), func(w string) bool { return strings.Contains(w, "記録が 1 件") }) {
+		t.Errorf("warnings = %v", i18n.Strings(i18n.JA, s.OBS.Warnings))
 	}
 	if es, ok := readFile(t, path); ok && len(es) != 0 && es[0].Collection != "別のコレクション" {
 		t.Errorf("hidden.json = %+v", es)

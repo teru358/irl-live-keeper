@@ -1,6 +1,7 @@
 package core
 
 import (
+	"github.com/teru358/irl-live-keeper/internal/i18n"
 	"slices"
 	"strings"
 	"sync"
@@ -37,15 +38,15 @@ func TestSlowReaderWarnings(t *testing.T) {
 
 	// 追いつかない path がなければ、既存の警告だけ。
 	h.tick(h.clk.Now())
-	if w := h.core.Snapshot().OBS.Warnings; !slices.Equal(w, []string{"既存の警告"}) {
+	if w := i18n.Strings(i18n.JA, h.core.Snapshot().OBS.Warnings); !slices.Equal(w, []string{"既存の警告"}) {
 		t.Fatalf("warnings = %v", w)
 	}
 
 	set(supervisor.SlowReader{Path: "live/main", Count: 4, Last: h.clk.Now()})
 	h.tick(h.clk.Now())
 	s := h.waitSnap("メインの警告", func(s Snapshot) bool { return len(s.OBS.Warnings) == 2 })
-	if s.OBS.Warnings[0] != "既存の警告" || s.OBS.Warnings[1] != "メイン "+slowWarnTail {
-		t.Errorf("warnings = %v", s.OBS.Warnings)
+	if i18n.Strings(i18n.JA, s.OBS.Warnings)[0] != "既存の警告" || i18n.Strings(i18n.JA, s.OBS.Warnings)[1] != "メイン "+slowWarnTail {
+		t.Errorf("warnings = %v", i18n.Strings(i18n.JA, s.OBS.Warnings))
 	}
 	// 健康には入れない
 	if s.Cameras[0].State != s.Cameras[1].State {
@@ -56,8 +57,8 @@ func TestSlowReaderWarnings(t *testing.T) {
 	set(supervisor.SlowReader{Path: "sub", Count: 3, Last: h.clk.Now()}, supervisor.SlowReader{Path: "live/main", Count: 5, Last: h.clk.Now()})
 	h.tick(h.clk.Now())
 	s = h.waitSnap("2台の警告", func(s Snapshot) bool { return len(s.OBS.Warnings) == 3 })
-	if s.OBS.Warnings[1] != "メイン "+slowWarnTail || s.OBS.Warnings[2] != "サブ "+slowWarnTail {
-		t.Errorf("warnings = %v", s.OBS.Warnings)
+	if i18n.Strings(i18n.JA, s.OBS.Warnings)[1] != "メイン "+slowWarnTail || i18n.Strings(i18n.JA, s.OBS.Warnings)[2] != "サブ "+slowWarnTail {
+		t.Errorf("warnings = %v", i18n.Strings(i18n.JA, s.OBS.Warnings))
 	}
 
 	// 解ける
@@ -103,7 +104,7 @@ func TestSlowReaderWarningClearsWhenCameraDown(t *testing.T) {
 	// DOWN のまま（まだ受信していない）なら出さない
 	set(supervisor.SlowReader{Path: "live/main", Count: 3, Last: h.clk.Now()})
 	h.tick(h.clk.Now())
-	if w := h.core.Snapshot().OBS.Warnings; len(w) != 0 {
+	if w := i18n.Strings(i18n.JA, h.core.Snapshot().OBS.Warnings); len(w) != 0 {
 		t.Fatalf("DOWN のカメラに警告: %v", w)
 	}
 
@@ -118,7 +119,9 @@ func TestSlowReaderWarningClearsWhenCameraDown(t *testing.T) {
 
 	// 止まって DOWN になると、記録が残っていても消える
 	h.samplesN(5, 0)
-	h.waitSnap("DOWN で消える", func(s Snapshot) bool { return s.Cameras[0].State == "DOWN" && len(s.OBS.Warnings) == 0 })
+	h.waitSnap("DOWN で消える", func(s Snapshot) bool {
+		return s.Cameras[0].State == "DOWN" && len(s.OBS.Warnings) == 0
+	})
 	if out := h.log.String(); !strings.Contains(out, `msg="obs reader caught up" camera=main count=0 reason=camera_down`) {
 		t.Errorf("ログに camera_down の caught up がない:\n%s", out)
 	}
@@ -127,7 +130,7 @@ func TestSlowReaderWarningClearsWhenCameraDown(t *testing.T) {
 	h.sample(3000)
 	h.tick(h.clk.Now())
 	if s := h.waitSnap("つなぎ直し", func(s Snapshot) bool { return s.Cameras[0].State == "LOW" }); len(s.OBS.Warnings) != 0 {
-		t.Fatalf("古い記録で警告: %v", s.OBS.Warnings)
+		t.Fatalf("古い記録で警告: %v", i18n.Strings(i18n.JA, s.OBS.Warnings))
 	}
 
 	// 新しい reader is too slow が来たら、また出る

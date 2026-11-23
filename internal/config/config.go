@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"github.com/teru358/irl-live-keeper/internal/i18n"
 	"io"
 	"math/big"
 	"net"
@@ -533,11 +534,13 @@ func (c *Config) Validate() error {
 }
 
 // Warnings は起動のたびにログへ出す警告を返す。admin.lan が true のときだけ警告がある。
-func (c *Config) Warnings() []string {
+func (c *Config) Warnings() []string { return i18n.Strings(i18n.JA, c.WarningMessages()) }
+
+func (c *Config) WarningMessages() []i18n.Msg {
 	if !c.Admin.LAN {
 		return nil
 	}
-	return []string{"admin.lan が true のため、管理 API と管理ページを LAN に公開しています。通信は平文のため、LAN 内で盗聴されるおそれがあります。パスワードを取られると、LAN の機器から、すべてのパスワードの表示と設定の変更ができます。ルーターでこのポートを転送しないでください"}
+	return []i18n.Msg{i18n.New("config.lan")}
 }
 
 // checkThresholds は閾値の規則を確かめる。prefix は項目名の前につける（"switch" や "cameras[0].switch"）。

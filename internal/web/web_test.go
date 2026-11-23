@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/teru358/irl-live-keeper/internal/i18n"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -311,13 +312,13 @@ func sampleSnapshot() core.Snapshot {
 		OBS: core.OBSStatus{Connected: true, Streaming: true, Scene: "Standby", SceneClass: "standby",
 			SceneCameras: []string{"main"}, SceneHealth: &health,
 			Standby:     core.StandbyStatus{Owner: "auto", ReturnScene: &rs},
-			AutoEnabled: true, Warnings: []string{"シーン X がない"}},
+			AutoEnabled: true, Warnings: []i18n.Msg{i18n.Text("シーン X がない")}},
 		MediaMTX: "running",
 		URLs: []core.CameraURLs{
 			{ID: "main", Name: "メイン", PublishSRT: "srt://a", PublishRTMP: "rtmp://b", OBSRead: "rtsp://obs:p@c"},
 			{ID: "sub", Name: "サブ", PublishSRT: "srt://a2", PublishRTMP: "rtmp://b2", OBSRead: "rtsp://obs:p@c2"},
 		},
-		LastError: &core.LastError{At: time.Date(2026, 11, 20, 13, 0, 0, 0, time.UTC), Source: "switcher", Message: "失敗"},
+		LastError: &core.LastError{At: time.Date(2026, 11, 20, 13, 0, 0, 0, time.UTC), Source: "switcher", Message: i18n.Text("失敗")},
 	}
 }
 
@@ -405,7 +406,7 @@ func TestStatusShapeNulls(t *testing.T) {
 	b := &fakeBackend{snap: core.Snapshot{
 		Cameras: []core.CameraStatus{{ID: "main", Name: "メイン", OnBad: "standby", State: "DOWN"}},
 		OBS: core.OBSStatus{SceneClass: "unknown", SceneCameras: []string{}, Standby: core.StandbyStatus{Owner: "none"},
-			Warnings: []string{}},
+			Warnings: []i18n.Msg{}},
 		URLs: []core.CameraURLs{},
 	}}
 	w := do(t, New(b, testPass), http.MethodGet, "/api/status", reqOpt{})
@@ -478,5 +479,41 @@ func TestShowAllErrors(t *testing.T) {
 	}
 	if w := do(t, New(b, testPass), http.MethodGet, path, reqOpt{header: ok1}); w.Code != http.StatusMethodNotAllowed {
 		t.Errorf("GET: code = %d", w.Code)
+	}
+}
+
+func TestStatusLanguages(t *testing.T) {
+	for _, tc := range []struct {
+		query, accept string
+		lang          i18n.Lang
+	}{
+		{"lang=en", "ja", i18n.EN}, {"lang=ja", "en", i18n.JA},
+		{"", "en-US,en;q=0.9", i18n.EN}, {"", "ja-JP", i18n.JA},
+		{"", "", i18n.EN}, {"lang=unknown", "ja", i18n.JA}, {"lang=unknown", "fr", i18n.EN},
+	} {
+		t.Run(tc.query+"/"+tc.accept, func(t *testing.T) {
+			msg := i18n.New("obs.media", "name", "IRL")
+			b := &fakeBackend{snap: core.Snapshot{OBS: core.OBSStatus{Warnings: []i18n.Msg{msg}}, LastError: &core.LastError{Message: msg}}}
+			r := httptest.NewRequest(http.MethodGet, "/api/status?"+tc.query, nil)
+			r.SetBasicAuth("admin", testPass)
+			r.Header.Set("Accept-Language", tc.accept)
+			w := httptest.NewRecorder()
+			New(b, testPass).ServeHTTP(w, r)
+			var got struct {
+				OBS struct {
+					Warnings []string `json:"warnings"`
+				} `json:"obs"`
+				LastError struct {
+					Message string `json:"message"`
+				} `json:"last_error"`
+			}
+			if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+				t.Fatal(err)
+			}
+			want := i18n.Render(tc.lang, msg)
+			if w.Code != 200 || len(got.OBS.Warnings) != 1 || got.OBS.Warnings[0] != want || got.LastError.Message != want {
+				t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+			}
+		})
 	}
 }

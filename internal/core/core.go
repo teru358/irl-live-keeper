@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"errors"
+	"github.com/teru358/irl-live-keeper/internal/i18n"
 	"log/slog"
 	"math"
 	"slices"
@@ -55,6 +56,7 @@ type Deps struct {
 	HiddenPath        string
 	HiddenRestored    []switcher.HiddenEntry
 	HiddenLoadWarning string
+	HiddenLoadMessage i18n.Msg
 	// HiddenWrite は hidden.json の書き込み。nil なら一時ファイルに書いて名前を替える（試験で差し替える）。
 	HiddenWrite func(path string, data []byte) error
 	// HiddenRetry は通常の保存に失敗したときに書き直す間隔。0 なら 5 秒。
@@ -69,7 +71,8 @@ type Deps struct {
 	// status の warnings に出すだけで、健康や切替には使わない。
 	SlowReaders func() []supervisor.SlowReader
 	// Warnings は OBS の接続時に見つかった警告を返す（obs.WS.Warnings）。nil なら警告なし。
-	Warnings func() []string
+	Warnings        func() []string
+	WarningMessages func() []i18n.Msg
 	// MediaWatch は止まったメディアソースの見張り（カメラの spec 第3節）。nil なら見張らない。
 	MediaWatch MediaWatcher
 	Log        *slog.Logger
@@ -103,22 +106,23 @@ type itemKey = scenemap.ItemKey
 
 // Core は状態を1か所で持つ中核ループと、OBS の操作を行う実行役。
 type Core struct {
-	subMu        sync.Mutex // 購読の登録と Run 開始だけを守る。開始後の一覧は中核ループだけが読む。
-	runStarted   bool
-	snapshotSubs []chan struct{}
-	eventSubs    []*EventSub
-	okSeq        uint64 // カメラが OK になるたびに増やす（camState.okSeq に写す）
-	m            *switcher.Machine
-	obs          obs.Client
-	cams         []*camState
-	samples      <-chan ingest.SampleSet
-	mediamtx     func() supervisor.Status
-	warnings     func() []string
-	slowRead     func() []supervisor.SlowReader
-	media        *mediaDispatcher // nil なら見張らない
-	log          *slog.Logger
-	tick         <-chan time.Time
-	now          func() time.Time
+	subMu           sync.Mutex // 購読の登録と Run 開始だけを守る。開始後の一覧は中核ループだけが読む。
+	runStarted      bool
+	snapshotSubs    []chan struct{}
+	eventSubs       []*EventSub
+	okSeq           uint64 // カメラが OK になるたびに増やす（camState.okSeq に写す）
+	m               *switcher.Machine
+	obs             obs.Client
+	cams            []*camState
+	samples         <-chan ingest.SampleSet
+	mediamtx        func() supervisor.Status
+	warnings        func() []string
+	warningMessages func() []i18n.Msg
+	slowRead        func() []supervisor.SlowReader
+	media           *mediaDispatcher // nil なら見張らない
+	log             *slog.Logger
+	tick            <-chan time.Time
+	now             func() time.Time
 
 	// 中核ループと実行役の間のチャネル。どれもバッファなし。
 	batches   chan *switcher.Batch // 中核ループ → 実行役。列の先頭を1つだけ差し出す
@@ -151,6 +155,7 @@ type Core struct {
 	pers        *persister
 	stopTimeout time.Duration
 	loadWarning string
+	loadMessage i18n.Msg
 	syncWG      sync.WaitGroup // 同期の保存の goroutine（上限で諦めても、書き込みが戻るまで残る）
 	persistRev  int            // hidden.json の保存を求めた最後の HiddenRevision
 	connSeq     uint64         // OBSConnected と OBSDisconnected のたびに増やす
@@ -203,7 +208,7 @@ func New(d Deps) *Core {
 	}
 	c := &Core{
 		m: d.Machine, obs: d.OBS,
-		samples: d.Samples, mediamtx: d.MediaMTX, warnings: d.Warnings, slowRead: d.SlowReaders,
+		samples: d.Samples, mediamtx: d.MediaMTX, warnings: d.Warnings, warningMessages: d.WarningMessages, slowRead: d.SlowReaders,
 		log: d.Log, tick: d.Tick, now: d.Now,
 		batches:   make(chan *switcher.Batch),
 		approvals: make(chan approveReq),
@@ -213,7 +218,7 @@ func New(d Deps) *Core {
 		stopCh:    make(chan stopReq),
 		unknown:   map[itemKey]bool{},
 
-		studioHide: d.StudioModeHide, stopTimeout: d.StopTimeout, loadWarning: d.HiddenLoadWarning,
+		studioHide: d.StudioModeHide, stopTimeout: d.StopTimeout, loadWarning: d.HiddenLoadWarning, loadMessage: d.HiddenLoadMessage,
 		itemSeq: map[uint64]uint64{}, itemLogs: map[int]*itemLog{}, sourceNames: map[string][]string{},
 		falseSent: map[itemKey]bool{}, shownKeys: map[itemKey]bool{},
 	}

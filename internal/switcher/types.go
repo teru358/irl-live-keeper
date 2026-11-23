@@ -1,6 +1,7 @@
 package switcher
 
 import (
+	"github.com/teru358/irl-live-keeper/internal/i18n"
 	"slices"
 	"time"
 
@@ -640,8 +641,9 @@ const (
 
 // ErrorInfo は記録したエラー（時刻と文）。status の last_error になる。
 type ErrorInfo struct {
-	At  time.Time
-	Msg string
+	At        time.Time
+	Msg       string
+	Localized i18n.Msg
 }
 
 // ---- 内部状態 ----

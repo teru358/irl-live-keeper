@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"github.com/teru358/irl-live-keeper/internal/i18n"
 	"net/http"
 	"slices"
 	"time"
@@ -58,7 +59,7 @@ func New(b Backend, password string) http.Handler {
 		if r.URL.Path == "/api/status" {
 			snapshot := b.Snapshot()
 			if snapshot.OBS.Warnings == nil {
-				snapshot.OBS.Warnings = []string{}
+				snapshot.OBS.Warnings = []i18n.Msg{}
 			}
 			snapshot.Cameras = slices.Clone(snapshot.Cameras) // 共有の列を書き換えない
 			for i := range snapshot.Cameras {
@@ -66,7 +67,7 @@ func New(b Backend, password string) http.Handler {
 					snapshot.Cameras[i].Sources = []string{}
 				}
 			}
-			writeJSON(w, http.StatusOK, snapshot)
+			writeJSON(w, http.StatusOK, snapshot.Render(i18n.Select(r.URL.Query().Get("lang"), r.Header.Get("Accept-Language"))))
 			return
 		}
 

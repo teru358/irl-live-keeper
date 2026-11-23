@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
+	"github.com/teru358/irl-live-keeper/internal/i18n"
 	"io"
 	"log/slog"
 	"math/big"
@@ -42,8 +44,9 @@ const (
 
 // Status は MediaMTX の現在の状態。
 type Status struct {
-	State     string
-	LastError string
+	State       string
+	LastError   string
+	LastMessage i18n.Msg
 }
 
 // Supervisor は MediaMTX の子プロセスを起動し、落ちたら再起動する。
@@ -94,10 +97,10 @@ func New(cfg *config.Config, binPath, workDir string, log *slog.Logger) *Supervi
 // newCredentials は api のユーザー名とパスワードをランダムに作る。
 func newCredentials() (user, pass string, err error) {
 	if user, err = randomString(12); err != nil {
-		return "", "", fmt.Errorf("api の資格情報を作れません: %w", err)
+		return "", "", i18n.Error{Message: i18n.New("mediamtx.credentials", "error", err.Error()), Cause: err}
 	}
 	if pass, err = randomString(24); err != nil {
-		return "", "", fmt.Errorf("api の資格情報を作れません: %w", err)
+		return "", "", i18n.Error{Message: i18n.New("mediamtx.credentials", "error", err.Error()), Cause: err}
 	}
 	return user, pass, nil
 }
@@ -137,6 +140,7 @@ func (s *Supervisor) setStatus(state, lastErr string) {
 	s.status.State = state
 	if lastErr != "" {
 		s.status.LastError = lastErr
+		s.status.LastMessage = i18n.Text(lastErr)
 	}
 }
 
@@ -184,7 +188,12 @@ func (s *Supervisor) Run(ctx context.Context) {
 func (s *Supervisor) runOnce(ctx context.Context) (time.Duration, error) {
 	s.setStatus(StateStarting, "")
 	fail := func(err error) (time.Duration, error) {
-		s.setStatus(StateDown, err.Error())
+		var localized i18n.Error
+		if errors.As(err, &localized) {
+			s.setMessage(StateDown, localized.Message)
+		} else {
+			s.setMessage(StateDown, i18n.Text(err.Error()))
+		}
 		return 0, err
 	}
 	if err := CheckPorts(s.cfg); err != nil {
@@ -200,7 +209,7 @@ func (s *Supervisor) runOnce(ctx context.Context) (time.Duration, error) {
 	}
 	ymlPath := filepath.Join(s.workDir, ymlName)
 	if err := os.WriteFile(ymlPath, yml, 0o600); err != nil {
-		return fail(fmt.Errorf("mediamtx.yml を書き込めません: %w", err))
+		return fail(i18n.Error{Message: i18n.New("mediamtx.write", "error", err.Error()), Cause: err})
 	}
 	lw := newLineWriter(s.log.With("component", "mediamtx"), s.cfg.Stream.PublishPass, s.cfg.Stream.ReadPass, pass)
 	lw.readers = s.readers
@@ -213,7 +222,7 @@ func (s *Supervisor) runOnce(ctx context.Context) (time.Duration, error) {
 	start := s.now()
 	c, err := spawn(cmd)
 	if err != nil {
-		return fail(fmt.Errorf("mediamtx を起動できません: %w", err))
+		return fail(i18n.Error{Message: i18n.New("mediamtx.start", "error", err.Error()), Cause: err})
 	}
 	s.setStatus(StateRunning, "")
 
@@ -243,16 +252,16 @@ func (s *Supervisor) runOnce(ctx context.Context) (time.Duration, error) {
 		return ran, nil
 	}
 
-	msg := fmt.Sprintf("mediamtx が終了しました: %v", c.err)
+	msg := i18n.New("mediamtx.exit_error", "error", fmt.Sprint(c.err))
 	if c.err == nil {
-		msg = "mediamtx が終了しました"
+		msg = i18n.New("mediamtx.exit")
 	}
 	if ran < earlyExit {
 		if l := lw.lastErrorLine(); l != "" {
-			msg = l
+			msg = i18n.Text(l)
 		}
 	}
-	s.setStatus(StateDown, msg)
+	s.setMessage(StateDown, msg)
 	s.log.Warn("MediaMTX が終了しました", "after", ran.String(), "error", c.err)
 	return ran, nil
 }
@@ -472,4 +481,13 @@ func (w *lineWriter) lastErrorLine() string {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.lastErr
+}
+
+// setMessage は言語を確定せず最後の理由を保存する。
+func (s *Supervisor) setMessage(state string, msg i18n.Msg) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.status.State = state
+	s.status.LastMessage = msg
+	s.status.LastError = i18n.Render(i18n.JA, msg)
 }

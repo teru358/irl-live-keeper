@@ -3,7 +3,7 @@ package obs
 import (
 	"context"
 	"errors"
-	"fmt"
+	"github.com/teru358/irl-live-keeper/internal/i18n"
 	"log/slog"
 	"sort"
 	"sync"
@@ -73,7 +73,7 @@ type MediaWatch struct {
 	mu       sync.Mutex
 	closed   bool
 	watches  map[string]*mediaWatchGen // カメラ ID → 今の世代
-	warnings map[string][]string       // カメラ ID → 警告（次の Watch まで残す）
+	warnings map[string][]i18n.Msg     // カメラ ID → 警告（次の Watch まで残す）
 	wg       sync.WaitGroup
 }
 
@@ -92,7 +92,7 @@ func NewMediaWatch(aux MediaAux, log *slog.Logger, clock auxClock) *MediaWatch {
 	return &MediaWatch{
 		aux: aux, log: log, clock: clock,
 		watches:  map[string]*mediaWatchGen{},
-		warnings: map[string][]string{},
+		warnings: map[string][]i18n.Msg{},
 	}
 }
 
@@ -137,7 +137,9 @@ func (m *MediaWatch) CancelAll() {
 }
 
 // Warnings は今出す警告（カメラの設定の順ではなく、カメラ ID の辞書順）。
-func (m *MediaWatch) Warnings() []string {
+func (m *MediaWatch) Warnings() []string { return i18n.Strings(i18n.JA, m.WarningMessages()) }
+
+func (m *MediaWatch) WarningMessages() []i18n.Msg {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	ids := make([]string, 0, len(m.warnings))
@@ -145,7 +147,7 @@ func (m *MediaWatch) Warnings() []string {
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
-	var out []string
+	var out []i18n.Msg
 	for _, id := range ids {
 		out = append(out, m.warnings[id]...)
 	}
@@ -244,7 +246,7 @@ func (m *MediaWatch) warn(g *mediaWatchGen, camera string, src MediaSource) {
 	if m.watches[camera] != g || m.closed {
 		return // 取り消された世代は警告を足さない
 	}
-	m.warnings[camera] = append(m.warnings[camera], fmt.Sprintf("%s が映っていない可能性があります", src.Name))
+	m.warnings[camera] = append(m.warnings[camera], i18n.New("obs.media", "name", src.Name))
 }
 
 func (m *MediaWatch) logErr(log *slog.Logger, msg string, err error) {
