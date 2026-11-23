@@ -152,6 +152,7 @@ type generation struct {
 }
 
 type App struct {
+	generationID  uint64
 	auth          *web.Auth
 	adminPassword string
 	adminPort     int
@@ -531,10 +532,12 @@ func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 	}); ok {
 		eventLogger = l
 	}
-	g.events = web.NewEvents(c, eventLogger, func() any {
-		v := a.Apply()
-		return map[string]any{"state": v.State, "kind": v.Kind, "reason": v.Reason}
-	}, lang)
+	a.mu.Lock()
+	a.generationID++
+	id := a.generationID
+	a.mu.Unlock()
+	backend := &pageBackend{Backend: c, app: a, id: id, language: cfg.Language, closeAction: cfg.GUI.CloseAction, lan: cfg.Admin.LAN}
+	g.events = web.NewEvents(backend, eventLogger, nil, lang)
 
 	stage("parts.start")
 	g.started = true
@@ -547,7 +550,7 @@ func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 	// 管理 API。待ち受けに失敗したときも、部品を止めてから終了する
 	srv := a.deps.newHTTP(c, cfg.Admin.Password, lang)
 	if h, ok := srv.(*http.Server); ok {
-		h.Handler = web.NewWithEvents(c, cfg.Admin.Password, a.adminPort, a.auth, g.events, lang)
+		h.Handler = web.NewWithEvents(backend, cfg.Admin.Password, a.adminPort, a.auth, g.events, lang)
 	}
 	g.serveErr = make(chan error, 1)
 	addr := listenAddr(cfg.Admin.Port, cfg.Admin.LAN)
@@ -687,4 +690,42 @@ func loadConfigBytes(base string) (cfg *config.Config, generated bool, raw []byt
 	}
 	cfg, err = config.Parse(raw)
 	return cfg, false, raw, err
+}
+
+// pageBackend は本体の操作と世代固有の表示情報を管理画面に渡す。
+type pageBackend struct {
+	web.Backend
+	app                   *App
+	id                    uint64
+	language, closeAction string
+	lan                   bool
+}
+
+func (b *pageBackend) DisplayStatus() map[string]any {
+	v := b.app.Apply()
+	return map[string]any{"apply": map[string]any{"state": v.State, "kind": v.Kind, "reason": v.Reason}, "generation": b.id, "language": b.language, "gui": map[string]any{"close_action": b.closeAction}, "admin": map[string]any{"lan": b.lan}}
+}
+func (b *pageBackend) PageLanguage() string { return b.language }
+func (b *pageBackend) RestartHTTP() (int, error) {
+	err := b.app.Restart()
+	if errors.Is(err, ErrApplying) {
+		return 409, err
+	}
+	if err != nil {
+		return 503, err
+	}
+	return 202, nil
+}
+
+func (b *pageBackend) SubscribeSnapshots() <-chan struct{} {
+	if c, ok := b.Backend.(interface{ SubscribeSnapshots() <-chan struct{} }); ok {
+		return c.SubscribeSnapshots()
+	}
+	return nil
+}
+func (b *pageBackend) SubscribeEvents(n int) *core.EventSub {
+	if c, ok := b.Backend.(interface{ SubscribeEvents(int) *core.EventSub }); ok {
+		return c.SubscribeEvents(n)
+	}
+	return &core.EventSub{}
 }

@@ -62,10 +62,23 @@ func apiHandler(b Backend, defaultLang ...i18n.Lang) http.Handler {
 					snapshot.Cameras[i].Sources = []string{}
 				}
 			}
-			writeJSON(w, http.StatusOK, snapshot.Render(lang))
+			writeJSON(w, http.StatusOK, statusValue(b, snapshot.Render(lang)))
 			return
 		}
 
+		if r.URL.Path == "/api/restart" {
+			if b, ok := b.(interface{ RestartHTTP() (int, error) }); ok {
+				code, err := b.RestartHTTP()
+				if err != nil {
+					writeError(w, code, lang, i18n.New("api.internal"))
+					return
+				}
+				writeJSON(w, code, map[string]bool{"ok": true})
+				return
+			}
+			writeError(w, 503, lang, i18n.New("api.stopped"))
+			return
+		}
 		ctx, cancel := context.WithTimeout(r.Context(), commandTimeout)
 		defer cancel()
 		if err := b.Command(ctx, kind); err != nil {
@@ -101,6 +114,8 @@ func route(path string) (switcher.CommandKind, string, bool) {
 	switch path {
 	case "/api/events", "/api/status":
 		return 0, http.MethodGet, true
+	case "/api/restart":
+		return 0, http.MethodPost, true
 	case "/api/stream/start":
 		return switcher.CmdStreamStart, http.MethodPost, true
 	case "/api/stream/stop":
@@ -145,4 +160,17 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", jsonContentType)
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(value)
+}
+
+// statusValue は世代の表示情報を API と SSE に同じ形で加える。
+func statusValue(b Backend, value any) any {
+	raw, _ := json.Marshal(value)
+	out := map[string]any{}
+	_ = json.Unmarshal(raw, &out)
+	if extra, ok := b.(interface{ DisplayStatus() map[string]any }); ok {
+		for k, v := range extra.DisplayStatus() {
+			out[k] = v
+		}
+	}
+	return out
 }

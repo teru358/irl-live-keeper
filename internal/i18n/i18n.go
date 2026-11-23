@@ -157,3 +157,13 @@ func Reason(err error) Msg {
 	}
 	return Text(err.Error())
 }
+
+// UI は管理画面の文の表を返す。
+func UI(lang Lang) map[string]string {
+	b, _ := files.ReadFile("locales/" + string(lang) + ".json")
+	var c struct {
+		UI map[string]string `json:"ui"`
+	}
+	_ = json.Unmarshal(b, &c)
+	return c.UI
+}

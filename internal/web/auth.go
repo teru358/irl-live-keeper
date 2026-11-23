@@ -211,14 +211,10 @@ func NewWithEvents(b Backend, password string, port int, a *Auth, events *Events
 			}
 			return true
 		}
-		switch r.URL.Path {
-		case "/assets/login.js":
-			if !method("GET") {
-				return
-			}
-			w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
-			io.WriteString(w, loginJS)
+		if serveAsset(w, r) {
 			return
+		}
+		switch r.URL.Path {
 		case "/auth/once":
 			w.Header().Set("Cache-Control", "no-store")
 			w.Header().Set("Referrer-Policy", "no-referrer")
@@ -292,9 +288,9 @@ func NewWithEvents(b Backend, password string, port int, a *Auth, events *Events
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			w.Header().Set("Cache-Control", "no-store")
 			if !valid || r.URL.Query().Has("login") {
-				io.WriteString(w, loginHTML)
+				servePage(w, b, true)
 			} else {
-				io.WriteString(w, "<!doctype html><title>IRL Live Keeper</title>")
+				servePage(w, b, false)
 			}
 			return
 		}
@@ -345,6 +341,3 @@ func NewWithEvents(b Backend, password string, port int, a *Auth, events *Events
 		api.ServeHTTP(w, r)
 	})
 }
-
-const loginHTML = `<!doctype html><meta charset="utf-8"><title>Login</title><form id="login"><input name="password" type="password" autocomplete="current-password" required><button>Login</button></form><p id="error"></p><script src="/assets/login.js" defer></script>`
-const loginJS = `document.querySelector('#login').addEventListener('submit',async e=>{e.preventDefault();try{const r=await fetch('/api/login'+location.search,{method:'POST',headers:{'Content-Type':'application/json','X-IRL-Live-Keeper':'1'},body:JSON.stringify({password:e.target.password.value})});if(r.ok)location.replace('/');else document.querySelector('#error').textContent=(await r.json()).error;}catch(e){document.querySelector('#error').textContent=String(e);}});`
