@@ -2,7 +2,7 @@
 
 // シェルスクリプトの偽の MediaMTX と kill(pid, 0) を使うので、Linux だけで動かす。
 
-package main
+package app
 
 import (
 	"context"
