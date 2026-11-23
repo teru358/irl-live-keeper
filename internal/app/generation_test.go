@@ -167,7 +167,7 @@ func TestGeneration生成停止とHidden(t *testing.T) {
 					gotDeps = d
 					return &generationCore{generationPart: cr, stopping: func(context.Context) { close(stopEntered); <-stopRelease }}
 				},
-				listen: func(string, string) (net.Listener, error) { return nil, nil }, newHTTP: func(coreRunner, string) servingHTTP { return h },
+				listen: func(string, string) (net.Listener, error) { return nil, nil }, newHTTP: func(coreRunner, string, i18n.Lang) servingHTTP { return h },
 			})
 			result := make(chan int, 1)
 			go func() { result <- a.run(parent) }()

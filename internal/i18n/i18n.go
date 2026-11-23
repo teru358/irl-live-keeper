@@ -74,11 +74,14 @@ func Render(lang Lang, m Msg) string {
 }
 
 // Select は明示指定、見出しの順に言語を選ぶ。同じ重みは記載順を保つ。
-func Select(lang, accept string) Lang {
+func Select(lang, accept string, defaultLang ...Lang) Lang {
 	if lang == "ja" || lang == "en" {
 		return Lang(lang)
 	}
 	best := EN
+	if len(defaultLang) > 0 && (defaultLang[0] == JA || defaultLang[0] == EN) {
+		best = defaultLang[0]
+	}
 	weight := 0.0
 	for _, part := range strings.Split(accept, ",") {
 		fields := strings.Split(strings.TrimSpace(part), ";")
@@ -103,6 +106,21 @@ func Select(lang, accept string) Lang {
 		}
 	}
 	return best
+}
+
+// Resolve は config の設定と OS の言語から本体の言語を決める。
+func Resolve(setting string, osLang func() Lang) Lang {
+	switch setting {
+	case "ja":
+		return JA
+	case "en":
+		return EN
+	default:
+		if osLang != nil && osLang() == JA {
+			return JA
+		}
+		return EN
+	}
 }
 
 // Text は外部由来の理由など、翻訳しない値を文として持つ。

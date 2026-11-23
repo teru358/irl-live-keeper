@@ -489,7 +489,8 @@ func TestStatusLanguages(t *testing.T) {
 	}{
 		{"lang=en", "ja", i18n.EN}, {"lang=ja", "en", i18n.JA},
 		{"", "en-US,en;q=0.9", i18n.EN}, {"", "ja-JP", i18n.JA},
-		{"", "", i18n.EN}, {"lang=unknown", "ja", i18n.JA}, {"lang=unknown", "fr", i18n.EN},
+		{"", "", i18n.JA}, {"lang=en", "", i18n.EN}, {"", "en", i18n.EN},
+		{"lang=unknown", "ja", i18n.JA}, {"lang=unknown", "fr", i18n.JA},
 	} {
 		t.Run(tc.query+"/"+tc.accept, func(t *testing.T) {
 			msg := i18n.New("obs.media", "name", "IRL")
@@ -498,7 +499,7 @@ func TestStatusLanguages(t *testing.T) {
 			r.SetBasicAuth("admin", testPass)
 			r.Header.Set("Accept-Language", tc.accept)
 			w := httptest.NewRecorder()
-			New(b, testPass).ServeHTTP(w, r)
+			New(b, testPass, i18n.JA).ServeHTTP(w, r)
 			var got struct {
 				OBS struct {
 					Warnings []string `json:"warnings"`

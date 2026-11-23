@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/teru358/irl-live-keeper/internal/config"
+	"github.com/teru358/irl-live-keeper/internal/i18n"
 	"github.com/teru358/irl-live-keeper/internal/logging"
 	"github.com/teru358/irl-live-keeper/internal/obs"
 	"gopkg.in/yaml.v3"
@@ -259,7 +260,7 @@ func TestRestart再読込と秘密と表示(t *testing.T) {
 	setOBS("old-obs-secret")
 	second := &failureHTTP{generationHTTP: generationHTTP{make(chan struct{}), make(chan struct{}), f.r}, serveError: http.ErrServerClosed}
 	n := 0
-	f.a.deps.newHTTP = func(coreRunner, string) servingHTTP {
+	f.a.deps.newHTTP = func(coreRunner, string, i18n.Lang) servingHTTP {
 		n++
 		if n == 1 {
 			return f.h
@@ -347,7 +348,7 @@ func TestRestart作成中のシグナル(t *testing.T) {
 	}
 	second := &failureHTTP{generationHTTP: generationHTTP{make(chan struct{}), make(chan struct{}), f.r}, serveError: http.ErrServerClosed}
 	n := 0
-	f.a.deps.newHTTP = func(coreRunner, string) servingHTTP {
+	f.a.deps.newHTTP = func(coreRunner, string, i18n.Lang) servingHTTP {
 		n++
 		if n == 1 {
 			return f.h

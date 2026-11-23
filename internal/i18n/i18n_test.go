@@ -22,6 +22,44 @@ func TestRender(t *testing.T) {
 		}
 	}
 }
+
+func TestResolve(t *testing.T) {
+	for _, tc := range []struct {
+		setting string
+		os      Lang
+		want    Lang
+	}{
+		{"ja", EN, JA}, {"en", JA, EN}, {"auto", JA, JA}, {"auto", EN, EN}, {"", JA, JA},
+	} {
+		if got := Resolve(tc.setting, func() Lang { return tc.os }); got != tc.want {
+			t.Errorf("Resolve(%q)=%q want %q", tc.setting, got, tc.want)
+		}
+	}
+}
+
+func TestOSLang(t *testing.T) {
+	for _, tc := range []struct {
+		name, all, messages, lang string
+		want                      Lang
+	}{
+		{"LC_ALL ja", "ja_JP.UTF-8", "en", "en", JA},
+		{"LANG en", "", "", "en_US.UTF-8", EN},
+		{"messages ja", "", "ja", "en", JA},
+		{"all empty", "", "", "", EN}, {"C", "C", "ja", "ja", EN}, {"POSIX", "POSIX", "ja", "ja", EN},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, key := range []string{"LC_ALL", "LC_MESSAGES", "LANG"} {
+				t.Setenv(key, "")
+			}
+			t.Setenv("LC_ALL", tc.all)
+			t.Setenv("LC_MESSAGES", tc.messages)
+			t.Setenv("LANG", tc.lang)
+			if got := OSLang(); got != tc.want {
+				t.Errorf("OSLang()=%q want %q", got, tc.want)
+			}
+		})
+	}
+}
 func TestSelect(t *testing.T) {
 	for _, tc := range []struct {
 		lang, accept string

@@ -76,7 +76,7 @@ type appDeps struct {
 	newMediaWatch func(obsRunner, *slog.Logger) mediaWatcher
 	loadHidden    func(string) ([]switcher.HiddenEntry, i18n.Msg)
 	newCore       func(core.Deps) coreRunner
-	newHTTP       func(coreRunner, string) servingHTTP
+	newHTTP       func(coreRunner, string, i18n.Lang) servingHTTP
 }
 
 type runner interface{ Run(context.Context) }
@@ -204,8 +204,8 @@ func newApp(opts Options, deps appDeps) *App {
 		deps.newCore = func(d core.Deps) coreRunner { return core.New(d) }
 	}
 	if deps.newHTTP == nil {
-		deps.newHTTP = func(c coreRunner, p string) servingHTTP {
-			return &http.Server{Handler: web.New(c, p), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
+		deps.newHTTP = func(c coreRunner, p string, lang i18n.Lang) servingHTTP {
+			return &http.Server{Handler: web.New(c, p, lang), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
 		}
 	}
 	return &App{opts: opts, initErr: deps.initJob(), deps: deps, apply: Apply{State: ApplyIdle}, restarts: make(chan struct{}, 1)}
@@ -471,7 +471,8 @@ func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 	wg.Go(func() { <-runCtx.Done(); mediaWatch.Close() }) // 見張りの goroutine を残さない
 
 	// 管理 API。待ち受けに失敗したときも、部品を止めてから終了する
-	srv := a.deps.newHTTP(c, cfg.Admin.Password)
+	lang := i18n.Resolve(cfg.Language, i18n.OSLang)
+	srv := a.deps.newHTTP(c, cfg.Admin.Password, lang)
 	g.serveErr = make(chan error, 1)
 	addr := listenAddr(cfg.Admin.Port, cfg.Admin.LAN)
 	stage("http.listen")

@@ -32,3 +32,18 @@ func TestParseとLoadは同じ結果を返す(t *testing.T) {
 		})
 	}
 }
+
+func TestLanguageDefaultAndGeneratedTemplate(t *testing.T) {
+	old, err := Parse([]byte("admin:\n  password: adminpass\nstream:\n  publish_pass: publishpass\n  read_pass: readpass1\ncameras:\n  - id: main\n    name: Main\n    on_bad: standby\n"))
+	if err != nil || old.Language != "auto" {
+		t.Fatalf("省略時 language=%q err=%v", old.Language, err)
+	}
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	cfg, err := Generate(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Language != "auto" {
+		t.Fatalf("生成 config language=%q", cfg.Language)
+	}
+}

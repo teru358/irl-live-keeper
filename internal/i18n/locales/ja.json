@@ -83,6 +83,7 @@
     "config.validation_31": "{a} 行目: {b} は {c} 行目と重複しています。同じシーンの逃がし先は1つだけです。1行にまとめてください",
     "config.validation_32": "{a} 行目: {b}→{c} は長さ1の輪です（自分自身へは逃がせません）。fallback を別のシーン（または待機シーン）に変えてください",
     "config.validation_33": "{a} 行目: {b} の輪になっています。輪のどこか1行の fallback を、輪の外のシーン（または待機シーン）に変えるか、その行を消して輪を切ってください",
+    "config.validation_34": "language は auto、ja、en のどれかにしてください（現在 {a}）",
     "api.reason_streaming": "配信中",
     "api.reason_not_streaming": "配信中でない",
     "api.reason_already_standby": "すでに待機シーン",

@@ -83,6 +83,7 @@
     "config.validation_31": "Row {a}: {b} also appears in row {c}. Use one row per source scene.",
     "config.validation_32": "Row {a}: {b} to {c} is a loop to itself. Use another fallback scene or the standby scene.",
     "config.validation_33": "Row {a}: {b} is a loop. Change one fallback to a scene outside the loop or the standby scene, or remove one row.",
+    "config.validation_34": "Use auto, ja or en for language (current {a}).",
     "api.reason_streaming": "Streaming",
     "api.reason_not_streaming": "Not streaming",
     "api.reason_already_standby": "Already in the standby scene",

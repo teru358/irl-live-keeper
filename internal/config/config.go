@@ -21,6 +21,7 @@ import (
 
 // Config は config.yaml 全体。
 type Config struct {
+	Language      string        `yaml:"language"`
 	Admin         Admin         `yaml:"admin"`
 	MediaMTX      MediaMTX      `yaml:"mediamtx"`
 	Stream        Stream        `yaml:"stream"`
@@ -180,7 +181,8 @@ type Log struct {
 // defaults は未指定の項目に使う既定値。パスワード類は既定値を持たない（空のまま検証で落ちる）。
 func defaults() *Config {
 	return &Config{
-		Admin: Admin{Port: 8787},
+		Language: "auto",
+		Admin:    Admin{Port: 8787},
 		MediaMTX: MediaMTX{
 			RTMPPort: 1935, SRTPort: 8890, RTSPPort: 8554, APIPort: 9997, RTMPEnabled: true, SRTEnabled: true,
 		},
@@ -248,7 +250,9 @@ func randomSecret() (string, error) {
 }
 
 // defaultTemplate は初回生成するファイルの雛形。"*" は生成時にランダムな値へ置き換える。
-const defaultTemplate = `admin:
+const defaultTemplate = `language: auto             # 画面の言語。auto（OS の言語）/ ja / en
+
+admin:
   port: 8787                 # 管理 API と管理ページのポート
   lan: false                 # false なら 127.0.0.1 だけで待ち受ける。true ならすべてのインターフェース（IPv4 と IPv6）。別 PC から操作するときと、OBS と別の PC（中継 PC）に置くときだけ true にする（通信は平文。ルーターで転送しない）
   password: "*"              # Basic 認証のパスワード（ユーザー名は admin）
@@ -382,6 +386,9 @@ func (c *Config) Validate() error {
 	var errs []FieldError
 	add := func(field string, reason i18n.Msg) {
 		errs = append(errs, FieldError{Field: field, Reason: i18n.Render(i18n.JA, reason), Message: reason})
+	}
+	if c.Language != "auto" && c.Language != "ja" && c.Language != "en" {
+		add("language", i18n.New("config.validation_34", "a", fmt.Sprintf("%q", c.Language)))
 	}
 
 	// 閾値

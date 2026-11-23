@@ -17,6 +17,7 @@ import (
 
 	"github.com/teru358/irl-live-keeper/internal/config"
 	"github.com/teru358/irl-live-keeper/internal/core"
+	"github.com/teru358/irl-live-keeper/internal/i18n"
 	"github.com/teru358/irl-live-keeper/internal/logging"
 	"github.com/teru358/irl-live-keeper/internal/obs"
 )
@@ -92,7 +93,7 @@ func newFailureFixture(t *testing.T) *failureFixture {
 			}}
 		},
 		listen:  func(string, string) (net.Listener, error) { return nil, nil },
-		newHTTP: func(coreRunner, string) servingHTTP { return f.h },
+		newHTTP: func(coreRunner, string, i18n.Lang) servingHTTP { return f.h },
 	})
 	return f
 }

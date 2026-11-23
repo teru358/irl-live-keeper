@@ -27,6 +27,10 @@ func TestValidate(t *testing.T) {
 		field  string // 空なら通ること
 	}{
 		{"基準は通る", func(c *Config) {}, ""},
+		{"language auto", func(c *Config) { c.Language = "auto" }, ""},
+		{"language ja", func(c *Config) { c.Language = "ja" }, ""},
+		{"language en", func(c *Config) { c.Language = "en" }, ""},
+		{"language 不正", func(c *Config) { c.Language = "fr" }, "language"},
 
 		{"recover>fail 通る", func(c *Config) { c.Switch.FailKbps = 800; c.Switch.RecoverKbps = 801 }, ""},
 		{"recover==fail 落ちる", func(c *Config) { c.Switch.RecoverKbps = c.Switch.FailKbps }, "switch.recover_kbps"},
