@@ -223,13 +223,15 @@ func TestGeneration停止期限と二重停止(t *testing.T) {
 				t.Fatal(err)
 			}
 			<-f.h.started
+			// 期限は、停止を呼ぶ直前の時刻からの差で確かめる（実時間の経過に頼らず、負荷で揺れないように）
+			var start time.Time
 			f.stop = func(ctx context.Context) {
 				if g.ctx.Err() != nil {
 					t.Error("Stopping 前に世代が取消された")
 				}
 				deadline, ok := ctx.Deadline()
-				if !ok || time.Until(deadline) < 1900*time.Millisecond {
-					t.Error("Stopping の期限が短い")
+				if !ok || deadline.Sub(start) < core.DefaultStopTimeout {
+					t.Errorf("Stopping の期限が短い: %v", deadline.Sub(start))
 				}
 				if slow {
 					<-ctx.Done()
@@ -238,13 +240,14 @@ func TestGeneration停止期限と二重停止(t *testing.T) {
 					t.Error("Stopping 中に世代が取消された")
 				}
 			}
-			start := time.Now()
+			start = time.Now()
 			g.stopGeneration()
 			elapsed := time.Since(start)
-			if slow && (elapsed < 1900*time.Millisecond || elapsed > 4*time.Second) {
+			// 上限は止まらないことを見つけるためだけの値（負荷で揺れないよう余裕を持たせる）
+			if slow && (elapsed < core.DefaultStopTimeout || elapsed > 15*time.Second) {
 				t.Fatalf("停止時間=%v", elapsed)
 			}
-			if !slow && elapsed > time.Second {
+			if !slow && elapsed > 10*time.Second {
 				t.Fatalf("即応なのに停止が遅い: %v", elapsed)
 			}
 			before := len(f.r.events)

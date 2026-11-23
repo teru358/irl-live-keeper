@@ -423,8 +423,13 @@ func TestRunは管理APIの待ち受けに失敗したら終了コード1(t *tes
 	if !strings.Contains(stderr.String(), "admin.port") {
 		t.Errorf("標準エラーに admin.port がない:\n%s", stderr.String())
 	}
-	if got := readLogs(t, filepath.Join(base, "logs")); !strings.Contains(got, "admin.port") {
+	got := readLogs(t, filepath.Join(base, "logs"))
+	if !strings.Contains(got, "admin.port") {
 		t.Errorf("ログファイルに admin.port がない:\n%s", got)
+	}
+	// 終わりのログの code は、実際の終了コードと同じ（S2-5 のレビュー）
+	if strings.Contains(got, "code=0") || !strings.Contains(got, "code=1") {
+		t.Errorf("終わりのログの code が 1 でない:\n%s", got)
 	}
 }
 

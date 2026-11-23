@@ -398,6 +398,7 @@ func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 	ln, err := a.deps.listen("tcp", addr)
 	if err != nil {
 		log.Error("管理 API のポート（admin.port）で待ち受けできません", "listen", addr, "error", err)
+		g.exitCode = 1 // 止める処理の「終了しました」のログを、実際の終了コードに合わせる
 		g.stopGeneration()
 
 		a.setApply(Apply{State: ApplyFailed, Reason: masker.Mask(err.Error())})
