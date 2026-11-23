@@ -116,6 +116,7 @@ type ApplyState string
 type ApplyKind string
 
 const (
+	ApplyRestart  ApplyKind  = "restart"
 	ApplyIdle     ApplyState = "idle"
 	ApplyApplying ApplyState = "applying"
 	ApplyApplied  ApplyState = "applied"
@@ -144,14 +145,18 @@ type generation struct {
 }
 
 type App struct {
-	opts       Options
-	initErr    error
-	initWarned bool
-	deps       appDeps
-	mu         sync.Mutex
-	apply      Apply
-	hash       [32]byte
-	current    *generation
+	opts        Options
+	initErr     error
+	initWarned  bool
+	deps        appDeps
+	mu          sync.Mutex
+	apply       Apply
+	hash        [32]byte
+	current     *generation
+	restarts    chan struct{}
+	running     bool
+	secrets     []string
+	bannerShown bool
 }
 
 func newApp(opts Options, deps appDeps) *App {
@@ -202,13 +207,53 @@ func newApp(opts Options, deps appDeps) *App {
 			return &http.Server{Handler: web.New(c, p), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
 		}
 	}
-	return &App{opts: opts, initErr: deps.initJob(), deps: deps, apply: Apply{State: ApplyIdle}}
+	return &App{opts: opts, initErr: deps.initJob(), deps: deps, apply: Apply{State: ApplyIdle}, restarts: make(chan struct{}, 1)}
 }
 
-// Apply は現在の初回反映状態の値を返す。
+// Apply は現在の反映状態の値を返す。
 func (a *App) Apply() Apply { a.mu.Lock(); defer a.mu.Unlock(); return a.apply }
 
 func (a *App) setApply(v Apply) { a.mu.Lock(); a.apply = v; a.mu.Unlock() }
+
+func (a *App) rememberSecrets(secrets ...string) {
+	seen := make(map[string]struct{}, len(a.secrets)+len(secrets))
+	for _, secret := range a.secrets {
+		if secret != "" {
+			seen[secret] = struct{}{}
+		}
+	}
+	for _, secret := range secrets {
+		if secret == "" {
+			continue
+		}
+		if _, ok := seen[secret]; ok {
+			continue
+		}
+		a.secrets = append(a.secrets, secret)
+		seen[secret] = struct{}{}
+	}
+}
+
+// ErrApplying は反映中の操作を受け付けられないことを表す。
+var ErrApplying = errors.New("反映中です")
+
+// ErrNotRunning は実行役が操作を受け付けないことを表す。
+var ErrNotRunning = errors.New("実行中ではありません")
+
+// Restart は実行役へ再起動を依頼し、世代の停止を待たず戻る。
+func (a *App) Restart() error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if !a.running {
+		return ErrNotRunning
+	}
+	if a.apply.State == ApplyApplying {
+		return ErrApplying
+	}
+	a.apply = Apply{State: ApplyApplying, Kind: ApplyRestart}
+	a.restarts <- struct{}{}
+	return nil
+}
 
 // Run はコンソール用 app を起動し、終了コードを返す。
 func Run(ctx context.Context, opts Options) int {
@@ -225,25 +270,46 @@ func run(ctx context.Context, base string, stdout, stderr io.Writer) int {
 }
 
 func (a *App) runApp(ctx context.Context) int {
+	a.mu.Lock()
+	a.running = true
+	a.apply = Apply{State: ApplyApplying}
+	a.mu.Unlock()
+	defer func() { a.mu.Lock(); a.running = false; a.mu.Unlock() }()
 	g, err := a.createGeneration(ctx)
 	if err != nil {
 		fmt.Fprintln(a.opts.Stderr, err)
 		return 1
 	}
-	code := 0
-	select {
-	case <-ctx.Done():
-		g.logger.Slog().Info("止める操作を受けました。終了します")
-	case err := <-g.serveErr:
-		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			g.logger.Slog().Error("管理 API が止まりました", "error", err)
-			fmt.Fprintf(a.opts.Stderr, "管理 API が止まりました: %v\n", err)
-			code = 1
+	for {
+		code := 0
+		select {
+		case <-ctx.Done():
+			g.logger.Slog().Info("止める操作を受けました。終了します")
+		case <-a.restarts:
+			g.stopGeneration()
+			if ctx.Err() != nil {
+				return 0
+			}
+			g, err = a.createGeneration(ctx)
+			if err != nil {
+				fmt.Fprintln(a.opts.Stderr, err)
+				return 1
+			}
+			continue
+		case err := <-g.serveErr:
+			if err != nil && !errors.Is(err, http.ErrServerClosed) {
+				g.logger.Slog().Error("管理 API が止まりました", "error", err)
+				fmt.Fprintf(a.opts.Stderr, "管理 API が止まりました: %v\n", err)
+				code = 1
+			}
 		}
+		a.mu.Lock()
+		a.running = false
+		a.mu.Unlock()
+		g.exitCode = code
+		g.stopGeneration()
+		return code
 	}
-	g.exitCode = code
-	g.stopGeneration()
-	return code
 }
 
 // generationError は表示する理由と、内部で使う失敗段を分けて保持する。
@@ -258,18 +324,22 @@ func (e *generationError) Unwrap() error { return e.err }
 // createGeneration は途中の世代を公開せず、全段の成功後に反映する。
 func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 	base, stdout, initErr := a.opts.BaseDir, a.opts.Stdout, a.initErr
-	a.setApply(Apply{State: ApplyApplying})
+	kind := a.Apply().Kind
+	a.setApply(Apply{State: ApplyApplying, Kind: kind})
 	stage := a.deps.stage
 	stage("config.load")
+	loadMasker := redact.New(a.secrets...)
 	// 設定。なければ生成する
 	cfg, generated, raw, err := a.deps.loadConfig(base)
 	if err != nil {
-		a.setApply(Apply{State: ApplyFailed, Reason: err.Error()})
+		maskedErr := loadMasker.Mask(err.Error())
+		a.setApply(Apply{State: ApplyFailed, Kind: kind, Reason: maskedErr})
 		stage("apply.failed")
-		return nil, &generationError{"config.load", err}
+		return nil, &generationError{"config.load", errors.New(maskedErr)}
 	}
 	candidate := sha256.Sum256(raw)
-	masker := redact.New(cfg.Admin.Password, cfg.Stream.PublishPass, cfg.Stream.ReadPass, cfg.OBS.Password)
+	a.rememberSecrets(cfg.Admin.Password, cfg.Stream.PublishPass, cfg.Stream.ReadPass, cfg.OBS.Password)
+	masker := redact.New(a.secrets...)
 	// 生成したパスワードを知る手段が config.yaml を開くことだけにならないよう、起動の表示より前に
 	// 失敗して終わるときは、終わる前に標準出力へ出す（ログには書かない）。
 	showGeneratedPassword := func() {
@@ -286,11 +356,11 @@ func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 		Dir:      logDir,
 		KeepDays: cfg.Log.KeepDays,
 		Stdout:   stdout,
-		Secrets:  []string{cfg.Admin.Password, cfg.Stream.PublishPass, cfg.Stream.ReadPass, cfg.OBS.Password},
+		Secrets:  append([]string(nil), a.secrets...),
 	})
 	if err != nil {
 		showGeneratedPassword()
-		a.setApply(Apply{State: ApplyFailed, Reason: masker.Mask(err.Error())})
+		a.setApply(Apply{State: ApplyFailed, Kind: kind, Reason: masker.Mask(err.Error())})
 		stage("apply.failed")
 		return nil, &generationError{"logger.open", fmt.Errorf("ログを開けません: %s", masker.Mask(err.Error()))}
 	}
@@ -310,29 +380,34 @@ func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 		showGeneratedPassword()
 		_ = logger.Close()
 		stage("logger.close")
-		a.setApply(Apply{State: ApplyFailed, Reason: masker.Mask(err.Error())})
+		a.setApply(Apply{State: ApplyFailed, Kind: kind, Reason: masker.Mask(err.Error())})
 		stage("apply.failed")
 		return nil, &generationError{"ports.check", errors.New(masker.Mask(err.Error()))}
 	}
 
 	// 送信用 URL の host。起動時に1回だけ決める
-	stage("banner.write")
-	host, auto, found := choosePublishHost(cfg.Stream.PublishHost, systemInterfaces)
-	if auto && !found {
-		log.Warn("LAN の IPv4 アドレスが見つからないため、送信用 URL の host を 127.0.0.1 にしました。stream.publish_host で固定できます")
+	if !a.bannerShown {
+		stage("banner.write")
+		host, auto, found := choosePublishHost(cfg.Stream.PublishHost, systemInterfaces)
+		if auto && !found {
+			log.Warn("LAN の IPv4 アドレスが見つからないため、送信用 URL の host を 127.0.0.1 にしました。stream.publish_host で固定できます")
+		}
+		// 管理 API の URL。lan が true のときは、送信用 URL の自動の決め方と同じで LAN のアドレスを調べる
+		lanHost, _, lanFound := choosePublishHost("", systemInterfaces)
+		adminURL, adminNote := adminBannerURL(cfg.Admin.Port, cfg.Admin.LAN, lanHost, lanFound)
+		cameraURLs := buildCameraURLs(cfg, host)
+		info := bannerInfo{
+			Cameras:  cameraURLs,
+			AdminURL: adminURL, AdminNote: adminNote, AutoHost: auto, HostFound: found,
+		}
+		if generated {
+			info.AdminPassword = cfg.Admin.Password
+		}
+		fmt.Fprint(stdout, startupBanner(info))
+		a.bannerShown = true
 	}
-	// 管理 API の URL。lan が true のときは、送信用 URL の自動の決め方と同じで LAN のアドレスを調べる
-	lanHost, _, lanFound := choosePublishHost("", systemInterfaces)
-	adminURL, adminNote := adminBannerURL(cfg.Admin.Port, cfg.Admin.LAN, lanHost, lanFound)
+	host, _, _ := choosePublishHost(cfg.Stream.PublishHost, systemInterfaces)
 	cameraURLs := buildCameraURLs(cfg, host)
-	info := bannerInfo{
-		Cameras:  cameraURLs,
-		AdminURL: adminURL, AdminNote: adminNote, AutoHost: auto, HostFound: found,
-	}
-	if generated {
-		info.AdminPassword = cfg.Admin.Password
-	}
-	fmt.Fprint(stdout, startupBanner(info))
 
 	// 部品を動かす
 	// 部品の context はシグナルの ctx から独立させる。シグナルは終わる手順（shutdown）の開始の合図にだけ使い、
@@ -346,6 +421,7 @@ func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 
 	sup := a.deps.newSupervisor(cfg, binPath, base, log)
 	apiUser, apiPass := sup.APICredentials()
+	a.rememberSecrets(apiPass)
 	logger.AddSecrets(apiPass)
 	masker.Add(apiPass)
 	poller := a.deps.newPoller(fmt.Sprintf("http://127.0.0.1:%d", cfg.MediaMTX.APIPort), apiUser, apiPass, cameraIDs(cfg), cameraPaths(cfg))
@@ -401,7 +477,7 @@ func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 		g.exitCode = 1 // 止める処理の「終了しました」のログを、実際の終了コードに合わせる
 		g.stopGeneration()
 
-		a.setApply(Apply{State: ApplyFailed, Reason: masker.Mask(err.Error())})
+		a.setApply(Apply{State: ApplyFailed, Kind: kind, Reason: masker.Mask(err.Error())})
 		stage("apply.failed")
 		return nil, &generationError{"http.listen", fmt.Errorf("管理 API のポート（admin.port）%d で待ち受けできません（%s）: %s", cfg.Admin.Port, addr, masker.Mask(err.Error()))}
 	}
@@ -413,7 +489,7 @@ func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 	a.current = g
 	a.mu.Unlock()
 	stage("config.commit")
-	a.setApply(Apply{State: ApplyApplied})
+	a.setApply(Apply{State: ApplyApplied, Kind: kind})
 
 	return g, nil
 }
