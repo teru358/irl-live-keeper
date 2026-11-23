@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
-	"path/filepath"
 	"regexp"
 	"runtime"
 	"runtime/pprof"
@@ -921,8 +920,7 @@ func (w *world) fbStatesLocked() string {
 //	        独立の入場判定、回復の区間で none・空のスタックへ到達すること（履歴の底の照合は、遅着・再起動を含む区間では無効にする）。
 func runSeedFB(t *testing.T, seed int64, profile string, steps int) {
 	faulty := profile == "fault"
-	dir := t.TempDir()
-	path := filepath.Join(dir, "state", "hidden.json")
+	path, hw := trackedHiddenPath(t)
 	clk := newClock()
 	w := newWorld(seed, clk, path, faulty)
 	rrng := rand.New(rand.NewSource(seed ^ 0xfb0c))
@@ -932,7 +930,7 @@ func runSeedFB(t *testing.T, seed int64, profile string, steps int) {
 	}
 	w.enableFB(rows)
 	w.fb.late = profile == "late"
-	r := &runner{t: t, w: w, clk: clk, rng: rand.New(rand.NewSource(seed ^ 0x5eed)), path: path, logBuf: &syncBuf{}}
+	r := &runner{t: t, w: w, clk: clk, rng: rand.New(rand.NewSource(seed ^ 0x5eed)), path: path, hw: hw, logBuf: &syncBuf{}}
 	defer w.close()
 	r.startGen(true, switcher.StudioHideStandby)
 	r.settle()
@@ -1132,14 +1130,13 @@ type fbFixed struct {
 }
 
 func newFBFixed(t *testing.T, start string, rows []switcher.FallbackRow) *fbFixed {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "state", "hidden.json")
+	path, hw := trackedHiddenPath(t)
 	clk := newClock()
 	w := newWorld(1, clk, path, false)
 	w.enableFB(rows)
 	w.program = start
 	w.benign = true
-	r := &runner{t: t, w: w, clk: clk, rng: rand.New(rand.NewSource(1)), path: path, logBuf: &syncBuf{}}
+	r := &runner{t: t, w: w, clk: clk, rng: rand.New(rand.NewSource(1)), path: path, hw: hw, logBuf: &syncBuf{}}
 	t.Cleanup(w.close)
 	r.startGen(true, switcher.StudioHideStandby)
 	r.settle()

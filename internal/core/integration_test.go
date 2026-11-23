@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"math/rand"
 	"os"
-	"path/filepath"
 	"runtime"
 	"runtime/pprof"
 	"slices"
@@ -42,6 +41,7 @@ type runner struct {
 	clk   *fakeClock
 	rng   *rand.Rand
 	path  string
+	hw    *hiddenWrites // hidden.json の書き込みを数える（後片づけで待つ）
 	cur   *gen
 	steps []string
 	fail  bool
@@ -87,7 +87,7 @@ func (r *runner) startGen(autoOn bool, studioHide string) {
 	deps := Deps{
 		OBS: &genClient{w: w, gen: gnum}, StandbyScene: standby, Cameras: w.deviceCameras(), AutoEnabled: autoOn,
 		StudioModeHide: studioHide, HiddenPath: r.path, HiddenRestored: entries, HiddenLoadWarning: warn,
-		HiddenRetry: 5 * time.Millisecond, StopTimeout: 300 * time.Millisecond,
+		HiddenWrite: r.hw.wrap(nil), HiddenRetry: 5 * time.Millisecond, StopTimeout: 300 * time.Millisecond,
 		Samples: g.samples, Tick: g.ticks, Now: r.clk.Now,
 		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
@@ -621,11 +621,10 @@ func (r *runner) recoverAll() {
 // ---- 1つの種の実行 ----
 
 func runSeed(t *testing.T, seed int64, faulty bool, steps int) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "state", "hidden.json")
+	path, hw := trackedHiddenPath(t)
 	clk := newClock()
 	w := newWorld(seed, clk, path, faulty)
-	r := &runner{t: t, w: w, clk: clk, rng: rand.New(rand.NewSource(seed ^ 0x5eed)), path: path}
+	r := &runner{t: t, w: w, clk: clk, rng: rand.New(rand.NewSource(seed ^ 0x5eed)), path: path, hw: hw}
 	defer w.close()
 	r.startGen(true, switcher.StudioHideStandby)
 	r.settle()
@@ -735,13 +734,12 @@ func asErr[T error](err error, target *T) bool { return errors.As(err, target) }
 // （waitingHidden）。手元カメラが悪い間に Hand にいる → 待機へ送り、項目を隠す → 手元が OK → 項目を戻してから Hand へ戻る。
 // 「戻り先が待っている隠した項目」の待ちを外すと、AutoRecover が先に Hand へ切り替えて空の画面が映り、落ちる。
 func TestIntegrationWaitingHiddenFixedSequence(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "state", "hidden.json")
+	path, hw := trackedHiddenPath(t)
 	clk := newClock()
 	w := newWorld(1, clk, path, false)
 	w.program = "Hand"
 	w.benign = true
-	r := &runner{t: t, w: w, clk: clk, rng: rand.New(rand.NewSource(1)), path: path}
+	r := &runner{t: t, w: w, clk: clk, rng: rand.New(rand.NewSource(1)), path: path, hw: hw}
 	defer w.close()
 	r.startGen(true, switcher.StudioHideStandby)
 	r.settle()

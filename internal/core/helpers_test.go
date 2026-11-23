@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -522,4 +523,47 @@ func countPrefix(calls []string, prefix string) int {
 		}
 	}
 	return n
+}
+
+// hiddenWrites は hidden.json の書き込みの途中の数を数える（後片づけで待つため）。
+type hiddenWrites struct{ inflight, lastEdge atomic.Int64 }
+
+// trackedHiddenPath は、一時のフォルダの hidden.json の道と、その書き込みを数える hiddenWrites を返す。
+// persister の worker は、Run が戻ったあとも書き込みを終えるまで残る（既知の制約）。t.TempDir の削除と
+// 競って "directory not empty" になり、/tmp にフォルダが残るので、書き込みの途中の数（atomic）が 0 になり、
+// しばらく新しい書き込みが始まらないことを待つ。後片づけは逆順なので、この待ちは TempDir の削除より前に走る
+// （Run を止める後片づけ・defer より後）。WaitGroup は Add と Wait が競うので使わない。
+// 書き込みの関数は、Deps.HiddenWrite を hw.wrap で包んで渡す。
+func trackedHiddenPath(t *testing.T) (string, *hiddenWrites) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "state", "hidden.json")
+	hw := &hiddenWrites{}
+	t.Cleanup(hw.waitIdle)
+	return path, hw
+}
+
+func (hw *hiddenWrites) waitIdle() {
+	deadline := time.Now().Add(wait)
+	for time.Now().Before(deadline) {
+		if hw.inflight.Load() == 0 && time.Since(time.Unix(0, hw.lastEdge.Load())) >= 20*time.Millisecond {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+// wrap は書き込みの関数を包み、途中の数を数える。inner が nil なら既定の atomicWrite。
+func (hw *hiddenWrites) wrap(inner func(string, []byte) error) func(string, []byte) error {
+	if inner == nil {
+		inner = atomicWrite
+	}
+	return func(p string, b []byte) error {
+		hw.inflight.Add(1)
+		hw.lastEdge.Store(time.Now().UnixNano())
+		defer func() {
+			hw.lastEdge.Store(time.Now().UnixNano())
+			hw.inflight.Add(-1)
+		}()
+		return inner(p, b)
+	}
 }
