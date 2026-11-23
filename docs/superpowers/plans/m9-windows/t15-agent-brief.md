@@ -8,11 +8,15 @@
 
 ## 今日の形
 
-- 歩くときに使うのは **iPhone 1台（カメラ `sub`）だけ**。送り方は2つで、どちらも **キャリアのモバイル回線から Tailscale を通して** `sub` へ送る（Wi-Fi を切り、iPhone の Tailscale はつないだまま。URL のホストだけを Windows の Tailscale のアドレス `100.…` にする。`config.yaml` の `stream.publish_host` は変えない）
+- 持って歩くのは **iPhone（カメラ `sub`）だけ**。送り方は2つで、どちらも **キャリアのモバイル回線から Tailscale を通して** `sub` へ送る（Wi-Fi を切り、iPhone の Tailscale はつないだまま。URL のホストだけを Windows の Tailscale のアドレス `100.…` にする。`config.yaml` の `stream.publish_host` は変えない）
   - **前半（10分）: Larix Broadcaster の SRT**（URL の欄に `srt://100.…:8890`、streamid の欄に `publish:live/sub:<ユーザー>:<パスワード>`）
   - **後半（10分）: It's My Live の RTMP**（URL は `rtmp://100.…:1935/live/sub?user=…&pass=…`）
   - どちらも、1日目と同じ設定（送るビットレートは約 2,000 kbps）のままにしてもらう。違う設定にしたら、値を聞いて記録する
 - 歩く前に、家の中で **Android（カメラ `main`、LAN）の IRL Pro を使って、新しい警告を確かめる**（下の W-0、約5分）
+- **歩く間も、Android（`main`）は家の中から LAN で送り続ける**（IRL Pro、720p・3,000 kbps 固定）。シーンは **`T-A`（main と sub の2台）** にする。実際の使い方（1台は置いたまま、1台は持って歩く）に近い形で、次を確かめるため:
+  - sub（`on_bad: hide`）が悪くなったとき、待機へ送らずに **sub だけを隠し**、良くなったら戻すこと。外の揺れで、隠す・戻すがばたつかないか
+  - main を、比べるための基準にする。sub と同じ時刻に main も落ちていたら、キャリア回線ではなく PC や家の側の原因とわかる
+  - Android は、充電につなぎ、画面が消えないようにしておいてもらう（main が止まると、T-A は待機へ送られ、sub の結果と混ざる。止まったら時刻を記録し、送り直してもらう）
 - **本体は `irl-live-keeper.exe`（2026-11-23 00:06 の版、14,259,200 バイト）と `ctl.exe`（11,416,576 バイト）**。`watch-status.ps1` は 11-22 21:36 の版（`-Csv` がある）。準備 1 で、ユーザーに入れ替えたことを確かめてもらう
   - 1日目の版から増えたこと: OBS が映像を読み切れないとき（MediaMTX の `reader is too slow` が30秒で3回以上）、status の `warnings` に「<カメラの名前> の映像を OBS が読み切れていません（MediaMTX が映像を捨てています）。…」が1行出て、本体のログに INFO で `obs reader too slow camera=<id> count=<回数>` が出る。最後の `reader is too slow` から60秒たつと、警告が消え、`obs reader caught up camera=<id> count=0` が出る。**この警告は健康には入らない**（待機へ送らない・隠さない）
 - MediaMTX の path は2段（`live/main`、`live/sub`）。1日目と同じ
@@ -61,12 +65,12 @@
    - 最後の `reader is too slow` の時刻と、`obs reader caught up camera=main count=0` の時刻（約60秒後のはず）
    - `warnings` から、その1行が消えたか
    - 1日目は、720p でも送り始めの1秒に `reader is too slow` が3行出た。今日も出たら、その3行で警告がもう一度出る（または続く）ことがある。そのときは、その最後の行から約60秒で消えれば正しい
-7. ユーザーに、IRL Pro の送信を止めてもらう。W-0 の見張りを止める
+7. **IRL Pro は 720p・3,000 kbps のまま送り続けてもらう**（歩く間の main）。W-0 の見張りを止める
    - 1080p で `reader is too slow` が出なかったら（PC の調子で出ないこともある）、そのことを記録して次へ進む。設定を変えて出そうとしなくてよい
 
 ## 歩く前の用意
 
-1. `.\ctl.exe scene T-Sub`（`cam-sub` だけのシーン。sub が悪くなると待機へ送る）
+1. `.\ctl.exe scene T-A`（main と sub の2台のシーン。sub が悪くなると sub だけを隠す。main も悪くなると待機へ送る）
 2. 見張りを裏で始める（歩き終わるまで止めない）:
    - `powershell -ExecutionPolicy Bypass -File .\watch-status.ps1 -Log .\status-t15-walk.txt -Csv .\t15-walk.csv -IntervalMs 1000`
    - `.\ctl.exe watch 3600 .\obs-t15-walk.txt`
@@ -75,8 +79,8 @@
    - 始める前に、iPhone の Wi-Fi を切り、Tailscale がつながっていることを確かめる
    - 歩いた道で、映像が乱れそうな所（建物の陰、高架の下、駅や交差点の人の多い所、エレベーターなど）を通った時刻を、おおよそでよいので覚えておく（あとで聞く）
    - 時刻を言ってもらうこと: 前半の歩き始め、前半の歩き終わり、後半の歩き始め、後半の歩き終わり。言えなかったら、帰ってから、おおよその時刻を聞く
-4. ユーザーに、家の中（Wi-Fi を切った状態）で Larix の SRT を送り始めてもらう。`status-t15-walk.txt` で `sub` が OK になるのを待つ（最大60秒）。`.\ctl.exe inputs` で `Sub` が `PLAYING` で cursor が進むこと（2回読んで比べる）
-5. `.\ctl.exe profile` が `IRLKeeper-Test` を出すことを確かめてから `.\ctl.exe stream start`。`streaming=True scene=T-Sub health=OK owner=none` になること
+4. ユーザーに、家の中（Wi-Fi を切った状態）で Larix の SRT を送り始めてもらう。`status-t15-walk.txt` で `main` と `sub` がどちらも OK になるのを待つ（最大60秒）。`.\ctl.exe inputs` で2つのソースが `PLAYING` で cursor が進むこと（2回読んで比べる）。`.\ctl.exe items T-A` で `cam-main` と `cam-sub` が両方 `enabled=true`
+5. `.\ctl.exe profile` が `IRLKeeper-Test` を出すことを確かめてから `.\ctl.exe stream start`。`streaming=True scene=T-A health=OK scene_cams=[main,sub] owner=none` になること
 6. ユーザーに、歩き始めてよいことを伝える
 
 ## 確かめること
@@ -84,8 +88,8 @@
 | # | 手順 | 記録すること |
 |---|---|---|
 | W-1 | 前半（Larix の SRT、外を歩いて10分） | 本体のログの `[SRT] [conn 100.…] opened` / `closed`、`camera changed`、`scene switch`、`camera hidden` / `camera shown`、`media source refreshed`。数字は下の「集計」 |
-| W-2 | 後半（It's My Live の RTMP、外を歩いて10分）: 前半が終わったら、ユーザーに立ち止まってもらい、Larix を止めて It's My Live で送り直してもらう（送り方を替える間の DOWN と待機への切替は、替えたためと記録する）。**見張りは付け替えない** | W-1 と同じ（RTT とロス率は出ない） |
-| W-3 | まちがった切替の判断 | 待機への切替のたびに、その直前の kbps と、ユーザーに聞いたその時刻の場所（道の様子）を並べる。ユーザーは歩いている間 OBS の画面を見られないので、映像が実際に乱れていたかは、(1) MediaMTX の `closed` や `decode error` の有無、(2) OBS のメディアソースが止まったか（`.\ctl.exe inputs` を、歩いている間も5分ごとに）、(3) kbps の落ち込みの深さと長さ、から判断し、どれで判断したかを書く。「送信が止まった・ほぼ0」は正しい切替。「800 を少し下回っただけで、5秒の後すぐ戻った」なら、まちがった切替の疑いとして書く |
+| W-2 | 後半（It's My Live の RTMP、外を歩いて10分）: 前半が終わったら、ユーザーに立ち止まってもらい、Larix を止めて It's My Live で送り直してもらう（送り方を替える間の DOWN と、sub を隠したことは、替えたためと記録する）。**見張りは付け替えない** | W-1 と同じ（RTT とロス率は出ない） |
+| W-3 | まちがった切替の判断 | sub を隠したとき（`camera hidden camera=sub`）と待機への切替（`scene switch`）のたびに、その直前の kbps と、ユーザーに聞いたその時刻の場所（道の様子）を並べる。ユーザーは歩いている間 OBS の画面を見られないので、映像が実際に乱れていたかは、(1) MediaMTX の `closed` や `decode error` の有無、(2) OBS のメディアソースが止まったか（`.\ctl.exe inputs` を、歩いている間も5分ごとに）、(3) kbps の落ち込みの深さと長さ、から判断し、どれで判断したかを書く。「送信が止まった・ほぼ0」は正しい切替。待機への切替が起きたら、main も悪かったか（main の kbps）を必ず書く（sub だけ悪いのに待機へ送ったなら、まちがい）。「800 を少し下回っただけで、5秒の後すぐ戻った」なら、まちがった切替の疑いとして書く |
 | W-4 | 長い時間の様子 | 本体のログの MediaMTX の WARN の数（`reader is too slow`、`decode error` など、種類ごと）、`media source refreshed` の数、`obs reader too slow` が出たか、メモリの変化 |
 
 ユーザーが歩いている間、あなたは見張りのファイルを数分ごとに見て、切替が起きたら時刻と直前の kbps を控えておく（ユーザーに連絡はしない。ユーザーから話しかけられたら答える）。
@@ -94,7 +98,8 @@
 
 CSV の集計は PowerShell で行ってよい。区間は、ユーザーが言った歩き始めから歩き終わりまで（`protocol` の列でも確かめる）。集計に使ったコマンドも記録に書く。
 
-1. 1日目の「数字」の表と同じ列: 行数、kbps の最小 / 平均 / 最大、5%点、800 未満の行、1500 未満の行、LOW と DOWN の回数と長さ、待機への切替の回数
+1. 1日目の「数字」の表と同じ列: 行数、kbps の最小 / 平均 / 最大、5%点、800 未満の行、1500 未満の行、LOW と DOWN の回数と長さ、sub を隠した回数と長さ（`camera hidden` から `camera shown` まで。1日目の「待機への切替」にあたる）、待機への切替の回数
+   - main も、同じ区間の kbps の最小 / 平均 / 最大、LOW と DOWN の回数を出す（基準。sub と同じ時刻に落ちた所があれば、その時刻を書く）
 2. 1日目の「集計に使ったコマンド」と同じ式で: 標準偏差、変動係数、前の秒より40%超落ちた回数、5秒の移動平均の最小
 3. 800 未満が続いた区間の長さの一覧（2秒以上のもの）。**3〜4秒で戻った区間**（あと少しで LOW になった所）と、**5秒以上続いた区間**（LOW になった所）を分けて数える
 4. 前半（SRT）だけ:
@@ -104,7 +109,7 @@ CSV の集計は PowerShell で行ってよい。区間は、ユーザーが言�
 
 ## 片づけ
 
-`hide-agent-brief.md` の片づけのとおり（`stream stop`、3秒待って `test restore`、試験の MediaMTX を PID で止める、見張りを止める）。ユーザーに、iPhone の送信を止めてよいこと、Wi-Fi を戻してよいことを伝える。
+`hide-agent-brief.md` の片づけのとおり（`stream stop`、3秒待って `test restore`、試験の MediaMTX を PID で止める、見張りを止める）。ユーザーに、iPhone と Android の送信を止めてよいこと、iPhone の Wi-Fi を戻してよいことを伝える。
 
 ## 記録
 
