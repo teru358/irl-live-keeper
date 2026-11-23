@@ -187,7 +187,11 @@ func TestUnauthorized(t *testing.T) {
 			if w.Code != http.StatusUnauthorized {
 				t.Fatalf("code = %d, want 401", w.Code)
 			}
-			if got := w.Header().Get("WWW-Authenticate"); got != `Basic realm="irl-live-keeper"` {
+			wantChallenge := challenge
+			if c.o.noAuth {
+				wantChallenge = ""
+			}
+			if got := w.Header().Get("WWW-Authenticate"); got != wantChallenge {
 				t.Fatalf("WWW-Authenticate = %q", got)
 			}
 			m := decodeBody(t, w)
@@ -277,7 +281,7 @@ func TestMethodNotAllowed(t *testing.T) {
 }
 
 func TestNotFound(t *testing.T) {
-	for _, p := range []string{"/", "/api", "/api/", "/api/stream", "/api/standby/toggle", "/api/status/x", "/api/stream/start/"} {
+	for _, p := range []string{"/api", "/api/", "/api/stream", "/api/standby/toggle", "/api/status/x", "/api/stream/start/"} {
 		t.Run(p, func(t *testing.T) {
 			b := &fakeBackend{}
 			// 未知のパスは認証より先に 404

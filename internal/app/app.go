@@ -151,19 +151,22 @@ type generation struct {
 }
 
 type App struct {
-	opts        Options
-	initErr     error
-	initWarned  bool
-	deps        appDeps
-	mu          sync.Mutex
-	apply       Apply
-	hash        [32]byte
-	current     *generation
-	restarts    chan struct{}
-	running     bool
-	secrets     []string
-	bannerShown bool
-	consoleLang i18n.Lang
+	auth          *web.Auth
+	adminPassword string
+	adminPort     int
+	opts          Options
+	initErr       error
+	initWarned    bool
+	deps          appDeps
+	mu            sync.Mutex
+	apply         Apply
+	hash          [32]byte
+	current       *generation
+	restarts      chan struct{}
+	running       bool
+	secrets       []string
+	bannerShown   bool
+	consoleLang   i18n.Lang
 }
 
 func newApp(opts Options, deps appDeps) *App {
@@ -212,12 +215,15 @@ func newApp(opts Options, deps appDeps) *App {
 	if deps.newCore == nil {
 		deps.newCore = func(d core.Deps) coreRunner { return core.New(d) }
 	}
+	auth := web.NewAuth(nil)
+	var app *App
 	if deps.newHTTP == nil {
 		deps.newHTTP = func(c coreRunner, p string, lang i18n.Lang) servingHTTP {
-			return &http.Server{Handler: web.New(c, p, lang), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
+			return &http.Server{Handler: web.NewWithAuth(c, p, app.adminPort, auth, lang), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
 		}
 	}
-	return &App{opts: opts, initErr: deps.initJob(), deps: deps, apply: Apply{State: ApplyIdle}, restarts: make(chan struct{}, 1)}
+	app = &App{auth: auth, opts: opts, initErr: deps.initJob(), deps: deps, apply: Apply{State: ApplyIdle}, restarts: make(chan struct{}, 1)}
+	return app
 }
 
 // Apply は現在の反映状態の値を返す。
@@ -464,6 +470,11 @@ func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 	// 部品の context はシグナルの ctx から独立させる。シグナルは終わる手順（shutdown）の開始の合図にだけ使い、
 	// Stopping と HTTP の停止のあとで、shutdown が cancel を呼ぶ。
 	stage("process.configure")
+	if a.adminPassword != cfg.Admin.Password {
+		a.auth.ClearSessions()
+	}
+	a.adminPassword = cfg.Admin.Password
+	a.adminPort = cfg.Admin.Port
 	stage("parts.create")
 	g := &generation{logger: logger, app: a, lang: lang}
 	runCtx, cancel := partsContext(ctx)

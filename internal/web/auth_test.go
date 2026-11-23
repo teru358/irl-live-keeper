@@ -1,0 +1,115 @@
+package web
+
+import (
+	"bytes"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+)
+
+func authRequest(h http.Handler, method, path, body string, c *http.Cookie) *httptest.ResponseRecorder {
+	r := httptest.NewRequest(method, path, strings.NewReader(body))
+	r.Header.Set(headerName, "1")
+	if c != nil {
+		r.AddCookie(c)
+	}
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	return w
+}
+func TestSessionログイン期限延長ログアウト(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	a := NewAuth(func() time.Time { return now })
+	h := NewWithAuth(&fakeBackend{}, testPass, 9999, a)
+	w := authRequest(h, "POST", "/api/login", `{"password":"`+testPass+`"}`, nil)
+	if w.Code != 200 {
+		t.Fatal(w)
+	}
+	c := w.Result().Cookies()[0]
+	if c.Name != "irl_session_9999" || !c.HttpOnly || c.Path != "/" || c.SameSite != http.SameSiteStrictMode || !c.Expires.Equal(now.Add(sessionLife)) {
+		t.Fatal(c)
+	}
+	now = now.Add(6 * 24 * time.Hour)
+	w = authRequest(h, "GET", "/api/status", "", c)
+	if w.Code != 200 || !w.Result().Cookies()[0].Expires.Equal(now.Add(sessionLife)) {
+		t.Fatal(w)
+	}
+	now = now.Add(6 * 24 * time.Hour)
+	if w = authRequest(h, "GET", "/api/status", "", c); w.Code != 200 {
+		t.Fatal(w)
+	}
+	if w = authRequest(h, "POST", "/api/logout", "", c); w.Code != 200 || w.Result().Cookies()[len(w.Result().Cookies())-1].MaxAge != -1 {
+		t.Fatal(w)
+	}
+	if w = authRequest(h, "GET", "/api/status", "", c); w.Code != 401 || w.Header().Get("WWW-Authenticate") != "" {
+		t.Fatal(w)
+	}
+	w = authRequest(h, "POST", "/api/login", `{"password":"`+testPass+`"}`, nil)
+	c = w.Result().Cookies()[0]
+	now = now.Add(sessionLife)
+	if w = authRequest(h, "GET", "/api/status", "", c); w.Code != 401 {
+		t.Fatal(w)
+	}
+}
+func TestOnce期限一回ヘッダーログ(t *testing.T) {
+	now := time.Now()
+	a := NewAuth(func() time.Time { return now })
+	h := NewWithAuth(&fakeBackend{}, testPass, 8787, a)
+	var log bytes.Buffer
+	old := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&log, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	defer slog.SetDefault(old)
+	token, err := a.NewOnce()
+	if err != nil || len(token) != 32 {
+		t.Fatal(token, err)
+	}
+	for i := 0; i < 2; i++ {
+		w := authRequest(h, "GET", "/auth/once?t="+token, "", nil)
+		if w.Code != 303 || w.Header().Get("Cache-Control") != "no-store" || w.Header().Get("Referrer-Policy") != "no-referrer" {
+			t.Fatal(w)
+		}
+		if (len(w.Result().Cookies()) > 0) != (i == 0) {
+			t.Fatal(w)
+		}
+		if i == 1 && w.Header().Get("Location") != "/?login" {
+			t.Fatal(w)
+		}
+	}
+	if strings.Contains(log.String(), token) || strings.Contains(log.String(), "?t=") {
+		t.Fatal("ログにクエリがある")
+	}
+	token, _ = a.NewOnce()
+	now = now.Add(time.Minute)
+	w := authRequest(h, "GET", "/auth/once?t="+token, "", nil)
+	if len(w.Result().Cookies()) != 0 {
+		t.Fatal(w)
+	}
+	w = authRequest(h, "GET", w.Header().Get("Location"), "", nil)
+	if !strings.Contains(w.Body.String(), `type="password"`) || strings.Contains(w.Body.String(), "<script>") {
+		t.Fatal(w)
+	}
+}
+func TestLogin照合前と誤り(t *testing.T) {
+	h := New(&fakeBackend{}, testPass)
+	for _, tc := range []struct {
+		method, body, header string
+		code                 int
+	}{{"GET", "", "", 405}, {"POST", `{"password":"wrong"}`, "", 403}, {"POST", `{"password":"wrong"}`, "1", 401}, {"POST", "{", "1", 400}, {"POST", `{} {}`, "1", 400}} {
+		r := httptest.NewRequest(tc.method, "/api/login?lang=ja", strings.NewReader(tc.body))
+		r.Header.Set(headerName, tc.header)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != tc.code || decodeBody(t, w)["code"] == nil {
+			t.Fatal(w)
+		}
+	}
+	w := authRequest(h, "GET", "/assets/login.js", "", nil)
+	b, _ := io.ReadAll(w.Result().Body)
+	if w.Code != 200 || !bytes.Contains(b, []byte("fetch")) {
+		t.Fatal(w)
+	}
+}

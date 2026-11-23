@@ -31,18 +31,12 @@ type Backend interface {
 }
 
 // New は管理用の JSON API を返す。
-func New(b Backend, password string, defaultLang ...i18n.Lang) http.Handler {
+func apiHandler(b Backend, defaultLang ...i18n.Lang) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		lang := i18n.Select(r.URL.Query().Get("lang"), r.Header.Get("Accept-Language"), defaultLang...)
 		kind, method, known := route(r.URL.Path)
 		if !known {
 			writeError(w, http.StatusNotFound, lang, i18n.New("api.not_found"))
-			return
-		}
-
-		if !authorized(r, password) {
-			w.Header().Set("WWW-Authenticate", challenge)
-			writeError(w, http.StatusUnauthorized, lang, i18n.New("api.unauthorized"))
 			return
 		}
 
