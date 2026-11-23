@@ -13,6 +13,36 @@ import (
 	"testing"
 )
 
+func TestFailureMessageAddsRestoreInstructionsOnlyWithBackup(t *testing.T) {
+	base := t.TempDir()
+	a := newApp(Options{BaseDir: base}, appDeps{})
+	err := errors.New("起動理由")
+	if got := a.failureMessage(err); strings.Contains(got, "config.yaml.bak") {
+		t.Fatalf("backup instructions without backup: %s", got)
+	}
+	if writeErr := os.WriteFile(filepath.Join(base, configName+".bak"), []byte("backup"), 0o600); writeErr != nil {
+		t.Fatal(writeErr)
+	}
+	got := a.failureMessage(err)
+	if !strings.Contains(got, "起動理由") || !strings.Contains(got, "config.yaml.bak") || !strings.Contains(got, "config.yaml") {
+		t.Fatalf("restore guidance missing: %s", got)
+	}
+}
+
+func TestGeneratedPasswordOutputPolicy(t *testing.T) {
+	for _, tc := range []struct {
+		generated, sensitive, want bool
+	}{
+		{generated: true, want: true},
+		{generated: true, sensitive: true, want: false},
+		{generated: false, want: false},
+	} {
+		if got := shouldShowGeneratedPassword(tc.generated, tc.sensitive); got != tc.want {
+			t.Errorf("shouldShowGeneratedPassword(%v, %v) = %v, want %v", tc.generated, tc.sensitive, got, tc.want)
+		}
+	}
+}
+
 func TestConfigBytesハッシュは読み込んだ版を使う(t *testing.T) {
 	base := t.TempDir()
 	cfg, generated, raw, err := loadConfigBytes(base)

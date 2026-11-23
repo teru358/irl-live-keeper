@@ -9,5 +9,5 @@ func init() {
 
 func init() {
 	Codes = append(Codes, "api.reason_streaming", "api.reason_not_streaming", "api.reason_already_standby", "api.reason_not_manual", "api.reason_same_pending", "api.reason_switch_in_process", "api.reason_standby_not_found", "api.reason_stopping", "api.reason_off_no_target", "api.reason_unknown", "api.not_found", "api.unauthorized", "api.method", "api.forbidden", "api.internal", "api.disconnected", "api.stopped", "api.deadline", "api.canceled", "api.invalid")
-	Codes = append(Codes, "banner.title", "banner.publish", "banner.host_missing", "banner.outdoor", "banner.obs", "banner.admin", "banner.admin_user", "banner.password", "banner.camera_label", "banner.lan_note", "banner.lan_missing", "console.logger_open", "console.port_check", "console.listen", "console.serve", "console.config_load", "console.config_invalid", "console.executable", "console.pause")
+	Codes = append(Codes, "banner.title", "banner.publish", "banner.host_missing", "banner.outdoor", "banner.obs", "banner.admin", "banner.admin_user", "banner.password", "banner.camera_label", "banner.lan_note", "banner.lan_missing", "banner.sensitive_note", "console.logger_open", "console.port_check", "console.listen", "console.serve", "console.config_load", "console.config_invalid", "console.executable", "console.pause", "console.rollback")
 }

@@ -115,6 +115,7 @@
     "banner.camera_label": "{name} ({id})",
     "banner.lan_note": "Open to the LAN. Use this URL from devices on the LAN.",
     "banner.lan_missing": "Open to the LAN. From LAN devices, use http://<this PC LAN address>:{port}",
+    "banner.sensitive_note": "Find publish and OBS URLs on the admin page. Find the generated password on the admin page or in config.yaml.",
     "console.logger_open": "Cannot open the log: {error}",
     "console.port_check": "Port precheck failed: {error}",
     "console.listen": "Cannot listen on admin.port {port} ({address}): {error}",
@@ -122,7 +123,8 @@
     "console.config_load": "Cannot read or parse config.yaml.",
     "console.executable": "Cannot find the executable location: {error}",
     "console.pause": "Press Enter to close",
-    "console.config_invalid": "Invalid configuration:\n  - {details}"
+    "console.config_invalid": "Invalid configuration:\n  - {details}",
+    "console.rollback": "To restore config.yaml.bak, copy it over config.yaml and restart."
   },
   "ui": {}
 }

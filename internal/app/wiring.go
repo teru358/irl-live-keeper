@@ -34,6 +34,14 @@ func mediaMTXBinary(base, configured, goos string) string {
 	return filepath.Join(base, name)
 }
 
+// configuredMediaMTXBinary は空の設定を実行ファイル基準、それ以外をデータフォルダ基準で解決する。
+func configuredMediaMTXBinary(dataDir, exeDir, configured, goos string) string {
+	if configured == "" {
+		return mediaMTXBinary(exeDir, "", goos)
+	}
+	return mediaMTXBinary(dataDir, configured, goos)
+}
+
 // obsConfig は config から obs.Config を作る。Scenes は OBS に存在を確かめる名前（待機シーン、有効なら
 // 開始時のシーン）で、重複は除く。Cameras と RTSPPort は、地図でメディアソースの URL を照合するための設定。
 func obsConfig(cfg *config.Config) obs.Config {

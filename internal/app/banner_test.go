@@ -28,6 +28,46 @@ func TestStartupBannerEnglish(t *testing.T) {
 	}
 }
 
+func TestSensitiveBannerMasksCredentialsAndShowsGuidance(t *testing.T) {
+	cam := camURLs{
+		Name: "Camera", ID: "cam",
+		PublishSRT:  "srt://host:8890?streamid=publish%3Alive%2Fcam%3Airl%3Apublish-secret",
+		PublishRTMP: "rtmp://host/live/cam?user=irl&pass=publish-secret",
+		OBSRead:     "rtsp://irl:read-secret@host/live/cam",
+	}
+	got := startupBanner(bannerInfo{Lang: i18n.EN, Cameras: maskCameraURLs([]camURLs{cam}), AdminURL: "http://host", SensitiveOutput: true})
+	for _, secret := range []string{"publish-secret", "read-secret"} {
+		if strings.Contains(got, secret) {
+			t.Errorf("secret leaked in banner: %s", got)
+		}
+	}
+	for _, want := range []string{"?user=irl&pass=***", "streamid=publish%3Alive%2Fcam%3Airl%3A***", "irl:***@host", "Find publish and OBS URLs"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("banner missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestSensitiveOutputPolicy(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		terminal   bool
+		invocation string
+		want       bool
+	}{
+		{name: "terminal", terminal: true},
+		{name: "pipe", terminal: false, want: true},
+		{name: "systemd terminal", terminal: true, invocation: "id", want: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := newApp(Options{StdoutIsTerminal: func() bool { return tc.terminal }, InvocationID: tc.invocation}, appDeps{})
+			if got := a.sensitiveOutput(); got != tc.want {
+				t.Fatalf("sensitiveOutput() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 var subCam = camURLs{
 	Name:        "サブカメラ",
 	ID:          "sub",

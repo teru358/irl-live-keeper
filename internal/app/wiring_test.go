@@ -65,6 +65,56 @@ func TestObsConfig(t *testing.T) {
 	}
 }
 
+func TestResolvePathsForDir(t *testing.T) {
+	dataDir, exeDir := filepath.Join("/opt", "keeper-data"), filepath.Join("/opt", "keeper")
+	if got, want := resolvePath(dataDir, "logs"), filepath.Join(dataDir, "logs"); got != want {
+		t.Fatalf("relative log path = %q, want %q", got, want)
+	}
+	if got, want := resolvePath(dataDir, "/var/log/keeper"), "/var/log/keeper"; got != want {
+		t.Fatalf("absolute log path = %q, want %q", got, want)
+	}
+	if got, want := mediaMTXBinary(exeDir, "", "linux"), filepath.Join(exeDir, "mediamtx"); got != want {
+		t.Fatalf("default binary = %q, want %q", got, want)
+	}
+	if got, want := mediaMTXBinary(dataDir, "bin/mediamtx", "linux"), filepath.Join(dataDir, "bin", "mediamtx"); got != want {
+		t.Fatalf("relative binary = %q, want %q", got, want)
+	}
+	if got, want := mediaMTXBinary(dataDir, "/usr/bin/mediamtx", "linux"), "/usr/bin/mediamtx"; got != want {
+		t.Fatalf("absolute binary = %q, want %q", got, want)
+	}
+}
+
+func TestDirectoryAndBinaryPathMatrix(t *testing.T) {
+	exeDir := filepath.Join("/opt", "keeper")
+	for _, withDir := range []bool{false, true} {
+		dataDir := exeDir
+		if withDir {
+			dataDir = filepath.Join("/var", "lib", "keeper")
+		}
+		for _, binary := range []struct {
+			name, value, want string
+		}{
+			{name: "empty", want: filepath.Join(exeDir, "mediamtx")},
+			{name: "relative", value: "bin/mediamtx", want: filepath.Join(dataDir, "bin", "mediamtx")},
+			{name: "absolute", value: "/usr/bin/mediamtx", want: "/usr/bin/mediamtx"},
+		} {
+			for _, logDir := range []struct {
+				value, want string
+			}{
+				{value: "logs", want: filepath.Join(dataDir, "logs")},
+				{value: "/var/log/keeper", want: "/var/log/keeper"},
+			} {
+				if got := configuredMediaMTXBinary(dataDir, exeDir, binary.value, "linux"); got != binary.want {
+					t.Errorf("withDir=%v binary=%s: got %q, want %q", withDir, binary.name, got, binary.want)
+				}
+				if got := resolvePath(dataDir, logDir.value); got != logDir.want {
+					t.Errorf("withDir=%v log.dir=%q: got %q, want %q", withDir, logDir.value, got, logDir.want)
+				}
+			}
+		}
+	}
+}
+
 func TestCoreDeps(t *testing.T) {
 	cfg := testConfig(t)
 	cfg.OBS.StandbyScene = "Wait"

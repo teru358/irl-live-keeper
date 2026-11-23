@@ -139,7 +139,7 @@ func TestGeneration生成停止とHidden(t *testing.T) {
 			var a *App
 			initCalls := 0
 			committed := make(chan struct{})
-			a = newApp(Options{base, io.Discard, io.Discard}, appDeps{
+			a = newApp(Options{BaseDir: base, Stdout: io.Discard, Stderr: io.Discard}, appDeps{
 				initJob: func() error { initCalls++; return errors.New("Job 失敗") },
 				loadConfig: func(string) (*config.Config, bool, []byte, error) {
 					if a.Apply().State != ApplyApplying {

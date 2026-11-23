@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os"
 	"os/signal"
@@ -14,6 +15,8 @@ import (
 )
 
 func main() {
+	dataDir := flag.String("dir", "", "設定とデータの置き場所")
+	flag.Parse()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -22,7 +25,18 @@ func main() {
 		fmt.Fprintln(os.Stderr, i18n.Render(i18n.OSLang(), i18n.New("console.executable", "error", err.Error())))
 		os.Exit(1)
 	}
-	code := app.Run(ctx, app.Options{BaseDir: base, Stdout: os.Stdout, Stderr: os.Stderr})
+	exeDir := base
+	if *dataDir != "" {
+		base, err = filepath.Abs(*dataDir)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, i18n.Render(i18n.OSLang(), i18n.New("console.executable", "error", err.Error())))
+			os.Exit(1)
+		}
+	}
+	st, statErr := os.Stdout.Stat()
+	terminal := statErr == nil && st.Mode()&os.ModeCharDevice != 0
+	code := app.Run(ctx, app.Options{BaseDir: base, ExeDir: exeDir, Stdout: os.Stdout, Stderr: os.Stderr,
+		StdoutIsTerminal: func() bool { return terminal }, InvocationID: os.Getenv("INVOCATION_ID")})
 	if shouldPause(code, consoleProcessCount) {
 		waitEnterLanguage(os.Stdin, os.Stderr, i18n.OSLang())
 	}

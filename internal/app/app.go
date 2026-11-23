@@ -59,9 +59,12 @@ var generate = config.Generate
 
 // Options は app の起動に必要な基準フォルダと出力先。
 type Options struct {
-	BaseDir string
-	Stdout  io.Writer
-	Stderr  io.Writer
+	BaseDir          string
+	ExeDir           string
+	Stdout           io.Writer
+	Stderr           io.Writer
+	StdoutIsTerminal func() bool
+	InvocationID     string
 }
 
 type appDeps struct {
@@ -160,9 +163,13 @@ type App struct {
 	running     bool
 	secrets     []string
 	bannerShown bool
+	consoleLang i18n.Lang
 }
 
 func newApp(opts Options, deps appDeps) *App {
+	if opts.ExeDir == "" {
+		opts.ExeDir = opts.BaseDir
+	}
 	if deps.initJob == nil {
 		deps.initJob = supervisor.InitJob
 	}
@@ -280,7 +287,7 @@ func (a *App) runApp(ctx context.Context) int {
 	defer func() { a.mu.Lock(); a.running = false; a.mu.Unlock() }()
 	g, err := a.createGeneration(ctx)
 	if err != nil {
-		fmt.Fprintln(a.opts.Stderr, err)
+		fmt.Fprintln(a.opts.Stderr, a.failureMessage(err))
 		return 1
 	}
 	for {
@@ -295,7 +302,7 @@ func (a *App) runApp(ctx context.Context) int {
 			}
 			g, err = a.createGeneration(ctx)
 			if err != nil {
-				fmt.Fprintln(a.opts.Stderr, err)
+				fmt.Fprintln(a.opts.Stderr, a.failureMessage(err))
 				return 1
 			}
 			continue
@@ -313,6 +320,18 @@ func (a *App) runApp(ctx context.Context) int {
 		g.stopGeneration()
 		return code
 	}
+}
+
+func (a *App) failureMessage(err error) string {
+	message := err.Error()
+	if _, statErr := os.Stat(filepath.Join(a.opts.BaseDir, configName+".bak")); statErr == nil {
+		lang := a.consoleLang
+		if lang != i18n.JA && lang != i18n.EN {
+			lang = i18n.OSLang()
+		}
+		message += "\n" + i18n.Render(lang, i18n.New("console.rollback"))
+	}
+	return message
 }
 
 // generationError は表示する理由と、内部で使う失敗段を分けて保持する。
@@ -354,18 +373,19 @@ func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 		return nil, &generationError{"config.load", errors.New(consoleErr)}
 	}
 	lang := i18n.Resolve(cfg.Language, i18n.OSLang)
+	a.consoleLang = lang
 	candidate := sha256.Sum256(raw)
 	a.rememberSecrets(cfg.Admin.Password, cfg.Stream.PublishPass, cfg.Stream.ReadPass, cfg.OBS.Password)
 	masker := redact.New(a.secrets...)
 	// 生成したパスワードを知る手段が config.yaml を開くことだけにならないよう、起動の表示より前に
 	// 失敗して終わるときは、終わる前に標準出力へ出す（ログには書かない）。
 	showGeneratedPassword := func() {
-		if generated {
+		if shouldShowGeneratedPassword(generated, a.sensitiveOutput()) {
 			fmt.Fprint(stdout, adminPasswordLine(cfg.Admin.Password, lang))
 		}
 	}
 	logDir := resolvePath(base, cfg.Log.Dir)
-	binPath := mediaMTXBinary(base, cfg.MediaMTX.Binary, runtime.GOOS)
+	binPath := configuredMediaMTXBinary(base, a.opts.ExeDir, cfg.MediaMTX.Binary, runtime.GOOS)
 
 	// ログ。パスワードは標準出力にもファイルにも書かない
 	stage("logger.open")
@@ -419,14 +439,21 @@ func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 		lanHost, _, lanFound := choosePublishHost("", systemInterfaces)
 		adminURL, adminNote := adminBannerURL(cfg.Admin.Port, cfg.Admin.LAN, lanHost, lanFound, lang)
 		cameraURLs := buildCameraURLs(cfg, host)
+		if a.sensitiveOutput() {
+			cameraURLs = maskCameraURLs(cameraURLs)
+			adminURL = maskURLPassword(adminURL)
+		}
 		info := bannerInfo{
 			Cameras:  cameraURLs,
 			AdminURL: adminURL, AdminNote: adminNote, AutoHost: auto, HostFound: found,
 			Lang: lang,
 		}
 		if generated {
-			info.AdminPassword = cfg.Admin.Password
+			if !a.sensitiveOutput() {
+				info.AdminPassword = cfg.Admin.Password
+			}
 		}
+		info.SensitiveOutput = a.sensitiveOutput()
 		fmt.Fprint(stdout, startupBanner(info))
 		a.bannerShown = true
 	}
@@ -521,6 +548,14 @@ func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 	return g, nil
 }
 
+func (a *App) sensitiveOutput() bool {
+	return a.opts.InvocationID != "" || (a.opts.StdoutIsTerminal != nil && !a.opts.StdoutIsTerminal())
+}
+
+func shouldShowGeneratedPassword(generated, sensitiveOutput bool) bool {
+	return generated && !sensitiveOutput
+}
+
 func (g *generation) stopGeneration() {
 	a, srv, wg := g.app, g.server, &g.wg
 	g.mu.Lock()
@@ -602,6 +637,9 @@ func loadConfig(base string) (cfg *config.Config, generated bool, err error) {
 }
 
 func loadConfigBytes(base string) (cfg *config.Config, generated bool, raw []byte, err error) {
+	if err := os.MkdirAll(base, 0o755); err != nil {
+		return nil, false, nil, fmt.Errorf("設定フォルダを作成できません: %w", err)
+	}
 	path := filepath.Join(base, configName)
 	if _, statErr := os.Stat(path); errors.Is(statErr, os.ErrNotExist) {
 		cfg, err = generate(path)

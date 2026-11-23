@@ -76,7 +76,7 @@ func newFailureFixture(t *testing.T) *failureFixture {
 	}
 	f.h = &failureHTTP{generationHTTP: generationHTTP{make(chan struct{}), make(chan struct{}), f.r}, serveError: http.ErrServerClosed}
 	logger := &generationLog{log: slog.New(slog.NewTextHandler(io.Discard, nil)), r: f.r}
-	f.a = newApp(Options{base, &f.out, &f.stderr}, appDeps{
+	f.a = newApp(Options{BaseDir: base, Stdout: &f.out, Stderr: &f.stderr}, appDeps{
 		initJob: func() error { return nil }, stage: f.r.add,
 		loadConfig:    func(string) (*config.Config, bool, []byte, error) { return cfg, false, raw, nil },
 		openLogger:    func(logging.Options) (logHandle, error) { return logger, nil },

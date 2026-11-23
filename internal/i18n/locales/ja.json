@@ -115,6 +115,7 @@
     "banner.camera_label": "{name}（{id}）",
     "banner.lan_note": "LAN に公開しています。LAN の機器からもこの URL で開けます",
     "banner.lan_missing": "LAN に公開しています。LAN の機器からは http://<この PC の LAN のアドレス>:{port}",
+    "banner.sensitive_note": "送信用 URL と OBS 用 URL は管理ページで、生成したパスワードは管理ページか config.yaml で確認してください。",
     "console.logger_open": "ログを開けません: {error}",
     "console.port_check": "ポートの事前確認に失敗しました: {error}",
     "console.listen": "管理 API のポート（admin.port）{port} で待ち受けできません（{address}）: {error}",
@@ -122,7 +123,8 @@
     "console.config_load": "設定ファイルを読み込めません。",
     "console.executable": "実行ファイルの場所を調べられません: {error}",
     "console.pause": "Enter キーを押すと閉じます",
-    "console.config_invalid": "設定が不正です:\n  - {details}"
+    "console.config_invalid": "設定が不正です:\n  - {details}",
+    "console.rollback": "config.yaml.bak から戻すには、config.yaml にコピーしてから再起動してください。"
   },
   "ui": {}
 }

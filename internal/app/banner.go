@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"github.com/teru358/irl-live-keeper/internal/i18n"
+	"net/url"
 	"strings"
 )
 
@@ -15,7 +16,8 @@ type bannerInfo struct {
 	AdminURL  string
 	AdminNote string
 	// AdminPassword は config.yaml を生成したときだけ入れる。空なら表示しない。
-	AdminPassword string
+	AdminPassword   string
+	SensitiveOutput bool
 	// AutoHost は送信用 host を自動で決めたか。HostFound は自動で LAN の IPv4 が見つかったか。
 	AutoHost  bool
 	HostFound bool
@@ -58,7 +60,64 @@ func startupBanner(b bannerInfo) string {
 	if b.AdminPassword != "" {
 		s.WriteString(adminPasswordLine(b.AdminPassword, lang))
 	}
+	if b.SensitiveOutput {
+		fmt.Fprintf(&s, "%s\n", render("banner.sensitive_note"))
+	}
 	return s.String()
+}
+
+func maskCameraURLs(cameras []camURLs) []camURLs {
+	masked := append([]camURLs(nil), cameras...)
+	for i := range masked {
+		masked[i].PublishSRT = maskURLPassword(masked[i].PublishSRT)
+		masked[i].PublishRTMP = maskURLPassword(masked[i].PublishRTMP)
+		masked[i].OBSRead = maskURLPassword(masked[i].OBSRead)
+	}
+	return masked
+}
+
+func maskURLPassword(raw string) string {
+	// 並びと書き方を変えないよう、URL を組み立て直さずに、パスワードの部分だけを文字の "***" に置き換える
+	// （組み立て直すと、query の順が変わり、"***" も %2A%2A%2A になって読みにくい）
+	out := raw
+	if i := strings.Index(out, "://"); i >= 0 {
+		rest := out[i+3:]
+		if at := strings.Index(rest, "@"); at >= 0 {
+			if slash := strings.IndexAny(rest, "/?"); slash < 0 || at < slash {
+				if colon := strings.Index(rest[:at], ":"); colon >= 0 {
+					out = out[:i+3] + rest[:colon+1] + "***" + rest[at:]
+				}
+			}
+		}
+	}
+	q := strings.Index(out, "?")
+	if q < 0 {
+		return out
+	}
+	parts := strings.Split(out[q+1:], "&")
+	for j, part := range parts {
+		key, value, ok := strings.Cut(part, "=")
+		if !ok {
+			continue
+		}
+		switch key {
+		case "pass":
+			parts[j] = key + "=***"
+		case "streamid":
+			id, err := url.QueryUnescape(value)
+			if err != nil {
+				continue
+			}
+			fields := strings.Split(id, ":")
+			if len(fields) >= 4 {
+				const mark = "\x00"
+				fields[len(fields)-1] = mark
+				escaped := url.QueryEscape(strings.Join(fields, ":"))
+				parts[j] = key + "=" + strings.Replace(escaped, url.QueryEscape(mark), "***", 1)
+			}
+		}
+	}
+	return out[:q+1] + strings.Join(parts, "&")
 }
 
 // label はカメラの表示名と id（URL の path）。表示名は重複してよいので、id を並べて区別する。
