@@ -18,7 +18,7 @@ func (m *Machine) Approve(batchID int, action Action, override Override, at time
 	if !ok {
 		return Reject{}
 	}
-	if s.HumanIntent != nil && (pb.Purpose.IsAuto() || pb.Purpose == PurposeStartScene) {
+	if len(s.HumanIntents) > 0 && (pb.Purpose.IsAuto() || pb.Purpose == PurposeStartScene) {
 		return Reject{}
 	}
 	if pb.Purpose.isItem() {

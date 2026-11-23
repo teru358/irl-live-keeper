@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/andreykaipov/goobs/api/requests"
 	"log/slog"
 	"net"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -24,6 +26,9 @@ import (
 var (
 	// ErrAuxUnavailable は、補助の接続が開いていない（本来の接続が切れている、試す間隔の待ち、
 	// 開けなかった）こと。要求は待たずに失敗する。
+	ErrAuxRejected    = errors.New("OBS が要求を拒否した")
+	ErrAuxNotSent     = errors.New("補助の要求を送っていない")
+	ErrAuxUncertain   = errors.New("補助の要求の適用が不明")
 	ErrAuxUnavailable = errors.New("補助の接続が開いていない")
 	// ErrAuxTimeout は、要求が期限（送るまでの待ちと応答の待ちを合わせて2秒）を過ぎたこと。
 	// 適用されたかどうかはわからない。Client は作り直す。
@@ -361,7 +366,7 @@ func auxCall[T any](a *Aux, op string, fn func(*goobs.Client) (T, error)) (T, er
 	deadline := a.clock.After(a.reqTimeout)
 	c, o, err := a.acquire()
 	if err != nil {
-		return zero, err
+		return zero, fmt.Errorf("%w: %w", ErrAuxNotSent, err)
 	}
 	if c == nil {
 		select {
@@ -370,7 +375,7 @@ func auxCall[T any](a *Aux, op string, fn func(*goobs.Client) (T, error)) (T, er
 			return zero, fmt.Errorf("%w: %s（接続を開く待ち）", ErrAuxTimeout, op)
 		}
 		if o.err != nil {
-			return zero, o.err
+			return zero, fmt.Errorf("%w: %w", ErrAuxNotSent, o.err)
 		}
 		c = o.conn
 	}
@@ -381,12 +386,12 @@ func auxCall[T any](a *Aux, op string, fn func(*goobs.Client) (T, error)) (T, er
 	case <-deadline:
 		return zero, fmt.Errorf("%w: %s（送る前の待ち）", ErrAuxTimeout, op)
 	case <-c.dead:
-		return zero, fmt.Errorf("%w: %s", c.reason, op)
+		return zero, fmt.Errorf("%w: %w: %s", ErrAuxUncertain, c.reason, op)
 	}
 	select {
 	case <-c.dead: // 待っている間に捨てられた。goobs には入れない。
 		<-c.gate
-		return zero, fmt.Errorf("%w: %s", c.reason, op)
+		return zero, fmt.Errorf("%w: %w: %s", ErrAuxUncertain, c.reason, op)
 	default:
 	}
 
@@ -405,7 +410,7 @@ func auxCall[T any](a *Aux, op string, fn func(*goobs.Client) (T, error)) (T, er
 		res <- result{v, err}
 	}) {
 		<-c.gate
-		return zero, ErrAuxClosed
+		return zero, fmt.Errorf("%w: %w", ErrAuxNotSent, ErrAuxClosed)
 	}
 	select {
 	case r := <-res:
@@ -414,18 +419,21 @@ func auxCall[T any](a *Aux, op string, fn func(*goobs.Client) (T, error)) (T, er
 		}
 		select {
 		case <-c.dead: // 捨てられたあとの失敗は、捨てた理由で返す
-			return zero, fmt.Errorf("%w: %s: %v", c.reason, op, r.err)
+			return zero, fmt.Errorf("%w: %w: %s: %v", ErrAuxUncertain, c.reason, op, r.err)
 		default:
 		}
 		if reason := auxFailReason(r.err); reason != nil {
 			return zero, fmt.Errorf("%w: %s: %v", reason, op, r.err)
 		}
-		return zero, fmt.Errorf("%s: %w", op, r.err)
+		if auxRejected(op, r.err) {
+			return zero, fmt.Errorf("%w: %s: %w", ErrAuxRejected, op, r.err)
+		}
+		return zero, fmt.Errorf("%w: %s: %w", ErrAuxUncertain, op, r.err)
 	case <-deadline:
 		a.drop(c, ErrAuxTimeout)
 		return zero, fmt.Errorf("%w: %s", ErrAuxTimeout, op)
 	case <-c.dead:
-		return zero, fmt.Errorf("%w: %s", c.reason, op)
+		return zero, fmt.Errorf("%w: %w: %s", ErrAuxUncertain, c.reason, op)
 	}
 }
 
@@ -496,4 +504,20 @@ func (a *Aux) GetMediaInputStatus(inputUUID string) (MediaStatus, error) {
 		return MediaStatus{}, err
 	}
 	return MediaStatus{State: r.MediaState, Cursor: r.MediaCursor}, nil
+}
+
+// goobs v1.11.1 は失敗 status を型なしの error に変換する。
+// ID照合後の status 分岐が生成する形式のみを受け入れる。
+var auxStatusPattern = regexp.MustCompile(`^request ([A-Za-z0-9]+): (.+) \(([0-9]+)\)(: .*|$)`)
+
+func auxRejected(op string, err error) bool {
+	if err == nil {
+		return false
+	}
+	m := auxStatusPattern.FindStringSubmatch(err.Error())
+	if m == nil || m[1] != op {
+		return false
+	}
+	code, e := strconv.Atoi(m[3])
+	return e == nil && code != 100 && m[2] == requests.GetStatusForCode(code)
 }

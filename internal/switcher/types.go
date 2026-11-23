@@ -695,12 +695,12 @@ type PendingBatch struct {
 // ConfigEpoch が 0 の間は、設定をまだ受けていない。
 // 分類と健康は保存せず、Map と CameraStates から必要なときに計算する。
 type state struct {
-	HumanIntent *HumanSceneSelected
-	Standby     string // 設定の名前
-	Cameras     []CameraConfig
-	AutoEnabled bool
-	StartScene  *string
-	ConfigEpoch int
+	HumanIntents []HumanSceneSelected
+	Standby      string // 設定の名前
+	Cameras      []CameraConfig
+	AutoEnabled  bool
+	StartScene   *string
+	ConfigEpoch  int
 	// Fallbacks は設定の scene_fallbacks（名前のまま）。解決結果は地図から必要なときに計算する。
 	Fallbacks []FallbackRow
 

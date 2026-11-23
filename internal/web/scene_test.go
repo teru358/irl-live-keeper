@@ -26,7 +26,7 @@ func TestSceneAPI(t *testing.T) {
 		header string
 		want   int
 	}{
-		{"成功", nil, "1", 200}, {"未接続", obs.ErrAuxUnavailable, "1", 503}, {"未知", core.ErrSceneMissing, "1", 404}, {"失敗", errors.New("失敗"), "1", 502}, {"CSRF", nil, "", 403},
+		{"成功", nil, "1", 200}, {"未接続", obs.ErrAuxUnavailable, "1", 503}, {"未知", core.ErrSceneMissing, "1", 404}, {"失敗", obs.ErrAuxRejected, "1", 502}, {"不確定", errors.New("切断"), "1", 503}, {"期限", obs.ErrAuxTimeout, "1", 503}, {"ID", obs.ErrAuxMismatch, "1", 503}, {"未送信", obs.ErrAuxNotSent, "1", 503}, {"CSRF", nil, "", 403},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			b := &sceneBackend{sceneErr: tc.err}

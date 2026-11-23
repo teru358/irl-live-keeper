@@ -2,6 +2,7 @@ package core
 
 import (
 	"errors"
+	"fmt"
 	"github.com/teru358/irl-live-keeper/internal/obs"
 	"github.com/teru358/irl-live-keeper/internal/switcher"
 	"testing"
@@ -98,7 +99,7 @@ func TestSelectSceneArrivalOrder(t *testing.T) {
 					return obs.ErrAuxTimeout
 				}
 				if mode == "失敗" {
-					return errors.New("OBS が拒否")
+					return obs.ErrAuxRejected
 				}
 				return nil
 			}
@@ -139,4 +140,42 @@ func TestSelectSceneSameSkipsOBS(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.waitSnap("同じシーンの人の操作", both(sceneIs(standby), standbyIs("none", "")))
+}
+
+func TestSelectSceneErrorIntent(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+		keep bool
+	}{
+		{"拒否", obs.ErrAuxRejected, false},
+		{"未接続", obs.ErrAuxUnavailable, false},
+		{"未送信", obs.ErrAuxNotSent, false},
+		{"期限切れ", obs.ErrAuxTimeout, true},
+		{"ID不一致", obs.ErrAuxMismatch, true},
+		{"切断", obs.ErrAuxUncertain, true},
+		{"送信後の未接続", fmt.Errorf("%w: %w", obs.ErrAuxUncertain, obs.ErrAuxUnavailable), true},
+		{"Close", obs.ErrAuxClosed, true},
+		{"その他", errors.New("write: broken pipe"), true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			h.start()
+			h.autoStandby(camera)
+			h.obs.onSelect = func(string) error { return tc.err }
+			if err := h.core.SelectScene(h.ctx, talk); !errors.Is(err, tc.err) {
+				t.Fatalf("応答: %v", err)
+			}
+			h.samplesN(6, goodKbps)
+			if tc.keep {
+				if got := h.core.Snapshot().OBS.SceneUUID; got != standby {
+					t.Fatalf("適用不明なのに自動回復: %s", got)
+				}
+				h.obsEvent(switcher.SceneChanged{At: h.clk.Now(), SceneUUID: talk})
+				h.waitSnap("人の到着", both(sceneIs(talk), standbyIs("none", "")))
+			} else {
+				h.waitSnap("失敗後の回復", sceneIs(camera))
+			}
+		})
+	}
 }

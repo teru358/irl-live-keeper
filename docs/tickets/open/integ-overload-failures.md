@@ -25,3 +25,4 @@ related: []
 ## 経緯
 
 - 2026-11-23: 起票。
+- 2026-11-23: 16本×TestIntegration でもまれに出る。S2-58 の確かめで、ブランチで 1/48（FB-INV-06 seed 20006: 改名で owner auto→none）、main で 1/48（INV-04 seed 30001: 回復から30秒で hidden.json が空でない）。seed 20006 だけを16本×4回回すと、ブランチも main も 0/64。S2-58 の変更によるものではない

@@ -56,7 +56,7 @@ func (c *Core) SelectScene(ctx context.Context, uuid string) error {
 		return err
 	}
 	err = a.SelectScene(uuid)
-	if err != nil && !errors.Is(err, obs.ErrAuxTimeout) && !errors.Is(err, obs.ErrAuxMismatch) {
+	if err != nil && !errors.Is(err, obs.ErrAuxUncertain) && (errors.Is(err, obs.ErrAuxRejected) || errors.Is(err, obs.ErrAuxUnavailable) || errors.Is(err, obs.ErrAuxNotSent)) {
 		intent.Cancel = true
 		// 登録済みの意図の後始末は、呼び出し元の期限に左右されない。
 		_ = c.sendSceneIntent(context.Background(), intent)
