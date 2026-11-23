@@ -26,3 +26,4 @@ related: []
 
 - 2026-11-23: 起票。
 - 2026-11-23: 16本×TestIntegration でもまれに出る。S2-58 の確かめで、ブランチで 1/48（FB-INV-06 seed 20006: 改名で owner auto→none）、main で 1/48（INV-04 seed 30001: 回復から30秒で hidden.json が空でない）。seed 20006 だけを16本×4回回すと、ブランチも main も 0/64。S2-58 の変更によるものではない
+- 2026-11-23 夜: ふだんの負荷の `go test -race ./...` でも1回、`TestIntegrationFallbackInvariants/fault/seed25002`（入場: 戻り先 Nest に悪い hide のカメラ [sub] が表示されたままなのに本体が戻した）が落ちた。8本×3回で回すと、main でも直しのブランチでも 0/24。過負荷だけの揺れではないので、優先を上げて調べる候補
