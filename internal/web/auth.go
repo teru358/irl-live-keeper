@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"strconv"
 	"sync"
@@ -18,17 +19,19 @@ const sessionLife = 7 * 24 * time.Hour
 
 // Auth はプロセスの寿命で共有する認証の記憶。時計はテストで差し替えられる。
 type Auth struct {
-	mu       sync.Mutex
-	now      func() time.Time
-	sessions map[string]time.Time
-	once     map[string]time.Time
+	mu           sync.Mutex
+	now          func() time.Time
+	sessions     map[string]time.Time
+	once         map[string]time.Time
+	attempts     map[string]passwordAttempt
+	attemptOrder uint64
 }
 
 func NewAuth(now func() time.Time) *Auth {
 	if now == nil {
 		now = time.Now
 	}
-	return &Auth{now: now, sessions: map[string]time.Time{}, once: map[string]time.Time{}}
+	return &Auth{now: now, sessions: map[string]time.Time{}, once: map[string]time.Time{}, attempts: map[string]passwordAttempt{}}
 }
 func randomToken() (string, error) {
 	var b [16]byte
@@ -98,8 +101,69 @@ func (a *Auth) issue(w http.ResponseWriter, name string) error {
 	return nil
 }
 
-// passwordWaiting はS2-10で照合前の待ち判定を差し込む場所。有効なセッションは通らない。
-func (a *Auth) passwordWaiting(r *http.Request) bool { return false }
+const maxPasswordIPs = 4096
+const passwordWait = 30 * time.Second
+
+type passwordAttempt struct {
+	failures int
+	until    time.Time
+	order    uint64
+}
+
+func remoteIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err == nil {
+		return host
+	}
+	return r.RemoteAddr
+}
+
+// passwordWaiting は照合前に待ちを確かめる。呼び出し側が mu を持つ。
+func (a *Auth) passwordWaiting(r *http.Request) time.Duration {
+	now := a.now()
+	for ip, entry := range a.attempts {
+		if !entry.until.IsZero() && !now.Before(entry.until) {
+			delete(a.attempts, ip)
+		}
+	}
+	return a.attempts[remoteIP(r)].until.Sub(now)
+}
+
+// checkPassword は待ちの判定から照合結果の記録までを直列にする。
+func (a *Auth) checkPassword(r *http.Request, check func() bool) (bool, time.Duration) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if wait := a.passwordWaiting(r); wait > 0 {
+		return false, wait
+	}
+	if check == nil {
+		return false, 0
+	}
+	ip := remoteIP(r)
+	if check() {
+		delete(a.attempts, ip)
+		return true, 0
+	}
+	entry, exists := a.attempts[ip]
+	if !exists && len(a.attempts) >= maxPasswordIPs {
+		var oldest string
+		var order uint64 = ^uint64(0)
+		for key, value := range a.attempts {
+			if value.order < order {
+				oldest, order = key, value.order
+			}
+		}
+		delete(a.attempts, oldest)
+	}
+	a.attemptOrder++
+	entry.order = a.attemptOrder
+	entry.failures++
+	if entry.failures == 5 {
+		entry.until = a.now().Add(passwordWait)
+	}
+	a.attempts[ip] = entry
+	return false, 0
+}
 
 func New(b Backend, password string, langs ...i18n.Lang) http.Handler {
 	return NewWithAuth(b, password, 8787, NewAuth(nil), langs...)
@@ -127,9 +191,10 @@ func NewWithAuth(b Backend, password string, port int, a *Auth, langs ...i18n.La
 			}
 			return true
 		}
-		waiting := func() bool {
-			if a.passwordWaiting(r) {
-				fail(429, "api.unauthorized")
+		waiting := func(wait time.Duration) bool {
+			if wait > 0 {
+				w.Header().Set("Retry-After", strconv.Itoa(int((wait+time.Second-1)/time.Second)))
+				fail(429, "api.too_many_attempts")
 				return true
 			}
 			return false
@@ -172,7 +237,8 @@ func NewWithAuth(b Backend, password string, port int, a *Auth, langs ...i18n.La
 				fail(403, "api.forbidden")
 				return
 			}
-			if waiting() {
+			_, wait := a.checkPassword(r, nil)
+			if waiting(wait) {
 				return
 			}
 			var body struct {
@@ -188,7 +254,11 @@ func NewWithAuth(b Backend, password string, port int, a *Auth, langs ...i18n.La
 				fail(400, "api.invalid")
 				return
 			}
-			if password == "" || equalHashed(body.Password, password) != 1 {
+			ok, wait := a.checkPassword(r, func() bool { return password != "" && equalHashed(body.Password, password) == 1 })
+			if waiting(wait) {
+				return
+			}
+			if !ok {
 				fail(401, "api.unauthorized")
 				return
 			}
@@ -224,10 +294,15 @@ func NewWithAuth(b Backend, password string, port int, a *Auth, langs ...i18n.La
 			return
 		}
 		if !valid {
-			if len(r.Header.Values("Authorization")) > 0 && waiting() {
-				return
+			ok := false
+			if len(r.Header.Values("Authorization")) > 0 {
+				var wait time.Duration
+				ok, wait = a.checkPassword(r, func() bool { return authorized(r, password) })
+				if waiting(wait) {
+					return
+				}
 			}
-			if !authorized(r, password) {
+			if !ok {
 				fail(401, "api.unauthorized")
 				return
 			}

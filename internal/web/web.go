@@ -46,7 +46,7 @@ func apiHandler(b Backend, defaultLang ...i18n.Lang) http.Handler {
 			return
 		}
 
-		if method == http.MethodPost && r.Header.Get(headerName) != "1" {
+		if (method == http.MethodPost || method == http.MethodPut || method == http.MethodDelete) && r.Header.Get(headerName) != "1" {
 			writeError(w, http.StatusForbidden, lang, i18n.New("api.forbidden"))
 			return
 		}

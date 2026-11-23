@@ -107,6 +107,7 @@
     "api.reason_off_no_target": "切替先が OBS にないため、待機のままです",
     "api.reason_unknown": "未知の操作",
     "api.not_found": "not found",
+    "api.too_many_attempts": "認証の失敗が続きました。しばらく待ってから再試行してください。",
     "api.unauthorized": "unauthorized",
     "api.method": "method not allowed",
     "api.forbidden": "forbidden",

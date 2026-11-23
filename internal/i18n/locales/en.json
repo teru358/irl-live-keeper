@@ -107,6 +107,7 @@
     "api.reason_off_no_target": "The target is missing in OBS. Staying in standby",
     "api.reason_unknown": "Unknown action",
     "api.not_found": "not found",
+    "api.too_many_attempts": "Too many failed authentication attempts. Please try again later.",
     "api.unauthorized": "unauthorized",
     "api.method": "method not allowed",
     "api.forbidden": "forbidden",
