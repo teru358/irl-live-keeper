@@ -107,8 +107,11 @@ func TestSlowReaderWarningClearsWhenCameraDown(t *testing.T) {
 		t.Fatalf("DOWN のカメラに警告: %v", w)
 	}
 
-	// 受信して LOW になると出る
+	// 受信して LOW になると出る。DOWN の間の publish（downAt を書く）が時計を進めたあとに遅れて走ることがあるので、
+	// LOW が公開されたのを見てから時計を進め、それより新しい記録にする
 	h.sample(3000)
+	h.waitSnap("LOW", func(s Snapshot) bool { return s.Cameras[0].State == "LOW" })
+	h.clk.Advance(time.Second)
 	set(supervisor.SlowReader{Path: "live/main", Count: 3, Last: h.clk.Now()})
 	h.tick(h.clk.Now())
 	h.waitSnap("警告が出る", func(s Snapshot) bool { return len(s.OBS.Warnings) == 1 })
