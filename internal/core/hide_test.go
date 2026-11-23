@@ -552,7 +552,7 @@ func TestRestoredEntryIsShownBack(t *testing.T) {
 // 読めなかったときの警告（Deps.HiddenLoadWarning）は status の warnings に出る。
 func TestLoadWarningShownInStatus(t *testing.T) {
 	h, _ := hideHarness(t, func(_ *switcher.Config, d *Deps) {
-		d.HiddenLoadWarning = "hidden.json を読めなかったため、空として扱いました"
+		d.HiddenLoadMessage = i18n.New("hidden.load", "error", "read failed")
 	})
 	s := h.core.Snapshot()
 	if !slices.ContainsFunc(i18n.Strings(i18n.JA, s.OBS.Warnings), func(w string) bool { return strings.Contains(w, "hidden.json を読めなかった") }) {

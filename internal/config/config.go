@@ -347,7 +347,10 @@ var hostNameRe = regexp.MustCompile(`^[A-Za-z0-9.-]+$`)
 const maxHostLen = 253
 
 // FieldError は検証に落ちた項目1つ分。
-type FieldError struct{ Field, Reason string }
+type FieldError struct {
+	Field, Reason string
+	Message       i18n.Msg
+}
 
 // ValidationError は検証に落ちた項目すべて（見つけた順）。
 type ValidationError struct{ Fields []FieldError }
@@ -377,8 +380,8 @@ func (e *ValidationError) ByField() map[string]string {
 // Validate は設定値を検証する。違反はすべて集めて、項目名と理由を *ValidationError にまとめる。問題がなければ nil。
 func (c *Config) Validate() error {
 	var errs []FieldError
-	add := func(field, reason string) {
-		errs = append(errs, FieldError{field, reason})
+	add := func(field string, reason i18n.Msg) {
+		errs = append(errs, FieldError{Field: field, Reason: i18n.Render(i18n.JA, reason), Message: reason})
 	}
 
 	// 閾値
@@ -389,7 +392,7 @@ func (c *Config) Validate() error {
 
 	// 受付
 	if !c.MediaMTX.RTMPEnabled && !c.MediaMTX.SRTEnabled {
-		add("mediamtx.rtmp_enabled", "rtmp_enabled と srt_enabled の両方を false にはできません。どちらかは true にしてください")
+		add("mediamtx.rtmp_enabled", i18n.New("config.validation_01"))
 	}
 
 	// ポート
@@ -405,32 +408,32 @@ func (c *Config) Validate() error {
 		{"mediamtx.api_port", c.MediaMTX.APIPort},
 	} {
 		if p.port < 1 || p.port > 65535 {
-			add(p.field, fmt.Sprintf("1〜65535 の範囲にしてください（現在 %d）", p.port))
+			add(p.field, i18n.New("config.validation_02", "a", fmt.Sprintf("%d", p.port)))
 			continue
 		}
 		ports = append(ports, p)
 	}
 	if c.OBS.Port < 1 || c.OBS.Port > 65535 {
-		add("obs.port", fmt.Sprintf("1〜65535 の範囲にしてください（現在 %d）", c.OBS.Port))
+		add("obs.port", i18n.New("config.validation_02", "a", fmt.Sprintf("%d", c.OBS.Port)))
 	}
 	if c.Admin.Port < 1 || c.Admin.Port > 65535 {
-		add("admin.port", fmt.Sprintf("1〜65535 の範囲にしてください（現在 %d）", c.Admin.Port))
+		add("admin.port", i18n.New("config.validation_02", "a", fmt.Sprintf("%d", c.Admin.Port)))
 	} else {
 		ports = append(ports, portEntry{"admin.port", c.Admin.Port})
 	}
 	for i := range ports {
 		for j := i + 1; j < len(ports); j++ {
 			if ports[i].port == ports[j].port {
-				add(ports[j].field, fmt.Sprintf("%s と同じポート %d を使っています。重複しないようにしてください", ports[i].field, ports[i].port))
+				add(ports[j].field, i18n.New("config.validation_03", "a", fmt.Sprintf("%s", ports[i].field), "b", fmt.Sprintf("%d", ports[i].port)))
 			}
 		}
 	}
 
 	// path の1段目（空は1段の path）。/ ? # : 空白は URL や SRT の streamid を壊す
 	if strings.ContainsAny(c.Stream.App, "/?#: \t\r\n\u3000") {
-		add("stream.app", "/ ? # : と空白は使えません（URL と SRT の streamid が壊れるため）。空にすると1段の path になります")
+		add("stream.app", i18n.New("config.validation_04"))
 	} else if c.Stream.App != "" && !nameRe.MatchString(c.Stream.App) {
-		add("stream.app", "使える文字は英数字・_・- だけです（URL が壊れるため）。空にすると1段の path になります")
+		add("stream.app", i18n.New("config.validation_05"))
 	}
 
 	// 資格情報と path 名
@@ -441,9 +444,9 @@ func (c *Config) Validate() error {
 		{"stream.read_pass", c.Stream.ReadPass},
 	} {
 		if f.v == "" {
-			add(f.field, "空にできません")
+			add(f.field, i18n.New("config.validation_06"))
 		} else if !nameRe.MatchString(f.v) {
-			add(f.field, "使える文字は英数字・_・- だけです（URL が壊れるため）")
+			add(f.field, i18n.New("config.validation_07"))
 		}
 	}
 	for _, f := range []struct{ field, v string }{
@@ -451,7 +454,7 @@ func (c *Config) Validate() error {
 		{"stream.read_pass", c.Stream.ReadPass},
 	} {
 		if f.v != "" && len(f.v) < 8 {
-			add(f.field, fmt.Sprintf("8 文字以上にしてください（現在 %d 文字）", len(f.v)))
+			add(f.field, i18n.New("config.validation_08", "a", fmt.Sprintf("%d", len(f.v))))
 		}
 	}
 	for _, f := range []struct{ field, v string }{
@@ -459,11 +462,11 @@ func (c *Config) Validate() error {
 		{"stream.read_user", c.Stream.ReadUser},
 	} {
 		if f.v == "any" {
-			add(f.field, "any は使えません（MediaMTX が資格情報を照合せずに通すため）")
+			add(f.field, i18n.New("config.validation_09"))
 		}
 	}
 	if c.Stream.PublishUser != "" && c.Stream.PublishUser == c.Stream.ReadUser {
-		add("stream.read_user", "stream.publish_user と異なる名前にしてください")
+		add("stream.read_user", i18n.New("config.validation_10"))
 	}
 
 	// 送信用 URL と OBS 用 URL の host。IP アドレスか、スキーム・ポート・パス・角括弧を含まないホスト名
@@ -472,7 +475,7 @@ func (c *Config) Validate() error {
 		{"stream.obs_read_host", c.Stream.ObsReadHost},
 	} {
 		if h := f.v; h != "" && net.ParseIP(h) == nil && (len(h) > maxHostLen || !hostNameRe.MatchString(h)) {
-			add(f.field, "空か、ホスト名か IP アドレスにしてください（スキーム、ポート、パス、[ ] は含めず、名前は英数字・.・- の 253 文字以内）")
+			add(f.field, i18n.New("config.validation_11"))
 		}
 	}
 	// 送信用 URL に出すポート。0 は受信のポートと同じ。外側のポートなので受信のポートとの重複は問わない
@@ -484,47 +487,47 @@ func (c *Config) Validate() error {
 		{"stream.publish_srt_port", c.Stream.PublishSRTPort},
 	} {
 		if f.v < 0 || f.v > 65535 {
-			add(f.field, fmt.Sprintf("0（受信のポートと同じ）か 1〜65535 の範囲にしてください（現在 %d）", f.v))
+			add(f.field, i18n.New("config.validation_12", "a", fmt.Sprintf("%d", f.v)))
 		}
 	}
 
 	// シーン名
 	if c.OBS.StandbyScene == "" {
-		add("obs.standby_scene", "空にできません")
+		add("obs.standby_scene", i18n.New("config.validation_06"))
 	}
 	if c.OnStreamStart.Enabled {
 		if c.OnStreamStart.Scene == "" {
-			add("on_stream_start.scene", "on_stream_start.enabled が true のときは空にできません")
+			add("on_stream_start.scene", i18n.New("config.validation_13"))
 		} else if c.OnStreamStart.Scene == c.OBS.StandbyScene {
-			add("on_stream_start.scene", "obs.standby_scene と異なるシーンにしてください（待機シーンで配信が始まると自動で戻らないため）")
+			add("on_stream_start.scene", i18n.New("config.validation_14"))
 		}
 	}
 
 	c.validateSceneFallbacks(add)
 
 	if c.Admin.Password == "" {
-		add("admin.password", "空にできません")
+		add("admin.password", i18n.New("config.validation_06"))
 	}
 
 	// ログ
 	if c.Log.Dir == "" {
-		add("log.dir", "空にできません")
+		add("log.dir", i18n.New("config.validation_06"))
 	}
 	if c.Log.KeepDays < 0 {
-		add("log.keep_days", fmt.Sprintf("0 以上にしてください（現在 %d）", c.Log.KeepDays))
+		add("log.keep_days", i18n.New("config.validation_15", "a", fmt.Sprintf("%d", c.Log.KeepDays)))
 	}
 
 	switch c.OBS.StudioModeHide {
 	case StudioHideStandby, StudioHideIgnore, StudioHideHide:
 	default:
-		add("obs.studio_mode_hide", fmt.Sprintf("standby、ignore、hide のどれかにしてください（現在 %q）", c.OBS.StudioModeHide))
+		add("obs.studio_mode_hide", i18n.New("config.validation_16", "a", fmt.Sprintf("%q", c.OBS.StudioModeHide)))
 	}
 
 	// GUI
 	switch c.GUI.CloseAction {
 	case CloseMinimize, CloseConfirm, CloseQuit:
 	default:
-		add("gui.close_action", fmt.Sprintf("minimize、confirm、quit のどれかにしてください（現在 %q）", c.GUI.CloseAction))
+		add("gui.close_action", i18n.New("config.validation_17", "a", fmt.Sprintf("%q", c.GUI.CloseAction)))
 	}
 
 	if len(errs) == 0 {
@@ -544,9 +547,9 @@ func (c *Config) WarningMessages() []i18n.Msg {
 }
 
 // checkThresholds は閾値の規則を確かめる。prefix は項目名の前につける（"switch" や "cameras[0].switch"）。
-func checkThresholds(sw Switch, prefix string, add func(field, reason string)) {
+func checkThresholds(sw Switch, prefix string, add func(field string, reason i18n.Msg)) {
 	if sw.RecoverKbps <= sw.FailKbps {
-		add(prefix+".recover_kbps", fmt.Sprintf("%s.fail_kbps（%d）より大きくしてください（現在 %d）", prefix, sw.FailKbps, sw.RecoverKbps))
+		add(prefix+".recover_kbps", i18n.New("config.validation_18", "a", fmt.Sprintf("%s", prefix), "b", fmt.Sprintf("%d", sw.FailKbps), "c", fmt.Sprintf("%d", sw.RecoverKbps)))
 	}
 	for _, f := range []struct {
 		field string
@@ -557,11 +560,11 @@ func checkThresholds(sw Switch, prefix string, add func(field, reason string)) {
 		{"down_sec", sw.DownSec},
 	} {
 		if f.v < 1 {
-			add(prefix+"."+f.field, fmt.Sprintf("1 以上にしてください（現在 %d）", f.v))
+			add(prefix+"."+f.field, i18n.New("config.validation_19", "a", fmt.Sprintf("%d", f.v)))
 		}
 	}
 	if sw.DownSec > sw.LowSec {
-		add(prefix+".down_sec", fmt.Sprintf("%s.low_sec（%d）以下にしてください（現在 %d）", prefix, sw.LowSec, sw.DownSec))
+		add(prefix+".down_sec", i18n.New("config.validation_20", "a", fmt.Sprintf("%s", prefix), "b", fmt.Sprintf("%d", sw.LowSec), "c", fmt.Sprintf("%d", sw.DownSec)))
 	}
 }
 
@@ -573,35 +576,52 @@ const (
 	maxNameLen = 32
 )
 
-func (c *Config) validateCameras(add func(field, reason string)) {
+func (c *Config) validateCameras(add func(field string, reason i18n.Msg)) {
 	if n := len(c.Cameras); n < minCameras || n > maxCameras {
-		add("cameras", fmt.Sprintf("%d〜%d 台にしてください（現在 %d 台）", minCameras, maxCameras, n))
+		add("cameras", i18n.New("config.validation_21", "a", fmt.Sprintf("%d", minCameras), "b", fmt.Sprintf("%d", maxCameras), "c", fmt.Sprintf("%d", n)))
 	}
 	seen := map[string]int{}
 	for i, cam := range c.Cameras {
 		p := fmt.Sprintf("cameras[%d]", i)
 		switch {
 		case cam.ID == "all" || cam.ID == "all_others":
-			add(p+".id", fmt.Sprintf("%s は使えません（MediaMTX の path の設定で特別な名前のため）", cam.ID))
+			add(p+".id", i18n.New("config.validation_22", "a", fmt.Sprintf("%s", cam.ID)))
 		case !cameraIDRe.MatchString(cam.ID):
-			add(p+".id", fmt.Sprintf("英小文字・数字・- _ の 1〜32 文字にしてください。先頭は英小文字か数字です（現在 %q）", cam.ID))
+			add(p+".id", i18n.New("config.validation_23", "a", fmt.Sprintf("%q", cam.ID)))
 		default:
 			if j, dup := seen[cam.ID]; dup {
-				add(p+".id", fmt.Sprintf("cameras[%d].id と同じ %q です。互いに異なる id にしてください", j, cam.ID))
+				add(p+".id", i18n.New("config.validation_24", "a", fmt.Sprintf("%d", j), "b", fmt.Sprintf("%q", cam.ID)))
 			} else {
 				seen[cam.ID] = i
 			}
 		}
 		if n := utf8.RuneCountInString(cam.Name); n < 1 || n > maxNameLen {
-			add(p+".name", fmt.Sprintf("1〜%d 文字にしてください（現在 %d 文字）", maxNameLen, n))
+			add(p+".name", i18n.New("config.validation_25", "a", fmt.Sprintf("%d", maxNameLen), "b", fmt.Sprintf("%d", n)))
 		} else if strings.ContainsFunc(cam.Name, unicode.IsControl) {
-			add(p+".name", "制御文字（改行やタブなど）は使えません")
+			add(p+".name", i18n.New("config.validation_26"))
 		}
 		if cam.OnBad != "standby" && cam.OnBad != "hide" {
-			add(p+".on_bad", fmt.Sprintf("standby か hide にしてください（現在 %q）", cam.OnBad))
+			add(p+".on_bad", i18n.New("config.validation_27", "a", fmt.Sprintf("%q", cam.OnBad)))
 		}
 		if cam.Switch != nil {
 			checkThresholds(c.CameraSwitch(i), p+".switch", add)
 		}
 	}
+}
+
+// RenderFields は API 用に項目ごとの理由を組み立てる。
+func (e *ValidationError) RenderFields(lang i18n.Lang) map[string]string {
+	out := map[string]string{}
+	for _, f := range e.Fields {
+		reason := i18n.Render(lang, f.Message)
+		if prev, ok := out[f.Field]; ok {
+			sep := ". "
+			if lang == i18n.JA {
+				sep = "。"
+			}
+			reason = prev + sep + reason
+		}
+		out[f.Field] = reason
+	}
+	return out
 }

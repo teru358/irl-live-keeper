@@ -705,7 +705,7 @@ func TestSnapshotJSONShape(t *testing.T) {
 	}
 
 	// last_error はオブジェクトになる。
-	h.setMediaMTX(supervisor.Status{State: supervisor.StateRunning, LastError: "listen tcp :1935: bind: address already in use"})
+	h.setMediaMTX(supervisor.Status{State: supervisor.StateRunning, LastMessage: i18n.Text("listen tcp :1935: bind: address already in use"), LastError: "listen tcp :1935: bind: address already in use"})
 	h.tick(h.clk.Advance(time.Second))
 	h.waitSnap("last_error", func(s Snapshot) bool { return s.LastError != nil })
 	le := marshalMap(t, h.core.Snapshot())["last_error"].(map[string]any)
@@ -735,7 +735,9 @@ func TestLastErrorNewestWins(t *testing.T) {
 	h := newHarness(t)
 	c := h.core
 	t1 := h.clk.Now()
-	sw := func(at time.Time, msg string) { c.noteSwitcherError(&switcher.ErrorInfo{At: at, Msg: msg}) }
+	sw := func(at time.Time, msg string) {
+		c.noteSwitcherError(&switcher.ErrorInfo{At: at, Msg: msg, Localized: i18n.Text(msg)})
+	}
 	check := func(step, source, msg string, at time.Time) {
 		t.Helper()
 		e := c.lastErr
@@ -744,7 +746,7 @@ func TestLastErrorNewestWins(t *testing.T) {
 		}
 	}
 
-	c.noteMediaMTXError("bind failed")
+	c.noteMediaMTXError("bind failed", i18n.Text("bind failed"))
 	check("MediaMTX の最初の記録", SourceMediaMTX, "bind failed", t1)
 
 	sw(t1.Add(-time.Second), "older")
@@ -757,17 +759,17 @@ func TestLastErrorNewestWins(t *testing.T) {
 	sw(t2, "newer")
 	check("同じ switcher の記録", SourceSwitcher, "newer", t2)
 
-	c.noteMediaMTXError("bind failed")
+	c.noteMediaMTXError("bind failed", i18n.Text("bind failed"))
 	check("変わらない MediaMTX の記録", SourceSwitcher, "newer", t2)
 
-	c.noteMediaMTXError("bind failed again")
+	c.noteMediaMTXError("bind failed again", i18n.Text("bind failed again"))
 	check("同じ時刻の MediaMTX の記録", SourceMediaMTX, "bind failed again", t2)
 
-	c.noteMediaMTXError("")
+	c.noteMediaMTXError("", i18n.Text(""))
 	check("空に戻った MediaMTX", SourceMediaMTX, "bind failed again", t2)
 
 	t3 := h.clk.Advance(time.Second)
-	c.noteMediaMTXError("bind failed again")
+	c.noteMediaMTXError("bind failed again", i18n.Text("bind failed again"))
 	check("空から同じ文に戻った MediaMTX", SourceMediaMTX, "bind failed again", t3)
 
 	sw(t3, "tie")
@@ -780,7 +782,7 @@ func TestLastErrorThroughLoop(t *testing.T) {
 	h.obs.onScene = func(string) error { return errors.New("scene not found") }
 	h.start()
 
-	h.setMediaMTX(supervisor.Status{State: supervisor.StateRunning, LastError: "bind failed"})
+	h.setMediaMTX(supervisor.Status{State: supervisor.StateRunning, LastMessage: i18n.Text("bind failed"), LastError: "bind failed"})
 	h.tick(h.clk.Advance(time.Second))
 	h.waitSnap("mediamtx", func(s Snapshot) bool { return s.LastError != nil && s.LastError.Source == SourceMediaMTX })
 
@@ -788,7 +790,7 @@ func TestLastErrorThroughLoop(t *testing.T) {
 	h.connect(true, camera) // 受信は初期値の DOWN なので、すぐ AutoFail。SetScene が失敗する
 	h.waitSnap("switcher", func(s Snapshot) bool { return s.LastError != nil && s.LastError.Source == SourceSwitcher })
 
-	h.setMediaMTX(supervisor.Status{State: supervisor.StateRunning, LastError: "bind failed 2"})
+	h.setMediaMTX(supervisor.Status{State: supervisor.StateRunning, LastMessage: i18n.Text("bind failed 2"), LastError: "bind failed 2"})
 	h.tick(h.clk.Advance(time.Second))
 	s := h.waitSnap("mediamtx 2", func(s Snapshot) bool {
 		return s.LastError != nil && i18n.Render(i18n.JA, s.LastError.Message) == "bind failed 2"
@@ -917,7 +919,7 @@ func TestExecuteRestartSubset(t *testing.T) {
 // status の warnings: 名前が OBS で引けない scene_fallbacks の行を、行番号（1 始まり）と名前つきで出す（0c T4）。
 func TestSnapshotFallbackWarnings(t *testing.T) {
 	h := newHarness(t, func(_ *switcher.Config, d *Deps) {
-		d.Warnings = func() []string { return []string{"既存の警告"} }
+		d.WarningMessages = func() []i18n.Msg { return []i18n.Msg{i18n.Text("existing warning")} }
 		d.SceneFallbacks = []switcher.FallbackRow{
 			{Scene: "NoSuchScene", Fallback: camera},
 			{Scene: camera, Fallback: "GoneScene"},
@@ -935,7 +937,7 @@ func TestSnapshotFallbackWarnings(t *testing.T) {
 			got = append(got, w)
 		}
 	}
-	if !slices.Contains(i18n.Strings(i18n.JA, s.OBS.Warnings), "既存の警告") {
+	if !slices.Contains(i18n.Strings(i18n.JA, s.OBS.Warnings), "existing warning") {
 		t.Fatalf("既存の警告が消えた: %v", i18n.Strings(i18n.JA, s.OBS.Warnings))
 	}
 	if len(got) != 2 || !strings.Contains(got[0], "NoSuchScene") || !strings.Contains(got[1], "scene_fallbacks の 2 行目") || !strings.Contains(got[1], "GoneScene") {

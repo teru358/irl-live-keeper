@@ -25,7 +25,7 @@ func TestSlowReaderWarnings(t *testing.T) {
 		c2 := testCamera("sub", "サブ", scenemap.MotionStandby)
 		c2.Path = "sub" // app が空の1段の path
 		d.Cameras = []Camera{c1, c2}
-		d.Warnings = func() []string { return []string{"既存の警告"} }
+		d.WarningMessages = func() []i18n.Msg { return []i18n.Msg{i18n.Text("existing warning")} }
 		d.SlowReaders = func() []supervisor.SlowReader {
 			mu.Lock()
 			defer mu.Unlock()
@@ -38,14 +38,14 @@ func TestSlowReaderWarnings(t *testing.T) {
 
 	// 追いつかない path がなければ、既存の警告だけ。
 	h.tick(h.clk.Now())
-	if w := i18n.Strings(i18n.JA, h.core.Snapshot().OBS.Warnings); !slices.Equal(w, []string{"既存の警告"}) {
+	if w := i18n.Strings(i18n.JA, h.core.Snapshot().OBS.Warnings); !slices.Equal(w, []string{"existing warning"}) {
 		t.Fatalf("warnings = %v", w)
 	}
 
 	set(supervisor.SlowReader{Path: "live/main", Count: 4, Last: h.clk.Now()})
 	h.tick(h.clk.Now())
 	s := h.waitSnap("メインの警告", func(s Snapshot) bool { return len(s.OBS.Warnings) == 2 })
-	if i18n.Strings(i18n.JA, s.OBS.Warnings)[0] != "既存の警告" || i18n.Strings(i18n.JA, s.OBS.Warnings)[1] != "メイン "+slowWarnTail {
+	if i18n.Strings(i18n.JA, s.OBS.Warnings)[0] != "existing warning" || i18n.Strings(i18n.JA, s.OBS.Warnings)[1] != "メイン "+slowWarnTail {
 		t.Errorf("warnings = %v", i18n.Strings(i18n.JA, s.OBS.Warnings))
 	}
 	// 健康には入れない

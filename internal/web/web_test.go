@@ -147,13 +147,13 @@ func TestCommandErrors(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			b := &fakeBackend{err: c.err}
-			w := do(t, New(b, testPass), http.MethodPost, "/api/standby/on", reqOpt{header: ok1})
+			w := do(t, New(b, testPass), http.MethodPost, "/api/standby/on?lang=ja", reqOpt{header: ok1})
 			if w.Code != c.code {
 				t.Fatalf("code = %d, want %d", w.Code, c.code)
 			}
 			m := decodeBody(t, w)
 			msg, _ := m["error"].(string)
-			if msg == "" || len(m) != 1 {
+			if msg == "" || len(m) != 2 {
 				t.Fatalf("body = %v", m)
 			}
 			if !strings.Contains(msg, c.errorMsg) {
@@ -191,7 +191,7 @@ func TestUnauthorized(t *testing.T) {
 				t.Fatalf("WWW-Authenticate = %q", got)
 			}
 			m := decodeBody(t, w)
-			if _, ok := m["error"].(string); !ok || len(m) != 1 {
+			if _, ok := m["error"].(string); !ok || len(m) != 2 {
 				t.Fatalf("body = %v", m)
 			}
 			if body := w.Body.String(); strings.Contains(body, "rtsp://") || strings.Contains(body, "Camera") {
@@ -237,7 +237,7 @@ func TestForbiddenWithoutHeader(t *testing.T) {
 					t.Fatalf("code = %d, want 403", w.Code)
 				}
 				m := decodeBody(t, w)
-				if _, ok := m["error"].(string); !ok || len(m) != 1 {
+				if _, ok := m["error"].(string); !ok || len(m) != 2 {
 					t.Fatalf("body = %v", m)
 				}
 				if n := b.callCount(); n != 0 {

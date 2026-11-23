@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
+	"github.com/teru358/irl-live-keeper/internal/i18n"
 	"io"
 	"log/slog"
 	"net"
@@ -197,7 +198,7 @@ func TestGeneration生成停止とHidden(t *testing.T) {
 			if !reflect.DeepEqual(logger.secrets, []string{"secret-api"}) {
 				t.Errorf("追加の秘密=%v", logger.secrets)
 			}
-			if gotDeps.MediaMTX().State != "restarting" || len(gotDeps.Warnings()) == 0 {
+			if gotDeps.MediaMTX().State != "restarting" || len(gotDeps.WarningMessages()) == 0 {
 				t.Error("劣化状態が配線されていない")
 			}
 			if gotDeps.HiddenPath != hiddenPath(base) {
@@ -246,3 +247,5 @@ func TestGeneration生成停止とHidden(t *testing.T) {
 		})
 	}
 }
+
+func (*generationOBS) WarningMessages() []i18n.Msg { return []i18n.Msg{i18n.New("api.disconnected")} }

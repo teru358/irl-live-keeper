@@ -70,8 +70,7 @@ type Deps struct {
 	// SlowReaders は読み手（OBS）が追いつかない path の一覧を返す（supervisor.SlowReaders）。nil なら見ない。
 	// status の warnings に出すだけで、健康や切替には使わない。
 	SlowReaders func() []supervisor.SlowReader
-	// Warnings は OBS の接続時に見つかった警告を返す（obs.WS.Warnings）。nil なら警告なし。
-	Warnings        func() []string
+	// WarningMessages は OBS の接続時に見つかった警告を返す。nil なら警告なし。
 	WarningMessages func() []i18n.Msg
 	// MediaWatch は止まったメディアソースの見張り（カメラの spec 第3節）。nil なら見張らない。
 	MediaWatch MediaWatcher
@@ -83,12 +82,12 @@ type Deps struct {
 }
 
 // MediaWatcher はメディアソースの見張り（obs.MediaWatch）。Core は止まらないように、自分の別の
-// goroutine（mediaDispatcher）からだけ呼ぶ。Warnings は中核ループが Snapshot を作るときに呼ぶので、
+// goroutine（mediaDispatcher）からだけ呼ぶ。WarningMessages は中核ループが Snapshot を作るときに呼ぶので、
 // 止まらず速く戻ること。
 type MediaWatcher interface {
 	Watch(camera string, sources []obs.MediaSource)
 	CancelAll()
-	Warnings() []string
+	WarningMessages() []i18n.Msg
 }
 
 // camState は中核ループが持つカメラ1台の状態。
@@ -116,7 +115,6 @@ type Core struct {
 	cams            []*camState
 	samples         <-chan ingest.SampleSet
 	mediamtx        func() supervisor.Status
-	warnings        func() []string
 	warningMessages func() []i18n.Msg
 	slowRead        func() []supervisor.SlowReader
 	media           *mediaDispatcher // nil なら見張らない
@@ -154,7 +152,6 @@ type Core struct {
 	store       *hiddenStore
 	pers        *persister
 	stopTimeout time.Duration
-	loadWarning string
 	loadMessage i18n.Msg
 	syncWG      sync.WaitGroup // 同期の保存の goroutine（上限で諦めても、書き込みが戻るまで残る）
 	persistRev  int            // hidden.json の保存を求めた最後の HiddenRevision
@@ -208,7 +205,7 @@ func New(d Deps) *Core {
 	}
 	c := &Core{
 		m: d.Machine, obs: d.OBS,
-		samples: d.Samples, mediamtx: d.MediaMTX, warnings: d.Warnings, warningMessages: d.WarningMessages, slowRead: d.SlowReaders,
+		samples: d.Samples, mediamtx: d.MediaMTX, warningMessages: d.WarningMessages, slowRead: d.SlowReaders,
 		log: d.Log, tick: d.Tick, now: d.Now,
 		batches:   make(chan *switcher.Batch),
 		approvals: make(chan approveReq),
@@ -218,7 +215,7 @@ func New(d Deps) *Core {
 		stopCh:    make(chan stopReq),
 		unknown:   map[itemKey]bool{},
 
-		studioHide: d.StudioModeHide, stopTimeout: d.StopTimeout, loadWarning: d.HiddenLoadWarning, loadMessage: d.HiddenLoadMessage,
+		studioHide: d.StudioModeHide, stopTimeout: d.StopTimeout, loadMessage: d.HiddenLoadMessage,
 		itemSeq: map[uint64]uint64{}, itemLogs: map[int]*itemLog{}, sourceNames: map[string][]string{},
 		falseSent: map[itemKey]bool{}, shownKeys: map[itemKey]bool{},
 	}

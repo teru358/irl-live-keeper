@@ -218,7 +218,7 @@ func TestValidationErrorの形(t *testing.T) {
 }
 
 func TestByFieldは同じ項目の理由を句点でつなぐ(t *testing.T) {
-	ve := &ValidationError{Fields: []FieldError{{"a", "一つ目"}, {"b", "別"}, {"a", "二つ目"}}}
+	ve := &ValidationError{Fields: []FieldError{{Field: "a", Reason: "一つ目"}, {Field: "b", Reason: "別"}, {Field: "a", Reason: "二つ目"}}}
 	got := ve.ByField()
 	if got["a"] != "一つ目。二つ目" || got["b"] != "別" || len(got) != 2 {
 		t.Fatalf("%v", got)

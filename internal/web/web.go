@@ -33,26 +33,27 @@ type Backend interface {
 // New は管理用の JSON API を返す。
 func New(b Backend, password string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		lang := i18n.Select(r.URL.Query().Get("lang"), r.Header.Get("Accept-Language"))
 		kind, method, known := route(r.URL.Path)
 		if !known {
-			writeError(w, http.StatusNotFound, "not found")
+			writeError(w, http.StatusNotFound, lang, i18n.New("api.not_found"))
 			return
 		}
 
 		if !authorized(r, password) {
 			w.Header().Set("WWW-Authenticate", challenge)
-			writeError(w, http.StatusUnauthorized, "unauthorized")
+			writeError(w, http.StatusUnauthorized, lang, i18n.New("api.unauthorized"))
 			return
 		}
 
 		if r.Method != method {
 			w.Header().Set("Allow", method)
-			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			writeError(w, http.StatusMethodNotAllowed, lang, i18n.New("api.method"))
 			return
 		}
 
 		if method == http.MethodPost && r.Header.Get(headerName) != "1" {
-			writeError(w, http.StatusForbidden, "forbidden")
+			writeError(w, http.StatusForbidden, lang, i18n.New("api.forbidden"))
 			return
 		}
 
@@ -75,18 +76,26 @@ func New(b Backend, password string) http.Handler {
 		defer cancel()
 		if err := b.Command(ctx, kind); err != nil {
 			code := http.StatusInternalServerError
-			message := "internal server error"
+			message := i18n.New("api.internal")
 			var invalid switcher.ErrInvalidState
 			var disconnected switcher.ErrNotConnected
 			switch {
 			case errors.As(err, &invalid):
-				code, message = http.StatusConflict, err.Error()
+				code, message = http.StatusConflict, invalid.Message()
 			case errors.As(err, &disconnected):
-				code, message = http.StatusServiceUnavailable, err.Error()
+				code, message = http.StatusServiceUnavailable, i18n.New("api.disconnected")
 			case errors.Is(err, core.ErrStopped), errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
-				code, message = http.StatusServiceUnavailable, err.Error()
+				code = http.StatusServiceUnavailable
+				switch {
+				case errors.Is(err, core.ErrStopped):
+					message = i18n.New("api.stopped")
+				case errors.Is(err, context.DeadlineExceeded):
+					message = i18n.New("api.deadline")
+				default:
+					message = i18n.New("api.canceled")
+				}
 			}
-			writeError(w, code, message)
+			writeError(w, code, lang, message)
 			return
 		}
 
@@ -134,8 +143,8 @@ func equalHashed(a, b string) int {
 	return subtle.ConstantTimeCompare(ha[:], hb[:])
 }
 
-func writeError(w http.ResponseWriter, status int, message string) {
-	writeJSON(w, status, map[string]string{"error": message})
+func writeError(w http.ResponseWriter, status int, lang i18n.Lang, message i18n.Msg) {
+	writeJSON(w, status, map[string]string{"error": i18n.Render(lang, message), "code": message.Code})
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

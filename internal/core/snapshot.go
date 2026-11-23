@@ -168,17 +168,9 @@ func (c *Core) publish() {
 	}
 	if c.warningMessages != nil {
 		s.OBS.Warnings = append(s.OBS.Warnings, c.warningMessages()...)
-	} else if c.warnings != nil {
-		if w := c.warnings(); len(w) > 0 {
-			s.OBS.Warnings = append(s.OBS.Warnings, i18n.Messages(w)...)
-		}
 	}
 	if c.media != nil {
-		if w, ok := c.media.w.(interface{ WarningMessages() []i18n.Msg }); ok {
-			s.OBS.Warnings = append(s.OBS.Warnings, w.WarningMessages()...)
-		} else {
-			s.OBS.Warnings = append(s.OBS.Warnings, i18n.Messages(c.media.w.Warnings())...)
-		}
+		s.OBS.Warnings = append(s.OBS.Warnings, c.media.w.WarningMessages()...)
 	}
 	s.OBS.Warnings = append(s.OBS.Warnings, c.slowReaderWarnings()...)
 	if w := c.warnStudioMode(ms); w.Code != "" {
@@ -189,8 +181,6 @@ func (c *Core) publish() {
 	}
 	if c.loadMessage.Code != "" {
 		s.OBS.Warnings = append(s.OBS.Warnings, c.loadMessage)
-	} else if c.loadWarning != "" {
-		s.OBS.Warnings = append(s.OBS.Warnings, i18n.FromJapanese(c.loadWarning))
 	}
 	if c.store != nil && c.store.failing.Load() {
 		s.OBS.Warnings = append(s.OBS.Warnings, i18n.New("hidden.write"))
@@ -198,7 +188,7 @@ func (c *Core) publish() {
 	if c.mediamtx != nil {
 		st := c.mediamtx()
 		s.MediaMTX = st.State
-		c.noteMediaMTXError(st.LastError)
+		c.noteMediaMTXError(st.LastError, st.LastMessage)
 		if c.lastErr != nil && c.lastErr.Source == SourceMediaMTX && st.LastMessage.Code != "" {
 			c.lastErr.Message = st.LastMessage
 		}
@@ -221,9 +211,6 @@ func (c *Core) noteSwitcherError(e *switcher.ErrorInfo) {
 		return
 	}
 	v := *e
-	if v.Localized.Code == "" {
-		v.Localized = i18n.FromJapanese(e.Msg)
-	}
 	if p := c.prevSwErr; p != nil && p.At.Equal(v.At) && reflect.DeepEqual(p.Localized, v.Localized) {
 		return
 	}
@@ -232,13 +219,13 @@ func (c *Core) noteSwitcherError(e *switcher.ErrorInfo) {
 }
 
 // noteMediaMTXError は supervisor の LastError を見る。空になっても前の記録は消さない。
-func (c *Core) noteMediaMTXError(msg string) {
+func (c *Core) noteMediaMTXError(msg string, message i18n.Msg) {
 	if msg == c.prevMtxErr {
 		return
 	}
 	c.prevMtxErr = msg
 	if msg != "" {
-		c.offerError(LastError{At: c.now(), Source: SourceMediaMTX, Message: i18n.FromJapanese(msg)})
+		c.offerError(LastError{At: c.now(), Source: SourceMediaMTX, Message: message})
 	}
 }
 

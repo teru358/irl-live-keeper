@@ -451,7 +451,6 @@ func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 	deps.Samples = samples
 	deps.MediaMTX = sup.Status
 	deps.SlowReaders = sup.SlowReaders
-	deps.Warnings = obsClient.Warnings
 	if w, ok := obsClient.(interface{ WarningMessages() []i18n.Msg }); ok {
 		deps.WarningMessages = w.WarningMessages
 	}

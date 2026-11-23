@@ -113,55 +113,6 @@ func Text(s string) Msg {
 	return New("external.detail", "detail", s)
 }
 
-// 既存の文字列 API の互換用。文の解析規則は起動時に一度だけ作る。
-type legacyPattern struct {
-	code    string
-	names   []string
-	pattern *regexp.Regexp
-}
-
-var legacyPatterns = func() []legacyPattern {
-	var out []legacyPattern
-	for _, code := range Codes {
-		if code == "external.detail" {
-			continue
-		}
-		template := catalogs[JA][code]
-		matches := placeholder.FindAllStringSubmatch(template, -1)
-		parts := placeholder.Split(template, -1)
-		pattern := "^" + regexp.QuoteMeta(parts[0])
-		var names []string
-		for i, m := range matches {
-			names = append(names, m[1])
-			pattern += "(.*?)" + regexp.QuoteMeta(parts[i+1])
-		}
-		out = append(out, legacyPattern{code, names, regexp.MustCompile("(?s)" + pattern + "$")})
-	}
-	return out
-}()
-
-// FromJapanese は既存の文字列 API の呼出し元に互換性を保つ。
-func FromJapanese(s string) Msg {
-	for _, p := range legacyPatterns {
-		match := p.pattern.FindStringSubmatch(s)
-		if match == nil {
-			continue
-		}
-		m := New(p.code)
-		for i, name := range p.names {
-			m.Values[name] = match[i+1]
-		}
-		return m
-	}
-	return Text(s)
-}
-func Messages(ss []string) []Msg {
-	out := make([]Msg, len(ss))
-	for i, s := range ss {
-		out[i] = FromJapanese(s)
-	}
-	return out
-}
 func Strings(lang Lang, ms []Msg) []string {
 	out := make([]string, len(ms))
 	for i, m := range ms {

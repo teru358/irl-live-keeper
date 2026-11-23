@@ -160,17 +160,17 @@ func TestMediaWatchBlockedDoesNotStallCore(t *testing.T) {
 func TestMediaWatchWarningsMerged(t *testing.T) {
 	w := newFakeWatcher()
 	h := newHarness(t, withMediaWatch(w), func(_ *switcher.Config, d *Deps) {
-		d.Warnings = func() []string { return []string{"obs の警告"} }
+		d.WarningMessages = func() []i18n.Msg { return []i18n.Msg{i18n.Text("obs warning")} }
 	})
 	h.start()
 	h.sample(goodKbps)
 	h.waitSnap("obs の警告のみ", func(s Snapshot) bool {
-		return reflect.DeepEqual(i18n.Strings(i18n.JA, s.OBS.Warnings), []string{"obs の警告"})
+		return reflect.DeepEqual(i18n.Strings(i18n.JA, s.OBS.Warnings), []string{"obs warning"})
 	})
 	w.setWarnings("IRL が映っていない可能性があります")
 	h.sample(goodKbps)
 	h.waitSnap("合わせた警告", func(s Snapshot) bool {
-		return reflect.DeepEqual(i18n.Strings(i18n.JA, s.OBS.Warnings), []string{"obs の警告", "IRL が映っていない可能性があります"})
+		return reflect.DeepEqual(i18n.Strings(i18n.JA, s.OBS.Warnings), []string{"obs warning", "IRL が映っていない可能性があります"})
 	})
 }
 
@@ -181,4 +181,11 @@ func TestRoundKbps(t *testing.T) {
 			t.Errorf("roundKbps(%v) = %v, want %v", c.in, got, c.want)
 		}
 	}
+}
+
+func (f *fakeWatcher) WarningMessages() []i18n.Msg {
+	if len(f.Warnings()) == 0 {
+		return nil
+	}
+	return []i18n.Msg{i18n.New("obs.media", "name", "IRL")}
 }

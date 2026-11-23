@@ -879,3 +879,43 @@ type StandbyStatus struct {
 	// StackNames は Stack の今の地図での名前（地図になければ空文字列）。
 	StackNames []string
 }
+
+// Message は切替の目的を表示文として返す。
+func (p Purpose) Message() i18n.Msg {
+	codes := []string{"", "purpose.auto_fail", "purpose.auto_recover", "purpose.standby_on", "purpose.standby_off_monitored", "purpose.standby_off_other", "purpose.start_scene", "purpose.start_stream", "purpose.stop_stream", "purpose.hide_camera", "purpose.show_camera", "purpose.restore_all"}
+	if int(p) > 0 && int(p) < len(codes) {
+		return i18n.New(codes[p])
+	}
+	return i18n.Text(p.String())
+}
+
+func (e ErrInvalidState) Message() i18n.Msg {
+	var reason i18n.Msg
+	switch e.Reason {
+	case ReasonStreaming:
+		reason = i18n.New("api.reason_streaming")
+	case ReasonNotStreaming:
+		reason = i18n.New("api.reason_not_streaming")
+	case ReasonAlreadyStandby:
+		reason = i18n.New("api.reason_already_standby")
+	case ReasonNotManual:
+		reason = i18n.New("api.reason_not_manual")
+	case ReasonSamePending:
+		reason = i18n.New("api.reason_same_pending")
+	case ReasonSwitchInProcess:
+		reason = i18n.New("api.reason_switch_in_process")
+	case ReasonStandbyNotFound:
+		reason = i18n.New("api.reason_standby_not_found")
+	case ReasonStopping:
+		reason = i18n.New("api.reason_stopping")
+	case ReasonOffNoTarget:
+		reason = i18n.New("api.reason_off_no_target")
+	case "未知の操作":
+		reason = i18n.New("api.reason_unknown")
+	default:
+		reason = i18n.Text(e.Reason)
+	}
+	m := i18n.New("api.invalid")
+	m.Values["reason"] = reason
+	return m
+}

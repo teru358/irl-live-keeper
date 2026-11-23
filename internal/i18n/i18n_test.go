@@ -48,7 +48,7 @@ func TestCatalogs(t *testing.T) {
 		var names [][]string
 		for _, lang := range []Lang{JA, EN} {
 			s, ok := catalogs[lang][code]
-			if !ok {
+			if !ok || s == "" {
 				t.Errorf("%s に %s がない", lang, code)
 			}
 			var ns []string
@@ -76,23 +76,6 @@ func TestEnglishFallback(t *testing.T) {
 	defer delete(catalogs[EN], "test.fallback")
 	if got := Render(JA, New("test.fallback", "name", "IRL")); got != "Hello IRL" {
 		t.Fatal(got)
-	}
-}
-
-func TestLegacyRoundTrip(t *testing.T) {
-	for _, code := range Codes {
-		if code == "external.detail" {
-			continue
-		}
-		m := New(code)
-		for _, name := range placeholder.FindAllStringSubmatch(catalogs[JA][code], -1) {
-			m.Values[name[1]] = "test"
-		}
-		text := Render(JA, m)
-		got := FromJapanese(text)
-		if got.Code != code || Render(JA, got) != text {
-			t.Errorf("互換変換: %s → %+v", code, got)
-		}
 	}
 }
 

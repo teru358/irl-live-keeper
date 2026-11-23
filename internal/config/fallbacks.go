@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"github.com/teru358/irl-live-keeper/internal/i18n"
 	"strings"
 )
 
@@ -14,7 +15,7 @@ type SceneFallback struct {
 
 // validateSceneFallbacks は obs.scene_fallbacks を検証する（OBS への接続は不要）。
 // 行番号は人向けに 1 始まり、項目名は obs.scene_fallbacks[i].scene / .fallback。
-func (c *Config) validateSceneFallbacks(add func(field, reason string)) {
+func (c *Config) validateSceneFallbacks(add func(field string, reason i18n.Msg)) {
 	rows := c.OBS.SceneFallbacks
 	field := func(i int, item string) string {
 		return fmt.Sprintf("obs.scene_fallbacks[%d].%s", i, item)
@@ -24,25 +25,25 @@ func (c *Config) validateSceneFallbacks(add func(field, reason string)) {
 	first := map[string]int{}
 	for i, r := range rows {
 		if r.Scene == "" {
-			add(field(i, "scene"), "空にできません。逃がす元のシーン名を書いてください（空白だけの名前とは区別します）")
+			add(field(i, "scene"), i18n.New("config.validation_28"))
 		}
 		if r.Fallback == "" {
-			add(field(i, "fallback"), "空にできません。逃がし先のシーン名を書いてください（待機シーンへ逃がすなら行ごと消します）")
+			add(field(i, "fallback"), i18n.New("config.validation_29"))
 		}
 		if r.Scene == "" {
 			continue
 		}
 		if r.Scene == c.OBS.StandbyScene {
-			add(field(i, "scene"), fmt.Sprintf("%d 行目: %q は obs.standby_scene（待機シーン）です。待機シーンを元にはできません。元を普通のシーンの名前に変えるか、この行を消してください", i+1, r.Scene))
+			add(field(i, "scene"), i18n.New("config.validation_30", "a", fmt.Sprintf("%d", i+1), "b", fmt.Sprintf("%q", r.Scene)))
 			continue
 		}
 		if j, dup := first[r.Scene]; dup {
-			add(field(i, "scene"), fmt.Sprintf("%d 行目: %q は %d 行目と重複しています。同じシーンの逃がし先は1つだけです。1行にまとめてください", i+1, r.Scene, j+1))
+			add(field(i, "scene"), i18n.New("config.validation_31", "a", fmt.Sprintf("%d", i+1), "b", fmt.Sprintf("%q", r.Scene), "c", fmt.Sprintf("%d", j+1)))
 			continue
 		}
 		first[r.Scene] = i
 		if r.Fallback == r.Scene {
-			add(field(i, "fallback"), fmt.Sprintf("%d 行目: %s→%s は長さ1の輪です（自分自身へは逃がせません）。fallback を別のシーン（または待機シーン）に変えてください", i+1, r.Scene, r.Fallback))
+			add(field(i, "fallback"), i18n.New("config.validation_32", "a", fmt.Sprintf("%d", i+1), "b", fmt.Sprintf("%s", r.Scene), "c", fmt.Sprintf("%s", r.Fallback)))
 		}
 	}
 
@@ -89,7 +90,7 @@ func (c *Config) validateSceneFallbacks(add func(field, reason string)) {
 }
 
 // reportCycle は輪を1回だけ報告する。箇所は輪のなかで最も上の行の fallback。
-func reportCycle(cycle []string, first map[string]int, add func(field, reason string), field func(int, string) string) {
+func reportCycle(cycle []string, first map[string]int, add func(field string, reason i18n.Msg), field func(int, string) string) {
 	if len(cycle) < 2 {
 		return
 	}
@@ -102,7 +103,7 @@ func reportCycle(cycle []string, first map[string]int, add func(field, reason st
 	rot := append(append([]string{}, cycle[top:]...), cycle[:top]...)
 	rot = append(rot, rot[0])
 	row := first[rot[0]]
-	add(field(row, "fallback"), fmt.Sprintf("%d 行目: %s の輪になっています。輪のどこか1行の fallback を、輪の外のシーン（または待機シーン）に変えるか、その行を消して輪を切ってください", row+1, strings.Join(rot, "→")))
+	add(field(row, "fallback"), i18n.New("config.validation_33", "a", fmt.Sprintf("%d", row+1), "b", fmt.Sprintf("%s", strings.Join(rot, "→"))))
 }
 
 // StandbyRenameWarnings は、保存のときに旧設定 prev と、保存に成功した新設定 next を比べて、

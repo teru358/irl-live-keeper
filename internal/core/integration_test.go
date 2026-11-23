@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/teru358/irl-live-keeper/internal/i18n"
 	"io"
 	"log/slog"
 	"math/rand"
@@ -82,11 +83,11 @@ func (r *runner) startGen(autoOn bool, studioHide string) {
 	gnum := w.gen
 	w.fbOnNewGenLocked()
 	w.mu.Unlock()
-	entries, warn := LoadHidden(r.path)
+	entries, warn := LoadHiddenMessage(r.path)
 	g := &gen{samples: make(chan ingest.SampleSet), ticks: make(chan time.Time), done: make(chan struct{})}
 	deps := Deps{
 		OBS: &genClient{w: w, gen: gnum}, StandbyScene: standby, Cameras: w.deviceCameras(), AutoEnabled: autoOn,
-		StudioModeHide: studioHide, HiddenPath: r.path, HiddenRestored: entries, HiddenLoadWarning: warn,
+		StudioModeHide: studioHide, HiddenPath: r.path, HiddenRestored: entries, HiddenLoadMessage: warn,
 		HiddenWrite: r.hw.wrap(nil), HiddenRetry: 5 * time.Millisecond, StopTimeout: 300 * time.Millisecond,
 		Samples: g.samples, Tick: g.ticks, Now: r.clk.Now,
 		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
@@ -96,7 +97,7 @@ func (r *runner) startGen(autoOn bool, studioHide string) {
 		w.mu.Lock()
 		deps.SceneFallbacks = slices.Clone(w.fb.rows)
 		w.mu.Unlock()
-		deps.Warnings = func() []string { return []string{fbObsWarning} }
+		deps.WarningMessages = func() []i18n.Msg { return []i18n.Msg{i18n.Text(fbObsWarning)} }
 		if r.logBuf != nil {
 			deps.Log = slog.New(slog.NewTextHandler(r.logBuf, nil))
 		}
@@ -112,8 +113,8 @@ func (r *runner) startGen(autoOn bool, studioHide string) {
 	g.cancel = cancel
 	go func() { defer close(g.done); g.core.Run(ctx) }()
 	r.cur = g
-	if warn != "" {
-		r.fatalf("hidden.json を読めなかった: %s", warn)
+	if warn.Code != "" {
+		r.fatalf("hidden.json を読めなかった: %s", i18n.Render(i18n.JA, warn))
 	}
 	w.mu.Lock()
 	connected := w.connected

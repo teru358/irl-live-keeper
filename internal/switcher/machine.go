@@ -698,7 +698,7 @@ func (m *Machine) expire(at time.Time) {
 			continue
 		}
 		if x.Purpose == PurposeStartScene || x.Purpose.FromCommand() {
-			m.recordError(at, i18n.New("switch.unconfirmed", "purpose", x.Purpose.String(), "scene", m.sceneLabel(x.Scene)))
+			m.recordError(at, purposeMessage(i18n.New("switch.unconfirmed", "purpose", x.Purpose.String(), "scene", m.sceneLabel(x.Scene)), x.Purpose))
 		}
 	}
 	s.Expectations = kept
@@ -718,17 +718,17 @@ func (m *Machine) onBatchDone(e BatchDone) []Batch {
 	switch e.Result {
 	case BatchCompleted:
 		if e.Err != nil {
-			m.recordError(e.At, i18n.New("switch.partial", "purpose", pb.Purpose.String(), "error", e.Err.Error()))
+			m.recordError(e.At, purposeMessage(i18n.New("switch.partial", "purpose", pb.Purpose.String(), "error", e.Err.Error()), pb.Purpose))
 		}
 	case BatchFailed:
-		msg := i18n.New("switch.failed", "purpose", pb.Purpose.String())
+		msg := purposeMessage(i18n.New("switch.failed", "purpose", pb.Purpose.String()), pb.Purpose)
 		if e.Err != nil {
-			msg = i18n.New("switch.failed_detail", "purpose", pb.Purpose.String(), "error", e.Err.Error())
+			msg = purposeMessage(i18n.New("switch.failed_detail", "purpose", pb.Purpose.String(), "error", e.Err.Error()), pb.Purpose)
 		}
 		m.recordError(e.At, msg)
 	case BatchRejected:
 		if (pb.Purpose.FromCommand() || pb.Purpose == PurposeStartScene) && !pb.ManualRejected {
-			m.recordError(e.At, i18n.New("switch.rejected", "purpose", pb.Purpose.String()))
+			m.recordError(e.At, purposeMessage(i18n.New("switch.rejected", "purpose", pb.Purpose.String()), pb.Purpose))
 		}
 	}
 	// 未完了が解消したので判断し直す（StartScene・AutoRecover・OFF の未完了の抑止、承認で却下した候補の再判断）。
@@ -1020,4 +1020,9 @@ func (m *Machine) commandRefusal(k CommandKind) string {
 		return "未知の操作"
 	}
 	return ""
+}
+
+func purposeMessage(msg i18n.Msg, purpose Purpose) i18n.Msg {
+	msg.Values["purpose"] = purpose.Message()
+	return msg
 }
