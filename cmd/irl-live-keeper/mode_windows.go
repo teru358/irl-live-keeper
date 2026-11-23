@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/teru358/irl-live-keeper/internal/app"
 	"github.com/teru358/irl-live-keeper/internal/gui"
 	"github.com/teru358/irl-live-keeper/internal/single"
 	"golang.org/x/sys/windows"
@@ -67,9 +68,9 @@ func acquireInstance(base string, graphical bool) (func(), string, bool, error) 
 	}
 	return cleanup, hash, duplicate, nil
 }
-func runMode(ctx context.Context, stop context.CancelFunc, graphical bool, hash string, run func(context.Context) int) int {
+func runMode(ctx context.Context, stop context.CancelFunc, graphical bool, hash string, runner *app.App) int {
 	if !graphical {
-		return run(ctx)
+		return runner.Run(ctx)
 	}
-	return gui.Run(ctx, stop, single.ClassName(hash), run)
+	return gui.Run(ctx, stop, single.ClassName(hash), runner)
 }

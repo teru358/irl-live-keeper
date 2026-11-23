@@ -248,6 +248,14 @@
     "sender_qr_show": "QR を表示",
     "sender_qr_hide": "QR を隠す",
     "sender_qr_password": "この QR にはパスワードが入っています",
-    "sender_qr_alt": "送信用 URL の QR コード"
+    "sender_qr_alt": "送信用 URL の QR コード",
+    "window_open": "管理ページを開く",
+    "window_exit": "終了",
+    "window_logs": "ログを開く",
+    "window_retry": "もう一度試す",
+    "window_exit_confirm": "終了しますか？",
+    "window_stream_warning": "終了すると自動切替が止まります",
+    "window_generated": "config.yaml を作りました。送信用 URL は管理ページで確かめてください",
+    "window_applying": "設定を反映しています（再起動中）"
   }
 }

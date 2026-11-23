@@ -248,6 +248,14 @@
     "sender_qr_show": "Show QR code",
     "sender_qr_hide": "Hide QR code",
     "sender_qr_password": "This QR code contains the password.",
-    "sender_qr_alt": "QR code for the streaming URL"
+    "sender_qr_alt": "QR code for the streaming URL",
+    "window_open": "Open admin page",
+    "window_exit": "Exit",
+    "window_logs": "Open logs",
+    "window_retry": "Try again",
+    "window_exit_confirm": "Exit the application?",
+    "window_stream_warning": "Automatic switching stops when you exit.",
+    "window_generated": "Created config.yaml. Check publishing URLs on the admin page.",
+    "window_applying": "Applying settings (restarting)"
   }
 }

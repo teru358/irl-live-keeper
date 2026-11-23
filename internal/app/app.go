@@ -155,23 +155,27 @@ type generation struct {
 }
 
 type App struct {
-	generationID  uint64
-	auth          *web.Auth
-	adminPassword string
-	adminPort     int
-	opts          Options
-	initErr       error
-	initWarned    bool
-	deps          appDeps
-	mu            sync.Mutex
-	apply         Apply
-	hash          [32]byte
-	current       *generation
-	restarts      chan struct{}
-	running       bool
-	secrets       []string
-	bannerShown   bool
-	consoleLang   i18n.Lang
+	windowLang             i18n.Lang
+	windowClose, windowLog string
+	windowGenerated        bool
+	windowPort             int
+	generationID           uint64
+	auth                   *web.Auth
+	adminPassword          string
+	adminPort              int
+	opts                   Options
+	initErr                error
+	initWarned             bool
+	deps                   appDeps
+	mu                     sync.Mutex
+	apply                  Apply
+	hash                   [32]byte
+	current                *generation
+	restarts               chan struct{}
+	running                bool
+	secrets                []string
+	bannerShown            bool
+	consoleLang            i18n.Lang
 }
 
 func newApp(opts Options, deps appDeps) *App {
@@ -384,6 +388,13 @@ func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 		return nil, &generationError{"config.load", errors.New(consoleErr)}
 	}
 	lang := i18n.Resolve(cfg.Language, i18n.OSLang)
+	a.mu.Lock()
+	a.windowLang = lang
+	a.windowClose = cfg.GUI.CloseAction
+	a.windowLog = resolvePath(base, cfg.Log.Dir)
+	a.windowGenerated = a.windowGenerated || generated
+	a.windowPort = cfg.Admin.Port
+	a.mu.Unlock()
 	a.consoleLang = lang
 	candidate := sha256.Sum256(raw)
 	a.rememberSecrets(cfg.Admin.Password, cfg.Stream.PublishPass, cfg.Stream.ReadPass, cfg.OBS.Password)

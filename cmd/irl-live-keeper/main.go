@@ -69,9 +69,9 @@ func runMain() int {
 	terminal := statErr == nil && st.Mode()&os.ModeCharDevice != 0
 	out := outputForMode(mode.gui, os.Stdout)
 	errOut := outputForMode(mode.gui, os.Stderr)
-	run := app.Prepare(app.Options{BaseDir: base, ExeDir: exeDir, Stdout: out, Stderr: errOut,
+	runner := app.PrepareWindow(app.Options{BaseDir: base, ExeDir: exeDir, Stdout: out, Stderr: errOut,
 		StdoutIsTerminal: func() bool { return terminal }, InvocationID: os.Getenv("INVOCATION_ID"), CrashDir: crashDir, CrashPath: crashPath, StartedAt: started})
-	code := runMode(ctx, stop, mode.gui, hash, run)
+	code := runMode(ctx, stop, mode.gui, hash, runner)
 	if mode.pause && shouldPause(code, consoleProcessCount) {
 		waitEnterLanguage(os.Stdin, os.Stderr, i18n.OSLang())
 	}
