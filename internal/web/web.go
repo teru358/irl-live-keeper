@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/teru358/irl-live-keeper/internal/i18n"
+	"github.com/teru358/irl-live-keeper/internal/obs"
 	"log/slog"
 	"net/http"
 	"slices"
@@ -57,6 +58,10 @@ func apiHandler(b Backend, recent interface {
 			return
 		}
 
+		if r.URL.Path == "/api/obs/scenes" || r.URL.Path == "/api/obs/scene" {
+			serveScenes(w, r, b, lang)
+			return
+		}
 		if r.URL.Path == "/api/logs" {
 			raw := r.URL.Query().Get("lines")
 			n := 500
@@ -152,8 +157,10 @@ func apiHandler(b Backend, recent interface {
 
 func route(path string) (switcher.CommandKind, string, bool) {
 	switch path {
-	case "/api/events", "/api/status", "/api/logs":
+	case "/api/obs/scenes", "/api/events", "/api/status", "/api/logs":
 		return 0, http.MethodGet, true
+	case "/api/obs/scene":
+		return 0, http.MethodPost, true
 	case "/api/restart":
 		return 0, http.MethodPost, true
 	case "/api/stream/start":
@@ -213,4 +220,49 @@ func statusValue(b Backend, value any) any {
 		}
 	}
 	return out
+}
+
+func serveScenes(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.Lang) {
+	a, ok := b.(interface {
+		Scenes() ([]obs.Scene, error)
+		SelectScene(context.Context, string) error
+	})
+	if !ok {
+		writeError(w, 503, lang, i18n.New("api.disconnected"))
+		return
+	}
+	var err error
+	if r.Method == http.MethodGet {
+		var list []obs.Scene
+		list, err = a.Scenes()
+		if err == nil {
+			writeJSON(w, 200, list)
+			return
+		}
+	} else {
+		var body struct {
+			UUID string `json:"scene_uuid"`
+		}
+		d := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
+		d.DisallowUnknownFields()
+		if d.Decode(&body) != nil || body.UUID == "" {
+			writeError(w, 400, lang, i18n.New("api.invalid", "reason", "scene_uuid"))
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), commandTimeout)
+		defer cancel()
+		err = a.SelectScene(ctx, body.UUID)
+		if err == nil {
+			writeJSON(w, 200, map[string]bool{"ok": true})
+			return
+		}
+	}
+	code, msg := 502, "api.scene_failed"
+	switch {
+	case errors.Is(err, core.ErrSceneMissing):
+		code, msg = 404, "api.scene_missing"
+	case errors.Is(err, obs.ErrAuxUnavailable), errors.Is(err, obs.ErrAuxClosed), errors.Is(err, obs.ErrAuxTimeout), errors.Is(err, core.ErrStopped), errors.Is(err, context.DeadlineExceeded):
+		code, msg = 503, "api.disconnected"
+	}
+	writeError(w, code, lang, i18n.New(msg))
 }

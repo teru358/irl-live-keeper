@@ -80,6 +80,7 @@ type fakeOBS struct {
 	inflight atomic.Int32 // 実行中の操作の数
 
 	onScene    func(name string) error
+	onSelect   func(uuid string) error // 補助の接続のシーンの切り替え（nil なら成功）
 	onRestart  func(input string) error
 	onStart    func() error
 	onStop     func() error

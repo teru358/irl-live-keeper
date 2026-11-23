@@ -142,6 +142,9 @@ func (m *Machine) Handle(ev Event) ([]Batch, error) {
 		return m.onConnected(e), nil
 	case OBSDisconnected:
 		m.onDisconnected()
+	case HumanSceneSelected:
+		m.st.Expectations = nil
+		return m.onSceneChanged(SceneChanged{At: e.At, SceneUUID: e.SceneUUID}), nil
 	case SceneChanged:
 		return m.onSceneChanged(e), nil
 	case TransitionChanged:

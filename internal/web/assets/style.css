@@ -1,3 +1,6 @@
 *{box-sizing:border-box}body{font:18px system-ui,sans-serif;margin:0;padding:1rem;background:#f4f6f8;color:#172332}header,main,form,details{max-width:70rem;margin:auto}button,input,summary{font:inherit;min-height:48px;padding:.7rem;margin:.3rem;border-radius:.4rem}button,summary{cursor:pointer}section{padding:.6rem;background:white;margin-bottom:.6rem;border-radius:.4rem}nav,#actions{display:flex;flex-wrap:wrap}#admin{display:grid;grid-template-columns:15rem 1fr;gap:1rem}[hidden]{display:none!important}nav{flex-direction:column}p{overflow-wrap:anywhere}#error,#connection{color:#923000}input{max-width:100%}@media(max-width:700px){#admin{display:block}nav{flex-direction:row}button{flex:1 1 10rem}main{width:100%}}
 
 #log-lines{max-height:65vh;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;background:#101820;color:#edf4fa;padding:1rem;border-radius:.4rem}#language-switch{display:flex;gap:.5rem;justify-content:center}#language-switch button{min-width:8rem;min-height:52px}
+
+#scenes button { min-height: 56px; min-width: 140px; margin: 6px; }
+#scenes button[aria-pressed="true"] { border: 4px solid currentColor; font-weight: bold; }

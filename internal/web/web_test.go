@@ -374,7 +374,7 @@ func TestStatusShapeFull(t *testing.T) {
 	eqKeys(t, "cameras[0]", cam, "id", "name", "on_bad", "state", "kbps", "online", "protocol", "srt", "sources", "hidden", "user_shown", "unusable")
 	eqKeys(t, "cameras[0].srt", cam["srt"], "rtt_ms", "loss_rate", "recv_mbps")
 	o := m["obs"].(map[string]any)
-	eqKeys(t, "obs", o, "connected", "streaming", "scene", "scene_class", "scene_cameras", "scene_health", "studio_mode", "standby", "auto_enabled", "warnings")
+	eqKeys(t, "obs", o, "connected", "streaming", "scene", "scene_uuid", "scene_class", "scene_cameras", "scene_health", "studio_mode", "standby", "auto_enabled", "warnings")
 	eqKeys(t, "obs.standby", o["standby"], "owner", "return_scene", "stack")
 	urls := m["urls"].([]any)
 	if len(urls) != 2 {

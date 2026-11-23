@@ -141,7 +141,9 @@
     "service.usage": "Specify service install or service uninstall.",
     "service.linux_only": "service is available on Linux only.",
     "service.need_value": "{flag} needs a value.",
-    "service.unknown_arg": "Unknown argument: {arg}"
+    "service.unknown_arg": "Unknown argument: {arg}",
+    "api.scene_missing": "Scene not found",
+    "api.scene_failed": "Scene switch failed"
   },
   "ui": {
     "title": "IRL Live Keeper",
@@ -185,6 +187,8 @@
     "failed": "Operation failed",
     "show_all": "Show all camera sources",
     "confirm_show": "Manually hidden camera sources will also be shown. Continue?",
-    "down": "Stopped"
+    "down": "Stopped",
+    "scenes": "Scenes",
+    "current_scene": "Current"
   }
 }

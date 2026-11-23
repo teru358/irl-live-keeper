@@ -606,7 +606,7 @@ const specStatusJSON = `{
     {"id": "sub", "name": "サブ", "on_bad": "hide", "state": "DOWN", "kbps": 0, "online": false, "protocol": "", "srt": null,
      "sources": [], "hidden": 0, "user_shown": false, "unusable": false}
   ],
-  "obs":     {"connected": true, "streaming": false, "scene": "Camera", "scene_class": "monitored",
+  "obs":     {"connected": true, "streaming": false, "scene": "Camera", "scene_uuid": "Camera", "scene_class": "monitored",
               "scene_cameras": ["main"], "scene_health": "LOW", "studio_mode": false,
               "standby": {"owner": "none", "return_scene": null, "stack": []},
               "auto_enabled": true,

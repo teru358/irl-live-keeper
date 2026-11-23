@@ -12,3 +12,5 @@ func init() {
 	Codes = append(Codes, "banner.title", "banner.publish", "banner.host_missing", "banner.outdoor", "banner.obs", "banner.admin", "banner.admin_user", "banner.password", "banner.camera_label", "banner.lan_note", "banner.lan_missing", "banner.sensitive_note", "console.logger_open", "console.port_check", "console.listen", "console.serve", "console.config_load", "console.config_invalid", "console.executable", "console.pause", "console.rollback")
 	Codes = append(Codes, "service.root", "service.root_user", "service.write_error", "service.missing", "service.install_user", "service.install_system", "service.uninstall_user", "service.uninstall_system", "service.url", "service.lan", "service.vpn", "service.linger", "service.usage", "service.linux_only", "service.need_value", "service.unknown_arg")
 }
+
+func init() { Codes = append(Codes, "api.scene_missing", "api.scene_failed") }

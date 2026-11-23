@@ -141,7 +141,9 @@
     "service.usage": "service install か service uninstall を指定してください",
     "service.linux_only": "service は Linux だけで使えます",
     "service.need_value": "{flag} に値が必要です",
-    "service.unknown_arg": "知らない引数です: {arg}"
+    "service.unknown_arg": "知らない引数です: {arg}",
+    "api.scene_missing": "シーンが見つかりません",
+    "api.scene_failed": "シーンの切替に失敗しました"
   },
   "ui": {
     "title": "IRL Live Keeper",
@@ -185,6 +187,8 @@
     "failed": "操作に失敗しました",
     "show_all": "カメラのソースをすべて表示に戻す",
     "confirm_show": "手で隠したカメラのソースも表示に戻ります。続けますか？",
-    "down": "停止"
+    "down": "停止",
+    "scenes": "シーン一覧",
+    "current_scene": "現在"
   }
 }

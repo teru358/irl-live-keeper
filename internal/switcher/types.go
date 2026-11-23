@@ -919,3 +919,11 @@ func (e ErrInvalidState) Message() i18n.Msg {
 	m.Values["reason"] = reason
 	return m
 }
+
+// HumanSceneSelected は管理画面から成功した人の切替。
+type HumanSceneSelected struct {
+	At        time.Time
+	SceneUUID string
+}
+
+func (e HumanSceneSelected) eventAt() time.Time { return e.At }

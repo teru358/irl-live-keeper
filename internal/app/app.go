@@ -729,3 +729,12 @@ func (b *pageBackend) SubscribeEvents(n int) *core.EventSub {
 	}
 	return &core.EventSub{}
 }
+
+func (b *pageBackend) Scenes() ([]obs.Scene, error) {
+	return b.Backend.(interface{ Scenes() ([]obs.Scene, error) }).Scenes()
+}
+func (b *pageBackend) SelectScene(ctx context.Context, uuid string) error {
+	return b.Backend.(interface {
+		SelectScene(context.Context, string) error
+	}).SelectScene(ctx, uuid)
+}

@@ -54,6 +54,7 @@ type SRTStatus struct {
 type OBSStatus struct {
 	Connected  bool   `json:"connected"`
 	Streaming  bool   `json:"streaming"`
+	SceneUUID  string `json:"scene_uuid"`
 	Scene      string `json:"scene"`       // 地図の名前（なければ UUID）
 	SceneClass string `json:"scene_class"` // monitored / standby / other / unknown
 	// SceneCameras は今のシーンに映るカメラの id（辞書順。空でも [] にする）。
@@ -109,6 +110,7 @@ func (c *Core) publish() {
 		OBS: OBSStatus{
 			Connected:    ms.Connected,
 			Streaming:    ms.Streaming,
+			SceneUUID:    ms.Scene,
 			Scene:        c.sceneLabel(ms.Scene, ms.SceneName),
 			SceneClass:   ms.Class.String(),
 			SceneCameras: append([]string{}, ms.VisibleCameras...),

@@ -184,6 +184,7 @@ type approveReq struct {
 
 // cmdReq は Command の要求。reply は容量1。
 type cmdReq struct {
+	scene string
 	kind  switcher.CommandKind
 	reply chan error
 }
@@ -347,7 +348,11 @@ func (c *Core) loop(ctx context.Context, tick <-chan time.Time) {
 			c.handle(switcher.Tick{At: at})
 		case req := <-c.cmds:
 			// reply は容量1なので止まらない。
-			req.reply <- c.handle(switcher.Command{At: c.now(), Kind: req.kind})
+			if req.scene != "" {
+				req.reply <- c.selectScene(req.scene)
+			} else {
+				req.reply <- c.handle(switcher.Command{At: c.now(), Kind: req.kind})
+			}
 		case req := <-c.stopCh:
 			c.beginStop(req)
 		case req := <-c.approvals:

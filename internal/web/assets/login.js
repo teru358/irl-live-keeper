@@ -31,7 +31,15 @@ if (!boot.login) {
  });
  let restarting = false, since = 0;
  function connection() { text('connection', restarting ? t('restarting') + (Date.now()-since >= 30000 ? ' ' + t('restart_help') : '') : t('disconnected')); }
+ let sceneList=[], currentScene='', pendingScene='', sceneTimer;
+ function drawScenes(){el('scenes').replaceChildren(...sceneList.map(s=>{const b=document.createElement('button');const current=s.uuid===currentScene;b.textContent=s.name+(current?' · '+t('current_scene'):'');b.setAttribute('aria-pressed',String(current));b.disabled=!!pendingScene;b.onclick=async()=>{pendingScene=s.uuid;drawScenes();sceneTimer=setTimeout(()=>{pendingScene='';drawScenes();text('error',t('failed'));},10000);try{await request('obs/scene',{scene_uuid:s.uuid});}catch(e){clearTimeout(sceneTimer);pendingScene='';drawScenes();text('error',e.message);}};return b;}));}
+ async function loadScenes(){try{sceneList=await request('obs/scenes');drawScenes();}catch(e){text('error',e.message);}}
+ loadScenes();
+ let wasConnected=false;
  function render(s) {
+ currentScene=s.obs.scene_uuid;
+ if(pendingScene && (currentScene===pendingScene || !s.obs.connected)){clearTimeout(sceneTimer);pendingScene='';}
+ if(s.obs.connected && !wasConnected)loadScenes();wasConnected=s.obs.connected;drawScenes();
   if(s.apply?.state === 'applying' && s.apply?.kind === 'restart') { if(!restarting) since=Date.now(); restarting=true; connection(); } else { restarting=false; text('connection',''); }
   el('cameras').replaceChildren(...(s.cameras || []).map(c => { const p=document.createElement('p'); p.textContent=c.name+' : '+c.state+' · '+c.kbps+' kbps'+(c.protocol === 'srt' && c.srt ? ' · RTT '+c.srt.rtt_ms+' ms · '+c.srt.loss_rate+' %' : ''); return p; }));
   const o=s.obs, v=o.standby;
