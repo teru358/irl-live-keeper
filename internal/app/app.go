@@ -135,6 +135,7 @@ type Apply struct {
 }
 
 type generation struct {
+	events   *web.Events
 	lang     i18n.Lang
 	ctx      context.Context
 	cancel   context.CancelFunc
@@ -522,6 +523,18 @@ func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 	c := a.deps.newCore(deps)
 	g.core = c
 	stage("receivers.register")
+	var eventLogger interface {
+		Subscribe(int) (<-chan logging.Line, func())
+	}
+	if l, ok := logger.(interface {
+		Subscribe(int) (<-chan logging.Line, func())
+	}); ok {
+		eventLogger = l
+	}
+	g.events = web.NewEvents(c, eventLogger, func() any {
+		v := a.Apply()
+		return map[string]any{"state": v.State, "kind": v.Kind, "reason": v.Reason}
+	}, lang)
 
 	stage("parts.start")
 	g.started = true
@@ -533,6 +546,9 @@ func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 
 	// 管理 API。待ち受けに失敗したときも、部品を止めてから終了する
 	srv := a.deps.newHTTP(c, cfg.Admin.Password, lang)
+	if h, ok := srv.(*http.Server); ok {
+		h.Handler = web.NewWithEvents(c, cfg.Admin.Password, a.adminPort, a.auth, g.events, lang)
+	}
 	g.serveErr = make(chan error, 1)
 	addr := listenAddr(cfg.Admin.Port, cfg.Admin.LAN)
 	stage("http.listen")
@@ -586,6 +602,9 @@ func (g *generation) stopGeneration() {
 		stopCancel()
 	}
 	stage("sse.close")
+	if g.events != nil {
+		g.events.Close()
+	}
 	if srv != nil {
 		stage("http.shutdown")
 		shutCtx, shutCancel := context.WithTimeout(context.Background(), shutdownTimeout)

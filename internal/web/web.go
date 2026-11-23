@@ -99,7 +99,7 @@ func apiHandler(b Backend, defaultLang ...i18n.Lang) http.Handler {
 
 func route(path string) (switcher.CommandKind, string, bool) {
 	switch path {
-	case "/api/status":
+	case "/api/events", "/api/status":
 		return 0, http.MethodGet, true
 	case "/api/stream/start":
 		return switcher.CmdStreamStart, http.MethodPost, true

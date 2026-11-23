@@ -171,6 +171,11 @@ func New(b Backend, password string, langs ...i18n.Lang) http.Handler {
 
 // NewWithAuth は世代ごとのルーターに、App が持つ認証の記憶を渡す。
 func NewWithAuth(b Backend, password string, port int, a *Auth, langs ...i18n.Lang) http.Handler {
+	return NewWithEvents(b, password, port, a, nil, langs...)
+}
+
+// NewWithEvents は認証済みの接続を世代の配信係へ渡す。
+func NewWithEvents(b Backend, password string, port int, a *Auth, events *Events, langs ...i18n.Lang) http.Handler {
 	api := apiHandler(b, langs...)
 	name := "irl_session_" + strconv.Itoa(port)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -324,6 +329,17 @@ func NewWithAuth(b Backend, password string, port int, a *Auth, langs ...i18n.La
 			expired.MaxAge = -1
 			http.SetCookie(w, expired)
 			writeJSON(w, 200, map[string]bool{"ok": true})
+			return
+		}
+		if r.URL.Path == "/api/events" {
+			if events == nil {
+				fail(503, "api.stopped")
+				return
+			}
+			if !method("GET") {
+				return
+			}
+			events.ServeHTTP(w, r)
 			return
 		}
 		api.ServeHTTP(w, r)
