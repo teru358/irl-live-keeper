@@ -62,6 +62,15 @@ func apiHandler(b Backend, recent interface {
 			serveScenes(w, r, b, lang)
 			return
 		}
+		if r.URL.Path == "/api/sender" {
+			w.Header().Set("Cache-Control", "no-store")
+			if provider, ok := b.(interface{ Sender() SenderSettings }); ok {
+				writeJSON(w, 200, provider.Sender())
+			} else {
+				writeJSON(w, 503, map[string]string{"error": i18n.Render(lang, i18n.New("api.stopped"))})
+			}
+			return
+		}
 		if r.URL.Path == "/api/logs" {
 			raw := r.URL.Query().Get("lines")
 			n := 500
@@ -157,7 +166,7 @@ func apiHandler(b Backend, recent interface {
 
 func route(path string) (switcher.CommandKind, string, bool) {
 	switch path {
-	case "/api/obs/scenes", "/api/events", "/api/status", "/api/logs":
+	case "/api/sender", "/api/obs/scenes", "/api/events", "/api/status", "/api/logs":
 		return 0, http.MethodGet, true
 	case "/api/obs/scene":
 		return 0, http.MethodPost, true

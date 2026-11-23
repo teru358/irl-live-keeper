@@ -44,13 +44,33 @@ if (boot.login) el('login').hidden = false; el('admin').hidden = boot.login;
 el('login')?.addEventListener('submit', async e => { e.preventDefault(); try { await request('login', {password:el('password').value}); location.replace('/'); } catch(e) { text('error',e.message); } });
 if (!boot.login) {
  el('logout').onclick=async()=>{try{await request('logout',{});location.replace('/?login');}catch(e){text('error',e.message);}};
- document.querySelectorAll('[data-page]').forEach(b => b.onclick = () => { document.body.dataset.page=b.dataset.page;el('sheet').classList.remove('open');menuButton.setAttribute('aria-expanded','false');document.querySelectorAll('[data-page]').forEach(x=>{if(x.dataset.page===b.dataset.page)x.setAttribute('aria-current','page');else x.removeAttribute('aria-current');});const isLogs=b.dataset.page==='logs'; el('status').hidden = b.dataset.page !== 'status'; el('log-panel').hidden=!isLogs; el('soon').hidden = b.dataset.page==='status'||isLogs; if(isLogs) loadLogs(); });
+ document.querySelectorAll('[data-page]').forEach(b => b.onclick = () => { document.body.dataset.page=b.dataset.page;el('sheet').classList.remove('open');menuButton.setAttribute('aria-expanded','false');document.querySelectorAll('[data-page]').forEach(x=>{if(x.dataset.page===b.dataset.page)x.setAttribute('aria-current','page');else x.removeAttribute('aria-current');});const isLogs=b.dataset.page==='logs'; el('status').hidden = b.dataset.page !== 'status'; el('log-panel').hidden=!isLogs; el('sender-panel').hidden=b.dataset.page!=='sender'; el('soon').hidden = b.dataset.page==='status'||isLogs||b.dataset.page==='sender'; if(b.dataset.page==='sender') loadSender(); if(isLogs) loadLogs(); });
  document.querySelectorAll('[data-command]').forEach(b => b.onclick = async () => {
   const path = b.dataset.command;
   if(path === 'stream/stop' && !confirm(t('confirm_stop'))) return;
   if(path === 'cameras/show-all' && !confirm(t('confirm_show'))) return;
   b.disabled = true; try { await request(path, {}); text('error',''); } catch(e) { text('error',e.message); } finally { b.disabled = false; }
  });
+ let senderData, senderCamera='', senderHost='';
+ const senderProtocols=new Map();
+ async function loadSender(){try{senderData=await request('sender');let savedHost;try{savedHost=localStorage.getItem('sender-address');}catch(_){} senderHost=senderData.addresses.some(a=>a.address===savedHost)?savedHost:senderData.default;
+ el('sender-address').replaceChildren(...senderData.addresses.map(a=>{const o=document.createElement('option');o.value=a.address;o.textContent=t('sender_'+a.kind)+' '+a.address;return o;}));el('sender-address').value=senderHost;drawSender();}catch(e){text('error',e.message);}}
+ el('sender-address').onchange=()=>{senderHost=el('sender-address').value;try{localStorage.setItem('sender-address',senderHost);}catch(_){}drawSender();};
+ function drawSender(){const a=senderData.addresses.find(a=>a.address===senderHost);if(!a)return;
+ el('sender-cameras').replaceChildren(...a.cameras.map((c,index)=>{const card=document.createElement('details');card.className='send-cam';card.open=senderCamera?c.id===senderCamera:index===0;const title=document.createElement('summary');title.textContent=c.name+' ('+c.id+')';card.append(title);
+ const tabs=document.createElement('div');tabs.className='seg';tabs.setAttribute('role','group');tabs.setAttribute('aria-label',t('sender_protocol'));card.append(tabs);
+ const fields=document.createElement('div');card.append(fields);
+ let protocol=senderProtocols.get(c.id);if(!c[protocol])protocol=c.srt?'srt':'rtmp';
+ const draw=()=>{fields.replaceChildren();tabs.querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.protocol===protocol)));const p=c[protocol];if(p){
+ for(const key of ['url','address',protocol==='srt'?'streamid':'key','user','password'])senderField(fields,t({url:'sender_url',address:'sender_endpoint',streamid:'sender_streamid',key:'sender_key',user:'sender_user',password:'sender_password'}[key]),p[key],key==='password'||key==='url'||key==='streamid'||key==='key');
+ if(protocol==='rtmp'){const hint=document.createElement('p');hint.className='hint';hint.textContent=t('sender_rtmp_hint');fields.append(hint);}}
+ senderField(fields,t('sender_obs'),c.obs,true);};
+ for(const name of ['srt','rtmp'])if(c[name]){const b=document.createElement('button');b.type='button';b.dataset.protocol=name;b.textContent=name.toUpperCase();b.onclick=()=>{protocol=name;senderProtocols.set(c.id,name);draw();};tabs.append(b);}draw();return card;}));
+ if(senderCamera)el('sender-cameras').querySelector('details[open]')?.scrollIntoView({block:'nearest'});
+ }
+ function senderField(parent,label,value,secret){const row=document.createElement('div');row.className='sender-field';const name=document.createElement('label');name.textContent=label;const input=document.createElement('input');input.readOnly=true;input.value=value||'';input.type=secret?'password':'text';input.setAttribute('aria-label',label);row.append(name,input);
+ if(secret){const show=document.createElement('button');show.type='button';show.className='reveal';show.textContent=t('sender_show');show.onclick=()=>{input.type=input.type==='password'?'text':'password';show.textContent=t(input.type==='password'?'sender_show':'sender_hide');};row.append(show);}
+ const copy=document.createElement('button');copy.type='button';copy.className='copy';copy.textContent=t('sender_copy');copy.onclick=async()=>{if(await copySenderValue(value||'')){copy.textContent=t('sender_copied');setTimeout(()=>copy.textContent=t('sender_copy'),2500);}else{input.type='text';input.focus();input.select();input.setSelectionRange(0,input.value.length);text('sender-notice',t('sender_manual'));}};row.append(copy);parent.append(row);}
  let restarting = false, since = 0;
  function connection() { text('connection', restarting ? t('restarting') + (Date.now()-since >= 30000 ? ' ' + t('restart_help') : '') : t('disconnected')); }
  let sceneList=[], currentScene='', pendingScene='', sceneTimer, returnScene='';
@@ -86,7 +106,7 @@ if (!boot.login) {
    const protocol=(c.protocol||'').toUpperCase();
    const separator=lang==='ja'?'、':', ';
    const sub=add('span',protocol+(c.srt?separator+t('rtt')+' '+c.srt.rtt_ms+' ms'+separator+t('loss')+' '+c.srt.loss_rate+'%':''),'cam-sub');
-   const link=add('button',t('sender_link'),'to-send',sub);link.onclick=()=>document.querySelector('[data-page="sender"]').click();
+   const link=add('button',t('sender_link'),'to-send',sub);link.onclick=()=>{senderCamera=c.id;document.querySelector('[data-page="sender"]').click();};
    const chip=document.createElement('span');chip.className='chip';chip.dataset.state=c.state;chip.textContent=c.name+' '+c.state;summary.push(chip);return p;
   }));
   const o=s.obs, v=o.standby;
@@ -119,4 +139,11 @@ if (!boot.login) {
  events.addEventListener('log',e=>{const row=JSON.parse(e.data);const rank={INFO:0,WARN:1,ERROR:2};if((rank[row.level]??0)>=(rank[logLevel]??0)){logLines.push(row);if(logLines.length>2000)logLines=logLines.slice(-2000);if(!el('log-panel').hidden)drawLogs();}});
  events.onerror = connection;
  setInterval(()=>{if(restarting)connection();},1000);
+}
+
+// 安全でない文脈でも、選択範囲を持つ一時欄でコピーを試す。
+async function copySenderValue(value){
+ if(navigator.clipboard?.writeText){try{await navigator.clipboard.writeText(value);return true;}catch(_){}}
+ const area=document.createElement('textarea');area.value=value;area.readOnly=true;area.contentEditable='true';area.style.position='fixed';area.style.top='0';area.style.left='0';area.style.opacity='0';document.body.append(area);
+ const active=document.activeElement;let copied=false;try{area.focus();area.select();area.setSelectionRange(0,value.length);copied=document.execCommand('copy');}catch(_){}finally{area.remove();active?.focus();}return copied;
 }

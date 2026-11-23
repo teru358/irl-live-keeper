@@ -133,9 +133,13 @@ dl.facts dd { margin: 0; }
 .tabbar button[aria-pressed="true"] { color: var(--ink); font-weight: 700; box-shadow: inset 0 3px 0 var(--ink); }
 main { padding-bottom: 96px; gap: 0; }
 main section { margin-bottom: 28px; }
-body[data-tab="line"] main section:not([data-tab="line"]),
-body[data-tab="scene"] main section:not([data-tab="scene"]),
-body[data-tab="ops"] main section:not([data-tab="ops"]) { display: none; }
+/* タブで隠すのは状態の画面の節（data-tab のある節）だけ。送信の設定やログの画面の節は隠さない */
+body[data-tab="line"] main section[data-tab]:not([data-tab="line"]),
+body[data-tab="scene"] main section[data-tab]:not([data-tab="scene"]),
+body[data-tab="ops"] main section[data-tab]:not([data-tab="ops"]) { display: none; }
+/* 状態の画面でないときは、下のタブと要約を出さない */
+body[data-page]:not([data-page="status"]) .tabbar, body[data-page]:not([data-page="status"]) #tabs,
+body[data-page]:not([data-page="status"]) #summary { display: none; }
 body[data-tab="scene"] .scene { min-height: 72px; font-size: 18px; }
 
 /* 待機はシーンの一覧の中で扱う: 最後に横長の「待機にする」、待機中は上に帯と「戻る」 */
@@ -201,3 +205,10 @@ body.in-standby .standby-tile { display: none; }
 .row .stop { margin-top: 0 !important; }
 /* 手動の待機の説明と、次の節（注意）の間をあける */
 #manual-hint { margin-bottom: 16px; }
+
+.send-cam{margin-top:20px;padding:20px;border:1px solid var(--line);border-radius:12px}.send-cam summary{cursor:pointer;font-weight:600;margin-bottom:16px}.sender-field{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:12px 0}.sender-field label{flex-basis:100%;font-size:13px}.sender-field input{min-width:0;flex:1;font-family:monospace}.sender-field button{padding:8px}.send-cam .seg{margin:12px 0}
+#sender-panel{grid-column:1/-1}.sender-field input{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:8px}.sender-field button{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:6px}
+/* 送信の設定: 住所の選択とプロトコルの切り替えを、屋外でも押しやすい大きさに */
+#sender-address { display: block; width: 100%; min-height: 48px; margin-top: 6px; font-size: 16px; }
+.send-cam .seg { display: flex; margin: 10px 0 12px; }
+.send-cam .seg button { flex: 1; min-height: 48px; }

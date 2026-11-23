@@ -225,6 +225,25 @@
     "kind_camera": "カメラ",
     "kind_none": "カメラなし",
     "kind_standby": "待機用",
-    "sender_link": "送信の設定"
+    "sender_link": "送信の設定",
+    "sender_hint": "配信アプリに入れる送り先です。屋外からは Tailscale のアドレスを選びます。",
+    "sender_address": "送り先の住所",
+    "sender_protocol": "送り方",
+    "sender_url": "全体の URL",
+    "sender_endpoint": "アドレス",
+    "sender_key": "キー",
+    "sender_streamid": "streamid",
+    "sender_user": "ユーザー",
+    "sender_password": "パスワード",
+    "sender_obs": "OBS 用 URL（参考）",
+    "sender_copy": "コピー",
+    "sender_copied": "コピーしました",
+    "sender_manual": "長押しでコピーしてください",
+    "sender_show": "表示",
+    "sender_hide": "隠す",
+    "sender_rtmp_hint": "アプリの login・password の欄は空にする",
+    "sender_lan": "LAN",
+    "sender_tailscale": "Tailscale",
+    "sender_publish_host": "指定の住所"
   }
 }

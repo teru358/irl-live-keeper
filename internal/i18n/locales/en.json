@@ -225,6 +225,25 @@
     "kind_camera": "Camera",
     "kind_none": "No camera",
     "kind_standby": "Standby",
-    "sender_link": "Sender settings"
+    "sender_link": "Sender settings",
+    "sender_hint": "Destinations for your streaming app. Select Tailscale when away from the LAN.",
+    "sender_address": "Destination address",
+    "sender_protocol": "Protocol",
+    "sender_url": "Full URL",
+    "sender_endpoint": "Address",
+    "sender_key": "Key",
+    "sender_streamid": "Stream ID",
+    "sender_user": "User",
+    "sender_password": "Password",
+    "sender_obs": "OBS URL (reference)",
+    "sender_copy": "Copy",
+    "sender_copied": "Copied",
+    "sender_manual": "Long press to copy",
+    "sender_show": "Show",
+    "sender_hide": "Hide",
+    "sender_rtmp_hint": "Leave the app’s login and password fields empty.",
+    "sender_lan": "LAN",
+    "sender_tailscale": "Tailscale",
+    "sender_publish_host": "Configured host"
   }
 }
