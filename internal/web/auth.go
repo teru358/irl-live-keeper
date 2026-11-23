@@ -176,7 +176,7 @@ func NewWithAuth(b Backend, password string, port int, a *Auth, langs ...i18n.La
 
 // NewWithEvents は認証済みの接続を世代の配信係へ渡す。
 func NewWithEvents(b Backend, password string, port int, a *Auth, events *Events, langs ...i18n.Lang) http.Handler {
-	api := apiHandler(b, langs...)
+	api := apiHandler(b, events, langs...)
 	name := "irl_session_" + strconv.Itoa(port)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// 合言葉を残さないよう、要求のログにはパスだけを書く。

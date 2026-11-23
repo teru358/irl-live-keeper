@@ -3,6 +3,7 @@ package web
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -24,6 +25,9 @@ type Events struct {
 	backend  Backend
 	apply    func() any
 	ticker   func(time.Duration) (<-chan time.Time, func())
+	recent   interface {
+		Recent(int, slog.Level) []logging.Line
+	}
 }
 type eventMessage struct {
 	kind  string
@@ -43,6 +47,11 @@ func NewEvents(b Backend, logger interface {
 }, apply func() any, langs ...i18n.Lang) *Events {
 	e := &Events{clients: make(map[*eventClient]bool), done: make(chan struct{}), finished: make(chan struct{}), backend: b, apply: apply}
 	e.langs = langs
+	if recent, ok := logger.(interface {
+		Recent(int, slog.Level) []logging.Line
+	}); ok {
+		e.recent = recent
+	}
 	e.ticker = func(d time.Duration) (<-chan time.Time, func()) { t := time.NewTicker(d); return t.C, t.Stop }
 	var snapshots <-chan struct{}
 	var events <-chan core.Event
@@ -141,6 +150,13 @@ func (e *Events) broadcast(m eventMessage) {
 	}
 }
 
+func (e *Events) Recent(n int, level slog.Level) []logging.Line {
+	if e == nil || e.recent == nil {
+		return []logging.Line{}
+	}
+	return e.recent.Recent(n, level)
+}
+
 // Close は新規接続を拒否し、書き込み中の接続も中断して全ハンドラーを待つ。
 func (e *Events) Close() {
 	e.mu.Lock()
@@ -202,7 +218,7 @@ func (e *Events) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			req.URL = &u
 			req.Header = r.Header.Clone()
 			req.Header.Del("Accept-Language")
-			apiHandler(e.backend, lang).ServeHTTP(rw, req)
+			apiHandler(e.backend, e, lang).ServeHTTP(rw, req)
 			var value map[string]any
 			if json.Unmarshal(rw.body, &value) != nil {
 				return false

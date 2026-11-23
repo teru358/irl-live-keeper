@@ -45,7 +45,7 @@ func TestPageStatusRestartSession(t *testing.T) {
 		return w
 	}
 	page := call("/", "GET", true)
-	for _, id := range []string{"menu", "links", "obs", "standby", "mediamtx", "actions"} {
+	for _, id := range []string{"menu", "links", "obs", "standby", "mediamtx", "actions", "language-switch", "log-panel", "log-level", "log-lines"} {
 		if !strings.Contains(page.Body.String(), `id="`+id+`"`) {
 			t.Fatal(id)
 		}
