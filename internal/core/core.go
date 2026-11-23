@@ -103,18 +103,22 @@ type itemKey = scenemap.ItemKey
 
 // Core は状態を1か所で持つ中核ループと、OBS の操作を行う実行役。
 type Core struct {
-	okSeq    uint64 // カメラが OK になるたびに増やす（camState.okSeq に写す）
-	m        *switcher.Machine
-	obs      obs.Client
-	cams     []*camState
-	samples  <-chan ingest.SampleSet
-	mediamtx func() supervisor.Status
-	warnings func() []string
-	slowRead func() []supervisor.SlowReader
-	media    *mediaDispatcher // nil なら見張らない
-	log      *slog.Logger
-	tick     <-chan time.Time
-	now      func() time.Time
+	subMu        sync.Mutex // 購読の登録と Run 開始だけを守る。開始後の一覧は中核ループだけが読む。
+	runStarted   bool
+	snapshotSubs []chan struct{}
+	eventSubs    []*EventSub
+	okSeq        uint64 // カメラが OK になるたびに増やす（camState.okSeq に写す）
+	m            *switcher.Machine
+	obs          obs.Client
+	cams         []*camState
+	samples      <-chan ingest.SampleSet
+	mediamtx     func() supervisor.Status
+	warnings     func() []string
+	slowRead     func() []supervisor.SlowReader
+	media        *mediaDispatcher // nil なら見張らない
+	log          *slog.Logger
+	tick         <-chan time.Time
+	now          func() time.Time
 
 	// 中核ループと実行役の間のチャネル。どれもバッファなし。
 	batches   chan *switcher.Batch // 中核ループ → 実行役。列の先頭を1つだけ差し出す
@@ -283,6 +287,13 @@ func (c *Core) Command(ctx context.Context, kind switcher.CommandKind) error {
 // 実行役が OBS の操作の応答を待っている間に止めた場合、その操作は Run が戻ったあとも
 // 応答（obs の応答待ちの上限）まで残るが、結果は捨てる。
 func (c *Core) Run(ctx context.Context) {
+	c.subMu.Lock()
+	if c.runStarted {
+		c.subMu.Unlock()
+		panic("core.Run は1回だけ呼べます")
+	}
+	c.runStarted = true
+	c.subMu.Unlock()
 	defer close(c.stopped)
 	tick := c.tick
 	if tick == nil {
@@ -298,6 +309,7 @@ func (c *Core) Run(ctx context.Context) {
 	if c.pers != nil {
 		wg.Go(func() { c.pers.run(ctx) })
 	}
+	defer c.closeSubscriptions()
 	defer wg.Wait()
 	defer c.waitSyncWrites()
 	c.loop(ctx, tick)
@@ -378,6 +390,7 @@ func (c *Core) onSamples(set ingest.SampleSet) {
 		}
 		c.log.Info("camera changed", "camera", cam.cfg.ID, "from", before.String(), "to", after.String(), "kbps", roundKbps(s.Kbps))
 	}
+	c.emitSample(set)
 	if !changed {
 		return
 	}

@@ -196,6 +196,7 @@ func (c *Core) publish() {
 		s.LastError = &e
 	}
 	c.snap.Store(&s)
+	c.notifySnapshot()
 }
 
 // last_error は switcher と MediaMTX の2か所から来る。どちらも消えずに上書きされるだけなので、
