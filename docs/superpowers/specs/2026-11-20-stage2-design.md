@@ -1,7 +1,7 @@
 # irl-live-keeper 設計 — 第2段階（小さな窓、管理ページ、ソース）
 
 - 作成日: 2026-11-20
-- 版: v0.15（変更は末尾の変更履歴を参照）
+- 版: v0.16（変更は末尾の変更履歴を参照）
 - **追加の方針（v0.8、2026-11-23 のユーザーの指示）**: 屋外からの操作（VPN で管理ページを開き、配信とシーンを操作する）、日本語と英語、画面のデザイン。第14節。この文書のほかの節と食い違うときは第14節を優先する
 - **シーンごとの逃がし先（0c）**: 区切り0の 0b のあとに、`docs/superpowers/specs/2026-11-21-scene-fallback-design.md` を入れる（2026-11-21 のユーザーの裁定）
 - **複数のカメラ（v0.6）**: 第2段階の頭（区切り0）に、複数のカメラ `docs/superpowers/specs/2026-11-21-multi-camera-design.md` を入れる（2026-11-21 のユーザーの裁定）。この文書の 4章〜9章（小さな窓、管理ページ、補助の接続の開く条件、反映の区分、作る順と止める順、記録、ソース）の一部は、その文書の第9節と第10節で置き換える。食い違うときはその文書を優先する
@@ -738,6 +738,15 @@ operand   = 名前 | 数値 | 文字列 | "true" | "false" | "(" expr ")" ;
 - アイコンの絵
 - ブラウザとフォルダを Job の外で開く方法（第3節）: `JOB_OBJECT_LIMIT_BREAKAWAY_OK` と `CREATE_BREAKAWAY_FROM_JOB` で、既定のブラウザ（URL の関連付け）とエクスプローラーをどう起動するかを、実機で確かめる。ブラウザがすでに動いているときと、動いていないときの両方
 
+- **S2-0 の spike で決めたこと**（v0.16、2026-11-23。Windows の実機の結果は `docs/superpowers/plans/m9-windows/s2-0-result.md`）:
+  - **小さな窓のライブラリ**: `github.com/rodrigocfd/windigo`（v0.2.7、MIT。Go だけで書かれ、C のコンパイラが要らず、Linux からの Windows 向けのビルドが通る。2026-09 にも更新されている）。`lxn/walk` は 2021 年で止まっているので使わない（`tailscale/walk` は予備）。spike で見つけた直す所: 1秒ごとの更新はタイマーで確実に書き換える、部品を今の Windows の見た目で描くために manifest を exe に入れる（common controls v6）、ダークのときは文字の色を明るくし地を暗くする（`WM_CTLCOLORSTATIC` など）、題名の帯を暗くする `DwmSetWindowAttribute`（`DWMWA_USE_IMMERSIVE_DARK_MODE` = 20、古い Windows 10 は 19）は窓ができたあとのハンドルで呼ぶ（spike では作る前に呼んで `E_HANDLE` になった）
+  - **ブラウザとフォルダを開く方法**: Job に `JOB_OBJECT_LIMIT_BREAKAWAY_OK` を立て、`CreateProcess` で `rundll32.exe url.dll,FileProtocolHandler <URL>` と `explorer.exe <フォルダ>` を `CREATE_BREAKAWAY_FROM_JOB` で起動する。ブラウザが動いていないときに `ShellExecute` で開くと、本体の終了でブラウザまで閉じた（Job の中で起動されるため）ので使わない
+  - **CLI**: exe を1つにし、`--cli` で `AllocConsole` の自分のコンソールの窓を開く（起動した端末につなぐ `AttachConsole` は、プロンプトと出力が混ざり、Ctrl+C が届かなかったので使わない）。コンソールの出力の文字コードを UTF-8（`SetConsoleOutputCP(65001)`）にする（spike では日本語が化けた）
+  - **ダークモードの読み取り**: `HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize` の `AppsUseLightTheme`（ダークで 0、ライトで 1。実機で確かめた）
+  - **JS のライブラリ**: グラフは uPlot 1.6.32（MIT）、QR は qrcode-generator 2.0.4（MIT。配布物にライセンスのファイルがないので、全文はリポジトリから取って THIRD_PARTY_NOTICES.md に足す）。どちらも出てから2週間以上たった版
+  - **アイコン**: 案 A2（暗い角丸の四角に明るい縁、右に上がる3本の緑の棒、左上に赤い丸。`docs/superpowers/design/icon-A2.png`）。ユーザーはほかの案も見たいので、S2-16 で決め直してよい。manifest とアイコンは `.syso` として1度だけ作ってリポジトリに置き、Go のビルドが自動で取り込む（作る道具はユーザーの許可を得てから使う）
+  - **窓の見た目**: 動きと配置がそろってから、ユーザーと詰める（2026-11-23 のユーザーの希望）
+
 ## 13. 既知の制約
 
 - セッションは本体のメモリにだけ持つので、本体を終了して起動し直すとログインし直す（小さな窓から開けば自動でログインする）。中での再起動では残るが、Cookie の名前にポートを入れるので、`admin.port` を変えた再起動のあとはログインし直す（窓から開けば自動）
@@ -821,3 +830,4 @@ operand   = 名前 | 数値 | 文字列 | "true" | "false" | "(" expr ")" ;
 | 2026-11-23 | v0.13 | 第14節に、シーンの切り替えの細部（補助の接続、Studio Mode、人の意図を先に登録して知らせで確定する、意図の間は自動の切替を止める、誤りの扱い、API の形）を足した | S2-58 の設計、レビュー（sol）と2回の閉鎖確認（terra） | この版の commit |
 | 2026-11-23 | v0.14 | 第14節「画面のデザイン」に、決めた方向（信号の帯、配信の札、文字、色の2組、ライトとダークの選び方、スマホの下のタブと要約とメニューの板、シーンの種類の色と逃がし先の書き方、待機の表示と手動の待機の名前、送信の設定の画面のコピー）を足した | 2026-11-23 のユーザーとのデザインの検討（frontend-design。試作を docs に残した） | この版の commit |
 | 2026-11-23 | v0.15 | 書体を同梱しないことにした（各機器の書体と tabular-nums） | 2026-11-23 のユーザーの判断（0 の斜線のために書体を同梱するほどではない） | この版の commit |
+| 2026-11-23 | v0.16 | 12章に S2-0 の spike で決めたこと（windigo、Job の外で開く方法、CLI は AllocConsole と UTF-8、ダークの読み取り、JS のライブラリ、アイコン A2）を足した | S2-0 の Windows の実機の結果 | この版の commit |
