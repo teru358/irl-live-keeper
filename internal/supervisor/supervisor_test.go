@@ -420,7 +420,7 @@ func TestExitJustBeforeShutdownIsNotWarned(t *testing.T) {
 	if strings.Contains(buf.String(), "level=WARN") {
 		t.Errorf("本体の終了の直前の子の終了で WARN が出た:\n%s", buf.String())
 	}
-	if !strings.Contains(buf.String(), "MediaMTX が終了しました（本体の終了と同時）") {
+	if !strings.Contains(buf.String(), "MediaMTX exited during shutdown") {
 		t.Errorf("終了の INFO の行がない:\n%s", buf.String())
 	}
 }
@@ -433,7 +433,7 @@ func TestUnexpectedExitStillWarnsAfterSettle(t *testing.T) {
 	defer cancel()
 	s.sleep = func(context.Context, time.Duration) error { cancel(); return context.Canceled }
 	s.Run(ctx)
-	if !strings.Contains(buf.String(), `level=WARN msg="MediaMTX が終了しました"`) {
+	if !strings.Contains(buf.String(), `level=WARN msg="MediaMTX exited unexpectedly"`) {
 		t.Errorf("思いがけない終了の WARN がない:\n%s", buf.String())
 	}
 }

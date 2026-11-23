@@ -126,7 +126,7 @@ func (r *refresher) run() {
 			return
 		}
 		if err != nil {
-			w.log.Warn("シーンの地図を読み直せない。1秒あけて読み直す", "err", err)
+			w.log.Warn("cannot reload scene map; retrying in one second", "err", err)
 			retry = true
 			continue
 		}

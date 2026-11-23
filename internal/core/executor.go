@@ -81,7 +81,7 @@ func (c *Core) execute(ctx context.Context, b *switcher.Batch) {
 		}
 		if err != nil {
 			err = fmt.Errorf("%s: %w", actionName(a), err)
-			c.log.Warn("OBS の操作に失敗", "batch", b.BatchID, "purpose", b.Purpose.String(), "error", err)
+			c.log.Warn("OBS action failed", "batch", b.BatchID, "purpose", b.Purpose.String(), "error", err)
 			_, isRestart := a.(switcher.RestartMedia)
 			if isRestart || isItem {
 				// 映像の再始動に失敗しても、待機画面からは戻す。項目の失敗も、打ち切らずに次の項目へ進む。

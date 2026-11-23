@@ -123,7 +123,7 @@ func Open(o Options) (*Logger, error) {
 	}
 
 	if err := prune(o.Dir, date, o.KeepDays); err != nil {
-		l.log.Warn("古いログを消せなかった", "err", err)
+		l.log.Warn("cannot remove old log", "err", err)
 	}
 	return l, nil
 }

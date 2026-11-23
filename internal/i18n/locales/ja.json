@@ -103,7 +103,26 @@
     "api.stopped": "中核ループが止まっている",
     "api.deadline": "context deadline exceeded",
     "api.canceled": "context canceled",
-    "api.invalid": "受け付けられない: {reason}"
+    "api.invalid": "受け付けられない: {reason}",
+    "banner.title": "== irl-live-keeper ==",
+    "banner.publish": "送信用 URL（配信アプリに設定する）",
+    "banner.host_missing": "LAN の IPv4 アドレスが見つかりません。host を 127.0.0.1 にしています（stream.publish_host で固定できます）",
+    "banner.outdoor": "屋外から送るときは、host をポート転送やトンネルのアドレスに置き換える（stream.publish_host で固定できる）",
+    "banner.obs": "OBS のメディアソース用 URL（カメラごと）",
+    "banner.admin": "管理 API",
+    "banner.admin_user": "（ユーザー名 admin）",
+    "banner.password": "管理 API のパスワード（config.yaml を生成しました）: {password}",
+    "banner.camera_label": "{name}（{id}）",
+    "banner.lan_note": "LAN に公開しています。LAN の機器からもこの URL で開けます",
+    "banner.lan_missing": "LAN に公開しています。LAN の機器からは http://<この PC の LAN のアドレス>:{port}",
+    "console.logger_open": "ログを開けません: {error}",
+    "console.port_check": "ポートの事前確認に失敗しました: {error}",
+    "console.listen": "管理 API のポート（admin.port）{port} で待ち受けできません（{address}）: {error}",
+    "console.serve": "管理 API が止まりました: {error}",
+    "console.config_load": "設定ファイルを読み込めません。",
+    "console.executable": "実行ファイルの場所を調べられません: {error}",
+    "console.pause": "Enter キーを押すと閉じます",
+    "console.config_invalid": "設定が不正です:\n  - {details}"
   },
   "ui": {}
 }

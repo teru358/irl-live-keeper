@@ -182,7 +182,7 @@ func (w *WS) pump(c *mainConn, q *evq) {
 			// （OBSDisconnected など）は、session が列の順に流す。
 			w.closeGateEarly(c, q, ev, seq)
 			if !q.push(queued{ev: ev, at: time.Now(), seq: seq}) {
-				w.log.Warn("OBS のイベントが core へ流れず、取っておく上限を超えた。接続を捨てて読み直す", "max", q.max)
+				w.log.Warn("OBS event queue overflowed; dropping connection and reconnecting", "max", q.max)
 				w.setGate(c, false, true)
 				c.kill(errEventOverflow)
 				return
@@ -264,7 +264,7 @@ func (w *WS) session(ctx context.Context) (connected bool) {
 	addr := net.JoinHostPort(w.cfg.Host, strconv.Itoa(w.cfg.Port))
 	cli, rec, err := w.dial(ctx, addr)
 	if err != nil {
-		w.log.Warn("OBS に接続できない", "addr", addr, "err", err)
+		w.log.Warn("cannot connect to OBS", "addr", addr, "err", err)
 		return false
 	}
 	c := newMainConn(cli, rec)
@@ -301,14 +301,14 @@ func (s *sess) run(addr string) {
 		case <-s.ctx.Done():
 			return
 		case <-c.dead:
-			w.log.Warn("OBS の接続を捨てた", "reason", c.reason)
+			w.log.Warn("dropped OBS connection", "reason", c.reason)
 			return
 		case <-s.q.sig:
 			qe, ok, closed := s.q.pop()
 			if ok {
 				s.onEvent(qe)
 			} else if closed {
-				w.log.Warn("OBS との接続が切れた")
+				w.log.Warn("OBS connection lost")
 				return
 			}
 		case r := <-s.reloadCh:
@@ -316,7 +316,7 @@ func (s *sess) run(addr string) {
 				continue
 			}
 			if r.err != nil {
-				w.log.Warn("OBS の状態を取得できない", "err", r.err)
+				w.log.Warn("cannot get OBS state", "err", r.err)
 				return
 			}
 			if !s.connect(r, addr) {
@@ -324,7 +324,7 @@ func (s *sess) run(addr string) {
 			}
 		case <-s.quiet:
 			s.quiet = nil
-			w.log.Info("OBS のイベントが途切れた。読み直す")
+			w.log.Info("OBS events stopped; reconnecting")
 			s.startReload()
 		case <-s.bounceEnd:
 			// 窓の終わりまでに StudioModeStateChanged false が来なかった。人の切替として流す。
@@ -377,7 +377,7 @@ func (w *WS) reload(ctx context.Context, c *mainConn, q *evq, gen int, first, le
 		}
 		res.legacy = isLegacyVersion(v.ObsWebSocketVersion)
 		if res.legacy {
-			w.log.Warn("OBS の obs-websocket が古い（5.4.0 未満）。UUID が使えないので、名前で扱い、地図は空にする", "version", v.ObsWebSocketVersion)
+			w.log.Warn("OBS obs-websocket is old (below 5.4.0); UUIDs are unavailable, using names and an empty scene map", "version", v.ObsWebSocketVersion)
 		}
 	}
 	now := func() uint64 { return q.mark(c.cli) }
@@ -421,7 +421,7 @@ func (w *WS) readFirstMap(ctx context.Context, c *mainConn, legacy bool, now fun
 	w.mapFails++
 	n := w.mapFails
 	w.mu.Unlock()
-	w.log.Warn("シーンの地図を読めない", "err", err, "failures", n)
+	w.log.Warn("cannot read scene map", "err", err, "failures", n)
 	if n < maxMapFailures {
 		return nil, "", fmt.Errorf("シーンの地図: %w", err)
 	}
@@ -469,7 +469,7 @@ func (s *sess) connect(r reloadResult, addr string) bool {
 		return false
 	}
 	s.announced, s.everUp = true, true
-	w.log.Info("OBS に接続した", "addr", addr)
+	w.log.Info("connected to OBS", "addr", addr)
 	s.startEpoch()
 
 	held, heldTrans, heldKick := s.held, s.heldTrans, s.heldKick
@@ -585,11 +585,11 @@ func (s *sess) onEvent(qe queued) {
 	w := s.w
 	switch ev.(type) {
 	case *events.CurrentSceneCollectionChanging:
-		w.log.Info("OBS のシーンコレクションの切替が始まった")
+		w.log.Info("OBS scene collection switch started")
 		s.beginSwitch(w.switchMax)
 		return
 	case *events.CurrentSceneCollectionChanged:
-		w.log.Info("OBS のシーンコレクションの切替が終わった")
+		w.log.Info("OBS scene collection switch finished")
 		if s.state != statePaused {
 			s.beginSwitch(w.switchMax)
 		}
@@ -773,7 +773,7 @@ func (s *sess) dispatch(ev any, at time.Time) {
 	case *events.SceneRemoved:
 		if !e.IsGroup && s.curUUID != "" && s.sceneID(e.SceneUuid, e.SceneName) == s.curUUID {
 			// GUI の「複製」は Changing を出さずに、全部のシーンの SceneRemoved から始まる（M-0）。
-			w.log.Info("OBS の program のシーンが削除された。シーンコレクションの切替とみなす")
+			w.log.Info("OBS program scene was removed; treating as a scene collection switch")
 			s.beginSwitch(w.quiet)
 			return
 		}
@@ -825,7 +825,7 @@ func (w *WS) runTransition(ep *epoch, c *mainConn) {
 			return
 		}
 		if err != nil {
-			w.log.Warn("トランジションの長さを取得できない", "err", err)
+			w.log.Warn("cannot get transition duration", "err", err)
 		}
 		w.emitEpoch(ep, switcher.TransitionChanged{At: time.Now(), TransitionMs: ms})
 	}
@@ -885,7 +885,7 @@ func (w *WS) fetchConnected(ctx context.Context, c *mainConn, legacy bool, now f
 		if sessionLost(err) || ctx.Err() != nil {
 			return switcher.OBSConnected{}, fmt.Errorf("GetCurrentSceneTransition: %w", err)
 		}
-		w.log.Warn("トランジションの長さを取得できない", "err", err)
+		w.log.Warn("cannot get transition duration", "err", err)
 		ms = nil
 	}
 	return switcher.OBSConnected{
@@ -918,7 +918,7 @@ func (w *WS) checkNames(ctx context.Context, c *mainConn) {
 		}
 	}
 	for _, m := range warns {
-		w.log.Warn("OBS の設定の警告", "msg", i18n.Render(i18n.JA, m))
+		w.log.Warn("OBS configuration warning", "msg", i18n.Render(i18n.EN, m))
 	}
 	w.mu.Lock()
 	w.warnBase = warns

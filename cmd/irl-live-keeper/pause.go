@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"github.com/teru358/irl-live-keeper/internal/i18n"
 	"io"
 )
 
@@ -24,6 +25,10 @@ func shouldPause(code int, consoleProcs func() (int, error)) bool {
 
 // waitEnter は案内を out に出し、in から1行読む。読めなくても返る。
 func waitEnter(in io.Reader, out io.Writer) {
-	fmt.Fprintln(out, "Enter キーを押すと閉じます")
+	waitEnterLanguage(in, out, i18n.JA)
+}
+
+func waitEnterLanguage(in io.Reader, out io.Writer, lang i18n.Lang) {
+	fmt.Fprintln(out, i18n.Render(lang, i18n.New("console.pause")))
 	_, _ = bufio.NewReader(in).ReadString('\n')
 }

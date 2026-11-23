@@ -341,7 +341,7 @@ func (c *Core) finishStop() {
 	c.stop.waiting, c.stop.finished = false, true
 	if c.store != nil && int64(c.m.Snapshot().HiddenRevision) != c.store.writtenRev.Load() {
 		if err := c.persistSync(); err != nil {
-			c.log.Warn("終了前の hidden.json の保存に失敗しました", "error", err)
+			c.log.Warn("could not save hidden.json before shutdown", "error", err)
 		}
 	}
 	for _, d := range c.stop.dones {

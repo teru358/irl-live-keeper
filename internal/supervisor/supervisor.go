@@ -168,7 +168,7 @@ func (s *Supervisor) Run(ctx context.Context) {
 			break
 		}
 		if err != nil {
-			s.log.Warn("MediaMTX を起動できません", "error", err)
+			s.log.Warn("cannot start MediaMTX", "error", err)
 		}
 		if ran >= stableAfter {
 			backoff = minBackoff
@@ -247,7 +247,7 @@ func (s *Supervisor) runOnce(ctx context.Context) (time.Duration, error) {
 	}
 	if ctx.Err() != nil {
 		if !stopped {
-			s.log.Info("MediaMTX が終了しました（本体の終了と同時）", "after", ran.String(), "error", c.err)
+			s.log.Info("MediaMTX exited during shutdown", "after", ran.String(), "error", c.err)
 		}
 		return ran, nil
 	}
@@ -262,7 +262,7 @@ func (s *Supervisor) runOnce(ctx context.Context) (time.Duration, error) {
 		}
 	}
 	s.setMessage(StateDown, msg)
-	s.log.Warn("MediaMTX が終了しました", "after", ran.String(), "error", c.err)
+	s.log.Warn("MediaMTX exited unexpectedly", "after", ran.String(), "error", c.err)
 	return ran, nil
 }
 

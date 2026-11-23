@@ -145,7 +145,8 @@ type Error struct {
 	Cause   error
 }
 
-func (e Error) Error() string { return Render(JA, e.Message) }
+// Error はログとエラーの連鎖のための文で、英語にする（ログは英語だけ。spec v0.11 第14節）。画面には Message を組み立てる
+func (e Error) Error() string { return Render(EN, e.Message) }
 func (e Error) Unwrap() error { return e.Cause }
 
 // Reason は本体の理由なら文を取り出し、外部の理由なら原文を保つ。

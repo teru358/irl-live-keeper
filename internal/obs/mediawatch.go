@@ -187,7 +187,7 @@ func (m *MediaWatch) watchSource(ctx context.Context, g *mediaWatchGen, camera s
 	for refresh := 0; ; refresh++ {
 		ok, err := m.healthy(ctx, src)
 		if err != nil {
-			m.logErr(log, "見張りを中止", err)
+			m.logErr(log, "stopping media source watch", err)
 			return
 		}
 		if ok {
@@ -198,7 +198,7 @@ func (m *MediaWatch) watchSource(ctx context.Context, g *mediaWatchGen, camera s
 			return
 		}
 		if err := m.refresh(src); err != nil {
-			m.logErr(log, "設定の入れ直しに失敗", err)
+			m.logErr(log, "cannot refresh media source settings", err)
 			return
 		}
 		log.Info("media source refreshed")

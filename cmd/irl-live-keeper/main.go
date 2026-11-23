@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	"github.com/teru358/irl-live-keeper/internal/app"
+	"github.com/teru358/irl-live-keeper/internal/i18n"
 )
 
 func main() {
@@ -18,12 +19,12 @@ func main() {
 
 	base, err := baseDir()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "実行ファイルの場所を調べられません:", err)
+		fmt.Fprintln(os.Stderr, i18n.Render(i18n.OSLang(), i18n.New("console.executable", "error", err.Error())))
 		os.Exit(1)
 	}
 	code := app.Run(ctx, app.Options{BaseDir: base, Stdout: os.Stdout, Stderr: os.Stderr})
 	if shouldPause(code, consoleProcessCount) {
-		waitEnter(os.Stdin, os.Stderr)
+		waitEnterLanguage(os.Stdin, os.Stderr, i18n.OSLang())
 	}
 	os.Exit(code)
 }

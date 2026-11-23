@@ -3,6 +3,8 @@ package app
 import (
 	"strings"
 	"testing"
+
+	"github.com/teru358/irl-live-keeper/internal/i18n"
 )
 
 // mainCam と subCam は2台の表示の例（id は main と sub、表示名は メインカメラ と サブカメラ）。
@@ -12,6 +14,18 @@ var mainCam = camURLs{
 	PublishSRT:  "srt://192.168.1.10:8890?streamid=publish:main:irl:PPPP",
 	PublishRTMP: "rtmp://192.168.1.10:1935/main?user=irl&pass=PPPP",
 	OBSRead:     "rtsp://obs:RRRR@127.0.0.1:8554/main",
+}
+
+func TestStartupBannerEnglish(t *testing.T) {
+	got := startupBanner(bannerInfo{Lang: i18n.EN, Cameras: []camURLs{mainCam}, AdminURL: "http://127.0.0.1:8787", AdminPassword: "ADMINPW"})
+	if strings.Contains(got, "送信用 URL") || strings.Contains(got, "管理 API のパスワード") {
+		t.Fatalf("Japanese banner text in English mode:\n%s", got)
+	}
+	for _, want := range []string{"Publish URLs", "OBS media source URLs", "Admin API", "ADMINPW", "メインカメラ (main)"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("English banner missing %q:\n%s", want, got)
+		}
+	}
 }
 
 var subCam = camURLs{

@@ -632,7 +632,7 @@ func (c *Core) approve(req approveReq) switcher.ApproveResult {
 	res := c.m.Approve(req.batchID, req.action, req.override, c.now())
 	if p, ok := res.(switcher.Proceed); ok && p.MustPersist {
 		if err := c.persistSync(); err != nil {
-			c.log.Error("隠した項目を hidden.json に記録できないため、隠すのを止めました", "error", err)
+			c.log.Error("stopped hiding because hidden items could not be saved", "error", err)
 			c.handle(switcher.HiddenWriteFailed{At: c.now(), BatchID: req.batchID})
 			res = switcher.Reject{}
 		}

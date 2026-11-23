@@ -208,7 +208,7 @@ func TestGeneration生成直後の失敗表示(t *testing.T) {
 			if err != nil || generated {
 				t.Fatalf("生成ファイルが維持されていない: %v", err)
 			}
-			if strings.Count(f.out.String(), adminPasswordLine(cfg.Admin.Password)) != 1 {
+			if strings.Count(f.out.String(), adminPasswordLine(cfg.Admin.Password, i18n.Resolve(cfg.Language, i18n.OSLang))) != 1 {
 				t.Fatalf("パスワード表示=%s", f.out.String())
 			}
 		})

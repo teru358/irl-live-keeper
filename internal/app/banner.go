@@ -2,11 +2,13 @@ package app
 
 import (
 	"fmt"
+	"github.com/teru358/irl-live-keeper/internal/i18n"
 	"strings"
 )
 
 // bannerInfo は起動時の表示に使う値。
 type bannerInfo struct {
+	Lang i18n.Lang
 	// Cameras は設定の順。止めたプロトコルの送信用 URL は空文字で、表示しない。
 	Cameras []camURLs
 	// AdminURL は管理 API の URL。AdminNote は LAN に公開しているときの案内（空なら出さない）。
@@ -21,11 +23,16 @@ type bannerInfo struct {
 
 // startupBanner は起動時に標準出力へ1回だけ書く文字列を作る。パスワードを含むので、ログには通さない。
 func startupBanner(b bannerInfo) string {
+	lang := b.Lang
+	if lang != i18n.EN {
+		lang = i18n.JA
+	}
+	render := func(code string, values ...string) string { return i18n.Render(lang, i18n.New(code, values...)) }
 	var s strings.Builder
-	s.WriteString("== irl-live-keeper ==\n")
-	s.WriteString("送信用 URL（配信アプリに設定する）\n")
+	fmt.Fprintf(&s, "%s\n", render("banner.title"))
+	fmt.Fprintf(&s, "%s\n", render("banner.publish"))
 	for _, c := range b.Cameras {
-		fmt.Fprintf(&s, "  %s\n", c.label())
+		fmt.Fprintf(&s, "  %s\n", c.label(lang))
 		if c.PublishSRT != "" {
 			fmt.Fprintf(&s, "    SRT : %s\n", c.PublishSRT)
 		}
@@ -35,33 +42,41 @@ func startupBanner(b bannerInfo) string {
 	}
 	if b.AutoHost {
 		if !b.HostFound {
-			s.WriteString("  LAN の IPv4 アドレスが見つかりません。host を 127.0.0.1 にしています（stream.publish_host で固定できます）\n")
+			fmt.Fprintf(&s, "  %s\n", render("banner.host_missing"))
 		}
-		s.WriteString("  屋外から送るときは、host をポート転送やトンネルのアドレスに置き換える（stream.publish_host で固定できる）\n")
+		fmt.Fprintf(&s, "  %s\n", render("banner.outdoor"))
 	}
-	s.WriteString("OBS のメディアソース用 URL（カメラごと）\n")
+	fmt.Fprintf(&s, "%s\n", render("banner.obs"))
 	for _, c := range b.Cameras {
-		fmt.Fprintf(&s, "  %s\n    %s\n", c.label(), c.OBSRead)
+		fmt.Fprintf(&s, "  %s\n    %s\n", c.label(lang), c.OBSRead)
 	}
-	s.WriteString("管理 API\n")
-	fmt.Fprintf(&s, "  %s （ユーザー名 admin）\n", b.AdminURL)
+	fmt.Fprintf(&s, "%s\n", render("banner.admin"))
+	fmt.Fprintf(&s, "  %s %s\n", b.AdminURL, render("banner.admin_user"))
 	if b.AdminNote != "" {
 		fmt.Fprintf(&s, "  %s\n", b.AdminNote)
 	}
 	if b.AdminPassword != "" {
-		s.WriteString(adminPasswordLine(b.AdminPassword))
+		s.WriteString(adminPasswordLine(b.AdminPassword, lang))
 	}
 	return s.String()
 }
 
 // label はカメラの表示名と id（URL の path）。表示名は重複してよいので、id を並べて区別する。
-func (c camURLs) label() string {
-	return fmt.Sprintf("%s（%s）", c.Name, c.ID)
+func (c camURLs) label(languages ...i18n.Lang) string {
+	lang := i18n.JA
+	if len(languages) > 0 && languages[0] == i18n.EN {
+		lang = i18n.EN
+	}
+	return i18n.Render(lang, i18n.New("banner.camera_label", "name", c.Name, "id", c.ID))
 }
 
 // adminPasswordLine は、config.yaml を生成したときに出す管理 API のパスワードの行。
-func adminPasswordLine(password string) string {
-	return fmt.Sprintf("  管理 API のパスワード（config.yaml を生成しました）: %s\n", password)
+func adminPasswordLine(password string, languages ...i18n.Lang) string {
+	lang := i18n.JA
+	if len(languages) > 0 && languages[0] == i18n.EN {
+		lang = i18n.EN
+	}
+	return fmt.Sprintf("  %s\n", i18n.Render(lang, i18n.New("banner.password", "password", password)))
 }
 
 // listenAddr は管理 API の待ち受けのアドレス。lan が false なら 127.0.0.1 だけ、true ならすべてのインターフェース。
@@ -74,12 +89,16 @@ func listenAddr(port int, lan bool) string {
 
 // adminBannerURL は起動の表示に出す管理 API の URL と注記を返す。
 // lan が true で LAN のアドレス（lanHost）が見つかっていればその URL を、見つからなければ 127.0.0.1 と案内を返す。
-func adminBannerURL(port int, lan bool, lanHost string, found bool) (url, note string) {
+func adminBannerURL(port int, lan bool, lanHost string, found bool, languages ...i18n.Lang) (url, note string) {
+	lang := i18n.JA
+	if len(languages) > 0 && languages[0] == i18n.EN {
+		lang = i18n.EN
+	}
 	if !lan {
 		return fmt.Sprintf("http://127.0.0.1:%d", port), ""
 	}
 	if found {
-		return fmt.Sprintf("http://%s:%d", lanHost, port), "LAN に公開しています。LAN の機器からもこの URL で開けます"
+		return fmt.Sprintf("http://%s:%d", lanHost, port), i18n.Render(lang, i18n.New("banner.lan_note"))
 	}
-	return fmt.Sprintf("http://127.0.0.1:%d", port), fmt.Sprintf("LAN に公開しています。LAN の機器からは http://<この PC の LAN のアドレス>:%d", port)
+	return fmt.Sprintf("http://127.0.0.1:%d", port), i18n.Render(lang, i18n.New("banner.lan_missing", "port", fmt.Sprint(port)))
 }

@@ -192,7 +192,7 @@ func TestGeneration生成停止とHidden(t *testing.T) {
 			if a.hash != sha256.Sum256(raw) || a.current != nil {
 				t.Error("ハッシュまたは世代回収が不正")
 			}
-			if initCalls != 1 || strings.Count(logOut.String(), "子プロセスをまとめて終了させる仕組みを使えません") != 1 {
+			if initCalls != 1 || strings.Count(logOut.String(), "cannot use child process job object") != 1 {
 				t.Error("InitJob または警告の回数が不正")
 			}
 			if !reflect.DeepEqual(logger.secrets, []string{"secret-api"}) {

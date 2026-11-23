@@ -82,7 +82,7 @@ func TestInitJob失敗はloggerへ一度だけ警告する(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(&out, nil))
 	logInitJobWarning(log, errors.New("初期化失敗"))
 	got := out.String()
-	if n := strings.Count(got, "子プロセスをまとめて終了させる仕組みを使えません"); n != 1 {
+	if n := strings.Count(got, "cannot use child process job object"); n != 1 {
 		t.Fatalf("InitJob 警告の回数 = %d, want 1: %s", n, got)
 	}
 	if !strings.Contains(got, "初期化失敗") {

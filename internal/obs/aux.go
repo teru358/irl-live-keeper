@@ -177,7 +177,7 @@ func (a *Aux) Close() {
 	select {
 	case <-done:
 	case <-time.After(a.respTimeout + time.Second):
-		a.log.Warn("補助の接続の goroutine が goobs の中で止まったまま残った（既知の制約）")
+		a.log.Warn("auxiliary connection goroutine remains blocked in goobs (known limitation)")
 	}
 }
 
@@ -248,7 +248,7 @@ func (a *Aux) runOpen(ctx context.Context, o *auxOpen) {
 		if ctx.Err() == nil {
 			a.nextTry = a.clock.Now().Add(a.interval)
 			a.interval = min(a.interval*2, auxRetryMax)
-			a.log.Warn("補助の接続を開けない", "err", err, "retry_in", a.nextTry.Sub(a.clock.Now()))
+			a.log.Warn("cannot open auxiliary connection", "err", err, "retry_in", a.nextTry.Sub(a.clock.Now()))
 		}
 		o.err = fmt.Errorf("%w: %v", ErrAuxUnavailable, err)
 	default:

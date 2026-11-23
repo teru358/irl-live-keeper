@@ -218,7 +218,7 @@ func (w *WS) shutdown() {
 	select {
 	case <-done:
 	case <-time.After(w.timeout + time.Second):
-		w.log.Warn("OBS の接続の goroutine が goobs の中で止まったまま残った（既知の制約）")
+		w.log.Warn("OBS connection goroutine remains blocked in goobs (known limitation)")
 	}
 }
 

@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"flag"
+	"github.com/teru358/irl-live-keeper/internal/i18n"
 	"net"
 	"os"
 	"path/filepath"
@@ -379,7 +380,8 @@ func TestCheckPorts(t *testing.T) {
 			t.Errorf("%s: 使用中なのに成功した", h.name)
 			continue
 		}
-		if !strings.Contains(err.Error(), h.name) || !strings.Contains(err.Error(), strconv.Itoa(*h.port)) || !strings.Contains(err.Error(), "mediamtx が残っていない") {
+		ja := i18n.Render(i18n.JA, i18n.Reason(err)) // 画面とコンソールに出す日本語の文（Error() はログ用の英語）
+		if !strings.Contains(ja, h.name) || !strings.Contains(ja, strconv.Itoa(*h.port)) || !strings.Contains(ja, "mediamtx が残っていない") {
 			t.Errorf("%s: エラー文が不十分: %v", h.name, err)
 		}
 	}
@@ -417,8 +419,8 @@ func TestCheckPortsIPv4Wildcard(t *testing.T) {
 				t.Fatal("IPv4 の 0.0.0.0 で使用中なのに成功した")
 			}
 			for _, want := range []string{c.name, strconv.Itoa(port), "（" + c.network + "）", "mediamtx が残っていない"} {
-				if !strings.Contains(err.Error(), want) {
-					t.Errorf("エラー文に %q がありません: %v", want, err)
+				if ja := i18n.Render(i18n.JA, i18n.Reason(err)); !strings.Contains(ja, want) {
+					t.Errorf("エラー文に %q がありません: %v", want, ja)
 				}
 			}
 		})

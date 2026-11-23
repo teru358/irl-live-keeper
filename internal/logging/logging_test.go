@@ -398,7 +398,7 @@ func TestOpenWarnsAndContinuesWhenPruneFails(t *testing.T) {
 	if err := lg.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
-	if !strings.Contains(stdout.String(), "古いログを消せなかった") {
+	if !strings.Contains(stdout.String(), "cannot remove old log") {
 		t.Errorf("警告が標準出力にない: %q", stdout.String())
 	}
 	if _, err := os.Stat(old); err != nil {

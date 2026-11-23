@@ -103,7 +103,26 @@
     "api.stopped": "The core loop is stopped",
     "api.deadline": "context deadline exceeded",
     "api.canceled": "context canceled",
-    "api.invalid": "Cannot accept: {reason}"
+    "api.invalid": "Cannot accept: {reason}",
+    "banner.title": "== irl-live-keeper ==",
+    "banner.publish": "Publish URLs (set these in your streaming app)",
+    "banner.host_missing": "LAN IPv4 address not found. Using 127.0.0.1 (set stream.publish_host to choose one)",
+    "banner.outdoor": "For outdoor streaming, set host to your port forwarding or tunnel address (use stream.publish_host)",
+    "banner.obs": "OBS media source URLs (per camera)",
+    "banner.admin": "Admin API",
+    "banner.admin_user": "(user: admin)",
+    "banner.password": "Admin API password (created config.yaml): {password}",
+    "banner.camera_label": "{name} ({id})",
+    "banner.lan_note": "Open to the LAN. Use this URL from devices on the LAN.",
+    "banner.lan_missing": "Open to the LAN. From LAN devices, use http://<this PC LAN address>:{port}",
+    "console.logger_open": "Cannot open the log: {error}",
+    "console.port_check": "Port precheck failed: {error}",
+    "console.listen": "Cannot listen on admin.port {port} ({address}): {error}",
+    "console.serve": "Admin API stopped: {error}",
+    "console.config_load": "Cannot read or parse config.yaml.",
+    "console.executable": "Cannot find the executable location: {error}",
+    "console.pause": "Press Enter to close",
+    "console.config_invalid": "Invalid configuration:\n  - {details}"
   },
   "ui": {}
 }

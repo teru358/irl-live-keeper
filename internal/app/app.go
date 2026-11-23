@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -131,6 +132,7 @@ type Apply struct {
 }
 
 type generation struct {
+	lang     i18n.Lang
 	ctx      context.Context
 	cancel   context.CancelFunc
 	started  bool
@@ -285,7 +287,7 @@ func (a *App) runApp(ctx context.Context) int {
 		code := 0
 		select {
 		case <-ctx.Done():
-			g.logger.Slog().Info("止める操作を受けました。終了します")
+			g.logger.Slog().Info("Shutdown requested")
 		case <-a.restarts:
 			g.stopGeneration()
 			if ctx.Err() != nil {
@@ -299,8 +301,8 @@ func (a *App) runApp(ctx context.Context) int {
 			continue
 		case err := <-g.serveErr:
 			if err != nil && !errors.Is(err, http.ErrServerClosed) {
-				g.logger.Slog().Error("管理 API が止まりました", "error", err)
-				fmt.Fprintf(a.opts.Stderr, "管理 API が止まりました: %v\n", err)
+				g.logger.Slog().Error("admin API stopped", "error", err)
+				fmt.Fprintln(a.opts.Stderr, i18n.Render(g.lang, i18n.New("console.serve", "error", err.Error())))
 				code = 1
 			}
 		}
@@ -336,8 +338,22 @@ func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 		maskedErr := loadMasker.Mask(err.Error())
 		a.setApply(Apply{State: ApplyFailed, Kind: kind, Reason: maskedErr})
 		stage("apply.failed")
-		return nil, &generationError{"config.load", errors.New(maskedErr)}
+		consoleErr := maskedErr
+		if i18n.OSLang() == i18n.EN {
+			var validation *config.ValidationError
+			if errors.As(err, &validation) {
+				lines := make([]string, len(validation.Fields))
+				for i, field := range validation.Fields {
+					lines[i] = field.Field + ": " + i18n.Render(i18n.EN, field.Message)
+				}
+				consoleErr = i18n.Render(i18n.EN, i18n.New("console.config_invalid", "details", strings.Join(lines, "\n  - ")))
+			} else {
+				consoleErr = i18n.Render(i18n.EN, i18n.New("console.config_load"))
+			}
+		}
+		return nil, &generationError{"config.load", errors.New(consoleErr)}
 	}
+	lang := i18n.Resolve(cfg.Language, i18n.OSLang)
 	candidate := sha256.Sum256(raw)
 	a.rememberSecrets(cfg.Admin.Password, cfg.Stream.PublishPass, cfg.Stream.ReadPass, cfg.OBS.Password)
 	masker := redact.New(a.secrets...)
@@ -345,7 +361,7 @@ func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 	// 失敗して終わるときは、終わる前に標準出力へ出す（ログには書かない）。
 	showGeneratedPassword := func() {
 		if generated {
-			fmt.Fprint(stdout, adminPasswordLine(cfg.Admin.Password))
+			fmt.Fprint(stdout, adminPasswordLine(cfg.Admin.Password, lang))
 		}
 	}
 	logDir := resolvePath(base, cfg.Log.Dir)
@@ -363,11 +379,11 @@ func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 		showGeneratedPassword()
 		a.setApply(Apply{State: ApplyFailed, Kind: kind, Reason: masker.Mask(err.Error())})
 		stage("apply.failed")
-		return nil, &generationError{"logger.open", fmt.Errorf("ログを開けません: %s", masker.Mask(err.Error()))}
+		return nil, &generationError{"logger.open", errors.New(i18n.Render(lang, i18n.New("console.logger_open", "error", masker.Mask(err.Error()))))}
 	}
 	log := logger.Slog()
-	for _, w := range cfg.Warnings() {
-		log.Warn(w)
+	for _, w := range cfg.WarningMessages() {
+		log.Warn(i18n.Render(i18n.EN, w))
 	}
 
 	if !a.initWarned {
@@ -377,13 +393,19 @@ func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 
 	stage("ports.check")
 	if err := a.deps.checkPorts(cfg); err != nil {
-		log.Error("ポートの事前確認に失敗しました", "error", err)
+		log.Error("port precheck failed", "error", err)
 		showGeneratedPassword()
 		_ = logger.Close()
 		stage("logger.close")
-		a.setApply(Apply{State: ApplyFailed, Kind: kind, Reason: masker.Mask(err.Error())})
+		// 画面とコンソールの文は、エラーが持つ文（Msg）を本体の言語で組み立てる（Error() はログ用の英語）
+		reason := masker.Mask(i18n.Render(lang, i18n.Reason(err)))
+		a.setApply(Apply{State: ApplyFailed, Kind: kind, Reason: reason})
 		stage("apply.failed")
-		return nil, &generationError{"ports.check", errors.New(masker.Mask(err.Error()))}
+		consoleErr := reason
+		if lang == i18n.EN {
+			consoleErr = i18n.Render(lang, i18n.New("console.port_check", "error", consoleErr))
+		}
+		return nil, &generationError{"ports.check", errors.New(consoleErr)}
 	}
 
 	// 送信用 URL の host。起動時に1回だけ決める
@@ -391,15 +413,16 @@ func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 		stage("banner.write")
 		host, auto, found := choosePublishHost(cfg.Stream.PublishHost, systemInterfaces)
 		if auto && !found {
-			log.Warn("LAN の IPv4 アドレスが見つからないため、送信用 URL の host を 127.0.0.1 にしました。stream.publish_host で固定できます")
+			log.Warn("LAN IPv4 address not found; using 127.0.0.1 for publish URL host")
 		}
 		// 管理 API の URL。lan が true のときは、送信用 URL の自動の決め方と同じで LAN のアドレスを調べる
 		lanHost, _, lanFound := choosePublishHost("", systemInterfaces)
-		adminURL, adminNote := adminBannerURL(cfg.Admin.Port, cfg.Admin.LAN, lanHost, lanFound)
+		adminURL, adminNote := adminBannerURL(cfg.Admin.Port, cfg.Admin.LAN, lanHost, lanFound, lang)
 		cameraURLs := buildCameraURLs(cfg, host)
 		info := bannerInfo{
 			Cameras:  cameraURLs,
 			AdminURL: adminURL, AdminNote: adminNote, AutoHost: auto, HostFound: found,
+			Lang: lang,
 		}
 		if generated {
 			info.AdminPassword = cfg.Admin.Password
@@ -415,7 +438,7 @@ func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 	// Stopping と HTTP の停止のあとで、shutdown が cancel を呼ぶ。
 	stage("process.configure")
 	stage("parts.create")
-	g := &generation{logger: logger, app: a}
+	g := &generation{logger: logger, app: a, lang: lang}
 	runCtx, cancel := partsContext(ctx)
 	g.ctx, g.cancel = runCtx, cancel
 	wg := &g.wg
@@ -433,15 +456,15 @@ func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 	stage("hidden.load")
 	hidden, hiddenWarn := a.deps.loadHidden(hiddenPath(base))
 	if hiddenWarn.Code != "" {
-		log.Warn(i18n.Render(i18n.JA, hiddenWarn))
+		log.Warn(i18n.Render(i18n.EN, hiddenWarn))
 	}
 	if len(hidden) > 0 {
 		// 落ちたあとの起動で記録を引き継いだことを、あとで追えるようにする（M-13 の Windows の確認）
-		log.Info("隠した項目の記録を読んだ（OBS につないだら照合する）", "items", len(hidden))
+		log.Info("Loaded hidden item records; they will be checked after connecting to OBS", "items", len(hidden))
 	}
 
 	deps := coreDeps(cfg, cameraURLs)
-	deps.HiddenPath, deps.HiddenRestored, deps.HiddenLoadWarning = hiddenPath(base), hidden, i18n.Render(i18n.JA, hiddenWarn)
+	deps.HiddenPath, deps.HiddenRestored, deps.HiddenLoadWarning = hiddenPath(base), hidden, i18n.Render(lang, hiddenWarn)
 	deps.HiddenLoadMessage = hiddenWarn
 	deps.Machine = switcher.New(switcher.Config{
 		RestartWait: restartWait,
@@ -471,20 +494,19 @@ func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 	wg.Go(func() { <-runCtx.Done(); mediaWatch.Close() }) // 見張りの goroutine を残さない
 
 	// 管理 API。待ち受けに失敗したときも、部品を止めてから終了する
-	lang := i18n.Resolve(cfg.Language, i18n.OSLang)
 	srv := a.deps.newHTTP(c, cfg.Admin.Password, lang)
 	g.serveErr = make(chan error, 1)
 	addr := listenAddr(cfg.Admin.Port, cfg.Admin.LAN)
 	stage("http.listen")
 	ln, err := a.deps.listen("tcp", addr)
 	if err != nil {
-		log.Error("管理 API のポート（admin.port）で待ち受けできません", "listen", addr, "error", err)
+		log.Error("cannot listen on admin.port", "listen", addr, "error", err)
 		g.exitCode = 1 // 止める処理の「終了しました」のログを、実際の終了コードに合わせる
 		g.stopGeneration()
 
 		a.setApply(Apply{State: ApplyFailed, Kind: kind, Reason: masker.Mask(err.Error())})
 		stage("apply.failed")
-		return nil, &generationError{"http.listen", fmt.Errorf("管理 API のポート（admin.port）%d で待ち受けできません（%s）: %s", cfg.Admin.Port, addr, masker.Mask(err.Error()))}
+		return nil, &generationError{"http.listen", errors.New(i18n.Render(lang, i18n.New("console.listen", "port", fmt.Sprint(cfg.Admin.Port), "address", addr, "error", masker.Mask(err.Error()))))}
 	}
 	g.server = srv
 	stage("http.serve")
@@ -531,7 +553,7 @@ func (g *generation) stopGeneration() {
 	wg.Wait()
 	stage("parts.wait")
 	stage("history.finish")
-	g.logger.Slog().Info("終了しました", "code", g.exitCode)
+	g.logger.Slog().Info("shutdown complete", "code", g.exitCode)
 	_ = g.logger.Close()
 	stage("logger.close")
 	a.mu.Lock()
@@ -541,7 +563,7 @@ func (g *generation) stopGeneration() {
 
 func logInitJobWarning(log *slog.Logger, err error) {
 	if err != nil {
-		log.Warn("子プロセスをまとめて終了させる仕組みを使えません", "error", err)
+		log.Warn("cannot use child process job object", "error", err)
 	}
 }
 
