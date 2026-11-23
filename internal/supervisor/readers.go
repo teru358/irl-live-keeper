@@ -32,7 +32,8 @@ var (
 // SlowReader は、読み手（OBS）が追いつかない path。
 type SlowReader struct {
 	Path  string
-	Count int // 直近の窓（30秒）の reader is too slow の回数
+	Count int       // 直近の窓（30秒）の reader is too slow の回数
+	Last  time.Time // 最後の reader is too slow の時刻
 }
 
 // pathSlow は path ごとの reader is too slow の記録。
@@ -159,7 +160,7 @@ func (t *readerTracker) Slow() []SlowReader {
 			p.events = nil
 		}
 		if p.slow {
-			out = append(out, SlowReader{Path: path, Count: len(p.events)})
+			out = append(out, SlowReader{Path: path, Count: len(p.events), Last: p.last})
 		} else if len(p.events) == 0 {
 			delete(t.paths, path)
 		}

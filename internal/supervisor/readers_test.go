@@ -141,10 +141,12 @@ func TestReaderTrackerWindow(t *testing.T) {
 			t.Errorf("slow = %v", got)
 		}
 	})
-	t.Run("3回で出る、回数を持つ", func(t *testing.T) {
-		tr, _ := setup()
-		slowN(tr, who, 3)
-		if got := tr.Slow(); !reflect.DeepEqual(got, []SlowReader{{Path: "live/main", Count: 3}}) {
+	t.Run("3回で出る、回数と最後の時刻を持つ", func(t *testing.T) {
+		tr, clk := setup()
+		slowN(tr, who, 2)
+		clk.Add(5 * time.Second)
+		slowN(tr, who, 1)
+		if got := tr.Slow(); !reflect.DeepEqual(got, []SlowReader{{Path: "live/main", Count: 3, Last: clk.Now()}}) {
 			t.Errorf("slow = %v", got)
 		}
 	})

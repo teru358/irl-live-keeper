@@ -5,6 +5,8 @@ import (
 	"slices"
 	"time"
 
+	"github.com/teru358/irl-live-keeper/internal/ingest"
+	"github.com/teru358/irl-live-keeper/internal/supervisor"
 	"github.com/teru358/irl-live-keeper/internal/switcher"
 )
 
@@ -255,25 +257,41 @@ func (c *Core) slowReaderWarnings() []string {
 	if c.slowRead == nil {
 		return nil
 	}
-	slow := map[string]int{}
+	slow := map[string]supervisor.SlowReader{}
 	for _, r := range c.slowRead() {
-		slow[r.Path] = r.Count
+		slow[r.Path] = r
 	}
+	now := c.now()
 	var out []string
 	for _, cam := range c.cams {
-		n, ok := slow[cam.cfg.Path]
+		r, ok := slow[cam.cfg.Path]
 		if cam.cfg.Path == "" {
 			ok = false
 		}
+		// 止まった（DOWN の）カメラには出さない。DOWN のあいだに残った記録でも、つなぎ直したあとに出さない
+		// （T-15 の2日目: カメラが止まっても約60秒残った）。つなぎ直したあとの新しい記録では、また出す。
+		down := cam.judge.State() == ingest.LinkDown
+		if down {
+			cam.downAt = now
+			ok = false
+		} else if ok && !r.Last.After(cam.downAt) {
+			ok = false
+		}
 		if ok {
-			out = append(out, fmt.Sprintf("%s の映像を OBS が読み切れていません（MediaMTX が映像を捨てています）。送るビットレートや解像度を下げるか、OBS のメディアソースの「ハードウェアデコードを使用」を入れてください", cam.cfg.Name))
+			out = append(out, fmt.Sprintf("%s の映像を OBS が読み切れていません（MediaMTX が映像を捨てています）。"+
+				"つなぎ直した直後なら、しばらくで消えることがあります。続くときは、送るビットレートや解像度を下げてください。"+
+				"OBS のメディアソースの「ハードウェアデコードを使用」が切れていれば、入れてください", cam.cfg.Name))
 		}
 		if ok != cam.slow {
 			cam.slow = ok
 			if ok {
-				c.log.Info("obs reader too slow", "camera", cam.cfg.ID, "count", n)
+				c.log.Info("obs reader too slow", "camera", cam.cfg.ID, "count", r.Count)
 			} else {
-				c.log.Info("obs reader caught up", "camera", cam.cfg.ID, "count", 0)
+				reason := "caught_up"
+				if down {
+					reason = "camera_down"
+				}
+				c.log.Info("obs reader caught up", "camera", cam.cfg.ID, "count", 0, "reason", reason)
 			}
 		}
 	}

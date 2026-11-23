@@ -94,6 +94,7 @@ type camState struct {
 	judge  *ingest.Judge
 	sample ingest.Sample // 最後の Sample
 	slow   bool          // 読み手が追いつかない（ログの切り替わりの検出用）
+	downAt time.Time     // 最後に DOWN だと見た時刻。これより前の reader is too slow では警告を出さない
 	okSeq  uint64        // 最後に OK になった順番（0 はまだ OK になっていない）。回復のログの代表を決める
 }
 
