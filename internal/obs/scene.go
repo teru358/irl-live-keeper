@@ -8,8 +8,11 @@ import (
 
 // Scene は管理画面へ渡すシーン。
 type Scene struct {
-	UUID string `json:"uuid"`
-	Name string `json:"name"`
+	Kind       string   `json:"kind"`
+	Cameras    []string `json:"cameras"`
+	FallbackOf []string `json:"fallback_of"`
+	UUID       string   `json:"uuid"`
+	Name       string   `json:"name"`
 }
 
 func (w *WS) Scenes() ([]Scene, error) {

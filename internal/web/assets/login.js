@@ -13,6 +13,28 @@ const el = id => document.getElementById(id);
 const text = (id, value) => { el(id).textContent = value; };
 document.documentElement.lang = lang; document.title = t('title');
 document.querySelectorAll('[data-ui]').forEach(e => e.textContent = t(e.dataset.ui));
+function applyTheme(value) {
+ if(value==='light'||value==='dark') document.documentElement.dataset.theme=value; else delete document.documentElement.dataset.theme;
+ document.querySelectorAll('[data-theme-set]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.themeSet===value)));
+}
+function applyTab(value) {
+ if(!['line','scene','ops'].includes(value)) value='line';
+ document.body.dataset.tab=value;
+ document.querySelectorAll('[data-tab-set]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.tabSet===value)));
+}
+let theme='system', tab='line';try{theme=localStorage.getItem('theme')||theme;tab=localStorage.getItem('tab')||tab;}catch(_){}
+applyTheme(theme);applyTab(tab);
+document.querySelectorAll('[data-theme-set]').forEach(b=>b.onclick=()=>{applyTheme(b.dataset.themeSet);try{localStorage.setItem('theme',b.dataset.themeSet);}catch(_){}});
+document.querySelectorAll('[data-tab-set]').forEach(b=>b.onclick=()=>{applyTab(b.dataset.tabSet);try{localStorage.setItem('tab',b.dataset.tabSet);}catch(_){}});
+const menuButton=document.querySelector('.menu-btn');
+const prefs=document.querySelector('.sheet-prefs'), desktop=matchMedia('(min-width:900px)');
+function placePreferences(){
+ (desktop.matches?el('desktop-prefs'):el('sheet')).append(prefs);
+ (desktop.matches?el('menu'):el('sheet')).append(el('logout'));
+}
+placePreferences();desktop.addEventListener('change',placePreferences);
+menuButton.onclick=()=>{const open=el('sheet').classList.toggle('open');menuButton.setAttribute('aria-expanded',String(open));};
+if(boot.login){el('tabs').hidden=true;el('summary').hidden=true;el('logout').hidden=true;}
 async function request(path, body) {
  const r = await fetch('/api/' + path + (path.includes('?') ? '&' : '?') + 'lang=' + lang, {method: body === undefined ? 'GET' : 'POST', headers: {'Content-Type':'application/json','X-IRL-Live-Keeper':'1'}, body: body === undefined ? undefined : JSON.stringify(body)});
  if(r.status === 401 && !boot.login) location.replace('/?login');
@@ -21,8 +43,8 @@ async function request(path, body) {
 if (boot.login) el('login').hidden = false; el('admin').hidden = boot.login;
 el('login')?.addEventListener('submit', async e => { e.preventDefault(); try { await request('login', {password:el('password').value}); location.replace('/'); } catch(e) { text('error',e.message); } });
 if (!boot.login) {
- if (matchMedia('(max-width:700px)').matches) el('menu').open = false;
- document.querySelectorAll('[data-page]').forEach(b => b.onclick = () => { const isLogs=b.dataset.page==='logs'; el('status').hidden = b.dataset.page !== 'status'; el('log-panel').hidden=!isLogs; el('soon').hidden = b.dataset.page==='status'||isLogs; if(isLogs) loadLogs(); });
+ el('logout').onclick=async()=>{try{await request('logout',{});location.replace('/?login');}catch(e){text('error',e.message);}};
+ document.querySelectorAll('[data-page]').forEach(b => b.onclick = () => { document.body.dataset.page=b.dataset.page;el('sheet').classList.remove('open');menuButton.setAttribute('aria-expanded','false');document.querySelectorAll('[data-page]').forEach(x=>{if(x.dataset.page===b.dataset.page)x.setAttribute('aria-current','page');else x.removeAttribute('aria-current');});const isLogs=b.dataset.page==='logs'; el('status').hidden = b.dataset.page !== 'status'; el('log-panel').hidden=!isLogs; el('soon').hidden = b.dataset.page==='status'||isLogs; if(isLogs) loadLogs(); });
  document.querySelectorAll('[data-command]').forEach(b => b.onclick = async () => {
   const path = b.dataset.command;
   if(path === 'stream/stop' && !confirm(t('confirm_stop'))) return;
@@ -31,8 +53,14 @@ if (!boot.login) {
  });
  let restarting = false, since = 0;
  function connection() { text('connection', restarting ? t('restarting') + (Date.now()-since >= 30000 ? ' ' + t('restart_help') : '') : t('disconnected')); }
- let sceneList=[], currentScene='', pendingScene='', sceneTimer;
- function drawScenes(){el('scenes').replaceChildren(...sceneList.map(s=>{const b=document.createElement('button');const current=s.uuid===currentScene;b.textContent=s.name+(current?' · '+t('current_scene'):'');b.setAttribute('aria-pressed',String(current));b.disabled=!!pendingScene;b.onclick=async()=>{pendingScene=s.uuid;drawScenes();sceneTimer=setTimeout(()=>{pendingScene='';drawScenes();text('error',t('failed'));},10000);try{await request('obs/scene',{scene_uuid:s.uuid});}catch(e){clearTimeout(sceneTimer);pendingScene='';drawScenes();text('error',e.message);}};return b;}));}
+ let sceneList=[], currentScene='', pendingScene='', sceneTimer, returnScene='';
+ const readings=new Map(), states=new Map(), cameraNames=new Map();
+ function drawScenes(){el('scenes').replaceChildren(...sceneList.map(s=>{const b=document.createElement('button');const current=s.uuid===currentScene;b.className='scene k-'+(s.kind==='camera'?'cam':s.kind||'none');
+ const add=(tag,value,cls)=>{const e=document.createElement(tag);e.textContent=value;if(cls)e.className=cls;b.append(e);};
+ add('span',t('kind_'+(s.kind||'none')),'kind');add('span',s.name);
+ if(s.cameras?.length)add('small',s.cameras.map(id=>cameraNames.get(id)||id).join(lang==='ja'?'＋':' + '));
+ if(s.fallback_of?.length)add('i',t('fallback_of').replace('{scenes}',s.fallback_of.join('、')));
+ if(current)add('em',t('current_scene'));if(s.name===returnScene)add('em',t('return_scene'));b.setAttribute('aria-pressed',String(current));b.disabled=!!pendingScene;b.onclick=async()=>{pendingScene=s.uuid;drawScenes();sceneTimer=setTimeout(()=>{pendingScene='';drawScenes();text('error',t('failed'));},10000);try{await request('obs/scene',{scene_uuid:s.uuid});}catch(e){clearTimeout(sceneTimer);pendingScene='';drawScenes();text('error',e.message);}};return b;}));}
  let loadingScenes=false, scenesLoadedAt=0;
  async function loadScenes(){if(loadingScenes)return;loadingScenes=true;scenesLoadedAt=Date.now();try{sceneList=await request('obs/scenes');drawScenes();}catch(e){text('error',e.message);}finally{loadingScenes=false;}}
  loadScenes();
@@ -43,13 +71,43 @@ if (!boot.login) {
  if(pendingScene && (currentScene===pendingScene || !s.obs.connected)){clearTimeout(sceneTimer);pendingScene='';}
  if(s.obs.connected && (!wasConnected || (!sceneList.some(x=>x.uuid===currentScene) && Date.now()-scenesLoadedAt>=1000)))loadScenes();wasConnected=s.obs.connected;drawScenes();
   if(s.apply?.state === 'applying' && s.apply?.kind === 'restart') { if(!restarting) since=Date.now(); restarting=true; connection(); } else { restarting=false; text('connection',''); }
-  el('cameras').replaceChildren(...(s.cameras || []).map(c => { const p=document.createElement('p'); p.textContent=c.name+' : '+c.state+' · '+c.kbps+' kbps'+(c.protocol === 'srt' && c.srt ? ' · RTT '+c.srt.rtt_ms+' ms · '+c.srt.loss_rate+' %' : ''); return p; }));
+  const summary=[];
+  el('cameras').replaceChildren(...(s.cameras || []).map(c => {
+   cameraNames.set(c.id,c.name);const p=document.createElement('div');p.className='cam';p.dataset.state=c.state;
+   if(states.has(c.id)&&states.get(c.id)!==c.state)p.classList.add('flash');states.set(c.id,c.state);
+   const add=(tag,value,cls,parent=p)=>{const e=document.createElement(tag);e.textContent=value;e.className=cls;parent.append(e);return e;};
+   const name=add('span',c.name,'cam-name');add('span',c.state,'state',name);
+   const rate=add('span','','cam-read');
+   add('b',Math.round(c.kbps).toLocaleString(),'rate-value',rate);rate.append(document.createTextNode(' '));add('small','kbps','rate-unit',rate);
+   const now=Date.now(), samples=(readings.get(c.id)||[]).filter(x=>now-x[0]<=60000);samples.push([now,c.kbps]);readings.set(c.id,samples);
+   const max=Math.max(1,c.recover_kbps*2.5,...samples.map(x=>x[1]));
+   const strip=add('div','','strip');strip.setAttribute('aria-hidden','true');add('div','','fill',strip).style.width=Math.min(100,c.kbps/max*100)+'%';
+   for(const value of [c.fail_kbps,c.recover_kbps]){const tick=add('div','','tick',strip);tick.style.left=Math.min(100,value/max*100)+'%';add('span',String(value),'',tick);}
+   const protocol=(c.protocol||'').toUpperCase();
+   const separator=lang==='ja'?'、':', ';
+   const sub=add('span',protocol+(c.srt?separator+t('rtt')+' '+c.srt.rtt_ms+' ms'+separator+t('loss')+' '+c.srt.loss_rate+'%':''),'cam-sub');
+   const link=add('button',t('sender_link'),'to-send',sub);link.onclick=()=>document.querySelector('[data-page="sender"]').click();
+   const chip=document.createElement('span');chip.className='chip';chip.dataset.state=c.state;chip.textContent=c.name+' '+c.state;summary.push(chip);return p;
+  }));
   const o=s.obs, v=o.standby;
-  text('obs',[t(o.connected?'connected':'offline'),t(o.streaming?'streaming':'not_streaming'),t('scene')+': '+o.scene,t('studio')+': '+t(o.studio_mode?'on':'off')].join(' · '));
-  text('standby',t(v.owner || 'none')+' · '+t('return_scene')+': '+(v.return_scene || t('none')));
-  text('mediamtx',t(s.mediamtx) || s.mediamtx);
-  text('last-error',s.last_error?.message || '');
-  el('warnings').replaceChildren(...(o.warnings || []).map(w=>{const li=document.createElement('li');li.textContent=w;return li;}));
+  returnScene=v.return_scene||'';
+  const waiting=v.owner==='auto'||v.owner==='manual', label=t(v.owner==='auto'?'standby_auto':'standby_manual');
+  document.body.classList.toggle('in-standby',waiting);
+  if(waiting){const chip=document.createElement('span');chip.className='chip standby-chip';chip.textContent=label;summary.unshift(chip);}
+  el('summary').replaceChildren(...summary);
+  text('standby-label',label);text('return-button',t('return_to').replace('{scene}',returnScene||t('none')));
+  el('return-button').disabled=!returnScene;
+  el('manual-button').hidden=v.owner==='manual';el('manual-hint').hidden=v.owner==='manual';
+  text('manual-button',t(v.owner==='auto'?'manual_hold':'manual_save'));text('manual-hint',t(v.owner==='auto'?'manual_hold_hint':'manual_save_hint'));
+  text('tally',t(o.streaming?'streaming':'not_streaming'));el('tally').classList.toggle('off',!o.streaming);drawScenes();
+  const separator=lang==='ja'?'、':', ';
+  text('obs',t(o.connected?'obs_connected':'obs_disconnected')+separator+t(o.studio_mode?'studio_on':'studio_off'));
+  text('standby',(v.owner==='auto'||v.owner==='manual') ? t(v.owner==='auto'?'standby_auto':'standby_manual')+separator+t('return_scene_is').replace('{scene}',v.return_scene || t('none')) : t('standby_inactive'));
+  text('mediamtx',t('mediamtx_'+(s.mediamtx||'stopped')) || s.mediamtx);
+  const notices=[];
+  if(s.last_error?.message) notices.push(s.last_error.message);
+  notices.push(...(o.warnings || []));
+  el('warnings').replaceChildren(...notices.map(message=>{const item=document.createElement('p');item.className='warn';item.textContent=message;return item;}));
  }
  request('status').then(render).catch(e=>text('error',e.message));
  let logLevel='INFO'; let logLines=[]; let stickToBottom=true;

@@ -112,6 +112,8 @@ type Core struct {
 	okSeq           uint64 // カメラが OK になるたびに増やす（camState.okSeq に写す）
 	m               *switcher.Machine
 	obs             obs.Client
+	standbyName     string
+	fallbackRows    []switcher.FallbackRow
 	cams            []*camState
 	samples         <-chan ingest.SampleSet
 	mediamtx        func() supervisor.Status
@@ -205,7 +207,7 @@ func New(d Deps) *Core {
 		d.Now = time.Now
 	}
 	c := &Core{
-		m: d.Machine, obs: d.OBS,
+		m: d.Machine, obs: d.OBS, standbyName: d.StandbyScene, fallbackRows: slices.Clone(d.SceneFallbacks),
 		samples: d.Samples, mediamtx: d.MediaMTX, warningMessages: d.WarningMessages, slowRead: d.SlowReaders,
 		log: d.Log, tick: d.Tick, now: d.Now,
 		batches:   make(chan *switcher.Batch),

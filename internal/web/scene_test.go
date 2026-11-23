@@ -2,10 +2,12 @@ package web
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"github.com/teru358/irl-live-keeper/internal/core"
 	"github.com/teru358/irl-live-keeper/internal/obs"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -61,5 +63,35 @@ func TestSceneAuthenticationAndList(t *testing.T) {
 	page, _ := assets.ReadFile("assets/page.html")
 	if !strings.Contains(string(page), `id="scenes"`) {
 		t.Fatal("一覧がない")
+	}
+}
+
+type classifiedSceneBackend struct {
+	sceneBackend
+	list []obs.Scene
+}
+
+func (b *classifiedSceneBackend) Scenes() ([]obs.Scene, error) { return b.list, nil }
+
+func TestSceneListClassificationResponse(t *testing.T) {
+	for _, tc := range []struct {
+		name, kind       string
+		cameras, parents []string
+	}{
+		{"共通の待機", "standby", []string{}, []string{"Camera"}},
+		{"個別のカメラあり", "camera", []string{"main"}, []string{"Camera"}},
+		{"個別のカメラなし", "standby", []string{}, []string{"Camera"}},
+		{"ただのカメラなし", "none", []string{}, []string{}},
+		{"個別の設定なし", "camera", []string{"main"}, []string{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b := &classifiedSceneBackend{list: []obs.Scene{{UUID: "u", Name: tc.name, Kind: tc.kind, Cameras: tc.cameras, FallbackOf: tc.parents}}}
+			w := httptest.NewRecorder()
+			apiHandler(b, nil).ServeHTTP(w, httptest.NewRequest("GET", "/api/obs/scenes", nil))
+			var got []obs.Scene
+			if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil || w.Code != 200 || !reflect.DeepEqual(got, b.list) {
+				t.Fatal(w.Code, w.Body.String(), err)
+			}
+		})
 	}
 }

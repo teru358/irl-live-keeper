@@ -20,7 +20,19 @@ type sceneAccess interface {
 
 func (c *Core) Scenes() ([]obs.Scene, error) {
 	if a, ok := c.obs.(sceneAccess); ok {
-		return a.Scenes()
+		list, err := a.Scenes()
+		details := c.Snapshot().SceneDetails
+		for i, sc := range list {
+			if d, ok := details[sc.UUID]; ok {
+				list[i] = d
+				list[i].Name = sc.Name
+			} else {
+				list[i].Kind = "none"
+				list[i].Cameras = []string{}
+				list[i].FallbackOf = []string{}
+			}
+		}
+		return list, err
 	}
 	return nil, obs.ErrAuxUnavailable
 }

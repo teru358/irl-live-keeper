@@ -2,9 +2,12 @@ package core
 
 import (
 	"github.com/teru358/irl-live-keeper/internal/i18n"
+	"github.com/teru358/irl-live-keeper/internal/obs"
+	"github.com/teru358/irl-live-keeper/internal/scenemap"
 	"reflect"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/teru358/irl-live-keeper/internal/ingest"
@@ -15,23 +18,26 @@ import (
 // Snapshot は status の JSON（9章）になる読み取り専用の状態。
 // キーは null のときも省かない。
 type Snapshot struct {
-	Cameras   []CameraStatus `json:"cameras"` // 設定の順
-	OBS       OBSStatus      `json:"obs"`
-	MediaMTX  string         `json:"mediamtx"`
-	URLs      []CameraURLs   `json:"urls"` // カメラごと。設定の順
-	LastError *LastError     `json:"last_error"`
+	SceneDetails map[string]obs.Scene `json:"-"`
+	Cameras      []CameraStatus       `json:"cameras"` // 設定の順
+	OBS          OBSStatus            `json:"obs"`
+	MediaMTX     string               `json:"mediamtx"`
+	URLs         []CameraURLs         `json:"urls"` // カメラごと。設定の順
+	LastError    *LastError           `json:"last_error"`
 }
 
 // CameraStatus はカメラ1台の設定と、受信状態と最後の Sample の値。
 type CameraStatus struct {
-	ID       string     `json:"id"`
-	Name     string     `json:"name"`
-	OnBad    string     `json:"on_bad"` // standby / hide
-	State    string     `json:"state"`  // OK / LOW / DOWN
-	Kbps     float64    `json:"kbps"`
-	Online   bool       `json:"online"`
-	Protocol string     `json:"protocol"`
-	SRT      *SRTStatus `json:"srt"` // SRT のときだけ
+	FailKbps    float64    `json:"fail_kbps"`
+	RecoverKbps float64    `json:"recover_kbps"`
+	ID          string     `json:"id"`
+	Name        string     `json:"name"`
+	OnBad       string     `json:"on_bad"` // standby / hide
+	State       string     `json:"state"`  // OK / LOW / DOWN
+	Kbps        float64    `json:"kbps"`
+	Online      bool       `json:"online"`
+	Protocol    string     `json:"protocol"`
+	SRT         *SRTStatus `json:"srt"` // SRT のときだけ
 	// Sources はカメラのメディアソースの名前（地図から。なければ []）。
 	Sources []string `json:"sources"`
 	// Hidden は本体が隠している項目の数（今の接続先とシーンコレクションの記録。隠しかけと未決着を含む）。
@@ -121,8 +127,10 @@ func (c *Core) publish() {
 		},
 		URLs: make([]CameraURLs, len(c.cams)),
 	}
+	s.SceneDetails = sceneDetails(c.mapCopy, c.standbyName, c.fallbackRows)
 	for i, cam := range c.cams {
 		cs := CameraStatus{
+			FailKbps: cam.cfg.Thresholds.FailKbps, RecoverKbps: cam.cfg.Thresholds.RecoverKbps,
 			ID: cam.cfg.ID, Name: cam.cfg.Name, OnBad: string(cam.cfg.OnBad),
 			State: cam.judge.State().String(), Kbps: cam.sample.Kbps, Online: cam.sample.Online, Protocol: cam.sample.Protocol,
 			Sources: append([]string{}, c.sourceNames[cam.cfg.ID]...),
@@ -321,4 +329,48 @@ func (s Snapshot) Render(lang i18n.Lang) any {
 		OBS       obsStatus  `json:"obs"`
 		LastError *lastError `json:"last_error"`
 	}{s, obsStatus{s.OBS, i18n.Strings(lang, s.OBS.Warnings)}, last}
+}
+
+// sceneDetails は公開用の種類と逃がし先の親を地図から作る。
+func sceneDetails(m *scenemap.Map, standby string, rows []switcher.FallbackRow) map[string]obs.Scene {
+	out := make(map[string]obs.Scene)
+	if m != nil {
+		for uuid, sc := range m.Scenes {
+			cameras := scenemap.CamerasIn(*m, uuid, nil, true)
+			ids := make([]string, 0, len(cameras))
+			for _, id := range cameras {
+				ids = append(ids, id)
+			}
+			slices.Sort(ids)
+			out[uuid] = obs.Scene{UUID: uuid, Name: sc.Name, Kind: "none", Cameras: ids, FallbackOf: []string{}}
+		}
+		for uuid, sc := range out {
+			target := sc.Name == standby
+			for _, row := range rows {
+				if strings.TrimSpace(row.Fallback) == sc.Name {
+					target = true
+				}
+			}
+			if len(sc.Cameras) > 0 {
+				sc.Kind = "camera"
+			} else if target {
+				sc.Kind = "standby"
+			}
+			for _, parent := range out {
+				explicit := ""
+				for _, row := range rows {
+					if strings.TrimSpace(row.Scene) == parent.Name {
+						explicit = strings.TrimSpace(row.Fallback)
+						break
+					}
+				}
+				if explicit == sc.Name || (explicit == "" && sc.Name == standby && parent.Name != standby && len(parent.Cameras) > 0) {
+					sc.FallbackOf = append(sc.FallbackOf, parent.Name)
+				}
+			}
+			slices.Sort(sc.FallbackOf)
+			out[uuid] = sc
+		}
+	}
+	return out
 }

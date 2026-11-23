@@ -600,10 +600,10 @@ func waitInflightZero(t *testing.T, f *fakeOBS) {
 // status の JSON の形（カメラの spec 第9節の 0a の分）。sources、hidden、user_shown、unusable、studio_mode を含む（0b）。
 const specStatusJSON = `{
   "cameras": [
-    {"id": "main", "name": "メイン", "on_bad": "standby", "state": "LOW", "kbps": 4200.5, "online": true, "protocol": "srt",
+    {"id": "main", "name": "メイン", "fail_kbps":1000, "recover_kbps":2000, "on_bad": "standby", "state": "LOW", "kbps": 4200.5, "online": true, "protocol": "srt",
      "srt": {"rtt_ms": 85.2, "loss_rate": 0.01, "recv_mbps": 4.2},
      "sources": ["IRL"], "hidden": 0, "user_shown": false, "unusable": false},
-    {"id": "sub", "name": "サブ", "on_bad": "hide", "state": "DOWN", "kbps": 0, "online": false, "protocol": "", "srt": null,
+    {"id": "sub", "name": "サブ", "fail_kbps":1000, "recover_kbps":2000, "on_bad": "hide", "state": "DOWN", "kbps": 0, "online": false, "protocol": "", "srt": null,
      "sources": [], "hidden": 0, "user_shown": false, "unusable": false}
   ],
   "obs":     {"connected": true, "streaming": false, "scene": "Camera", "scene_uuid": "Camera", "scene_class": "monitored",
@@ -661,9 +661,9 @@ func TestSnapshotJSONShape(t *testing.T) {
 		t.Fatalf("cameras = %#v", initial["cameras"])
 	}
 	wantInit := []any{
-		map[string]any{"id": "main", "name": "メイン", "on_bad": "standby", "state": "DOWN", "kbps": 0.0, "online": false, "protocol": "", "srt": nil,
+		map[string]any{"id": "main", "name": "メイン", "on_bad": "standby", "state": "DOWN", "fail_kbps": 1000.0, "recover_kbps": 2000.0, "kbps": 0.0, "online": false, "protocol": "", "srt": nil,
 			"sources": []any{}, "hidden": 0.0, "user_shown": false, "unusable": false},
-		map[string]any{"id": "sub", "name": "サブ", "on_bad": "hide", "state": "DOWN", "kbps": 0.0, "online": false, "protocol": "", "srt": nil,
+		map[string]any{"id": "sub", "name": "サブ", "on_bad": "hide", "state": "DOWN", "fail_kbps": 1000.0, "recover_kbps": 2000.0, "kbps": 0.0, "online": false, "protocol": "", "srt": nil,
 			"sources": []any{}, "hidden": 0.0, "user_shown": false, "unusable": false},
 	}
 	if !reflect.DeepEqual(cams, wantInit) {
