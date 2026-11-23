@@ -1,4 +1,4 @@
-# 歩く間の記録（T-15 の2日目）。人が見ていなくても、決まった間隔で
+﻿# 歩く間の記録（T-15 の2日目）。人が見ていなくても、決まった間隔で
 # OBS のメディアソースの状態（ctl.exe inputs）とメモリをファイルに足していく。
 #
 #   powershell -ExecutionPolicy Bypass -File .\walk-log.ps1                 # 既定: 45分、2分ごと
