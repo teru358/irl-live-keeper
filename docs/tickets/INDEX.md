@@ -9,5 +9,5 @@
 
 | id | 優先 | 起票 | 概要 |
 |---|---|---|---|
-| [fb-integ-status-mismatch](open/fb-integ-status-mismatch.md) | 中 | 2026-11-23 | 0c の結合のテストが一括の実行でまれに status の食い違いで落ちる |
+| [integ-overload-failures](open/integ-overload-failures.md) | 低 | 2026-11-23 | 結合のテストが強い過負荷（32本×2回）で INV-03・INV-04・入場の逆順で落ちる |
 

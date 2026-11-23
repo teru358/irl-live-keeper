@@ -553,6 +553,13 @@ func (r *runner) fbCheck(where string) {
 		return
 	}
 	synced := r.fbSync()
+	// send は非バッファチャネルへの受け渡しで戻るが、handle と publish は
+	// まだ終わっていないことがある。送信を止めて Tick を受理させれば、
+	// それ以前に渡した全イベントの publish が終わる（core.loop）。
+	// 比較が終わるまで保持し、新しいイベントがこの障壁を追い越すのも防ぐ。
+	w.sendMu.Lock()
+	defer w.sendMu.Unlock()
+	r.sendTick()
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if len(w.violations) > 0 {
