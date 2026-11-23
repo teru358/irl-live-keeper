@@ -24,7 +24,7 @@ var (
 	selfInJob bool
 )
 
-// InitJob は KILL_ON_JOB_CLOSE の Job Object を作り、本体自身をその Job に入れる。
+// InitJob は終了時に子を閉じ、明示的な breakaway を許す Job Object を作り、本体自身をその Job に入れる。
 // 起動時に1回だけ呼ぶ。Job は作れたが本体を入れられなかったとき（入れ子にできない Job の中など）は、
 // エラーを返したうえで Job を残し、以後は子を Start した直後に Job へ割り当てる方式に切り替える。
 func InitJob() error {
@@ -37,9 +37,8 @@ func InitJob() error {
 	if err != nil {
 		return fmt.Errorf("Job Object を作れません: %w", err)
 	}
-	// breakaway は許可しない（BREAKAWAY_OK / SILENT_BREAKAWAY_OK を立てない）。
 	info := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{}
-	info.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+	info.BasicLimitInformation.LimitFlags = jobLimitFlags()
 	if _, err := windows.SetInformationJobObject(h, windows.JobObjectExtendedLimitInformation,
 		uintptr(unsafe.Pointer(&info)), uint32(unsafe.Sizeof(info))); err != nil {
 		windows.CloseHandle(h)
@@ -56,7 +55,15 @@ func InitJob() error {
 // prepare は子を別のプロセスグループで起動する。コンソールの Ctrl+C が子に直接届かないようにし、
 // 子を止めるのは本体だけにする（Job Object の扱いは変えない）。
 func prepare(cmd *exec.Cmd) {
-	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NEW_PROCESS_GROUP}
+	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: mediaCreationFlags()}
+}
+
+func jobLimitFlags() uint32 {
+	return windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | windows.JOB_OBJECT_LIMIT_BREAKAWAY_OK
+}
+
+func mediaCreationFlags() uint32 {
+	return windows.CREATE_NEW_PROCESS_GROUP | windows.CREATE_NO_WINDOW
 }
 
 // afterStart は、本体を Job に入れられなかったときだけ、起動した子を Job に割り当てる。

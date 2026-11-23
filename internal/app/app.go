@@ -65,6 +65,9 @@ type Options struct {
 	Stderr           io.Writer
 	StdoutIsTerminal func() bool
 	InvocationID     string
+	CrashDir         string
+	CrashPath        string
+	StartedAt        time.Time
 }
 
 type appDeps struct {
@@ -410,6 +413,11 @@ func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 		return nil, &generationError{"logger.open", errors.New(i18n.Render(lang, i18n.New("console.logger_open", "error", masker.Mask(err.Error()))))}
 	}
 	log := logger.Slog()
+	if a.opts.CrashDir != "" {
+		if err := logging.PruneCrashLogs(a.opts.CrashDir, a.opts.CrashPath, cfg.Log.KeepDays, true, a.opts.StartedAt); err != nil {
+			log.Warn("cannot remove old crash logs", "err", err)
+		}
+	}
 	for _, w := range cfg.WarningMessages() {
 		log.Warn(i18n.Render(i18n.EN, w))
 	}
