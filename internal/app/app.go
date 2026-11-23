@@ -3,6 +3,7 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
@@ -20,6 +21,7 @@ import (
 	"github.com/teru358/irl-live-keeper/internal/ingest"
 	"github.com/teru358/irl-live-keeper/internal/logging"
 	"github.com/teru358/irl-live-keeper/internal/obs"
+	"github.com/teru358/irl-live-keeper/internal/redact"
 	"github.com/teru358/irl-live-keeper/internal/supervisor"
 	"github.com/teru358/irl-live-keeper/internal/switcher"
 	"github.com/teru358/irl-live-keeper/internal/web"
@@ -60,19 +62,150 @@ type Options struct {
 	Stderr  io.Writer
 }
 
-type appDeps struct{ initJob func() error }
+type appDeps struct {
+	initJob       func() error
+	stage         func(string)
+	listen        func(string, string) (net.Listener, error)
+	loadConfig    func(string) (*config.Config, bool, []byte, error)
+	openLogger    func(logging.Options) (logHandle, error)
+	checkPorts    func(*config.Config) error
+	newSupervisor func(*config.Config, string, string, *slog.Logger) supervisorRunner
+	newPoller     func(string, string, string, []string, []string) pollRunner
+	newOBS        func(obs.Config, *slog.Logger) obsRunner
+	newMediaWatch func(obsRunner, *slog.Logger) mediaWatcher
+	loadHidden    func(string) ([]switcher.HiddenEntry, string)
+	newCore       func(core.Deps) coreRunner
+	newHTTP       func(coreRunner, string) servingHTTP
+}
+
+type runner interface{ Run(context.Context) }
+type pollRunner interface {
+	Run(context.Context, time.Duration, chan<- ingest.SampleSet)
+}
+type logHandle interface {
+	Slog() *slog.Logger
+	AddSecrets(...string)
+	Close() error
+}
+type supervisorRunner interface {
+	runner
+	APICredentials() (string, string)
+	Status() supervisor.Status
+	SlowReaders() []supervisor.SlowReader
+}
+type obsRunner interface {
+	obs.Client
+	runner
+	Warnings() []string
+}
+type mediaWatcher interface {
+	core.MediaWatcher
+	Close()
+}
+type coreRunner interface {
+	runner
+	stopper
+	web.Backend
+}
+type servingHTTP interface {
+	httpServer
+	Serve(net.Listener) error
+}
+
+type ApplyState string
+type ApplyKind string
+
+const (
+	ApplyIdle     ApplyState = "idle"
+	ApplyApplying ApplyState = "applying"
+	ApplyApplied  ApplyState = "applied"
+	ApplyFailed   ApplyState = "failed"
+)
+
+type Apply struct {
+	State  ApplyState
+	Kind   ApplyKind
+	Reason string
+}
+
+type generation struct {
+	ctx      context.Context
+	cancel   context.CancelFunc
+	started  bool
+	core     coreRunner
+	logger   logHandle
+	server   servingHTTP
+	mu       sync.Mutex
+	stopped  bool
+	exitCode int
+}
 
 type App struct {
-	opts    Options
-	initErr error
+	opts       Options
+	initErr    error
+	initWarned bool
+	deps       appDeps
+	mu         sync.Mutex
+	apply      Apply
+	hash       [32]byte
+	current    *generation
 }
 
 func newApp(opts Options, deps appDeps) *App {
 	if deps.initJob == nil {
 		deps.initJob = supervisor.InitJob
 	}
-	return &App{opts: opts, initErr: deps.initJob()}
+	if deps.stage == nil {
+		deps.stage = func(string) {}
+	}
+	if deps.listen == nil {
+		deps.listen = net.Listen
+	}
+	if deps.loadConfig == nil {
+		deps.loadConfig = loadConfigBytes
+	}
+	if deps.openLogger == nil {
+		deps.openLogger = func(o logging.Options) (logHandle, error) { return logging.Open(o) }
+	}
+	if deps.checkPorts == nil {
+		deps.checkPorts = supervisor.CheckPorts
+	}
+	if deps.newSupervisor == nil {
+		deps.newSupervisor = func(c *config.Config, b, w string, l *slog.Logger) supervisorRunner {
+			return supervisor.New(c, b, w, l)
+		}
+	}
+	if deps.newPoller == nil {
+		deps.newPoller = func(u, a, p string, ids, paths []string) pollRunner {
+			return ingest.NewPoller(u, a, p, ids, paths, nil)
+		}
+	}
+	if deps.newOBS == nil {
+		deps.newOBS = func(c obs.Config, l *slog.Logger) obsRunner { return obs.New(c, l) }
+	}
+	if deps.newMediaWatch == nil {
+		deps.newMediaWatch = func(o obsRunner, l *slog.Logger) mediaWatcher {
+			return obs.NewMediaWatch(o.(*obs.WS).Aux().MediaAux(), l, nil)
+		}
+	}
+	if deps.loadHidden == nil {
+		deps.loadHidden = core.LoadHidden
+	}
+	if deps.newCore == nil {
+		deps.newCore = func(d core.Deps) coreRunner { return core.New(d) }
+	}
+	if deps.newHTTP == nil {
+		deps.newHTTP = func(c coreRunner, p string) servingHTTP {
+			return &http.Server{Handler: web.New(c, p), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
+		}
+	}
+	return &App{opts: opts, initErr: deps.initJob(), deps: deps, apply: Apply{State: ApplyIdle}}
 }
+
+// Apply は現在の初回反映状態の値を返す。
+func (a *App) Apply() Apply { a.mu.Lock(); defer a.mu.Unlock(); return a.apply }
+
+func (a *App) setApply(v Apply) { a.mu.Lock(); a.apply = v; a.mu.Unlock() }
 
 // Run はコンソール用 app を起動し、終了コードを返す。
 func Run(ctx context.Context, opts Options) int {
@@ -80,7 +213,7 @@ func Run(ctx context.Context, opts Options) int {
 }
 
 func (a *App) run(ctx context.Context) int {
-	return runApp(ctx, a.opts.BaseDir, a.opts.Stdout, a.opts.Stderr, a.initErr)
+	return a.runApp(ctx)
 }
 
 // run は旧テスト用の非公開ラッパー。実行本体は Run に集約する。
@@ -88,13 +221,21 @@ func run(ctx context.Context, base string, stdout, stderr io.Writer) int {
 	return Run(ctx, Options{BaseDir: base, Stdout: stdout, Stderr: stderr})
 }
 
-func runApp(ctx context.Context, base string, stdout, stderr io.Writer, initErr error) int {
+func (a *App) runApp(ctx context.Context) int {
+	base, stdout, stderr, initErr := a.opts.BaseDir, a.opts.Stdout, a.opts.Stderr, a.initErr
+	a.setApply(Apply{State: ApplyApplying})
+	stage := a.deps.stage
+	stage("config.load")
 	// 設定。なければ生成する
-	cfg, generated, err := loadConfig(base)
+	cfg, generated, raw, err := a.deps.loadConfig(base)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
+		a.setApply(Apply{State: ApplyFailed, Reason: err.Error()})
+		stage("apply.failed")
 		return 1
 	}
+	candidate := sha256.Sum256(raw)
+	masker := redact.New(cfg.Admin.Password, cfg.Stream.PublishPass, cfg.Stream.ReadPass, cfg.OBS.Password)
 	// 生成したパスワードを知る手段が config.yaml を開くことだけにならないよう、起動の表示より前に
 	// 失敗して終わるときは、終わる前に標準出力へ出す（ログには書かない）。
 	showGeneratedPassword := func() {
@@ -106,7 +247,8 @@ func runApp(ctx context.Context, base string, stdout, stderr io.Writer, initErr 
 	binPath := mediaMTXBinary(base, cfg.MediaMTX.Binary, runtime.GOOS)
 
 	// ログ。パスワードは標準出力にもファイルにも書かない
-	logger, err := logging.Open(logging.Options{
+	stage("logger.open")
+	logger, err := a.deps.openLogger(logging.Options{
 		Dir:      logDir,
 		KeepDays: cfg.Log.KeepDays,
 		Stdout:   stdout,
@@ -115,24 +257,34 @@ func runApp(ctx context.Context, base string, stdout, stderr io.Writer, initErr 
 	if err != nil {
 		fmt.Fprintln(stderr, "ログを開けません:", err)
 		showGeneratedPassword()
+		a.setApply(Apply{State: ApplyFailed, Reason: masker.Mask(err.Error())})
+		stage("apply.failed")
 		return 1
 	}
-	defer logger.Close()
 	log := logger.Slog()
 	for _, w := range cfg.Warnings() {
 		log.Warn(w)
 	}
 
-	logInitJobWarning(log, initErr)
+	if !a.initWarned {
+		logInitJobWarning(log, initErr)
+		a.initWarned = true
+	}
 
-	if err := supervisor.CheckPorts(cfg); err != nil {
+	stage("ports.check")
+	if err := a.deps.checkPorts(cfg); err != nil {
 		log.Error("ポートの事前確認に失敗しました", "error", err)
 		fmt.Fprintln(stderr, err)
 		showGeneratedPassword()
+		_ = logger.Close()
+		stage("logger.close")
+		a.setApply(Apply{State: ApplyFailed, Reason: masker.Mask(err.Error())})
+		stage("apply.failed")
 		return 1
 	}
 
 	// 送信用 URL の host。起動時に1回だけ決める
+	stage("banner.write")
 	host, auto, found := choosePublishHost(cfg.Stream.PublishHost, systemInterfaces)
 	if auto && !found {
 		log.Warn("LAN の IPv4 アドレスが見つからないため、送信用 URL の host を 127.0.0.1 にしました。stream.publish_host で固定できます")
@@ -153,18 +305,24 @@ func runApp(ctx context.Context, base string, stdout, stderr io.Writer, initErr 
 	// 部品を動かす
 	// 部品の context はシグナルの ctx から独立させる。シグナルは終わる手順（shutdown）の開始の合図にだけ使い、
 	// Stopping と HTTP の停止のあとで、shutdown が cancel を呼ぶ。
+	stage("process.configure")
+	stage("parts.create")
+	g := &generation{logger: logger}
 	runCtx, cancel := partsContext(ctx)
-	defer cancel()
+	g.ctx, g.cancel = runCtx, cancel
 	var wg sync.WaitGroup
 
-	sup := supervisor.New(cfg, binPath, base, log)
+	sup := a.deps.newSupervisor(cfg, binPath, base, log)
 	apiUser, apiPass := sup.APICredentials()
-	poller := ingest.NewPoller(fmt.Sprintf("http://127.0.0.1:%d", cfg.MediaMTX.APIPort), apiUser, apiPass, cameraIDs(cfg), cameraPaths(cfg), nil)
+	logger.AddSecrets(apiPass)
+	masker.Add(apiPass)
+	poller := a.deps.newPoller(fmt.Sprintf("http://127.0.0.1:%d", cfg.MediaMTX.APIPort), apiUser, apiPass, cameraIDs(cfg), cameraPaths(cfg))
 	samples := make(chan ingest.SampleSet) // Poller → core。全カメラの Sample の1組
-	obsClient := obs.New(obsConfig(cfg), log)
+	obsClient := a.deps.newOBS(obsConfig(cfg), log)
 
 	// 隠した項目の記録。core を作る前に読む（読めなければ警告を出して空として扱い、元のファイルは .broken に残す）
-	hidden, hiddenWarn := core.LoadHidden(hiddenPath(base))
+	stage("hidden.load")
+	hidden, hiddenWarn := a.deps.loadHidden(hiddenPath(base))
 	if hiddenWarn != "" {
 		log.Warn(hiddenWarn)
 	}
@@ -184,11 +342,16 @@ func runApp(ctx context.Context, base string, stdout, stderr io.Writer, initErr 
 	deps.MediaMTX = sup.Status
 	deps.SlowReaders = sup.SlowReaders
 	deps.Warnings = obsClient.Warnings
-	mediaWatch := obs.NewMediaWatch(obsClient.Aux().MediaAux(), log, nil)
+	mediaWatch := a.deps.newMediaWatch(obsClient, log)
 	deps.MediaWatch = mediaWatch
 	deps.Log = log
-	c := core.New(deps)
+	stage("core.new")
+	c := a.deps.newCore(deps)
+	g.core = c
+	stage("receivers.register")
 
+	stage("parts.start")
+	g.started = true
 	wg.Go(func() { sup.Run(runCtx) })
 	wg.Go(func() { poller.Run(runCtx, pollInterval, samples) })
 	wg.Go(func() { obsClient.Run(runCtx) })
@@ -196,23 +359,28 @@ func runApp(ctx context.Context, base string, stdout, stderr io.Writer, initErr 
 	wg.Go(func() { <-runCtx.Done(); mediaWatch.Close() }) // 見張りの goroutine を残さない
 
 	// 管理 API。待ち受けに失敗したときも、部品を止めてから終了する
-	srv := &http.Server{
-		Handler:           web.New(c, cfg.Admin.Password),
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       10 * time.Second,
-		WriteTimeout:      10 * time.Second,
-		IdleTimeout:       60 * time.Second,
-	}
+	srv := a.deps.newHTTP(c, cfg.Admin.Password)
 	serveErr := make(chan error, 1)
 	addr := listenAddr(cfg.Admin.Port, cfg.Admin.LAN)
-	ln, err := net.Listen("tcp", addr)
+	stage("http.listen")
+	ln, err := a.deps.listen("tcp", addr)
 	if err != nil {
-		shutdown(c, nil, cancel, &wg)
 		log.Error("管理 API のポート（admin.port）で待ち受けできません", "listen", addr, "error", err)
+		a.stopGeneration(g, nil, &wg)
 		fmt.Fprintf(stderr, "管理 API のポート（admin.port）%d で待ち受けできません（%s）: %v\n", cfg.Admin.Port, addr, err)
+		a.setApply(Apply{State: ApplyFailed, Reason: masker.Mask(err.Error())})
+		stage("apply.failed")
 		return 1
 	}
-	go func() { serveErr <- srv.Serve(ln) }()
+	g.server = srv
+	stage("http.serve")
+	wg.Go(func() { serveErr <- srv.Serve(ln) })
+	a.mu.Lock()
+	a.hash = candidate
+	a.current = g
+	a.mu.Unlock()
+	stage("config.commit")
+	a.setApply(Apply{State: ApplyApplied})
 
 	code := 0
 	select {
@@ -226,9 +394,48 @@ func runApp(ctx context.Context, base string, stdout, stderr io.Writer, initErr 
 	}
 
 	// core に Stopping を渡して隠した項目を戻し（最大2秒）、HTTP サーバーを止め、ctx を取り消し、MediaMTX が止まるのを待つ
-	shutdown(c, srv, cancel, &wg)
-	log.Info("終了しました", "code", code)
+	g.exitCode = code
+	a.stopGeneration(g, srv, &wg)
 	return code
+}
+
+func (a *App) stopGeneration(g *generation, srv httpServer, wg *sync.WaitGroup) {
+	g.mu.Lock()
+	if g.stopped {
+		g.mu.Unlock()
+		return
+	}
+	g.stopped = true
+	g.mu.Unlock()
+	stage := a.deps.stage
+	if g.started {
+		stage("core.stopping")
+	}
+	if g.started {
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), core.DefaultStopTimeout)
+		g.core.Stopping(stopCtx)
+		stopCancel()
+	}
+	stage("sse.close")
+	if srv != nil {
+		stage("http.shutdown")
+		shutCtx, shutCancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		if err := srv.Shutdown(shutCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			_ = srv.Close()
+		}
+		shutCancel()
+	}
+	stage("generation.cancel")
+	g.cancel()
+	wg.Wait()
+	stage("parts.wait")
+	stage("history.finish")
+	g.logger.Slog().Info("終了しました", "code", g.exitCode)
+	_ = g.logger.Close()
+	stage("logger.close")
+	a.mu.Lock()
+	a.current = nil
+	a.mu.Unlock()
 }
 
 func logInitJobWarning(log *slog.Logger, err error) {
@@ -267,11 +474,26 @@ func shutdown(c stopper, srv httpServer, cancel func(), wg *sync.WaitGroup) {
 // loadConfig は base の config.yaml を読む。なければ生成し、generated を true にする。
 // log.dir と mediamtx.binary の解決は呼び出し側で行う。
 func loadConfig(base string) (cfg *config.Config, generated bool, err error) {
+	cfg, generated, _, err = loadConfigBytes(base)
+	return
+}
+
+func loadConfigBytes(base string) (cfg *config.Config, generated bool, raw []byte, err error) {
 	path := filepath.Join(base, configName)
 	if _, statErr := os.Stat(path); errors.Is(statErr, os.ErrNotExist) {
 		cfg, err = generate(path)
-		return cfg, err == nil, err
+		if err == nil {
+			raw, err = os.ReadFile(path)
+			if err == nil {
+				cfg, err = config.Parse(raw)
+			}
+		}
+		return cfg, err == nil, raw, err
 	}
-	cfg, err = config.Load(path)
-	return cfg, false, err
+	raw, err = os.ReadFile(path)
+	if err != nil {
+		return nil, false, nil, fmt.Errorf("設定ファイルを読めません: %w", err)
+	}
+	cfg, err = config.Parse(raw)
+	return cfg, false, raw, err
 }

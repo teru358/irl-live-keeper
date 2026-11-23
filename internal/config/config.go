@@ -202,6 +202,9 @@ func Load(path string) (*Config, error) {
 	return parse(data)
 }
 
+// Parse はメモリ上の設定を Load と同じ規則で検証する。
+func Parse(data []byte) (*Config, error) { return parse(data) }
+
 func parse(data []byte) (*Config, error) {
 	cfg := defaults()
 	dec := yaml.NewDecoder(bytes.NewReader(data))
