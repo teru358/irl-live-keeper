@@ -34,12 +34,12 @@ func TestSenderAPI(t *testing.T) {
 func TestSenderElementsAndCatalog(t *testing.T) {
 	html, _ := assets.ReadFile("assets/page.html")
 	js, _ := assets.ReadFile("assets/login.js")
-	for _, key := range []string{"sender-address", "sender-cameras"} {
+	for _, key := range []string{"sender-address", "sender-cameras", "sender-qr-template", "sender-qr-toggle", "sender-qr-image"} {
 		if !strings.Contains(string(html), key) {
 			t.Fatal(key)
 		}
 	}
-	for _, key := range []string{"data.protocol", "sender_copy", "sender_show"} {
+	for _, key := range []string{"data.protocol", "sender_copy", "sender_show", "sender_qr_show", "sender_qr_password", "qrcode(0,'M')", "createSvgTag", "addData(p.url||'','Byte')"} {
 		if key == "data.protocol" {
 			key = "dataset.protocol"
 		}
@@ -48,7 +48,7 @@ func TestSenderElementsAndCatalog(t *testing.T) {
 		}
 	}
 	for _, lang := range []i18n.Lang{i18n.JA, i18n.EN} {
-		for _, key := range []string{"sender_hint", "sender_address", "sender_protocol", "sender_url", "sender_endpoint", "sender_key", "sender_streamid", "sender_user", "sender_password", "sender_obs", "sender_copy", "sender_copied", "sender_manual", "sender_show", "sender_hide", "sender_rtmp_hint", "sender_lan", "sender_tailscale", "sender_publish_host"} {
+		for _, key := range []string{"sender_hint", "sender_address", "sender_protocol", "sender_url", "sender_endpoint", "sender_key", "sender_streamid", "sender_user", "sender_password", "sender_obs", "sender_copy", "sender_copied", "sender_manual", "sender_show", "sender_hide", "sender_rtmp_hint", "sender_lan", "sender_tailscale", "sender_publish_host", "sender_qr_show", "sender_qr_hide", "sender_qr_password", "sender_qr_alt"} {
 			if i18n.UI(lang)[key] == "" {
 				t.Fatal(lang, key)
 			}

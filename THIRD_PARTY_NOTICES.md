@@ -33,6 +33,40 @@ irl-live-keeper（MIT License）は、次のソフトウェアを利用してい
 - **MPL-2.0 の扱い:** github.com/hashicorp/logutils（goobs の依存）は改変せずに使っている。MPL-2.0 はバイナリで配布するときに、その部分のソースコードの入手先を示すことを求める。ソースコードは https://github.com/hashicorp/logutils から入手できる
 - **Apache-2.0 の扱い:** goobs などの Apache-2.0 のライブラリは、ライセンス全文と、NOTICE ファイルがあればその内容を同梱する
 
+
+## 画面に同梱する JavaScript ライブラリ
+
+| ソフトウェア | 版 | ライセンス | 著作権者 | 同梱ファイル |
+|---|---|---|---|---|
+| qrcode-generator | 2.0.4 | MIT | Copyright (c) 2009 Kazuhiko Arase | `internal/web/assets/vendor/qrcode-generator-2.0.4.js` |
+
+- QR Code は株式会社デンソーウェーブの登録商標です。
+- 同梱するライセンスファイル: `internal/web/assets/vendor/LICENSE-qrcode-generator.txt`
+
+### qrcode-generator の MIT License
+
+MIT License
+
+Copyright (c) 2009 Kazuhiko Arase
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
 この文書は法的な助言ではありません。配布の前に、第4段階で依存のライセンスを自動で集めた結果と照らし合わせて見直します。
 
 <!-- 草案: 版は go.mod / go.sum と一致させること。依存を足したらこの表も更新する -->

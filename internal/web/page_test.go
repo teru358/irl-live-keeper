@@ -53,7 +53,7 @@ func TestPageStatusRestartSession(t *testing.T) {
 	if !strings.Contains(call("/", "GET", false).Body.String(), `"login":true`) {
 		t.Fatal("未認証の画面")
 	}
-	for _, path := range []string{"/assets/login.js", "/assets/style.css"} {
+	for _, path := range []string{"/assets/login.js", "/assets/style.css", "/assets/vendor/qrcode-generator-2.0.4.js"} {
 		w := call(path, "GET", false)
 		if w.Code != 200 || !strings.Contains(w.Header().Get("Content-Type"), map[bool]string{true: "javascript", false: "text/css"}[strings.HasSuffix(path, "js")]) {
 			t.Fatal(path, w.Header())

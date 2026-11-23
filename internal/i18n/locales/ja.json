@@ -244,6 +244,10 @@
     "sender_rtmp_hint": "アプリの login・password の欄は空にする",
     "sender_lan": "LAN",
     "sender_tailscale": "Tailscale",
-    "sender_publish_host": "指定の住所"
+    "sender_publish_host": "指定の住所",
+    "sender_qr_show": "QR を表示",
+    "sender_qr_hide": "QR を隠す",
+    "sender_qr_password": "この QR にはパスワードが入っています",
+    "sender_qr_alt": "送信用 URL の QR コード"
   }
 }
