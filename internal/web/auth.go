@@ -22,6 +22,7 @@ type Auth struct {
 	mu           sync.Mutex
 	now          func() time.Time
 	sessions     map[string]time.Time
+	sessionAuth  map[string]string
 	once         map[string]time.Time
 	attempts     map[string]passwordAttempt
 	attemptOrder uint64
@@ -31,7 +32,7 @@ func NewAuth(now func() time.Time) *Auth {
 	if now == nil {
 		now = time.Now
 	}
-	return &Auth{now: now, sessions: map[string]time.Time{}, once: map[string]time.Time{}, attempts: map[string]passwordAttempt{}}
+	return &Auth{now: now, sessions: map[string]time.Time{}, sessionAuth: map[string]string{}, once: map[string]time.Time{}, attempts: map[string]passwordAttempt{}}
 }
 func randomToken() (string, error) {
 	var b [16]byte
@@ -58,7 +59,12 @@ func (a *Auth) NewOnce() (string, error) {
 }
 
 // ClearSessions はパスワード変更時にすべてのセッションを失効させる。
-func (a *Auth) ClearSessions() { a.mu.Lock(); defer a.mu.Unlock(); clear(a.sessions) }
+func (a *Auth) ClearSessions() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	clear(a.sessions)
+	clear(a.sessionAuth)
+}
 func (a *Auth) consume(t string) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -73,6 +79,7 @@ func (a *Auth) session(t string) (time.Time, bool) {
 	until, ok := a.sessions[t]
 	if !ok || !now.Before(until) {
 		delete(a.sessions, t)
+		delete(a.sessionAuth, t)
 		return time.Time{}, false
 	}
 	until = now.Add(sessionLife)
@@ -82,7 +89,7 @@ func (a *Auth) session(t string) (time.Time, bool) {
 func cookie(name, value string, until time.Time) *http.Cookie {
 	return &http.Cookie{Name: name, Value: value, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode, Expires: until}
 }
-func (a *Auth) issue(w http.ResponseWriter, name string) error {
+func (a *Auth) issue(w http.ResponseWriter, name, method string) error {
 	t, err := randomToken()
 	if err != nil {
 		return err
@@ -93,12 +100,22 @@ func (a *Auth) issue(w http.ResponseWriter, name string) error {
 	for k, v := range a.sessions {
 		if !now.Before(v) {
 			delete(a.sessions, k)
+			delete(a.sessionAuth, k)
 		}
 	}
 	until := now.Add(sessionLife)
 	a.sessions[t] = until
+	a.sessionAuth[t] = method
 	http.SetCookie(w, cookie(name, t, until))
 	return nil
+}
+
+func sourceKind(r *http.Request) string {
+	ip := net.ParseIP(remoteIP(r))
+	if ip != nil && ip.IsLoopback() {
+		return "local"
+	}
+	return "lan"
 }
 
 const maxPasswordIPs = 4096
@@ -204,8 +221,8 @@ func NewWithEvents(b Backend, password string, port int, a *Auth, events *Events
 			}
 			return false
 		}
-		issue := func() bool {
-			if a.issue(w, name) != nil {
+		issue := func(method string) bool {
+			if a.issue(w, name, method) != nil {
 				fail(500, "api.internal")
 				return false
 			}
@@ -222,9 +239,10 @@ func NewWithEvents(b Backend, password string, port int, a *Auth, events *Events
 				return
 			}
 			if a.consume(r.URL.Query().Get("t")) {
-				if !issue() {
+				if !issue("passphrase") {
 					return
 				}
+				slog.Info("admin login", "source", sourceKind(r), "auth", "passphrase")
 				http.Redirect(w, r, "/", 303)
 			} else {
 				http.Redirect(w, r, "/?login", 303)
@@ -263,7 +281,8 @@ func NewWithEvents(b Backend, password string, port int, a *Auth, events *Events
 				fail(401, "api.unauthorized")
 				return
 			}
-			if issue() {
+			if issue("password") {
+				slog.Info("admin login", "source", sourceKind(r), "auth", "password")
 				writeJSON(w, 200, map[string]bool{"ok": true})
 			}
 			return
@@ -317,10 +336,16 @@ func NewWithEvents(b Backend, password string, port int, a *Auth, events *Events
 				return
 			}
 			a.mu.Lock()
+			authMethod := "password"
 			if c != nil {
 				delete(a.sessions, c.Value)
+				if method := a.sessionAuth[c.Value]; method != "" {
+					authMethod = method
+				}
+				delete(a.sessionAuth, c.Value)
 			}
 			a.mu.Unlock()
+			slog.Info("admin logout", "source", sourceKind(r), "auth", authMethod)
 			expired := cookie(name, "", time.Unix(1, 0))
 			expired.MaxAge = -1
 			http.SetCookie(w, expired)

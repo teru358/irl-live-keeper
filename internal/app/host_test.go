@@ -38,6 +38,19 @@ func TestChoosePublishHost(t *testing.T) {
 			wantHost: "192.168.1.10", wantAuto: true, wantFound: true,
 		},
 		{
+			name: "仮想アダプターを飛ばして物理 LAN を選ぶ",
+			ifaces: list(
+				netIface{Name: "vEthernet (WSL)", Up: true, Addrs: []net.Addr{ipnet("172.17.176.1/20")}},
+				netIface{Name: "Ethernet", Up: true, Addrs: []net.Addr{ipnet("192.168.1.16/24")}},
+			),
+			wantHost: "192.168.1.16", wantAuto: true, wantFound: true,
+		},
+		{
+			name:     "物理 LAN がなければ仮想 LAN に戻る",
+			ifaces:   list(netIface{Name: "vEthernet (WSL)", Up: true, Addrs: []net.Addr{ipnet("172.17.176.1/20")}}),
+			wantHost: "172.17.176.1", wantAuto: true, wantFound: true,
+		},
+		{
 			name: "インターフェースの順で最初の1つ",
 			ifaces: list(
 				netIface{Name: "eth0", Up: true, Addrs: []net.Addr{ipnet("10.0.0.5/8")}},

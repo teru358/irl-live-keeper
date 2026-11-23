@@ -8,7 +8,7 @@ function selectLanguage(saved, config, languages) {
 let saved; try { saved = localStorage.getItem('language'); } catch (_) {}
 let lang = selectLanguage(saved, boot.language, navigator.languages || [navigator.language]);
 const t = key => boot.catalogs[lang][key];
-document.querySelectorAll('[data-language]').forEach(b => b.addEventListener('click', () => { const next=b.dataset.language; try { localStorage.setItem('language', next); } catch (_) {} location.reload(); }));
+document.querySelectorAll('[data-language]').forEach(b => { b.setAttribute('aria-pressed',String(b.dataset.language===lang)); b.addEventListener('click', () => { const next=b.dataset.language; try { localStorage.setItem('language', next); } catch (_) {} location.reload(); }); });
 const el = id => document.getElementById(id);
 const text = (id, value) => { el(id).textContent = value; };
 document.documentElement.lang = lang; document.title = t('title');
@@ -55,9 +55,9 @@ if (!boot.login) {
  const senderProtocols=new Map();
  async function loadSender(){try{senderData=await request('sender');let savedHost;try{savedHost=localStorage.getItem('sender-address');}catch(_){} senderHost=senderData.addresses.some(a=>a.address===savedHost)?savedHost:senderData.default;
  el('sender-address').replaceChildren(...senderData.addresses.map(a=>{const o=document.createElement('option');o.value=a.address;o.textContent=t('sender_'+a.kind)+' '+a.address;return o;}));el('sender-address').value=senderHost;drawSender();}catch(e){text('error',e.message);}}
- el('sender-address').onchange=()=>{senderHost=el('sender-address').value;try{localStorage.setItem('sender-address',senderHost);}catch(_){}drawSender();};
- function drawSender(){const a=senderData.addresses.find(a=>a.address===senderHost);if(!a)return;
- el('sender-cameras').replaceChildren(...a.cameras.map((c,index)=>{const card=document.createElement('details');card.className='send-cam';card.open=senderCamera?c.id===senderCamera:index===0;const title=document.createElement('summary');title.textContent=c.name+' ('+c.id+')';card.append(title);
+ el('sender-address').onchange=()=>{senderCamera=el('sender-cameras').querySelector('details[open]')?.dataset.camera||senderCamera;const y=window.scrollY;senderHost=el('sender-address').value;try{localStorage.setItem('sender-address',senderHost);}catch(_){}drawSender(y);};
+ function drawSender(restoreScroll){const a=senderData.addresses.find(a=>a.address===senderHost);if(!a)return;
+ if(senderCamera&&!a.cameras.some(c=>c.id===senderCamera))senderCamera='';el('sender-cameras').replaceChildren(...a.cameras.map((c,index)=>{const card=document.createElement('details');card.className='send-cam';card.dataset.camera=c.id;card.open=senderCamera?c.id===senderCamera:index===0;const title=document.createElement('summary');title.textContent=c.name+' ('+c.id+')';card.append(title);
  const tabs=document.createElement('div');tabs.className='seg';tabs.setAttribute('role','group');tabs.setAttribute('aria-label',t('sender_protocol'));card.append(tabs);
  const fields=document.createElement('div');card.append(fields);
  let protocol=senderProtocols.get(c.id);if(!c[protocol])protocol=c.srt?'srt':'rtmp';
@@ -67,7 +67,7 @@ if (!boot.login) {
  senderField(fields,t('sender_obs'),c.obs,true);
  const qr=document.querySelector('#sender-qr-template').content.cloneNode(true);const toggle=qr.querySelector('.sender-qr-toggle');const drawing=qr.querySelector('.sender-qr-image');toggle.textContent=t('sender_qr_show');qr.querySelector('[data-ui="sender_qr_password"]').textContent=t('sender_qr_password');toggle.onclick=()=>{if(drawing.hidden){qrcode.stringToBytes=qrcode.stringToBytesFuncs['UTF-8'];const code=qrcode(0,'M');code.addData(p.url||'','Byte');code.make();const parser=new DOMParser();const svg=parser.parseFromString(code.createSvgTag({cellSize:4,margin:16,scalable:true,alt:t('sender_qr_alt')}),'image/svg+xml').documentElement;drawing.replaceChildren(document.importNode(svg,true));drawing.hidden=false;toggle.textContent=t('sender_qr_hide');}else{drawing.hidden=true;drawing.replaceChildren();toggle.textContent=t('sender_qr_show');}};fields.append(qr);};
  for(const name of ['srt','rtmp'])if(c[name]){const b=document.createElement('button');b.type='button';b.dataset.protocol=name;b.textContent=name.toUpperCase();b.onclick=()=>{protocol=name;senderProtocols.set(c.id,name);draw();};tabs.append(b);}draw();return card;}));
- if(senderCamera)el('sender-cameras').querySelector('details[open]')?.scrollIntoView({block:'nearest'});
+ const open=el('sender-cameras').querySelector('details[open]');if(open)senderCamera=open.dataset.camera;if(restoreScroll!==undefined)requestAnimationFrame(()=>window.scrollTo(0,restoreScroll));
  }
  function senderField(parent,label,value,secret){const row=document.createElement('div');row.className='sender-field';const name=document.createElement('label');name.textContent=label;const input=document.createElement('input');input.readOnly=true;input.value=value||'';input.type=secret?'password':'text';input.setAttribute('aria-label',label);row.append(name,input);
  if(secret){const show=document.createElement('button');show.type='button';show.className='reveal';show.textContent=t('sender_show');show.onclick=()=>{input.type=input.type==='password'?'text':'password';show.textContent=t(input.type==='password'?'sender_show':'sender_hide');};row.append(show);}
@@ -83,14 +83,14 @@ if (!boot.login) {
  if(s.fallback_of?.length)add('i',t('fallback_of').replace('{scenes}',s.fallback_of.join('、')));
  if(current)add('em',t('current_scene'));if(s.name===returnScene)add('em',t('return_scene'));b.setAttribute('aria-pressed',String(current));b.disabled=!!pendingScene;b.onclick=async()=>{pendingScene=s.uuid;drawScenes();sceneTimer=setTimeout(()=>{pendingScene='';drawScenes();text('error',t('failed'));},10000);try{await request('obs/scene',{scene_uuid:s.uuid});}catch(e){clearTimeout(sceneTimer);pendingScene='';drawScenes();text('error',e.message);}};return b;}));}
  let loadingScenes=false, scenesLoadedAt=0;
- async function loadScenes(){if(loadingScenes)return;loadingScenes=true;scenesLoadedAt=Date.now();try{sceneList=await request('obs/scenes');drawScenes();}catch(e){text('error',e.message);}finally{loadingScenes=false;}}
+ async function loadScenes(){if(loadingScenes)return;loadingScenes=true;scenesLoadedAt=Date.now();try{sceneList=await request('obs/scenes');drawScenes();text('error','');}catch(e){text('error',e.message);}finally{loadingScenes=false;}}
  loadScenes();
  setInterval(()=>{if(wasConnected)loadScenes();},10000);
  let wasConnected=false;
  function render(s) {
  currentScene=s.obs.scene_uuid;
  if(pendingScene && (currentScene===pendingScene || !s.obs.connected)){clearTimeout(sceneTimer);pendingScene='';}
- if(s.obs.connected && (!wasConnected || (!sceneList.some(x=>x.uuid===currentScene) && Date.now()-scenesLoadedAt>=1000)))loadScenes();wasConnected=s.obs.connected;drawScenes();
+ if(s.obs.connected){text('error','');if(!wasConnected || (!sceneList.some(x=>x.uuid===currentScene) && Date.now()-scenesLoadedAt>=1000))loadScenes();}wasConnected=s.obs.connected;drawScenes();
   if(s.apply?.state === 'applying' && s.apply?.kind === 'restart') { if(!restarting) since=Date.now(); restarting=true; connection(); } else { restarting=false; text('connection',''); }
   const summary=[];
   el('cameras').replaceChildren(...(s.cameras || []).map(c => {

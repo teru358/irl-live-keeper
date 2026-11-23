@@ -3,6 +3,7 @@ package app
 import (
 	"github.com/teru358/irl-live-keeper/internal/config"
 	"net"
+	"reflect"
 	"testing"
 )
 
@@ -15,6 +16,42 @@ func TestSenderAddresses(t *testing.T) {
 			got := senderAddresses("example.com", list)
 			if len(got) != 1 && tc.kind == "" || tc.kind != "" && (len(got) != 2 || got[1].Kind != tc.kind) {
 				t.Fatalf("候補が違う: %+v", got)
+			}
+		})
+	}
+}
+
+func TestSenderAddressesFilterVirtualInterfaces(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		interfaces []netIface
+		wantLAN    []string
+	}{
+		{name: "実 LAN のみ", interfaces: []netIface{
+			{Name: "Ethernet", Up: true, Addrs: []net.Addr{&net.IPAddr{IP: net.ParseIP("192.168.1.16")}}},
+			{Name: "vEthernet (WSL)", Up: true, Addrs: []net.Addr{&net.IPAddr{IP: net.ParseIP("172.17.176.1")}}},
+			{Name: "vEthernet (Hyper-V)", Up: true, Addrs: []net.Addr{&net.IPAddr{IP: net.ParseIP("172.31.192.1")}}},
+		}, wantLAN: []string{"192.168.1.16"}},
+		{name: "除外後 LAN が空なら元の LAN を出す", interfaces: []netIface{
+			{Name: "docker0", Up: true, Addrs: []net.Addr{&net.IPAddr{IP: net.ParseIP("172.17.0.1")}}},
+		}, wantLAN: []string{"172.17.0.1"}},
+		{name: "複数の仮想アダプター名", interfaces: []netIface{
+			{Name: "WSL", Up: true, Addrs: []net.Addr{&net.IPAddr{IP: net.ParseIP("172.20.0.1")}}},
+			{Name: "Hyper-V", Up: true, Addrs: []net.Addr{&net.IPAddr{IP: net.ParseIP("172.21.0.1")}}},
+			{Name: "br-123456", Up: true, Addrs: []net.Addr{&net.IPAddr{IP: net.ParseIP("172.22.0.1")}}},
+			{Name: "virbr0", Up: true, Addrs: []net.Addr{&net.IPAddr{IP: net.ParseIP("172.23.0.1")}}},
+		}, wantLAN: []string{"172.20.0.1", "172.21.0.1", "172.22.0.1", "172.23.0.1"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := senderAddresses("", func() ([]netIface, error) { return tc.interfaces, nil })
+			var lans []string
+			for _, addr := range got {
+				if addr.Kind == "lan" {
+					lans = append(lans, addr.Address)
+				}
+			}
+			if !reflect.DeepEqual(lans, tc.wantLAN) {
+				t.Fatalf("LAN candidates = %v, want %v", lans, tc.wantLAN)
 			}
 		})
 	}

@@ -17,13 +17,16 @@ func senderAddresses(manual string, list func() ([]netIface, error)) []web.Sende
 		ifs = nil
 	}
 	seen := map[string]bool{}
-	for _, kind := range []string{"lan", "tailscale"} {
+	appendAddresses := func(kind string, filtered bool) {
 		for _, i := range ifs {
-			if !i.Up || i.Loopback {
+			if !i.Up || i.Loopback || filtered && virtualInterface(i.Name) {
 				continue
 			}
 			for _, a := range i.Addrs {
 				ip := addrIP(a)
+				if ip == nil {
+					continue
+				}
 				v := ip.To4()
 				if v == nil {
 					continue
@@ -36,6 +39,20 @@ func senderAddresses(manual string, list func() ([]netIface, error)) []web.Sende
 			}
 		}
 	}
+	appendAddresses("lan", true)
+	// Keep LAN choices available on platforms whose adapter names are unusual
+	// when the interface-name filter would otherwise leave no LAN address.
+	hasLAN := false
+	for _, a := range out {
+		if a.Kind == "lan" {
+			hasLAN = true
+			break
+		}
+	}
+	if !hasLAN {
+		appendAddresses("lan", false)
+	}
+	appendAddresses("tailscale", false)
 	return out
 }
 func (b *pageBackend) Sender() web.SenderSettings {

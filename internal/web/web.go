@@ -260,6 +260,7 @@ func serveScenes(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.La
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), commandTimeout)
 		defer cancel()
+		slog.Info("scene selected from admin page", "scene", body.UUID, "source", sourceKind(r))
 		err = a.SelectScene(ctx, body.UUID)
 		if err == nil {
 			writeJSON(w, 200, map[string]bool{"ok": true})

@@ -28,7 +28,7 @@ func TestPageStatusRestartSession(t *testing.T) {
 	b := &displayFake{}
 	a := NewAuth(nil)
 	issue := httptest.NewRecorder()
-	if err := a.issue(issue, "irl_session_8787"); err != nil {
+	if err := a.issue(issue, "irl_session_8787", "password"); err != nil {
 		t.Fatal(err)
 	}
 	cookie := issue.Result().Cookies()[0]

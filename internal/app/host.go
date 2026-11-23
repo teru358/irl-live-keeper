@@ -1,6 +1,9 @@
 package app
 
-import "net"
+import (
+	"net"
+	"strings"
+)
 
 // netIface はネットワークインターフェースのうち、送信用 host の選択に使う部分。
 type netIface struct {
@@ -48,6 +51,18 @@ func choosePublishHost(manual string, list func() ([]netIface, error)) (host str
 		return fallbackHost, true, false
 	}
 	for _, i := range ifs {
+		if !i.Up || i.Loopback || virtualInterface(i.Name) {
+			continue
+		}
+		for _, a := range i.Addrs {
+			if ip := addrIP(a); ip != nil && isLANv4(ip) {
+				return ip.String(), true, true
+			}
+		}
+	}
+	// If filtering removed every LAN address, preserve the previous selection
+	// behavior so users still have a usable candidate on unusual networks.
+	for _, i := range ifs {
 		if !i.Up || i.Loopback {
 			continue
 		}
@@ -58,6 +73,17 @@ func choosePublishHost(manual string, list func() ([]netIface, error)) (host str
 		}
 	}
 	return fallbackHost, true, false
+}
+
+// virtualInterface identifies common host-only, container, and VM adapters.
+func virtualInterface(name string) bool {
+	n := strings.ToLower(name)
+	for _, marker := range []string{"vethernet", "wsl", "hyper-v", "hyperv", "docker", "br-", "virbr", "vmware", "virtualbox", "vbox", "container"} {
+		if strings.Contains(n, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // addrIP はアドレスから IP を取り出す。
