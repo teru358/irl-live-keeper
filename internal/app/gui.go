@@ -73,3 +73,12 @@ func (a *App) WindowURL() (string, error) {
 	}
 	return OnceURL(a.windowPort, t), nil
 }
+
+// SecondInstanceBlocked は既存の本体のログに重複起動を残す。
+func (a *App) SecondInstanceBlocked() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.current != nil {
+		a.current.logger.Slog().Info("second instance blocked")
+	}
+}

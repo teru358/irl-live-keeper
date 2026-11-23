@@ -59,6 +59,9 @@ func acquireInstance(base string, graphical bool) (func(), string, bool, error) 
 	if duplicate {
 		class, _ := windows.UTF16PtrFromString(single.ClassName(hash))
 		wnd, _, _ := user.NewProc("FindWindowW").Call(uintptr(unsafe.Pointer(class)), 0)
+		if wnd != 0 {
+			user.NewProc("PostMessageW").Call(wnd, 0x8001, 0, 0)
+		}
 		if wnd != 0 && graphical {
 			user.NewProc("ShowWindow").Call(wnd, 9)
 			user.NewProc("SetForegroundWindow").Call(wnd)
@@ -68,9 +71,9 @@ func acquireInstance(base string, graphical bool) (func(), string, bool, error) 
 	}
 	return cleanup, hash, duplicate, nil
 }
-func runMode(ctx context.Context, stop context.CancelFunc, graphical bool, hash string, runner *app.App) int {
+func runMode(ctx context.Context, stop context.CancelFunc, graphical bool, hash string, runner *app.App, cleanup func()) int {
 	if !graphical {
 		return runner.Run(ctx)
 	}
-	return gui.Run(ctx, stop, single.ClassName(hash), runner)
+	return gui.Run(ctx, stop, single.ClassName(hash), runner, cleanup)
 }

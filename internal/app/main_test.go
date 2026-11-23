@@ -383,7 +383,7 @@ func TestRunはポートが使用中なら終了コード1(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("終了コード = %d, want 1\nstderr: %s", code, stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "rtmp_port") || !strings.Contains(stderr.String(), "前回の mediamtx") {
+	if !strings.Contains(stderr.String(), "rtmp_port") || !strings.Contains(stderr.String(), "ほかのプログラム") {
 		t.Errorf("標準エラーにポートの名前と案内がない:\n%s", stderr.String())
 	}
 	if strings.Contains(stdout.String(), "srt://") {

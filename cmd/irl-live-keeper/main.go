@@ -36,6 +36,12 @@ func runMain() int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	finishConsole, err := installConsoleStop(mode.gui, stop)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	defer finishConsole()
 
 	base, err := baseDir()
 	if err != nil {
@@ -71,7 +77,7 @@ func runMain() int {
 	errOut := outputForMode(mode.gui, os.Stderr)
 	runner := app.PrepareWindow(app.Options{BaseDir: base, ExeDir: exeDir, Stdout: out, Stderr: errOut,
 		StdoutIsTerminal: func() bool { return terminal }, InvocationID: os.Getenv("INVOCATION_ID"), CrashDir: crashDir, CrashPath: crashPath, StartedAt: started})
-	code := runMode(ctx, stop, mode.gui, hash, runner)
+	code := runMode(ctx, stop, mode.gui, hash, runner, cleanupCrash)
 	if mode.pause && shouldPause(code, consoleProcessCount) {
 		waitEnterLanguage(os.Stdin, os.Stderr, i18n.OSLang())
 	}

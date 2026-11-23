@@ -27,7 +27,7 @@ func rgb(s string) uintptr {
 	v, _ := strconv.ParseUint(s[1:], 16, 32)
 	return uintptr((v&255)<<16 | v&0xff00 | v>>16)
 }
-func Run(ctx context.Context, stop context.CancelFunc, class string, a *app.App) (code int) {
+func Run(ctx context.Context, stop context.CancelFunc, class string, a *app.App, cleanup func()) (code int) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 	defer func() {
@@ -49,6 +49,10 @@ func Run(ctx context.Context, stop context.CancelFunc, class string, a *app.App)
 	brush, _, _ := gdi.NewProc("CreateSolidBrush").Call(rgb(bg))
 	defer gdi.NewProc("DeleteObject").Call(brush)
 	wnd := ui.NewMain(ui.OptsMain().Title("irl-live-keeper").ClassName(class).Size(ui.Dpi(520, 380)).Center(true))
+	buttons := make([]*ui.Button, 4)
+	for i := range buttons {
+		buttons[i] = ui.NewButton(wnd, ui.OptsButton().Text("").Position(ui.Dpi(12, 12)).Width(ui.DpiX(480)))
+	}
 	var rows []uintptr
 	var colors []string
 	var notice, open, quit, logs, retry uintptr
@@ -102,10 +106,21 @@ func Run(ctx context.Context, stop context.CancelFunc, class string, a *app.App)
 	}
 	wnd.On().WmCreate(func(_ ui.WmCreate) int {
 		started = true
-		open = create("BUTTON", "", 101)
-		quit = create("BUTTON", "", 102)
-		logs = create("BUTTON", "", 103)
-		retry = create("BUTTON", "", 104)
+		// go-winres の APP 資源を大小のタイトルアイコンに使う。
+		instance, _, _ := windows.NewLazySystemDLL("kernel32.dll").NewProc("GetModuleHandleW").Call(0)
+		for _, size := range []struct{ kind, pixels uintptr }{{0, 16}, {1, 32}} {
+			icon := call("LoadImageW", uintptr(instance), ptr("APP"), 1, size.pixels, size.pixels, 0x8000)
+			if icon == 0 {
+				icon = call("LoadImageW", uintptr(instance), 1, 1, size.pixels, size.pixels, 0x8000)
+			}
+			if icon != 0 {
+				call("SendMessageW", uintptr(wnd.Hwnd()), 0x80, size.kind, icon)
+			}
+		}
+		open = uintptr(buttons[0].Hwnd())
+		quit = uintptr(buttons[1].Hwnd())
+		logs = uintptr(buttons[2].Hwnd())
+		retry = uintptr(buttons[3].Hwnd())
 		notice = create("STATIC", "", 0)
 		if dark {
 			v := int32(1)
@@ -130,23 +145,20 @@ func Run(ctx context.Context, stop context.CancelFunc, class string, a *app.App)
 			update()
 		}
 	})
-	wnd.On().Wm(co.WM(0x111), func(p ui.Wm) uintptr {
-		switch p.WParam & 0xffff {
-		case 101:
-			u, e := a.WindowURL()
-			if e == nil {
-				e = winproc.OpenURL(u)
-			}
-			if e != nil {
-				call("MessageBoxW", uintptr(wnd.Hwnd()), ptr(e.Error()), ptr("irl-live-keeper"), 0x10)
-			}
-		case 102:
-			exit(true)
-		case 103:
-			winproc.OpenFolder(a.WindowState().LogDir)
-		case 104:
-			a.Restart()
+	buttons[0].On().BnClicked(func() {
+		u, e := a.WindowURL()
+		if e == nil {
+			e = winproc.OpenURL(u)
 		}
+		if e != nil {
+			call("MessageBoxW", uintptr(wnd.Hwnd()), ptr(e.Error()), ptr("irl-live-keeper"), 0x10)
+		}
+	})
+	buttons[1].On().BnClicked(func() { exit(true) })
+	buttons[2].On().BnClicked(func() { winproc.OpenFolder(a.WindowState().LogDir) })
+	buttons[3].On().BnClicked(func() { a.Restart() })
+	wnd.On().Wm(co.WM(0x8001), func(ui.Wm) uintptr {
+		a.SecondInstanceBlocked()
 		return 0
 	})
 	wnd.On().WmClose(func() {
@@ -166,6 +178,7 @@ func Run(ctx context.Context, stop context.CancelFunc, class string, a *app.App)
 				code = <-done
 				started = false
 			}
+			cleanup()
 			wnd.Hwnd().DestroyWindow()
 		}
 	})

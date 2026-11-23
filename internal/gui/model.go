@@ -41,7 +41,11 @@ func Build(s app.WindowState, dark bool) Model {
 			} else if cam.State == "LOW" {
 				c = 1
 			}
-			add(fmt.Sprintf("%s %s  ● %s  %.0f kbps (%s)", t("links"), cam.Name, cam.State, cam.Kbps, strings.ToUpper(cam.Protocol)), c)
+			protocol := ""
+			if cam.Protocol != "" {
+				protocol = " (" + strings.ToUpper(cam.Protocol) + ")"
+			}
+			add(fmt.Sprintf("%s %s  ● %s  %s kbps%s", t("links"), cam.Name, cam.State, groupedKbps(cam.Kbps), protocol), c)
 		}
 		c := 2
 		state := t("offline")
@@ -80,7 +84,11 @@ func Build(s app.WindowState, dark bool) Model {
 	if s.Apply.State == app.ApplyApplying {
 		m.Notice = t("window_applying")
 	} else if m.Retry {
-		m.Notice = t("failed") + "\n" + safe(s.Apply.Reason)
+		key := "window_start_failed"
+		if s.Apply.Kind == app.ApplyRestart {
+			key = "window_restart_failed"
+		}
+		m.Notice = t(key) + "\n" + safe(s.Apply.Reason)
 	}
 	return m
 }
@@ -93,4 +101,13 @@ func ExitPrompt(lang i18n.Lang, streaming bool) string {
 		v += "\n" + Text(lang, "window_stream_warning")
 	}
 	return v
+}
+
+// groupedKbps は表示言語によらず3桁ごとに区切る。
+func groupedKbps(v float64) string {
+	s := fmt.Sprintf("%.0f", v)
+	for i := len(s) - 3; i > 0 && s[i-1] != '-'; i -= 3 {
+		s = s[:i] + "," + s[i:]
+	}
+	return s
 }

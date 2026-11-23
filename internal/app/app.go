@@ -311,15 +311,21 @@ func (a *App) runApp(ctx context.Context) int {
 		case <-ctx.Done():
 			g.logger.Slog().Info("Shutdown requested")
 		case <-a.restarts:
-			g.stopGeneration()
+			g.logger.Slog().Info("restart requested")
+			previous := g
+			g.stopGenerationKeepingLog()
 			if ctx.Err() != nil {
+				_ = previous.logger.Close()
 				return 0
 			}
 			g, err = a.createGeneration(ctx)
 			if err != nil {
+				previous.logger.Slog().Error("restart failed", "error", redact.New(a.secrets...).Mask(err.Error()))
+				_ = previous.logger.Close()
 				fmt.Fprintln(a.opts.Stderr, a.failureMessage(err))
 				return 1
 			}
+			_ = previous.logger.Close()
 			continue
 		case err := <-g.serveErr:
 			if err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -592,6 +598,9 @@ func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 	a.current = g
 	a.mu.Unlock()
 	stage("config.commit")
+	if kind == ApplyRestart {
+		log.Info("restart complete")
+	}
 	a.setApply(Apply{State: ApplyApplied, Kind: kind})
 
 	return g, nil
@@ -605,7 +614,9 @@ func shouldShowGeneratedPassword(generated, sensitiveOutput bool) bool {
 	return generated && !sensitiveOutput
 }
 
-func (g *generation) stopGeneration() {
+func (g *generation) stopGeneration()           { g.stopGenerationLog(true) }
+func (g *generation) stopGenerationKeepingLog() { g.stopGenerationLog(false) }
+func (g *generation) stopGenerationLog(closeLog bool) {
 	a, srv, wg := g.app, g.server, &g.wg
 	g.mu.Lock()
 	if g.stopped {
@@ -641,8 +652,10 @@ func (g *generation) stopGeneration() {
 	stage("parts.wait")
 	stage("history.finish")
 	g.logger.Slog().Info("shutdown complete", "code", g.exitCode)
-	_ = g.logger.Close()
-	stage("logger.close")
+	if closeLog {
+		_ = g.logger.Close()
+		stage("logger.close")
+	}
 	a.mu.Lock()
 	a.current = nil
 	a.mu.Unlock()

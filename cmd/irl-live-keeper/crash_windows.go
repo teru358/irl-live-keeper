@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"sync"
 	"time"
 
 	"github.com/teru358/irl-live-keeper/internal/logging"
@@ -30,13 +31,20 @@ func prepareCrashOutput(base string, started time.Time) (dir, path string, clean
 		file.Close()
 		return
 	}
+	var once sync.Once
 	cleanup = func() {
-		if closeErr := file.Close(); closeErr != nil {
-			fmt.Fprintln(os.Stderr, closeErr)
-		}
-		if removeErr := logging.RemoveEmptyCrashLog(path); removeErr != nil {
-			fmt.Fprintln(os.Stderr, removeErr)
-		}
+		once.Do(func() {
+			// ランタイムが保持する複製も先に閉じる。
+			if err := debug.SetCrashOutput(nil, debug.CrashOptions{}); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+			}
+			if closeErr := file.Close(); closeErr != nil {
+				fmt.Fprintln(os.Stderr, closeErr)
+			}
+			if removeErr := logging.RemoveEmptyCrashLog(path); removeErr != nil {
+				fmt.Fprintln(os.Stderr, removeErr)
+			}
+		})
 	}
 	return
 }

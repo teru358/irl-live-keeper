@@ -4,6 +4,8 @@ package main
 
 import (
 	"errors"
+	"syscall"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -22,4 +24,31 @@ func consoleProcessCount() (int, error) {
 		return 0, err
 	}
 	return int(r), nil
+}
+
+// installConsoleStop は AllocConsole 後にハンドラを登録する。
+// CLOSE のハンドラをすぐ返すと Windows が終了処理中の本体を強制終了する。
+func installConsoleStop(gui bool, stop func()) (func(), error) {
+	if gui {
+		return func() {}, nil
+	}
+	done := make(chan struct{})
+	callback := syscall.NewCallback(func(ctrl uintptr) uintptr {
+		switch ctrl {
+		case 0, 1, 2:
+			stop()
+			select {
+			case <-done:
+			case <-time.After(4 * time.Second):
+			}
+			return 1
+		}
+		return 0
+	})
+	proc := windows.NewLazySystemDLL("kernel32.dll").NewProc("SetConsoleCtrlHandler")
+	r, _, err := proc.Call(callback, 1)
+	if r == 0 {
+		return nil, err
+	}
+	return func() { close(done); proc.Call(callback, 0) }, nil
 }

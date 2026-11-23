@@ -8,3 +8,5 @@ import "errors"
 func consoleProcessCount() (int, error) {
 	return 0, errors.New("Windows 以外ではコンソールのプロセスを数えない")
 }
+
+func installConsoleStop(_ bool, _ func()) (func(), error) { return func() {}, nil }

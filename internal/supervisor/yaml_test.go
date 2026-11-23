@@ -381,7 +381,7 @@ func TestCheckPorts(t *testing.T) {
 			continue
 		}
 		ja := i18n.Render(i18n.JA, i18n.Reason(err)) // 画面とコンソールに出す日本語の文（Error() はログ用の英語）
-		if !strings.Contains(ja, h.name) || !strings.Contains(ja, strconv.Itoa(*h.port)) || !strings.Contains(ja, "mediamtx が残っていない") {
+		if !strings.Contains(ja, h.name) || !strings.Contains(ja, strconv.Itoa(*h.port)) || !strings.Contains(ja, "ほかのプログラム") {
 			t.Errorf("%s: エラー文が不十分: %v", h.name, err)
 		}
 	}
@@ -418,7 +418,7 @@ func TestCheckPortsIPv4Wildcard(t *testing.T) {
 			if err == nil {
 				t.Fatal("IPv4 の 0.0.0.0 で使用中なのに成功した")
 			}
-			for _, want := range []string{c.name, strconv.Itoa(port), "（" + c.network + "）", "mediamtx が残っていない"} {
+			for _, want := range []string{c.name, strconv.Itoa(port), "（" + c.network + "）", "ほかのプログラム"} {
 				if ja := i18n.Render(i18n.JA, i18n.Reason(err)); !strings.Contains(ja, want) {
 					t.Errorf("エラー文に %q がありません: %v", want, ja)
 				}

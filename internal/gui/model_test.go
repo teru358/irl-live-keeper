@@ -95,3 +95,25 @@ func TestServiceRows(t *testing.T) {
 		}
 	}
 }
+
+func TestCameraDisplay(t *testing.T) {
+	for _, lang := range []i18n.Lang{i18n.JA, i18n.EN} {
+		for _, dark := range []bool{false, true} {
+			s := app.WindowState{Language: lang, Snapshot: &core.Snapshot{Cameras: []core.CameraStatus{{Name: "main", State: "DOWN"}, {Name: "sub", State: "OK", Kbps: 2450, Protocol: "srt"}}}}
+			m := Build(s, dark)
+			if strings.Contains(m.Rows[0].Text, "()") || !strings.Contains(m.Rows[1].Text, "2,450 kbps (SRT)") {
+				t.Fatal(m.Rows)
+			}
+			for _, kind := range []app.ApplyKind{app.ApplyRestart, ""} {
+				s.Apply = app.Apply{State: app.ApplyFailed, Kind: kind}
+				key := "window_start_failed"
+				if kind == app.ApplyRestart {
+					key = "window_restart_failed"
+				}
+				if !strings.HasPrefix(Build(s, dark).Notice, Text(lang, key)) {
+					t.Fatal(Build(s, dark).Notice)
+				}
+			}
+		}
+	}
+}
