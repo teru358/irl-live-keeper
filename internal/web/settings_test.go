@@ -52,6 +52,30 @@ func configBytes(t *testing.T, c *config.Config) []byte {
 	}
 	return data
 }
+
+func TestGetSettingsIncludesEveryApplyMode(t *testing.T) {
+	b := settingsFixture(t)
+	w := settingsCall(b, "GET", "/api/settings", "", "127.0.0.1:42", true)
+	if w.Code != 200 {
+		t.Fatalf("%d %s", w.Code, w.Body.String())
+	}
+	var response struct {
+		ApplyModes map[string]settings.ApplyMode `json:"apply_modes"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	want := settings.ConfigFieldModes()
+	for path, mode := range want {
+		if got := response.ApplyModes[path]; got != mode {
+			t.Errorf("apply_modes[%q] = %q, want %q", path, got, mode)
+		}
+	}
+	if len(response.ApplyModes) != len(want) {
+		t.Errorf("apply_modes has %d entries, want %d", len(response.ApplyModes), len(want))
+	}
+}
+
 func settingsCall(b *settingsTestBackend, method, path, body, remote string, header bool) *httptest.ResponseRecorder {
 	r := httptest.NewRequest(method, path, strings.NewReader(body))
 	r.RemoteAddr = remote

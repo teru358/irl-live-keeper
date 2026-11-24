@@ -101,3 +101,34 @@ func TestUIKeys(t *testing.T) {
 		}
 	}
 }
+
+func TestSettingsPageControls(t *testing.T) {
+	w := httptest.NewRecorder()
+	servePage(w, &displayFake{}, false)
+	html := w.Body.String()
+	for _, want := range []string{`id="settings-panel"`, `id="settings-groups"`, `id="settings-fields"`, `id="settings-lan"`, `id="settings-local"`, `role="switch"`, `type="text" readonly`, `id="settings-save"`, `id="settings-revert"`, `id="settings-restart"`, `id="settings-confirm"`, `id="settings-update"`, `data-regenerate="admin"`, `data-regenerate="publish"`, `data-regenerate="read"`} {
+		if !strings.Contains(html, want) {
+			t.Errorf("missing %s", want)
+		}
+	}
+	js, _ := assets.ReadFile("assets/login.js")
+	ja, en := i18n.UI(i18n.JA), i18n.UI(i18n.EN)
+	// All dynamically selected labels and apply outcomes must exist in both catalogs.
+	for key, value := range ja {
+		if strings.HasPrefix(key, "setting_") || strings.HasPrefix(key, "settings_") {
+			if value == "" || en[key] == "" {
+				t.Errorf("missing translation %s", key)
+			}
+		}
+	}
+	for _, key := range []string{"language", "admin", "mediamtx", "stream", "cameras", "obs", "on_stream_start", "switch", "log", "gui"} {
+		if ja["setting_"+key] == "" || en["setting_"+key] == "" {
+			t.Error(key)
+		}
+	}
+	for _, want := range []string{"settings/preview", "settingsMode", "input.readOnly=localOnly", "error.fields=data.fields", "settings_stream_warning", "settings_pending_urls", "result.admin_url"} {
+		if !strings.Contains(string(js), want) {
+			t.Errorf("missing behavior %s", want)
+		}
+	}
+}

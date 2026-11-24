@@ -35,23 +35,56 @@ function placePreferences(){
 placePreferences();desktop.addEventListener('change',placePreferences);
 menuButton.onclick=()=>{const open=el('sheet').classList.toggle('open');menuButton.setAttribute('aria-expanded',String(open));};
 if(boot.login){el('tabs').hidden=true;el('summary').hidden=true;el('logout').hidden=true;}
-async function request(path, body) {
- const r = await fetch('/api/' + path + (path.includes('?') ? '&' : '?') + 'lang=' + lang, {method: body === undefined ? 'GET' : 'POST', headers: {'Content-Type':'application/json','X-IRL-Live-Keeper':'1'}, body: body === undefined ? undefined : JSON.stringify(body)});
+async function request(path, body, method) {
+ const r = await fetch('/api/' + path + (path.includes('?') ? '&' : '?') + 'lang=' + lang, {method: method || (body === undefined ? 'GET' : 'POST'), headers: {'Content-Type':'application/json','X-IRL-Live-Keeper':'1'}, body: body === undefined ? undefined : JSON.stringify(body)});
  if(r.status === 401 && !boot.login) location.replace('/?login');
- const data = await r.json(); if (!r.ok) {const error=Error(data.error || t('failed'));error.code=data.code;throw error;} return data;
+ const data = await r.json(); if (!r.ok) {const error=Error(data.error || t('failed'));error.code=data.code;error.fields=data.fields;error.status=r.status;throw error;} return data;
 }
 if (boot.login) el('login').hidden = false; el('admin').hidden = boot.login;
 if(boot.setup){el('setup-fields').hidden=false;el('password').minLength=8;el('password').autocomplete='new-password';el('password-confirm').required=true;el('password-confirm').minLength=8;el('login-submit').textContent=t('setup_title');el('setup-show').onclick=()=>{const show=el('password').type==='password';el('password').type=el('password-confirm').type=show?'text':'password';el('setup-show').textContent=t(show?'sender_hide':'sender_show');};}
 el('login')?.addEventListener('submit', async e => { e.preventDefault(); try { if(boot.setup && el('password').value!==el('password-confirm').value)throw Error(t('setup_mismatch')); await request(boot.setup?'setup':'login', {password:el('password').value}); location.replace('/'); } catch(e) { text('error',e.message); } });
 if (!boot.login) {
  el('logout').onclick=async()=>{try{await request('logout',{});location.replace('/?login');}catch(e){text('error',e.message);}};
- document.querySelectorAll('[data-page]').forEach(b => b.onclick = () => { document.body.dataset.page=b.dataset.page;el('sheet').classList.remove('open');menuButton.setAttribute('aria-expanded','false');document.querySelectorAll('[data-page]').forEach(x=>{if(x.dataset.page===b.dataset.page)x.setAttribute('aria-current','page');else x.removeAttribute('aria-current');});const isLogs=b.dataset.page==='logs'; el('status').hidden = b.dataset.page !== 'status'; el('log-panel').hidden=!isLogs; el('sender-panel').hidden=b.dataset.page!=='sender'; el('soon').hidden = b.dataset.page==='status'||isLogs||b.dataset.page==='sender'; if(b.dataset.page==='sender') loadSender(); if(isLogs) loadLogs(); });
+ document.querySelectorAll('[data-page]').forEach(b => b.onclick = () => { document.body.dataset.page=b.dataset.page;el('sheet').classList.remove('open');menuButton.setAttribute('aria-expanded','false');document.querySelectorAll('[data-page]').forEach(x=>{if(x.dataset.page===b.dataset.page)x.setAttribute('aria-current','page');else x.removeAttribute('aria-current');});const isLogs=b.dataset.page==='logs'; el('settings-panel').hidden=b.dataset.page!=='settings'; if(b.dataset.page==='settings')loadSettings(); el('status').hidden = b.dataset.page !== 'status'; el('log-panel').hidden=!isLogs; el('sender-panel').hidden=b.dataset.page!=='sender'; el('soon').hidden = b.dataset.page==='status'||isLogs||b.dataset.page==='sender'||b.dataset.page==='settings'; if(b.dataset.page==='sender') loadSender(); if(isLogs) loadLogs(); });
  document.querySelectorAll('[data-command]').forEach(b => b.onclick = async () => {
   const path = b.dataset.command;
   if(path === 'stream/stop' && !confirm(t('confirm_stop'))) return;
   if(path === 'cameras/show-all' && !confirm(t('confirm_show'))) return;
   b.disabled = true; try { await request(path, {}); text('error',''); } catch(e) { text('error',e.message); } finally { b.disabled = false; }
  });
+ let settingsData, settingsValues, settingsGroup='admin', settingsBusy=false, settingsAction, settingsPayload, settingsStreaming=false, settingsOBS=false, settingsScenes=[];
+ const fieldErrors=new Map();
+ const settingsMode=p=>settingsData?.apply_modes?.[p.replace(/\[\d+\]/g,'[]')]||'restart';
+ function settingNode(tag,value,cls){const n=document.createElement(tag);if(value)n.textContent=value;if(cls)n.className=cls;return n;}
+ async function loadSettings(){settingsData=undefined;try{settingsData=await request('settings');settingsValues=structuredClone(settingsData.values);settingsScenes=[];if(settingsOBS){try{settingsScenes=await request('obs/scenes');}catch(_){}}drawSettings();}catch(e){settingsError(e);}}
+ function settingsError(e){text('error',e.message);for(const [p,msg] of fieldErrors)msg.textContent=e.fields?.[p]||'';if(e.fields){const first=Object.keys(e.fields)[0];const input=document.querySelector('[data-setting-path="'+CSS.escape(first)+'"]');if(input){settingsGroup=input.dataset.group;drawSettings();for(const [p,msg] of fieldErrors)msg.textContent=e.fields[p]||'';document.querySelector('[data-setting-path="'+CSS.escape(first)+'"]')?.focus();}}}
+ function drawSettings(){fieldErrors.clear();el('settings-groups').replaceChildren();el('settings-fields').replaceChildren();for(const key of Object.keys(settingsValues)){const b=settingNode('button',t('setting_'+key));b.type='button';b.setAttribute('aria-pressed',String(key===settingsGroup));b.onclick=()=>{settingsGroup=key;drawSettings();};el('settings-groups').append(b);const section=settingNode('div');section.hidden=key!==settingsGroup;section.append(settingNode('h3',t('setting_'+key)));drawSetting(section,settingsValues,key,key,key);el('settings-fields').append(section);}
+ el('settings-local').hidden=settingsData.local;el('settings-lan').hidden=!settingsValues.admin.lan;}
+ function drawSetting(parent,obj,key,path,group){if(obj[key]===null&&['cameras','scene_fallbacks'].includes(key))obj[key]=[];const value=obj[key];
+ if(Array.isArray(value)){value.forEach((v,i)=>{const card=settingNode('fieldset');card.append(settingNode('legend',t('setting_'+key)+' '+(i+1)));drawSetting(card,value,i,path+'['+i+']',group);const remove=settingNode('button',t('settings_remove'),'btn');remove.type='button';remove.onclick=()=>{value.splice(i,1);drawSettings();};card.append(remove);parent.append(card);});const add=settingNode('button',t('settings_add'),'btn');add.type='button';add.onclick=()=>{value.push(path==='cameras'?{id:'',name:'',on_bad:'standby',switch:null}:{scene:'',fallback:''});drawSettings();};parent.append(add);return;}
+ if(value!==null&&typeof value==='object'){for(const k of Object.keys(value))drawSetting(parent,value,k,path+'.'+k,group);return;}
+ if(value===null && key==='switch'){obj[key]={fail_kbps:null,low_sec:null,recover_kbps:null,recover_sec:null,down_sec:null};drawSetting(parent,obj,key,path,group);return;}
+ const row=settingNode('div',null,'settings-field');row.hidden=path==='on_stream_start.scene'&&!settingsValues.on_stream_start.enabled;
+ const label=settingNode('label',t('setting_'+key));const id='setting-'+path;label.htmlFor=id;const badge=settingNode('small',t(settingsMode(path)==='restart'?'settings_restart_mode':'settings_immediate'),'settings-badge');label.append(badge);row.append(label);
+ const choices={language:['auto','ja','en'],on_bad:['hide','standby'],studio_mode_hide:['standby','ignore','hide'],close_action:['minimize','confirm','quit']};
+ const bool=typeof value==='boolean', number=typeof value==='number'||(value===null&&path.includes('.switch.')), secret=/password|_pass$/.test(key);
+ const localOnly=!settingsData.local&&['mediamtx.binary','log.dir'].includes(path);
+ const input=bool?el('settings-switch-template').content.firstElementChild.cloneNode(true):localOnly?el('settings-local-template').content.firstElementChild.cloneNode(true):document.createElement(choices[key]?'select':'input');input.id=id;input.dataset.settingPath=path;input.dataset.group=group;
+ if(choices[key]){for(const v of choices[key]){const o=settingNode('option',t('setting_option_'+v));o.value=v;input.append(o);}input.value=value;}else{input.type=bool?'checkbox':secret?'password':number?'number':'text';if(bool){input.checked=value;input.setAttribute('role','switch');}else input.value=value??'';if(secret)input.autocomplete='new-password';}
+ input.readOnly=localOnly;input.onchange=()=>{obj[key]=bool?input.checked:number?(input.value===''?null:Number(input.value)):input.value;if(path==='admin.lan')el('settings-lan').hidden=!input.checked;if(path==='on_stream_start.enabled')drawSettings();};row.append(input);if(localOnly)row.append(settingNode('small',t('settings_local')));
+ if(secret){const show=settingNode('button',t('sender_show'),'btn');show.type='button';show.onclick=()=>{input.type=input.type==='password'?'text':'password';show.textContent=t(input.type==='password'?'sender_show':'sender_hide');};row.append(show);}
+ if(['scene','fallback','standby_scene'].includes(key)){const list=document.createElement('datalist');list.id=id+'-list';for(const s of settingsScenes){const o=document.createElement('option');o.value=s.name;list.append(o);}input.setAttribute('list',list.id);row.append(list,settingNode('small',t(settingsScenes.length?'settings_direct':'settings_disconnected')));}
+ const error=settingNode('p',null,'warn');error.id=id+'-error';error.setAttribute('role','alert');input.setAttribute('aria-describedby',error.id);fieldErrors.set(path,error);row.append(error);parent.append(row);
+ }
+ function settingsLock(on){settingsBusy=on;for(const id of ['settings-save','settings-revert','settings-restart','settings-accept','settings-reload'])el(id).disabled=on;document.querySelectorAll('[data-regenerate]').forEach(b=>b.disabled=on);}
+ async function previewSettings(action,payload){if(settingsBusy)return;settingsLock(true);try{if(!settingsData)await loadSettings();if(!settingsData)return;settingsPayload=payload||{values:structuredClone(settingsValues),hash:settingsData.hash};settingsAction=action;let preview;
+ if(action==='restart')preview={apply:'restart'};else if(action==='regenerate')preview={apply:settingsPayload.target==='admin'?'immediate':'restart',obs_url_changes:settingsPayload.target==='read'};else preview=await request('settings/preview',action==='revert'?{revert:true}:settingsPayload);
+ const box=el('settings-preview');box.replaceChildren();box.classList.toggle('danger',settingsStreaming);box.append(settingNode('p',t(preview.apply==='restart'?'settings_restart_mode':'settings_immediate')));if(settingsStreaming)box.append(settingNode('p',t('settings_stream_warning')));for(const f of preview.fields||[]){const key=f.path.replace(/\[\d+\]/g,'').split('.').pop();const camera=f.path.match(/^cameras\[(\d+)\]\.(.+)$/);const fieldLabel=t('setting_'+key);const label=camera?t('setting_cameras')+' '+(Number(camera[1])+1)+' — '+fieldLabel:fieldLabel;box.append(settingNode('p',label+' — '+t(f.apply==='restart'?'settings_restart_mode':'settings_immediate')));}if(preview.admin_lan_will_close)box.append(settingNode('p',t('settings_lan_close')));for(const f of preview.fields||[])if(f.local_only&&!settingsData.local)box.append(settingNode('p',t('settings_local')));
+ el('settings-update-label').hidden=!preview.obs_url_changes;el('settings-update').checked=false;el('settings-confirm').showModal();}catch(e){settingsError(e);}finally{settingsLock(false);}}
+ el('settings-save').onclick=()=>previewSettings('save');el('settings-reload').onclick=()=>loadSettings();el('settings-revert').onclick=()=>previewSettings('revert');el('settings-restart').onclick=()=>previewSettings('restart');el('settings-cancel').onclick=()=>el('settings-confirm').close();
+ document.querySelectorAll('[data-regenerate]').forEach(b=>b.onclick=async()=>{await loadSettings();if(settingsData)previewSettings('regenerate',{hash:settingsData.hash,target:b.dataset.regenerate});});
+ el('settings-accept').onclick=async()=>{if(settingsBusy)return;settingsLock(true);try{const action=settingsAction;const payload={...settingsPayload,update_obs_input:el('settings-update').checked};const result=await request(action==='restart'?'restart':action==='save'?'settings':'settings/'+action,action==='restart'?{}:action==='revert'?{update_obs_input:payload.update_obs_input}:payload,action==='save'?'PUT':'POST');el('settings-confirm').close();text('error','');text('settings-result',t('settings_saved'));if(!el('settings-update-label').hidden&&!payload.update_obs_input)text('settings-result',t('settings_pending_urls'));if(result.apply==='restart'||action==='restart'){restarting=true;since=Date.now();connection();if(result.admin_url)setTimeout(()=>location.assign(result.admin_url),1500);}else{await loadSettings();if(!el('sender-panel').hidden)loadSender();}}catch(e){el('settings-confirm').close();settingsError(e);}finally{settingsLock(false);}};
+
  let senderData, senderCamera='', senderHost='';
  const senderProtocols=new Map();
  async function loadSender(){try{senderData=await request('sender');let savedHost;try{savedHost=localStorage.getItem('sender-address');}catch(_){} senderHost=senderData.addresses.some(a=>a.address===savedHost)?savedHost:senderData.default;
@@ -88,6 +121,8 @@ if (!boot.login) {
  setInterval(()=>{if(wasConnected)loadScenes();},10000);
  let wasConnected=false;
  function render(s) {
+ settingsStreaming=!!s.obs.streaming;settingsOBS=!!s.obs.connected;
+ if(s.apply?.state==='failed'||s.apply?.state==='reverted')text('settings-result',t('settings_'+s.apply.state)+(typeof s.apply.reason==='string'?' '+s.apply.reason:s.apply.error?.message?' '+s.apply.error.message:''));
  currentScene=s.obs.scene_uuid;
  if(pendingScene && (currentScene===pendingScene || !s.obs.connected)){clearTimeout(sceneTimer);pendingScene='';}
  if(s.obs.connected){text('error','');if(!wasConnected || (!sceneList.some(x=>x.uuid===currentScene) && Date.now()-scenesLoadedAt>=1000))loadScenes();}else{sceneList=[];}wasConnected=s.obs.connected;drawScenes();
@@ -128,7 +163,8 @@ if (!boot.login) {
   text('mediamtx',t('mediamtx_'+(s.mediamtx||'stopped')) || s.mediamtx);
   const notices=[];
   if(s.last_error?.message) notices.push(s.last_error.message);
-  notices.push(...(o.warnings || []));
+  notices.push(...(o.warnings || []),...(s.warnings || []));
+  const settingsWarnings=[...(o.warnings||[]),...(s.warnings||[])];if(settingsWarnings.length){text('settings-result',settingsWarnings.join(' '));text('sender-notice',settingsWarnings.join(' '));}
   el('warnings').replaceChildren(...notices.map(message=>{const item=document.createElement('p');item.className='warn';item.textContent=message;return item;}));
  }
  request('status').then(render).catch(e=>text('error',e.message));

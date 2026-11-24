@@ -64,7 +64,7 @@ func serveSettings(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.
 			raw, _ := yaml.Marshal(cfg)
 			values := map[string]any{}
 			_ = yaml.Unmarshal(raw, &values)
-			writeJSON(w, 200, map[string]any{"values": values, "hash": settings.Hash(s.Raw), "local": local})
+			writeJSON(w, 200, map[string]any{"values": values, "hash": settings.Hash(s.Raw), "local": local, "apply_modes": settings.ConfigFieldModes()})
 			return
 		}
 		save := r.Method == http.MethodPut
