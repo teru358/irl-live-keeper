@@ -43,6 +43,7 @@
     "settings.port_busy": "Cannot use port ({protocol} {address}): {error}",
     "settings.backup_missing": "No saved settings are available to restore",
     "settings.no_revert_difference": "There are no differences to revert",
+    "settings.admin_password_unset": "The initial admin page password is not set. Set a password first.",
     "service.root": "Registering a --system service requires root. Run sudo irl-live-keeper service install --system --run-as <user>.",
     "service.root_user": "The service cannot run as root. Set --run-as to a regular user.",
     "service.write_error": "Could not write the service definition. Run with sudo.",

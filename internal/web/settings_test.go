@@ -1,10 +1,14 @@
 package web
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"gopkg.in/yaml.v3"
+	"log/slog"
 	"net/http/httptest"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -104,6 +108,94 @@ func TestSettingsOrder(t *testing.T) {
 			}
 			if w.Code != 202 && b.writes != 0 {
 				t.Fatal("wrote on failure")
+			}
+		})
+	}
+}
+
+func TestRegenerateSettings(t *testing.T) {
+	for _, tc := range []struct {
+		target string
+		apply  settings.ApplyMode
+		obs    bool
+	}{
+		{target: "admin", apply: settings.ApplyImmediate},
+		{target: "publish", apply: settings.ApplyRestart},
+		{target: "read", apply: settings.ApplyRestart, obs: true},
+	} {
+		t.Run(tc.target, func(t *testing.T) {
+			b := settingsFixture(t)
+			b.store.Current.Admin.Password = "existing-password"
+			b.store.Raw = configBytes(t, b.store.Current)
+			before := append([]byte(nil), b.store.Raw...)
+			backupCalls := 0
+			b.store.Backup = func() error { backupCalls++; return nil }
+			var got settings.ChangeSummary
+			var gotOBS bool
+			b.store.ApplySaved = func(_, _ *config.Config, summary settings.ChangeSummary, updateOBS bool) {
+				got, gotOBS = summary, updateOBS
+			}
+			body, _ := json.Marshal(map[string]any{"target": tc.target, "hash": settings.Hash(b.store.Raw), "update_obs_input": tc.obs})
+			var logOutput bytes.Buffer
+			logger := slog.New(slog.NewTextHandler(&logOutput, nil))
+			r := httptest.NewRequest("POST", "/api/settings/regenerate", strings.NewReader(string(body)))
+			r.RemoteAddr = "127.0.0.1:4"
+			r.Header.Set("X-Forwarded-For", "127.0.0.1")
+			r.Header.Set(headerName, "1")
+			r = r.WithContext(context.WithValue(r.Context(), loggerKey{}, logger))
+			w := httptest.NewRecorder()
+			apiHandler(b, nil).ServeHTTP(w, r)
+			if w.Code != 202 || strings.Contains(w.Body.String(), "password") || strings.Contains(w.Body.String(), "pass") {
+				t.Fatalf("%d %s", w.Code, w.Body.String())
+			}
+			if backupCalls != 1 || string(before) == string(b.store.Raw) {
+				t.Fatal("backup or rewrite missing")
+			}
+			cfg, err := config.Parse(b.store.Raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var value string
+			switch tc.target {
+			case "admin":
+				value = cfg.Admin.Password
+			case "publish":
+				value = cfg.Stream.PublishPass
+			case "read":
+				value = cfg.Stream.ReadPass
+			}
+			if !regexp.MustCompile(`^[A-Za-z0-9_-]{24}$`).MatchString(value) || cfg.Validate() != nil || got.Apply != tc.apply || gotOBS != tc.obs || strings.Contains(logOutput.String(), value) {
+				t.Fatalf("generated value rejected or wrong apply: %q %+v", value, got)
+			}
+		})
+	}
+}
+
+func TestRegenerateSettingsChecksConflictsAndUnsetAdmin(t *testing.T) {
+	for _, tc := range []struct {
+		name, target string
+		applying     bool
+		stale        bool
+		password     string
+		code         int
+	}{
+		{name: "applying", target: "read", applying: true, code: 409},
+		{name: "hash", target: "read", stale: true, code: 409},
+		{name: "initial admin unset", target: "admin", code: 409},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b := settingsFixture(t)
+			b.store.Applying = tc.applying
+			b.store.Current.Admin.Password = tc.password
+			b.store.Raw = configBytes(t, b.store.Current)
+			h := settings.Hash(b.store.Raw)
+			if tc.stale {
+				h = "stale"
+			}
+			body, _ := json.Marshal(map[string]any{"target": tc.target, "hash": h})
+			w := settingsCall(b, "POST", "/api/settings/regenerate", string(body), "127.0.0.1:4", true)
+			if w.Code != tc.code || b.writes != 0 {
+				t.Fatalf("%d %s", w.Code, w.Body.String())
 			}
 		})
 	}

@@ -249,6 +249,9 @@ func randomSecret() (string, error) {
 	return string(b), nil
 }
 
+// GeneratePassword は、パスワードの作り直し（S2-30）の値を、初回の生成と同じ規則（コア4章: 英数字24文字）で作る。
+func GeneratePassword() (string, error) { return randomSecret() }
+
 // defaultTemplate は初回生成するファイルの雛形。"*" は生成時にランダムな値へ置き換える。
 const defaultTemplate = `language: auto             # 画面の言語。auto（OS の言語）/ ja / en
 

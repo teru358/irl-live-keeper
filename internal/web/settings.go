@@ -41,6 +41,7 @@ type settingsRequest struct {
 	Hash           string         `json:"hash"`
 	Revert         bool           `json:"revert"`
 	UpdateOBSInput bool           `json:"update_obs_input"`
+	Target         string         `json:"target"`
 }
 
 func serveSettings(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.Lang) {
@@ -68,7 +69,8 @@ func serveSettings(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.
 		}
 		save := r.Method == http.MethodPut
 		revert := r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/revert")
-		if (save || revert) && s.Applying {
+		regenerate := r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/regenerate")
+		if (save || revert || regenerate) && s.Applying {
 			fail(409, "settings.applying")
 			return
 		}
@@ -79,7 +81,7 @@ func serveSettings(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.
 			fail(400, "settings.invalid")
 			return
 		}
-		if save && req.Hash != settings.Hash(s.Raw) {
+		if (save || regenerate) && req.Hash != settings.Hash(s.Raw) {
 			fail(409, "settings.hash_conflict")
 			return
 		}
@@ -129,10 +131,35 @@ func serveSettings(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.
 		raw, _ := yaml.Marshal(old)
 		var next config.Config
 		_ = yaml.Unmarshal(raw, &next)
-		patch, _ := yaml.Marshal(req.Values)
-		decode := yaml.NewDecoder(bytes.NewReader(patch))
-		decode.KnownFields(true)
-		decodeErr := decode.Decode(&next)
+		var decodeErr error
+		if regenerate {
+			var target *string
+			switch req.Target {
+			case "admin":
+				if old.Admin.Password == "" {
+					fail(409, "settings.admin_password_unset")
+					return
+				}
+				target = &next.Admin.Password
+			case "publish":
+				target = &next.Stream.PublishPass
+			case "read":
+				target = &next.Stream.ReadPass
+			default:
+				fail(422, "settings.invalid")
+				return
+			}
+			*target, err = config.GeneratePassword()
+			if err != nil {
+				fail(500, "api.internal")
+				return
+			}
+		} else {
+			patch, _ := yaml.Marshal(req.Values)
+			decode := yaml.NewDecoder(bytes.NewReader(patch))
+			decode.KnownFields(true)
+			decodeErr = decode.Decode(&next)
+		}
 		summary := settings.ClassifyChanges(old, &next, local)
 		if (save || revert) && !local {
 			for _, f := range summary.Fields {
@@ -149,14 +176,14 @@ func serveSettings(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.
 				fields = ve.RenderFields(lang)
 			}
 		}
-		if decodeErr != nil || req.Values == nil {
+		if decodeErr != nil || !regenerate && req.Values == nil {
 			fields["values"] = i18n.Render(lang, settingsMessage("settings.invalid"))
 		}
 		if len(fields) > 0 {
 			writeJSON(w, 422, map[string]any{"error": i18n.Render(lang, settingsMessage("settings.invalid")), "fields": fields})
 			return
 		}
-		if !save && !revert {
+		if !save && !revert && !regenerate {
 			writeJSON(w, 200, summary)
 			return
 		}
@@ -204,7 +231,9 @@ func serveSettings(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.
 			s.MarkHash(out)
 		}
 		if keeper, ok := b.(interface{ KeepSettingsSession(string) }); ok {
-			keeper.KeepSettingsSession(SettingsSession(r))
+			if !regenerate || req.Target == "admin" {
+				keeper.KeepSettingsSession(SettingsSession(r))
+			}
 		}
 		s.ApplySaved(old, &next, summary, req.UpdateOBSInput)
 		if revert {

@@ -43,6 +43,7 @@
     "settings.port_busy": "ポートを使用できません（{protocol} {address}）: {error}",
     "settings.backup_missing": "戻せる設定がありません",
     "settings.no_revert_difference": "戻す違いがありません",
+    "settings.admin_password_unset": "初回の管理ページパスワードが未設定です。先にパスワードを設定してください",
     "service.root": "--system の登録には root 権限が必要です。sudo irl-live-keeper service install --system --run-as <ユーザー> を実行してください",
     "service.root_user": "root はサービスの実行ユーザーにできません。--run-as に通常ユーザーを指定してください",
     "service.write_error": "サービス定義を書き込めません。sudo で実行してください",
