@@ -60,6 +60,26 @@ func TestStateLogSceneChangedByUser(t *testing.T) {
 	}
 }
 
+// 管理ページの意図と一致した到着は、利用者による切替のログと分ける。
+func TestStateLogSceneChangedFromAdminPage(t *testing.T) {
+	h := newHarness(t)
+	h.start()
+	h.samplesN(5, goodKbps)
+	h.connect(true, camera)
+	h.waitSnap("camera", sceneIs(camera))
+	if err := h.core.SelectScene(h.ctx, talk); err != nil {
+		t.Fatal(err)
+	}
+	h.waitSnap("talk", sceneIs(talk))
+	h.samplesN(2, goodKbps)
+	if n := logCount(h, `msg="scene changed from admin page" from=Camera to=Talk`); n != 1 {
+		t.Errorf("管理ページからの切替ログ = %d, want 1:\n%s", n, h.log.String())
+	}
+	if strings.Contains(h.log.String(), `msg="scene changed by user"`) {
+		t.Errorf("管理ページからの切替を利用者の切替として記録した:\n%s", h.log.String())
+	}
+}
+
 // 自動の待機に入ると、持ち主と戻り先の行が1回。人の切替の行は出ない。
 func TestStateLogStandbyChanged(t *testing.T) {
 	h := newHarness(t)

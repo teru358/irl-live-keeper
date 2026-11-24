@@ -92,6 +92,10 @@ func Build(s app.WindowState, dark bool) Model {
 	}
 	return m
 }
+
+// NoticeForWindow converts model line breaks to the CRLF form required by Win32 controls.
+func NoticeForWindow(m Model) string { return strings.ReplaceAll(m.Notice, "\n", "\r\n") }
+
 func CloseDecision(action string, streaming bool) (minimize, confirm bool) {
 	return action == "minimize", action != "minimize" && action != "quit"
 }

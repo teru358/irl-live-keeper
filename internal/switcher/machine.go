@@ -82,8 +82,9 @@ func (m *Machine) Snapshot() Snapshot {
 		Class:     m.classOf(s.Scene),
 		Standby: StandbyStatus{Owner: s.StandbyOwner, ReturnScene: s.ReturnScene, ReturnSceneName: m.nameInMap(s.ReturnScene),
 			Stack: slices.Clone(s.Stack)},
-		AutoEnabled: s.AutoEnabled,
-		SceneEpoch:  s.SceneEpoch,
+		AutoEnabled:     s.AutoEnabled,
+		SceneEpoch:      s.SceneEpoch,
+		AdminSceneEpoch: s.AdminSceneEpoch,
 	}
 	for _, u := range s.Stack {
 		snap.Standby.StackNames = append(snap.Standby.StackNames, m.nameInMap(u))
@@ -148,6 +149,7 @@ func (m *Machine) Handle(ev Event) ([]Batch, error) {
 			return m.jb(e.At), nil
 		}
 		if m.st.Scene == e.SceneUUID {
+			m.st.AdminSceneEpoch++
 			m.releaseAll()
 			m.refine()
 		} else {
@@ -577,6 +579,7 @@ func (m *Machine) onSceneChanged(e SceneChanged) []Batch {
 	s.Scene = e.SceneUUID
 	if slices.ContainsFunc(s.HumanIntents, func(x HumanSceneSelected) bool { return x.SceneUUID == e.SceneUUID }) {
 		s.HumanIntents = slices.DeleteFunc(s.HumanIntents, func(x HumanSceneSelected) bool { return x.SceneUUID == e.SceneUUID })
+		s.AdminSceneEpoch++
 		m.releaseAll()
 		m.refine()
 		return m.jb(e.At)

@@ -732,6 +732,7 @@ type state struct {
 	// LastCandidateSent は候補ごとの送出時刻（0c）。同じ候補の再送は最短5秒、新しい候補は即時。
 	LastCandidateSent map[candKey]time.Time
 	SceneEpoch        int
+	AdminSceneEpoch   int // 管理ページの意図による人の切替の回数（ログの文を分けるためだけ。SceneEpoch は今までどおり進む）
 	ConnEpoch         int
 	StreamEpoch       int
 	TransitionMs      *int
@@ -849,6 +850,9 @@ type Snapshot struct {
 	// SceneEpoch は人の切替（本体の期待に当たらないシーンの変化）とみなした回数。
 	// 増えたことで、core は人の切替があったと知る。
 	SceneEpoch int
+	// AdminSceneEpoch は、人の切替のうち管理ページの意図によるもの（S2-58）の回数。SceneEpoch と一緒に進む。
+	// core はログの文を分けるのにだけ使う（SceneEpoch が進み、これも進んだら管理ページから）。
+	AdminSceneEpoch int
 	// 0b: 隠した項目の記録の写し（外から変えても内部は変わらない）と、変更のたびに進む番号。
 	HiddenEntries   []HiddenEntry
 	RetainedEntries []HiddenEntry

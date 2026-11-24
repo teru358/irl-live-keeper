@@ -46,6 +46,10 @@ func TestModel(t *testing.T) {
 			if !m.Retry || strings.Contains(m.Notice, "password") {
 				t.Fatal(m)
 			}
+			windowNotice := NoticeForWindow(m)
+			if !strings.Contains(windowNotice, "\r\n") || strings.Contains(strings.ReplaceAll(windowNotice, "\r\n", ""), "\n") {
+				t.Fatalf("窓用の案内文が CRLF ではない: %q", windowNotice)
+			}
 			s.Apply = app.Apply{}
 			s.Snapshot.LastError = &core.LastError{Message: i18n.New("console.logger_open", "error", "http://secret@host")}
 			if strings.Contains(Build(s, dark).Notice, "secret") {

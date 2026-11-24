@@ -257,7 +257,11 @@ func (c *Core) logStateChanges(ms switcher.Snapshot) {
 		c.log.Info("stream state", "streaming", ms.Streaming)
 	}
 	if ms.SceneEpoch != prev.SceneEpoch {
-		c.log.Info("scene changed by user", "from", c.sceneLabel(prev.Scene, prev.SceneName), "to", c.sceneLabel(ms.Scene, ms.SceneName))
+		msg := "scene changed by user" // OBS や IRL Link での人の切替
+		if ms.AdminSceneEpoch != prev.AdminSceneEpoch {
+			msg = "scene changed from admin page" // 管理ページの意図（S2-58）による人の切替
+		}
+		c.log.Info(msg, "from", c.sceneLabel(prev.Scene, prev.SceneName), "to", c.sceneLabel(ms.Scene, ms.SceneName))
 	}
 	if ms.Standby.Owner != prev.Standby.Owner || ms.Standby.ReturnScene != prev.Standby.ReturnScene ||
 		ms.Standby.ReturnSceneName != prev.Standby.ReturnSceneName || !slices.Equal(ms.Standby.Stack, prev.Standby.Stack) {

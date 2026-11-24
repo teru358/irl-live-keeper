@@ -66,6 +66,7 @@ func Run(ctx context.Context, stop context.CancelFunc, class string, a *app.App,
 	update := func() {
 		s := a.WindowState()
 		m := Build(s, dark)
+		noticeText := NoticeForWindow(m)
 		for len(rows) < len(m.Rows) {
 			rows = append(rows, create("STATIC", "", 0))
 			colors = append(colors, fg)
@@ -98,7 +99,7 @@ func Run(ctx context.Context, stop context.CancelFunc, class string, a *app.App,
 		font := call("SendMessageW", notice, 0x31, 0, 0)
 		oldFont, _, _ := gdi.NewProc("SelectObject").Call(dc, font)
 		rect := [4]int32{0, 0, 456, 0}
-		call("DrawTextW", dc, ptr(m.Notice), ^uintptr(0), uintptr(unsafe.Pointer(&rect)), 0x10|0x400|0x800)
+		call("DrawTextW", dc, ptr(noticeText), ^uintptr(0), uintptr(unsafe.Pointer(&rect)), 0x10|0x400|0x800)
 		gdi.NewProc("SelectObject").Call(dc, oldFont)
 		call("ReleaseDC", notice, dc)
 		height := max(100, int(rect[3])+12)
@@ -124,9 +125,9 @@ func Run(ctx context.Context, stop context.CancelFunc, class string, a *app.App,
 			height = max(24, total-frame-top-12)
 		}
 		move(notice, top, height)
-		if lastNotice != m.Notice {
-			call("SetWindowTextW", notice, ptr(m.Notice))
-			lastNotice = m.Notice
+		if lastNotice != noticeText {
+			call("SetWindowTextW", notice, ptr(noticeText))
+			lastNotice = noticeText
 		}
 		call("ShowScrollBar", notice, 1, boolint(int(rect[3])+12 > height))
 		if int(outer[3]-outer[1]) != total {
