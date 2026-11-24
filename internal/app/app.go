@@ -127,10 +127,12 @@ type ApplyKind string
 
 const (
 	ApplyRestart  ApplyKind  = "restart"
+	ApplyRevert   ApplyKind  = "revert"
 	ApplyIdle     ApplyState = "idle"
 	ApplyApplying ApplyState = "applying"
 	ApplyApplied  ApplyState = "applied"
 	ApplyFailed   ApplyState = "failed"
+	ApplyReverted ApplyState = "reverted"
 )
 
 type Apply struct {
@@ -629,7 +631,11 @@ func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 	if kind == ApplyRestart {
 		log.Info("restart complete")
 	}
-	a.setApply(Apply{State: ApplyApplied, Kind: kind})
+	state := ApplyApplied
+	if kind == ApplyRevert {
+		state = ApplyReverted
+	}
+	a.setApply(Apply{State: state, Kind: kind})
 
 	return g, nil
 }

@@ -26,7 +26,9 @@ type SettingsStore struct {
 	Owned      []settings.ListeningPort
 	CheckPorts func(*config.Config, *config.Config, []settings.ListeningPort) []settings.PortFailure
 	Backup     func() error // S2-29: preserve the running generation before writing.
+	BackupRaw  []byte
 	Write      func([]byte) error
+	MarkHash   func([]byte)
 	StartApply func()
 	ApplySaved func(old, next *config.Config, summary settings.ChangeSummary, updateOBSInput bool)
 }
@@ -65,7 +67,8 @@ func serveSettings(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.
 			return
 		}
 		save := r.Method == http.MethodPut
-		if save && s.Applying {
+		revert := r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/revert")
+		if (save || revert) && s.Applying {
 			fail(409, "settings.applying")
 			return
 		}
@@ -80,9 +83,42 @@ func serveSettings(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.
 			fail(409, "settings.hash_conflict")
 			return
 		}
-		if req.Revert {
-			fail(501, "settings.not_implemented")
-			return
+		if req.Revert || revert {
+			if len(s.BackupRaw) == 0 {
+				fail(409, "settings.backup_missing")
+				return
+			}
+			if _, err := config.Parse(s.BackupRaw); err != nil {
+				fail(500, "api.internal")
+				return
+			}
+			if req.Revert { // preview compares the backup against the current file
+				old, err := config.Parse(s.Raw)
+				if err != nil {
+					fail(500, "api.internal")
+					return
+				}
+				next, err := config.Parse(s.BackupRaw)
+				if err != nil {
+					fail(500, "api.internal")
+					return
+				}
+				summary := settings.ClassifyChanges(old, next, local)
+				if len(summary.Fields) == 0 {
+					fail(409, "settings.no_revert_difference")
+					return
+				}
+				writeJSON(w, 200, summary)
+				return
+			}
+			backup, err := config.Parse(s.BackupRaw)
+			if err != nil {
+				fail(500, "api.internal")
+				return
+			}
+			raw, _ := yaml.Marshal(backup)
+			req.Values = map[string]any{}
+			_ = yaml.Unmarshal(raw, &req.Values)
 		}
 		old, err := config.Parse(s.Raw)
 		if err != nil {
@@ -98,7 +134,7 @@ func serveSettings(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.
 		decode.KnownFields(true)
 		decodeErr := decode.Decode(&next)
 		summary := settings.ClassifyChanges(old, &next, local)
-		if save && !local {
+		if (save || revert) && !local {
 			for _, f := range summary.Fields {
 				if f.LocalOnly {
 					fail(403, "settings.local_only")
@@ -120,11 +156,15 @@ func serveSettings(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.
 			writeJSON(w, 422, map[string]any{"error": i18n.Render(lang, settingsMessage("settings.invalid")), "fields": fields})
 			return
 		}
-		if !save {
+		if !save && !revert {
 			writeJSON(w, 200, summary)
 			return
 		}
 		if len(summary.Fields) == 0 {
+			if revert {
+				fail(409, "settings.no_revert_difference")
+				return
+			}
 			writeJSON(w, 202, map[string]any{"ok": true, "apply": "none"})
 			return
 		}
@@ -160,11 +200,22 @@ func serveSettings(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.
 			fail(500, "api.internal")
 			return
 		}
+		if summary.Apply == settings.ApplyImmediate && s.MarkHash != nil {
+			s.MarkHash(out)
+		}
 		if keeper, ok := b.(interface{ KeepSettingsSession(string) }); ok {
 			keeper.KeepSettingsSession(SettingsSession(r))
 		}
 		s.ApplySaved(old, &next, summary, req.UpdateOBSInput)
+		if revert {
+			if marker, ok := b.(interface{ MarkRevert() }); ok {
+				marker.MarkRevert()
+			}
+		}
 		response := map[string]any{"ok": true, "apply": summary.Apply}
+		if revert {
+			response["kind"] = "revert"
+		}
 		if old.Admin.Port != next.Admin.Port || old.Admin.LAN != next.Admin.LAN {
 			response["admin_url"] = nil
 			if !summary.AdminLANWillClose {
@@ -200,6 +251,8 @@ func settingsMessage(key string) i18n.Msg {
 		return i18n.New("api.invalid", "reason", "values")
 	case "settings.not_implemented":
 		return i18n.New("api.invalid", "reason", "not implemented")
+	case "settings.backup_missing", "settings.no_revert_difference":
+		return i18n.New(key)
 	default:
 		return i18n.New(key)
 	}

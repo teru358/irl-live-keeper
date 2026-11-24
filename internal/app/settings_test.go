@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"crypto/sha256"
 	"github.com/teru358/irl-live-keeper/internal/config"
 	"github.com/teru358/irl-live-keeper/internal/settings"
 	"github.com/teru358/irl-live-keeper/internal/web"
@@ -54,6 +55,77 @@ func TestSettingsTransactionAndHandoff(t *testing.T) {
 		}
 	}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestSettingsBackupOnlyCurrentGeneration(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, configName)
+	cfg, err := config.Generate(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &App{opts: Options{BaseDir: dir}, hash: sha256.Sum256(raw)}
+	b := &pageBackend{app: a, senderConfig: cfg}
+	callBackup := func() error {
+		return b.SettingsTransaction(func(s *web.SettingsStore) {
+			if e := s.Backup(); e != nil {
+				t.Error(e)
+			}
+		})
+	}
+	if err = callBackup(); err != nil {
+		t.Fatal(err)
+	}
+	bak, _ := os.ReadFile(path + ".bak")
+	if string(bak) != string(raw) {
+		t.Fatal("current generation was not backed up")
+	}
+	external := append(append([]byte(nil), raw...), []byte("# external edit\n")...)
+	if err = os.WriteFile(path, external, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err = callBackup(); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := os.ReadFile(path + ".bak")
+	if string(after) != string(bak) {
+		t.Fatal("external edit replaced backup")
+	}
+}
+
+func TestRestoreBackupSwapsFilesAndSchedulesRevert(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, configName)
+	old, err := config.Generate(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldRaw, _ := os.ReadFile(path)
+	next := *old
+	next.Log.KeepDays++
+	nextRaw, err := settings.Rewrite(oldRaw, []settings.Change{{Path: "log.keep_days", Value: next.Log.KeepDays}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(path, nextRaw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(path+".bak", oldRaw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	a := &App{opts: Options{BaseDir: dir}, apply: Apply{State: ApplyFailed, Kind: ApplyRestart}, restarts: make(chan struct{}, 1)}
+	if err = a.RestoreBackup(); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(path)
+	rotated, _ := os.ReadFile(path + ".bak")
+	if string(got) != string(oldRaw) || string(rotated) != string(nextRaw) || a.apply.State != ApplyApplying || a.apply.Kind != ApplyRevert || len(a.restarts) != 1 {
+		t.Fatal("backup was not swapped and restart scheduled")
 	}
 }
 

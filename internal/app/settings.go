@@ -30,11 +30,21 @@ func (b *pageBackend) SettingsTransaction(fn func(*web.SettingsStore)) error {
 	if a.liveConfig != nil {
 		current = a.liveConfig
 	}
-	fn(&web.SettingsStore{Raw: raw, Current: current, Applying: a.apply.State == ApplyApplying,
-		Owned: ownedSettingsPorts(current), Backup: func() error { return nil },
-		Write: func(out []byte) error { return settings.WriteFile(path, out) }, ApplySaved: b.ApplySaved, StartApply: func() { a.settingsReady <- struct{}{} }})
+	bakPath := path + ".bak"
+	bak, _ := os.ReadFile(bakPath)
+	fn(&web.SettingsStore{Raw: raw, Current: current, Applying: a.apply.State == ApplyApplying, BackupRaw: bak,
+		Owned: ownedSettingsPorts(current), Backup: func() error {
+			if sha256.Sum256(raw) != a.hash {
+				return nil
+			}
+			return settings.WriteFile(bakPath, raw)
+		},
+		Write: func(out []byte) error { return settings.WriteFile(path, out) }, MarkHash: func(raw []byte) { a.hash = sha256.Sum256(raw) },
+		ApplySaved: b.ApplySaved, StartApply: func() { a.settingsReady <- struct{}{} }})
 	return nil
 }
+
+func (b *pageBackend) MarkRevert() { b.app.apply.Kind = ApplyRevert }
 
 // ApplySaved は保存に成功したあと App.mu 内で呼ぶ。版と印を保持し、反映中にする。
 func (b *pageBackend) ApplySaved(old, next *config.Config, summary settings.ChangeSummary, updateOBSInput bool) {

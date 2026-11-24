@@ -124,3 +124,21 @@ func TestCameraDisplay(t *testing.T) {
 		}
 	}
 }
+
+func TestRestoreButtonOnlyForFailedStartupOrRestartWithBackup(t *testing.T) {
+	for _, tc := range []struct {
+		apply        app.Apply
+		backup, want bool
+	}{
+		{app.Apply{State: app.ApplyFailed}, true, true},
+		{app.Apply{State: app.ApplyFailed, Kind: app.ApplyRestart}, true, true},
+		{app.Apply{State: app.ApplyFailed, Kind: "live"}, true, false},
+		{app.Apply{State: app.ApplyApplying, Kind: app.ApplyRestart}, true, false},
+		{app.Apply{State: app.ApplyFailed}, false, false},
+	} {
+		m := Build(app.WindowState{Apply: tc.apply, Restore: tc.backup}, false)
+		if m.Restore != tc.want {
+			t.Fatalf("%+v: Restore=%v", tc, m.Restore)
+		}
+	}
+}

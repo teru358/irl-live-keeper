@@ -49,13 +49,13 @@ func Run(ctx context.Context, stop context.CancelFunc, class string, a *app.App,
 	brush, _, _ := gdi.NewProc("CreateSolidBrush").Call(rgb(bg))
 	defer gdi.NewProc("DeleteObject").Call(brush)
 	wnd := ui.NewMain(ui.OptsMain().Title("irl-live-keeper").ClassName(class).Size(ui.Dpi(520, 380)).Center(true))
-	buttons := make([]*ui.Button, 4)
+	buttons := make([]*ui.Button, 5)
 	for i := range buttons {
 		buttons[i] = ui.NewButton(wnd, ui.OptsButton().CtrlId(uint16(100+i)).Text("").Position(ui.Dpi(12, 12)).Width(ui.DpiX(480)))
 	}
 	var rows []uintptr
 	var colors []string
-	var notice, open, quit, logs, retry uintptr
+	var notice, open, quit, logs, retry, restore uintptr
 	var lastNotice string
 	done := make(chan int, 1)
 	started := false
@@ -85,7 +85,7 @@ func Run(ctx context.Context, stop context.CancelFunc, class string, a *app.App,
 		for i, b := range []struct {
 			h uintptr
 			k string
-		}{{open, "window_open"}, {quit, "window_exit"}, {logs, "window_logs"}, {retry, "window_retry"}} {
+		}{{open, "window_open"}, {quit, "window_exit"}, {logs, "window_logs"}, {retry, "window_retry"}, {restore, "window_restore"}} {
 			call("SetWindowTextW", b.h, ptr(Text(s.Language, b.k)))
 			move(b.h, y+i*30, 26)
 		}
@@ -93,6 +93,8 @@ func Run(ctx context.Context, stop context.CancelFunc, class string, a *app.App,
 		call("EnableWindow", retry, boolint(m.Retry))
 		call("ShowWindow", logs, show(m.Retry))
 		call("ShowWindow", retry, show(m.Retry))
+		call("EnableWindow", restore, boolint(m.Restore))
+		call("ShowWindow", restore, show(m.Restore))
 
 		// EDIT と同じフォントで折り返し後の高さを測る。
 		dc := call("GetDC", notice)
@@ -164,6 +166,7 @@ func Run(ctx context.Context, stop context.CancelFunc, class string, a *app.App,
 		quit = uintptr(buttons[1].Hwnd())
 		logs = uintptr(buttons[2].Hwnd())
 		retry = uintptr(buttons[3].Hwnd())
+		restore = uintptr(buttons[4].Hwnd())
 		// 読み取り専用の複数行欄。作業領域を超える長文はスクロールできる。
 		notice = call("CreateWindowExW", 0, ptr("EDIT"), ptr(""), 0x50210844, 12, 12, 480, 100, uintptr(wnd.Hwnd()), 104, 0, 0)
 		if dark {
@@ -201,6 +204,7 @@ func Run(ctx context.Context, stop context.CancelFunc, class string, a *app.App,
 	buttons[1].On().BnClicked(func() { exit(ExitConfirmation()) })
 	buttons[2].On().BnClicked(func() { winproc.OpenFolder(a.WindowState().LogDir) })
 	buttons[3].On().BnClicked(func() { a.Retry() })
+	buttons[4].On().BnClicked(func() { a.RestoreBackup() })
 	wnd.On().Wm(co.WM(0x8001), func(ui.Wm) uintptr {
 		a.SecondInstanceBlocked()
 		return 0

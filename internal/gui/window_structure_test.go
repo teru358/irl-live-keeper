@@ -13,7 +13,7 @@ func TestButtonNotificationStructure(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := string(b)
-	if !strings.Contains(s, "ui.NewButton(wnd,") || strings.Count(s, ".On().BnClicked(") != 4 {
+	if !strings.Contains(s, "ui.NewButton(wnd,") || strings.Count(s, ".On().BnClicked(") != 5 {
 		t.Fatal("ボタンは windigo の専用通知を使うこと")
 	}
 

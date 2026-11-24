@@ -173,18 +173,71 @@ func TestSettingsConcurrent(t *testing.T) {
 
 func TestSettingsPreviewAndBackup(t *testing.T) {
 	b := settingsFixture(t)
+	b.store.BackupRaw = append([]byte(nil), b.store.Raw...)
 	w := settingsCall(b, "POST", "/api/settings/preview", `{"values":{"log":{"dir":"new"}}}`, "192.168.1.2:4", true)
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"local_only":true`) || b.writes != 0 {
 		t.Fatal(w.Code, w.Body.String())
 	}
 	w = settingsCall(b, "POST", "/api/settings/preview", `{"revert":true}`, "127.0.0.1:4", true)
-	if w.Code != 501 {
+	if w.Code != 409 {
 		t.Fatal(w.Code)
 	}
 	b.store.Backup = func() error { return errors.New("backup failed") }
 	w = settingsCall(b, "PUT", "/api/settings", `{"hash":"`+settings.Hash(b.store.Raw)+`","values":{"log":{"keep_days":3}}}`, "127.0.0.1:4", true)
 	if w.Code != 500 || b.writes != 0 {
 		t.Fatal(w.Code, w.Body.String())
+	}
+}
+
+func TestSettingsRevertAndPreview(t *testing.T) {
+	b := settingsFixture(t)
+	previous := append([]byte(nil), b.store.Raw...)
+	current := *b.store.Current
+	current.Log.KeepDays++
+	b.store.Current = &current
+	b.store.Raw = configBytes(t, &current)
+	b.store.BackupRaw = previous
+	b.store.Backup = func() error { b.store.BackupRaw = append([]byte(nil), b.store.Raw...); return nil }
+	w := settingsCall(b, "POST", "/api/settings/preview", `{"revert":true}`, "127.0.0.1:4", true)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "log.keep_days") || b.writes != 0 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	w = settingsCall(b, "POST", "/api/settings/revert", `{}`, "127.0.0.1:4", true)
+	if w.Code != 202 || !strings.Contains(w.Body.String(), `"kind":"revert"`) || b.writes != 1 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	got, err := config.Parse(b.store.Raw)
+	want, _ := config.Parse(previous)
+	if err != nil || got.Log.KeepDays != want.Log.KeepDays {
+		t.Fatal(err, got.Log.KeepDays, want.Log.KeepDays)
+	}
+	// Since Backup rotates on every write, a second revert restores the value that was just replaced.
+	w = settingsCall(b, "POST", "/api/settings/revert", `{}`, "127.0.0.1:4", true)
+	if w.Code != 202 || b.writes != 2 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+}
+
+func TestSettingsRevertConflicts(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		backup   bool
+		applying bool
+		want     int
+	}{
+		{"missing", false, false, 409}, {"no-difference", true, false, 409}, {"applying", true, true, 409},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b := settingsFixture(t)
+			b.store.Applying = tc.applying
+			if tc.backup {
+				b.store.BackupRaw = append([]byte(nil), b.store.Raw...)
+			}
+			w := settingsCall(b, "POST", "/api/settings/revert", `{}`, "127.0.0.1:4", true)
+			if w.Code != tc.want || b.writes != 0 {
+				t.Fatal(w.Code, w.Body.String())
+			}
+		})
 	}
 }
 

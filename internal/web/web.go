@@ -70,7 +70,7 @@ func apiHandler(b Backend, recent interface {
 			return
 		}
 
-		if r.URL.Path == "/api/settings" || r.URL.Path == "/api/settings/preview" {
+		if r.URL.Path == "/api/settings" || r.URL.Path == "/api/settings/preview" || r.URL.Path == "/api/settings/revert" {
 			serveSettings(w, r, b, lang)
 			return
 		}
@@ -190,6 +190,8 @@ func route(path string) (switcher.CommandKind, string, bool) {
 	case "/api/settings":
 		return 0, http.MethodGet, true
 	case "/api/settings/preview":
+		return 0, http.MethodPost, true
+	case "/api/settings/revert":
 		return 0, http.MethodPost, true
 	case "/api/sender", "/api/obs/scenes", "/api/obs/inputs", "/api/events", "/api/status", "/api/logs":
 		return 0, http.MethodGet, true

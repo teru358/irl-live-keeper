@@ -10,9 +10,9 @@ import (
 
 type Row struct{ Text, Color string }
 type Model struct {
-	Rows           []Row
-	Notice         string
-	CanOpen, Retry bool
+	Rows                    []Row
+	Notice                  string
+	CanOpen, Retry, Restore bool
 }
 
 func Text(lang i18n.Lang, key string) string { return i18n.UI(lang)[key] }
@@ -26,7 +26,8 @@ func Build(s app.WindowState, dark bool) Model {
 	if dark {
 		colors = []string{"#45C99C", "#F2B544", "#FF6F61", "#93A1B0"}
 	}
-	m := Model{CanOpen: s.Snapshot != nil, Retry: s.Apply.State == app.ApplyFailed}
+	restoreFailure := s.Apply.Kind == "" || s.Apply.Kind == app.ApplyRestart
+	m := Model{CanOpen: s.Snapshot != nil, Retry: s.Apply.State == app.ApplyFailed, Restore: s.Apply.State == app.ApplyFailed && restoreFailure && s.Restore}
 	add := func(text string, c int) { m.Rows = append(m.Rows, Row{safe(text), colors[c]}) }
 	if s.Snapshot == nil {
 		for _, k := range []string{"links", "obs", "standby", "mediamtx"} {
