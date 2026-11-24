@@ -151,6 +151,7 @@ func collectDiff(a, b reflect.Value, path string, out map[string]struct{}) {
 	case reflect.Slice:
 		if a.Len() != b.Len() {
 			out[path] = struct{}{}
+			return // A whole-list replacement already includes every element change.
 		}
 		limit := a.Len()
 		if b.Len() < limit {

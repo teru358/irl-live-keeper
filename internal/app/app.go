@@ -155,6 +155,7 @@ type generation struct {
 }
 
 type App struct {
+	pendingSettings        *savedSettings
 	windowLang             i18n.Lang
 	windowClose, windowLog string
 	windowGenerated        bool

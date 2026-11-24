@@ -127,8 +127,8 @@ func TestSafety(t *testing.T) {
 	if e != nil {
 		t.Fatal("解析失敗")
 	}
-	if _, e = rewrite(src, []Change{{"admin.port", 8788}}, func([]byte) (*config.Config, error) { return cfg, nil }); e == nil {
-		t.Fatal("不一致を拒否しなかった")
+	if _, e = rewrite(src, []Change{{"admin.port", 8788}}, func([]byte) (*config.Config, error) { return cfg, nil }); !errors.As(e, new(*VerificationError)) {
+		t.Fatal("不一致を検証エラーとして拒否しなかった")
 	}
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if os.WriteFile(path, src, 0600) != nil {

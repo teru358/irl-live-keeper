@@ -51,6 +51,9 @@ func apiHandler(b Backend, recent interface {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		lang := i18n.Select(r.URL.Query().Get("lang"), r.Header.Get("Accept-Language"), defaultLang...)
 		kind, method, known := route(r.URL.Path)
+		if r.URL.Path == "/api/settings" && r.Method == http.MethodPut {
+			method = http.MethodPut
+		}
 		if !known {
 			writeError(w, http.StatusNotFound, lang, i18n.New("api.not_found"))
 			return
@@ -64,6 +67,11 @@ func apiHandler(b Backend, recent interface {
 
 		if (method == http.MethodPost || method == http.MethodPut || method == http.MethodDelete) && r.Header.Get(headerName) != "1" {
 			writeError(w, http.StatusForbidden, lang, i18n.New("api.forbidden"))
+			return
+		}
+
+		if r.URL.Path == "/api/settings" || r.URL.Path == "/api/settings/preview" {
+			serveSettings(w, r, b, lang)
 			return
 		}
 
@@ -175,6 +183,10 @@ func apiHandler(b Backend, recent interface {
 
 func route(path string) (switcher.CommandKind, string, bool) {
 	switch path {
+	case "/api/settings":
+		return 0, http.MethodGet, true
+	case "/api/settings/preview":
+		return 0, http.MethodPost, true
 	case "/api/sender", "/api/obs/scenes", "/api/events", "/api/status", "/api/logs":
 		return 0, http.MethodGet, true
 	case "/api/obs/scene":

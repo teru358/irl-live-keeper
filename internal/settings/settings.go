@@ -25,6 +25,12 @@ type Change struct {
 	Value any
 }
 
+// VerificationError means the rewritten bytes did not round-trip to the expected config.
+// This is a save failure rather than invalid user input. No configuration values escape.
+type VerificationError struct{}
+
+func (*VerificationError) Error() string { return "設定の書き換え結果が一致しません" }
+
 var errInvalid = errors.New("設定の変更を検証できません")
 var pathPart = regexp.MustCompile(`^([a-z_][a-z_0-9]*)(?:\[([0-9]+)\])?$`)
 
@@ -264,7 +270,7 @@ func rewrite(src []byte, changes []Change, parse func([]byte) (*config.Config, e
 	}
 	got, e := parse([]byte(out))
 	if e != nil || !reflect.DeepEqual(want, got) {
-		return nil, errInvalid
+		return nil, &VerificationError{}
 	}
 	return []byte(out), nil
 }
