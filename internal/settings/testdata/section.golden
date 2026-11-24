@@ -1,0 +1,14 @@
+admin:
+  password: abcdefgh
+stream:
+  publish_pass: abcdefgh
+  read_pass: abcdefgh
+cameras:
+  - id: main
+    name: メイン
+    on_bad: standby
+obs: {host: localhost, password: changed}
+
+# 別区分
+log:
+  dir: logs  # 保持

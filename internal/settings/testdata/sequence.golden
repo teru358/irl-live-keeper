@@ -1,0 +1,12 @@
+admin:
+  password: abcdefgh
+stream:
+  publish_pass: abcdefgh
+  read_pass: abcdefgh
+cameras:
+  - id: one
+    name: 一
+    on_bad: hide
+  - id: two
+    name: 二
+    on_bad: standby

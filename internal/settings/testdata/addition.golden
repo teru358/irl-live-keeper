@@ -1,0 +1,16 @@
+admin:
+  password: abcdefgh
+stream:
+  publish_pass: abcdefgh
+  read_pass: abcdefgh
+cameras:
+  - id: main
+    name: メイン
+    on_bad: standby
+# 前
+obs:
+  host: localhost # 保持
+  port: 4456
+
+gui:
+  close_action: quit

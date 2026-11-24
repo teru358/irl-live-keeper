@@ -1,0 +1,11 @@
+admin:
+  password: abcdefgh
+stream:
+  publish_pass: abcdefgh
+  read_pass: abcdefgh
+cameras:
+  - id: main
+    name: メイン
+    on_bad: standby
+obs:
+  host: long   # 維持
