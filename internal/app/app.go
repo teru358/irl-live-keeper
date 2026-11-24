@@ -165,6 +165,10 @@ type App struct {
 	savedSession           string
 	settingsReady          chan struct{}
 	updateOBSInput         bool
+	obsInputURLs           map[string]string   // camera id -> OBS URL。プロセス寿命の書き換え印
+	obsInputOldURLs        map[string]string   // camera id -> 保存前の OBS URL
+	obsInputUUIDs          map[string][]string // 保存前の地図で対応した入力 UUID。カメラ ID 変更用
+	obsInputWarning        msgBox              // core の中核ループが読むので App.mu ではなく専用の lock で守る
 	windowLang             i18n.Lang
 	windowClose, windowLog string
 	windowGenerated        bool
@@ -328,6 +332,9 @@ func (a *App) runApp(ctx context.Context) int {
 			a.mu.Lock()
 			pending := a.pendingSettings
 			a.mu.Unlock()
+			if pending != nil && pending.UpdateOBSInput {
+				a.captureOBSInputUUIDs(g, pending)
+			}
 			if pending.Summary.Apply != settings.ApplyRestart {
 				a.applyLive(g, pending)
 				continue
@@ -544,6 +551,25 @@ func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 	poller := a.deps.newPoller(fmt.Sprintf("http://127.0.0.1:%d", cfg.MediaMTX.APIPort), apiUser, apiPass, cameraIDs(cfg), cameraPaths(cfg))
 	samples := make(chan ingest.SampleSet) // Poller → core。全カメラの Sample の1組
 	obsClient := a.deps.newOBS(obsConfig(cfg), log)
+	connectedUpdates := make(chan switcher.OBSConnected, 1)
+	if hook, ok := obsClient.(interface {
+		SetConnectedHook(func(switcher.OBSConnected))
+	}); ok {
+		hook.SetConnectedHook(func(e switcher.OBSConnected) {
+			select {
+			case connectedUpdates <- e:
+			default:
+				select {
+				case <-connectedUpdates:
+				default:
+				}
+				select {
+				case connectedUpdates <- e:
+				default:
+				}
+			}
+		})
+	}
 
 	// 隠した項目の記録。core を作る前に読む（読めなければ警告を出して空として扱い、元のファイルは .broken に残す）
 	stage("hidden.load")
@@ -568,7 +594,15 @@ func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 	deps.MediaMTX = sup.Status
 	deps.SlowReaders = sup.SlowReaders
 	if w, ok := obsClient.(interface{ WarningMessages() []i18n.Msg }); ok {
-		deps.WarningMessages = w.WarningMessages
+		deps.WarningMessages = func() []i18n.Msg {
+			out := w.WarningMessages()
+			// 中核ループから呼ばれるので App.mu を取らない（App が mu を持ったまま core を待つと互いに待ち合う）
+			pending := a.obsInputWarning.Load()
+			if pending.Code != "" {
+				out = append(out, pending)
+			}
+			return out
+		}
 	}
 	mediaWatch := a.deps.newMediaWatch(obsClient, log)
 	deps.MediaWatch = mediaWatch
@@ -598,6 +632,16 @@ func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 	wg.Go(func() { sup.Run(runCtx) })
 	wg.Go(func() { poller.Run(runCtx, pollInterval, samples) })
 	wg.Go(func() { obsClient.Run(runCtx) })
+	wg.Go(func() {
+		for {
+			select {
+			case <-runCtx.Done():
+				return
+			case e := <-connectedUpdates:
+				a.updateOBSInputs(obsClient, e)
+			}
+		}
+	})
 	wg.Go(func() { c.Run(runCtx) })
 	wg.Go(func() { <-runCtx.Done(); mediaWatch.Close() }) // 見張りの goroutine を残さない
 

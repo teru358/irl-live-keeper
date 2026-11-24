@@ -468,6 +468,7 @@ func (s *sess) connect(r reloadResult, addr string) bool {
 	s.state = stateRunning
 	w.setGate(c, true, false)
 	w.aux.SetMainConnected(true)
+	w.notifyConnected(r.connected)
 	if !w.emit(s.ctx, r.connected) {
 		return false
 	}

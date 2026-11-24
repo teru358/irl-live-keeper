@@ -12,9 +12,104 @@ import (
 
 	"crypto/sha256"
 	"github.com/teru358/irl-live-keeper/internal/config"
+	"github.com/teru358/irl-live-keeper/internal/scenemap"
 	"github.com/teru358/irl-live-keeper/internal/settings"
+	"github.com/teru358/irl-live-keeper/internal/switcher"
 	"github.com/teru358/irl-live-keeper/internal/web"
 )
+
+type fakeMediaURLWriter struct {
+	calls        [][2]string
+	err          error
+	found, media bool
+	lookupErr    error
+}
+
+func (f *fakeMediaURLWriter) SetMediaInputURL(uuid, url string) error {
+	f.calls = append(f.calls, [2]string{uuid, url})
+	return f.err
+}
+func (f *fakeMediaURLWriter) SetMediaInputURLByOldURL(oldURL, newURL string) (bool, bool, error) {
+	f.calls = append(f.calls, [2]string{"old:" + oldURL, newURL})
+	return f.found, f.media, f.lookupErr
+}
+
+func TestOBSInputURLRewriteUsesCameraMapAndClearsMarkerAfterSuccess(t *testing.T) {
+	const secretURL = "rtsp://user:secret@host/live/a"
+	a := &App{obsInputURLs: map[string]string{"a": secretURL}}
+	f := &fakeMediaURLWriter{}
+	a.updateOBSInputs(f, switcher.OBSConnected{Map: &scenemap.Map{Inputs: map[string]scenemap.Input{
+		"uuid-a": {CameraID: "a"}, "uuid-b": {CameraID: "b"}, "uuid-a2": {CameraID: "a"},
+	}}})
+	if len(f.calls) != 2 || f.calls[0] != [2]string{"uuid-a", secretURL} || f.calls[1] != [2]string{"uuid-a2", secretURL} {
+		t.Fatalf("writes = %v", f.calls)
+	}
+	if len(a.obsInputURLs) != 0 || a.obsInputWarning.Load().Code != "" {
+		t.Fatalf("marker/warning remains: %#v %#v", a.obsInputURLs, a.obsInputWarning.Load())
+	}
+}
+
+func TestOBSInputURLRewriteRetainsMarkerOnAuxFailure(t *testing.T) {
+	const secretURL = "rtsp://user:secret@host/live/a"
+	a := &App{obsInputURLs: map[string]string{"a": secretURL}}
+	f := &fakeMediaURLWriter{err: errors.New("deadline")}
+	a.updateOBSInputs(f, switcher.OBSConnected{Map: &scenemap.Map{Inputs: map[string]scenemap.Input{"uuid-a": {CameraID: "a"}}}})
+	if a.obsInputURLs["a"] != secretURL || a.obsInputWarning.Load().Code != "app.obs_url_pending" {
+		t.Fatalf("failure state: %#v %#v", a.obsInputURLs, a.obsInputWarning.Load())
+	}
+	if strings.Contains(fmt.Sprint(a.obsInputWarning.Load()), "secret") {
+		t.Fatal("warning leaked URL password")
+	}
+}
+
+func TestOBSInputURLRewriteDropsMissingInputAndWarns(t *testing.T) {
+	a := &App{obsInputURLs: map[string]string{"a": "rtsp://host/live/a"}, updateOBSInput: true}
+	f := &fakeMediaURLWriter{}
+	a.updateOBSInputs(f, switcher.OBSConnected{Map: &scenemap.Map{Inputs: map[string]scenemap.Input{}}})
+	if a.updateOBSInput || a.obsInputWarning.Load().Code != "app.obs_url_missing" || len(f.calls) != 0 {
+		t.Fatalf("missing state: %+v calls=%v", a, f.calls)
+	}
+}
+
+func TestOBSInputURLRewriteRejectsNonMediaSourceAndHonorsUncheckedSave(t *testing.T) {
+	a := &App{obsInputURLs: map[string]string{"new": "rtsp://host/new"}, obsInputOldURLs: map[string]string{"new": "rtsp://host/old"}, updateOBSInput: true}
+	f := &fakeMediaURLWriter{found: true, media: false}
+	a.updateOBSInputs(f, switcher.OBSConnected{Map: &scenemap.Map{Inputs: map[string]scenemap.Input{}}})
+	if len(a.obsInputURLs) != 0 || a.obsInputWarning.Load().Code != "app.obs_url_missing" {
+		t.Fatalf("non-media state: %#v %#v", a.obsInputURLs, a.obsInputWarning.Load())
+	}
+	if len(f.calls) != 1 {
+		t.Fatalf("lookup calls = %v", f.calls)
+	}
+
+	a = &App{obsInputURLs: map[string]string{"old": "stale"}, updateOBSInput: true}
+	(&pageBackend{app: a}).ApplySaved(nil, &config.Config{}, settings.ChangeSummary{}, false)
+	if a.updateOBSInput || len(a.obsInputURLs) != 0 {
+		t.Fatalf("unchecked save left marker: %#v", a.obsInputURLs)
+	}
+	f.calls = nil
+	a.updateOBSInputs(f, switcher.OBSConnected{Map: &scenemap.Map{Inputs: map[string]scenemap.Input{"u": {CameraID: "old"}}}})
+	if len(f.calls) != 0 {
+		t.Fatalf("unchecked save wrote OBS: %v", f.calls)
+	}
+}
+
+func TestOBSInputURLMarkerTracksLatestSavedURLInProcess(t *testing.T) {
+	a := &App{}
+	old := &config.Config{Cameras: []config.Camera{{ID: "before"}}}
+	next := &config.Config{Cameras: []config.Camera{{ID: "after"}}}
+	b := &pageBackend{app: a}
+	b.ApplySaved(old, next, settings.ChangeSummary{}, true)
+	if a.obsInputURLs["after"] == "" || len(a.obsInputURLs) != 1 {
+		t.Fatalf("marker not set for new camera id: %#v", a.obsInputURLs)
+	}
+	first := a.obsInputURLs["after"]
+	next.Stream.ObsReadHost = "obs.example"
+	b.ApplySaved(next, next, settings.ChangeSummary{}, true)
+	if a.obsInputURLs["after"] == "" || a.obsInputURLs["after"] == first {
+		t.Fatalf("marker did not follow changed URL: %#v", a.obsInputURLs)
+	}
+}
 
 func TestSettingsTransactionAndHandoff(t *testing.T) {
 	dir := t.TempDir()

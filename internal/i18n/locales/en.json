@@ -150,7 +150,9 @@
     "service.unknown_arg": "Unknown argument: {arg}",
     "api.scene_missing": "Scene not found",
     "api.scene_failed": "Scene switch failed",
-    "app.settings_apply_failed": "Could not apply the settings. Restart the application"
+    "app.settings_apply_failed": "Could not apply the settings. Restart the application",
+    "app.obs_url_pending": "The OBS media source URL has not been updated yet. You can also update it manually",
+    "app.obs_url_missing": "The OBS media source was not found or is not an ffmpeg source, so its URL could not be updated. Please update it manually"
   },
   "ui": {
     "title": "IRL Live Keeper",

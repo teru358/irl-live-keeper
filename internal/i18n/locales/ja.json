@@ -150,7 +150,9 @@
     "service.unknown_arg": "知らない引数です: {arg}",
     "api.scene_missing": "シーンが見つかりません",
     "api.scene_failed": "シーンの切替に失敗しました",
-    "app.settings_apply_failed": "設定の反映に失敗しました。本体を再起動してください"
+    "app.settings_apply_failed": "設定の反映に失敗しました。本体を再起動してください",
+    "app.obs_url_pending": "OBS のメディアソースの URL をまだ書き換えていません。手で直すこともできます",
+    "app.obs_url_missing": "OBS に対象のメディアソースがないか、ffmpeg_source ではないため URL を書き換えられませんでした。手で直してください"
   },
   "ui": {
     "title": "IRL Live Keeper",

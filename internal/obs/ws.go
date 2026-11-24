@@ -118,18 +118,19 @@ type WS struct {
 	// emitMu は、エポックの goroutine の送信と、OBSDisconnected の送信の順を守る。
 	emitMu sync.Mutex
 
-	mu        sync.RWMutex
-	cur       *mainConn // つないでいる Client。切れたら nil
-	open      bool      // 外からの要求を受けるか（門）
-	switching bool      // シーンコレクションの切替中
-	legacy    bool      // 古い OBS（警告のため）
-	gen       uint64    // 門が開くたびに進む世代
-	warnBase  []i18n.Msg
-	warnMap   string     // 地図を読めずに空の地図でつないだときの理由
-	warnCams  []i18n.Msg // 地図で見つからなかったカメラ
-	lastMap   *scenemap.Map
-	refresher *refresher
-	mapFails  int // 続けて地図を読めなかった接続の数
+	mu            sync.RWMutex
+	cur           *mainConn // つないでいる Client。切れたら nil
+	open          bool      // 外からの要求を受けるか（門）
+	switching     bool      // シーンコレクションの切替中
+	legacy        bool      // 古い OBS（警告のため）
+	gen           uint64    // 門が開くたびに進む世代
+	warnBase      []i18n.Msg
+	warnMap       string     // 地図を読めずに空の地図でつないだときの理由
+	warnCams      []i18n.Msg // 地図で見つからなかったカメラ
+	lastMap       *scenemap.Map
+	refresher     *refresher
+	connectedHook func(switcher.OBSConnected)
+	mapFails      int // 続けて地図を読めなかった接続の数
 }
 
 var _ Client = (*WS)(nil)
@@ -152,6 +153,63 @@ func (w *WS) Events() <-chan switcher.Event { return w.events }
 
 // Aux は補助の接続。本来の接続がつながっている間だけ開く。
 func (w *WS) Aux() *Aux { return w.aux }
+
+// SetMediaInputURL writes only the ffmpeg source URL through the auxiliary connection.
+func (w *WS) SetMediaInputURL(uuid, url string) error {
+	_, err := w.aux.SetInputSettings(uuid, map[string]any{"input": url}, true)
+	return err
+}
+
+// SetMediaInputURLByOldURL supports a camera ID change after reconnect by
+// finding the old URL in OBS settings. URL values never enter errors or logs.
+func (w *WS) SetMediaInputURLByOldURL(oldURL, newURL string) (found, media bool, err error) {
+	list, err := w.aux.GetInputList("")
+	if err != nil {
+		return false, false, err
+	}
+	for _, input := range list.Inputs {
+		settings, e := w.aux.GetInputSettings(input.InputUuid)
+		if e != nil {
+			return found, media, e
+		}
+		current, _ := settings.InputSettings["input"].(string)
+		if current != oldURL {
+			continue
+		}
+		found = true
+		if settings.InputKind != ffmpegSource {
+			continue
+		}
+		media = true
+		if _, e = w.aux.SetInputSettings(input.InputUuid, map[string]any{"input": newURL}, true); e != nil {
+			return found, media, e
+		}
+	}
+	return found, media, nil
+}
+
+// ConnectedMap returns the last map only while the main connection is open.
+func (w *WS) ConnectedMap() (*scenemap.Map, bool) {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return w.lastMap, w.open && w.lastMap != nil
+}
+
+// SetConnectedHook installs the app-level observer before Run starts.
+func (w *WS) SetConnectedHook(fn func(switcher.OBSConnected)) {
+	w.mu.Lock()
+	w.connectedHook = fn
+	w.mu.Unlock()
+}
+
+func (w *WS) notifyConnected(e switcher.OBSConnected) {
+	w.mu.RLock()
+	fn := w.connectedHook
+	w.mu.RUnlock()
+	if fn != nil {
+		fn(e)
+	}
+}
 
 // Warnings は最後の接続で見つかった警告（存在しないシーン名やメディアソース、古い OBS、切替中）。
 func (w *WS) Warnings() []string { return i18n.Strings(i18n.JA, w.WarningMessages()) }
