@@ -297,11 +297,14 @@ func run(ctx context.Context, base string, stdout, stderr io.Writer) int {
 func (a *App) runApp(ctx context.Context) int {
 	a.mu.Lock()
 	a.running = true
-	a.apply = Apply{State: ApplyApplying}
+	a.apply = Apply{State: ApplyApplying, Kind: a.apply.Kind}
 	a.mu.Unlock()
 	defer func() { a.mu.Lock(); a.running = false; a.mu.Unlock() }()
 	g, err := a.createGeneration(ctx)
 	if err != nil {
+		if a.Apply().Kind == ApplyRestart {
+			a.windowLogMessage("restart failed", "error", a.Apply().Reason)
+		}
 		fmt.Fprintln(a.opts.Stderr, a.failureMessage(err))
 		return 1
 	}
@@ -575,7 +578,7 @@ func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 	// 管理 API。待ち受けに失敗したときも、部品を止めてから終了する
 	srv := a.deps.newHTTP(c, cfg.Admin.Password, lang)
 	if h, ok := srv.(*http.Server); ok {
-		h.Handler = web.NewWithEvents(backend, cfg.Admin.Password, a.adminPort, a.auth, g.events, lang)
+		h.Handler = web.NewWithLogger(backend, cfg.Admin.Password, a.adminPort, a.auth, g.events, log, lang)
 	}
 	g.serveErr = make(chan error, 1)
 	addr := listenAddr(cfg.Admin.Port, cfg.Admin.LAN)
@@ -651,7 +654,11 @@ func (g *generation) stopGenerationLog(closeLog bool) {
 	wg.Wait()
 	stage("parts.wait")
 	stage("history.finish")
-	g.logger.Slog().Info("shutdown complete", "code", g.exitCode)
+	if closeLog {
+		g.logger.Slog().Info("shutdown complete", "code", g.exitCode)
+	} else {
+		g.logger.Slog().Info("generation stopped", "reason", "restart")
+	}
 	if closeLog {
 		_ = g.logger.Close()
 		stage("logger.close")

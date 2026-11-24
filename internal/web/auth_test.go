@@ -58,11 +58,8 @@ func TestSessionログイン期限延長ログアウト(t *testing.T) {
 func TestOnce期限一回ヘッダーログ(t *testing.T) {
 	now := time.Now()
 	a := NewAuth(func() time.Time { return now })
-	h := NewWithAuth(&fakeBackend{}, testPass, 8787, a)
 	var log bytes.Buffer
-	old := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(&log, &slog.HandlerOptions{Level: slog.LevelDebug})))
-	defer slog.SetDefault(old)
+	h := NewWithLogger(&fakeBackend{}, testPass, 8787, a, nil, slog.New(slog.NewTextHandler(&log, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	token, err := a.NewOnce()
 	if err != nil || len(token) != 32 {
 		t.Fatal(token, err)
@@ -111,5 +108,29 @@ func TestLogin照合前と誤り(t *testing.T) {
 	b, _ := io.ReadAll(w.Result().Body)
 	if w.Code != 200 || !bytes.Contains(b, []byte("fetch")) {
 		t.Fatal(w)
+	}
+}
+
+// 既定の slog ではなく、注入した世代の logger へ3種類の操作が届くこと。
+func TestInjectedOperationLogger(t *testing.T) {
+	var out bytes.Buffer
+	h := NewWithLogger(&sceneBackend{}, testPass, 8787, NewAuth(nil), nil, slog.New(slog.NewTextHandler(&out, nil)))
+	w := authRequest(h, "POST", "/api/login", `{"password":"`+testPass+`"}`, nil)
+	if w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	cookie := w.Result().Cookies()[0]
+	w = authRequest(h, "POST", "/api/obs/scene", `{"scene_uuid":"u"}`, cookie)
+	if w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	w = authRequest(h, "POST", "/api/logout", "", cookie)
+	if w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	for _, want := range []string{"admin login", "admin logout", "scene selected from admin page", "scene=待機", "scene_uuid=u"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("missing %q: %s", want, out.String())
+		}
 	}
 }

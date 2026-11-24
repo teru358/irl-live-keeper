@@ -164,6 +164,7 @@
     "rtt": "RTT",
     "loss": "ロス",
     "obs_connected": "つながっている",
+    "scenes_disconnected": "OBS に未接続",
     "obs_disconnected": "つながっていない",
     "studio_on": "Studio Mode はオン",
     "studio_off": "Studio Mode はオフ",

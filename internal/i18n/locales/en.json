@@ -164,6 +164,7 @@
     "rtt": "RTT",
     "loss": "loss",
     "obs_connected": "Connected",
+    "scenes_disconnected": "Not connected to OBS",
     "obs_disconnected": "Disconnected",
     "studio_on": "Studio Mode is on",
     "studio_off": "Studio Mode is off",

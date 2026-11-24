@@ -55,6 +55,9 @@ func TestModel(t *testing.T) {
 	}
 }
 func TestClose(t *testing.T) {
+	if !ExitConfirmation() {
+		t.Fatal("終了ボタンは常に確認")
+	}
 	for _, v := range []struct {
 		a    string
 		m, c bool
@@ -99,9 +102,9 @@ func TestServiceRows(t *testing.T) {
 func TestCameraDisplay(t *testing.T) {
 	for _, lang := range []i18n.Lang{i18n.JA, i18n.EN} {
 		for _, dark := range []bool{false, true} {
-			s := app.WindowState{Language: lang, Snapshot: &core.Snapshot{Cameras: []core.CameraStatus{{Name: "main", State: "DOWN"}, {Name: "sub", State: "OK", Kbps: 2450, Protocol: "srt"}}}}
+			s := app.WindowState{Language: lang, Snapshot: &core.Snapshot{Cameras: []core.CameraStatus{{Name: "メインカメラ", ID: "main", State: "DOWN"}, {Name: "sub", State: "OK", Kbps: 2450, Protocol: "srt"}}}}
 			m := Build(s, dark)
-			if strings.Contains(m.Rows[0].Text, "()") || !strings.Contains(m.Rows[1].Text, "2,450 kbps (SRT)") {
+			if !strings.Contains(m.Rows[0].Text, "メインカメラ (main)") || strings.Contains(m.Rows[0].Text, "()") || !strings.Contains(m.Rows[1].Text, "2,450 kbps (SRT)") {
 				t.Fatal(m.Rows)
 			}
 			for _, kind := range []app.ApplyKind{app.ApplyRestart, ""} {

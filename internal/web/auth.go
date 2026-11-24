@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -193,11 +194,17 @@ func NewWithAuth(b Backend, password string, port int, a *Auth, langs ...i18n.La
 
 // NewWithEvents は認証済みの接続を世代の配信係へ渡す。
 func NewWithEvents(b Backend, password string, port int, a *Auth, events *Events, langs ...i18n.Lang) http.Handler {
+	return NewWithLogger(b, password, port, a, events, slog.Default(), langs...)
+}
+
+// NewWithLogger は本体の世代のログへ管理操作を記録する。
+func NewWithLogger(b Backend, password string, port int, a *Auth, events *Events, log *slog.Logger, langs ...i18n.Lang) http.Handler {
 	api := apiHandler(b, events, langs...)
 	name := "irl_session_" + strconv.Itoa(port)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r = r.WithContext(context.WithValue(r.Context(), loggerKey{}, log))
 		// 合言葉を残さないよう、要求のログにはパスだけを書く。
-		slog.Debug("Admin request", "method", r.Method, "path", r.URL.Path)
+		log.Debug("Admin request", "method", r.Method, "path", r.URL.Path)
 		lang := i18n.Select(r.URL.Query().Get("lang"), r.Header.Get("Accept-Language"), langs...)
 		fail := func(status int, code string) {
 			if status == 401 && len(r.Header.Values("Authorization")) > 0 {
@@ -242,7 +249,7 @@ func NewWithEvents(b Backend, password string, port int, a *Auth, events *Events
 				if !issue("passphrase") {
 					return
 				}
-				slog.Info("admin login", "source", sourceKind(r), "auth", "passphrase")
+				log.Info("admin login", "source", sourceKind(r), "auth", "passphrase")
 				http.Redirect(w, r, "/", 303)
 			} else {
 				http.Redirect(w, r, "/?login", 303)
@@ -282,7 +289,7 @@ func NewWithEvents(b Backend, password string, port int, a *Auth, events *Events
 				return
 			}
 			if issue("password") {
-				slog.Info("admin login", "source", sourceKind(r), "auth", "password")
+				log.Info("admin login", "source", sourceKind(r), "auth", "password")
 				writeJSON(w, 200, map[string]bool{"ok": true})
 			}
 			return
@@ -345,7 +352,7 @@ func NewWithEvents(b Backend, password string, port int, a *Auth, events *Events
 				delete(a.sessionAuth, c.Value)
 			}
 			a.mu.Unlock()
-			slog.Info("admin logout", "source", sourceKind(r), "auth", authMethod)
+			log.Info("admin logout", "source", sourceKind(r), "auth", authMethod)
 			expired := cookie(name, "", time.Unix(1, 0))
 			expired.MaxAge = -1
 			http.SetCookie(w, expired)

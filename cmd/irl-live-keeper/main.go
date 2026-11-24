@@ -34,8 +34,19 @@ func runMain() int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := context.WithCancel(context.Background())
 	defer stop()
+	signals := make(chan os.Signal, 2)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(signals)
+	go func() {
+		select {
+		case <-signals:
+			stop()
+		case <-ctx.Done():
+		}
+	}()
+	// 終了処理中の2回目以降は、登録済みの通知先で受けて無視する。
 	finishConsole, err := installConsoleStop(mode.gui, stop)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)

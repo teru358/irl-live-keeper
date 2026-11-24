@@ -45,7 +45,7 @@ func Build(s app.WindowState, dark bool) Model {
 			if cam.Protocol != "" {
 				protocol = " (" + strings.ToUpper(cam.Protocol) + ")"
 			}
-			add(fmt.Sprintf("%s %s  ● %s  %s kbps%s", t("links"), cam.Name, cam.State, groupedKbps(cam.Kbps), protocol), c)
+			add(fmt.Sprintf("%s %s  ● %s  %s kbps%s", t("links"), cameraLabel(cam.Name, cam.ID), cam.State, groupedKbps(cam.Kbps), protocol), c)
 		}
 		c := 2
 		state := t("offline")
@@ -111,3 +111,13 @@ func groupedKbps(v float64) string {
 	}
 	return s
 }
+
+func cameraLabel(name, id string) string {
+	if id == "" {
+		return name
+	}
+	return name + " (" + id + ")"
+}
+
+// ExitConfirmation は「×」の設定と独立して、終了ボタンで必ず確認する。
+func ExitConfirmation() bool { return true }

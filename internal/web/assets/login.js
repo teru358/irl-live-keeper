@@ -38,7 +38,7 @@ if(boot.login){el('tabs').hidden=true;el('summary').hidden=true;el('logout').hid
 async function request(path, body) {
  const r = await fetch('/api/' + path + (path.includes('?') ? '&' : '?') + 'lang=' + lang, {method: body === undefined ? 'GET' : 'POST', headers: {'Content-Type':'application/json','X-IRL-Live-Keeper':'1'}, body: body === undefined ? undefined : JSON.stringify(body)});
  if(r.status === 401 && !boot.login) location.replace('/?login');
- const data = await r.json(); if (!r.ok) throw Error(data.error || t('failed')); return data;
+ const data = await r.json(); if (!r.ok) {const error=Error(data.error || t('failed'));error.code=data.code;throw error;} return data;
 }
 if (boot.login) el('login').hidden = false; el('admin').hidden = boot.login;
 el('login')?.addEventListener('submit', async e => { e.preventDefault(); try { await request('login', {password:el('password').value}); location.replace('/'); } catch(e) { text('error',e.message); } });
@@ -76,21 +76,20 @@ if (!boot.login) {
  function connection() { text('connection', restarting ? t('restarting') + (Date.now()-since >= 30000 ? ' ' + t('restart_help') : '') : t('disconnected')); }
  let sceneList=[], currentScene='', pendingScene='', sceneTimer, returnScene='';
  const readings=new Map(), states=new Map(), cameraNames=new Map();
- function drawScenes(){el('scenes').replaceChildren(...sceneList.map(s=>{const b=document.createElement('button');const current=s.uuid===currentScene;b.className='scene k-'+(s.kind==='camera'?'cam':s.kind||'none');
+ function drawScenes(){if(!wasConnected){text('scenes',t('scenes_disconnected'));return;}el('scenes').replaceChildren(...sceneList.map(s=>{const b=document.createElement('button');const current=s.uuid===currentScene;b.className='scene k-'+(s.kind==='camera'?'cam':s.kind||'none');
  const add=(tag,value,cls)=>{const e=document.createElement(tag);e.textContent=value;if(cls)e.className=cls;b.append(e);};
  add('span',t('kind_'+(s.kind||'none')),'kind');add('span',s.name);
  if(s.cameras?.length)add('small',s.cameras.map(id=>cameraNames.get(id)||id).join(lang==='ja'?'＋':' + '));
  if(s.fallback_of?.length)add('i',t('fallback_of').replace('{scenes}',s.fallback_of.join('、')));
- if(current)add('em',t('current_scene'));if(s.name===returnScene)add('em',t('return_scene'));b.setAttribute('aria-pressed',String(current));b.disabled=!!pendingScene;b.onclick=async()=>{pendingScene=s.uuid;drawScenes();sceneTimer=setTimeout(()=>{pendingScene='';drawScenes();text('error',t('failed'));},10000);try{await request('obs/scene',{scene_uuid:s.uuid});}catch(e){clearTimeout(sceneTimer);pendingScene='';drawScenes();text('error',e.message);}};return b;}));}
+ if(current)add('em',t('current_scene'));if(s.name===returnScene)add('em',t('return_scene'));b.setAttribute('aria-pressed',String(current));b.disabled=!!pendingScene;b.onclick=async()=>{pendingScene=s.uuid;drawScenes();sceneTimer=setTimeout(()=>{pendingScene='';drawScenes();text('error',t('failed'));},10000);try{await request('obs/scene',{scene_uuid:s.uuid});}catch(e){clearTimeout(sceneTimer);pendingScene='';drawScenes();if(e.code!=='api.disconnected')text('error',e.message);}};return b;}));}
  let loadingScenes=false, scenesLoadedAt=0;
- async function loadScenes(){if(loadingScenes)return;loadingScenes=true;scenesLoadedAt=Date.now();try{sceneList=await request('obs/scenes');drawScenes();text('error','');}catch(e){text('error',e.message);}finally{loadingScenes=false;}}
- loadScenes();
+ async function loadScenes(){if(loadingScenes)return;loadingScenes=true;scenesLoadedAt=Date.now();try{const list=await request('obs/scenes');if(wasConnected)sceneList=list;drawScenes();text('error','');}catch(e){if(e.code!=='api.disconnected')text('error',e.message);}finally{loadingScenes=false;}}
  setInterval(()=>{if(wasConnected)loadScenes();},10000);
  let wasConnected=false;
  function render(s) {
  currentScene=s.obs.scene_uuid;
  if(pendingScene && (currentScene===pendingScene || !s.obs.connected)){clearTimeout(sceneTimer);pendingScene='';}
- if(s.obs.connected){text('error','');if(!wasConnected || (!sceneList.some(x=>x.uuid===currentScene) && Date.now()-scenesLoadedAt>=1000))loadScenes();}wasConnected=s.obs.connected;drawScenes();
+ if(s.obs.connected){text('error','');if(!wasConnected || (!sceneList.some(x=>x.uuid===currentScene) && Date.now()-scenesLoadedAt>=1000))loadScenes();}else{sceneList=[];}wasConnected=s.obs.connected;drawScenes();
   if(s.apply?.state === 'applying' && s.apply?.kind === 'restart') { if(!restarting) since=Date.now(); restarting=true; connection(); } else { restarting=false; text('connection',''); }
   const summary=[];
   el('cameras').replaceChildren(...(s.cameras || []).map(c => {
@@ -122,6 +121,7 @@ if (!boot.login) {
   text('manual-button',t(v.owner==='auto'?'manual_hold':'manual_save'));text('manual-hint',t(v.owner==='auto'?'manual_hold_hint':'manual_save_hint'));
   text('tally',t(o.streaming?'streaming':'not_streaming'));el('tally').classList.toggle('off',!o.streaming);drawScenes();
   const separator=lang==='ja'?'、':', ';
+  el('obs').dataset.connected=String(o.connected);
   text('obs',t(o.connected?'obs_connected':'obs_disconnected')+separator+t(o.studio_mode?'studio_on':'studio_off'));
   text('standby',(v.owner==='auto'||v.owner==='manual') ? t(v.owner==='auto'?'standby_auto':'standby_manual')+separator+t('return_scene_is').replace('{scene}',v.return_scene || t('none')) : t('standby_inactive'));
   text('mediamtx',t('mediamtx_'+(s.mediamtx||'stopped')) || s.mediamtx);

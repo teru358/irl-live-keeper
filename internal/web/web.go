@@ -20,6 +20,15 @@ import (
 	"github.com/teru358/irl-live-keeper/internal/switcher"
 )
 
+type loggerKey struct{}
+
+func requestLogger(r *http.Request) *slog.Logger {
+	if l, ok := r.Context().Value(loggerKey{}).(*slog.Logger); ok {
+		return l
+	}
+	return slog.Default()
+}
+
 const commandTimeout = 5 * time.Second
 
 const (
@@ -260,7 +269,16 @@ func serveScenes(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.La
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), commandTimeout)
 		defer cancel()
-		slog.Info("scene selected from admin page", "scene", body.UUID, "source", sourceKind(r))
+		name := ""
+		if scenes, e := a.Scenes(); e == nil {
+			for _, scene := range scenes {
+				if scene.UUID == body.UUID {
+					name = scene.Name
+					break
+				}
+			}
+		}
+		requestLogger(r).Info("scene selected from admin page", "scene", name, "scene_uuid", body.UUID, "source", sourceKind(r))
 		err = a.SelectScene(ctx, body.UUID)
 		if err == nil {
 			writeJSON(w, 200, map[string]bool{"ok": true})

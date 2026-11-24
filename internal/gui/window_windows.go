@@ -51,11 +51,12 @@ func Run(ctx context.Context, stop context.CancelFunc, class string, a *app.App,
 	wnd := ui.NewMain(ui.OptsMain().Title("irl-live-keeper").ClassName(class).Size(ui.Dpi(520, 380)).Center(true))
 	buttons := make([]*ui.Button, 4)
 	for i := range buttons {
-		buttons[i] = ui.NewButton(wnd, ui.OptsButton().Text("").Position(ui.Dpi(12, 12)).Width(ui.DpiX(480)))
+		buttons[i] = ui.NewButton(wnd, ui.OptsButton().CtrlId(uint16(100+i)).Text("").Position(ui.Dpi(12, 12)).Width(ui.DpiX(480)))
 	}
 	var rows []uintptr
 	var colors []string
 	var notice, open, quit, logs, retry uintptr
+	var lastNotice string
 	done := make(chan int, 1)
 	started := false
 	create := func(kind, text string, id int) uintptr {
@@ -91,9 +92,50 @@ func Run(ctx context.Context, stop context.CancelFunc, class string, a *app.App,
 		call("EnableWindow", retry, boolint(m.Retry))
 		call("ShowWindow", logs, show(m.Retry))
 		call("ShowWindow", retry, show(m.Retry))
-		move(notice, y+124, 100)
-		call("SetWindowTextW", notice, ptr(m.Notice))
-		call("SetWindowPos", uintptr(wnd.Hwnd()), 0, 0, 0, 540, uintptr(y+280), 6)
+
+		// EDIT と同じフォントで折り返し後の高さを測る。
+		dc := call("GetDC", notice)
+		font := call("SendMessageW", notice, 0x31, 0, 0)
+		oldFont, _, _ := gdi.NewProc("SelectObject").Call(dc, font)
+		rect := [4]int32{0, 0, 456, 0}
+		call("DrawTextW", dc, ptr(m.Notice), ^uintptr(0), uintptr(unsafe.Pointer(&rect)), 0x10|0x400|0x800)
+		gdi.NewProc("SelectObject").Call(dc, oldFont)
+		call("ReleaseDC", notice, dc)
+		height := max(100, int(rect[3])+12)
+		var work [4]int32
+		monitor := call("MonitorFromWindow", uintptr(wnd.Hwnd()), 2)
+		info := struct {
+			Size          uint32
+			Monitor, Work [4]int32
+			Flags         uint32
+		}{}
+		info.Size = uint32(unsafe.Sizeof(info))
+		call("GetMonitorInfoW", monitor, uintptr(unsafe.Pointer(&info)))
+		work = info.Work
+		available := int(work[3] - work[1])
+		var outer, client [4]int32
+		call("GetWindowRect", uintptr(wnd.Hwnd()), uintptr(unsafe.Pointer(&outer)))
+		call("GetClientRect", uintptr(wnd.Hwnd()), uintptr(unsafe.Pointer(&client)))
+		frame := int(outer[3] - outer[1] - client[3])
+		top := y + 124
+		total := top + height + 12 + frame
+		if available > 0 && total > available {
+			total = available
+			height = max(24, total-frame-top-12)
+		}
+		move(notice, top, height)
+		if lastNotice != m.Notice {
+			call("SetWindowTextW", notice, ptr(m.Notice))
+			lastNotice = m.Notice
+		}
+		call("ShowScrollBar", notice, 1, boolint(int(rect[3])+12 > height))
+		if int(outer[3]-outer[1]) != total {
+			newY := int(outer[1])
+			if available > 0 && newY+total > int(work[3]) {
+				newY = int(work[3]) - total
+			}
+			call("SetWindowPos", uintptr(wnd.Hwnd()), 0, uintptr(outer[0]), uintptr(newY), 540, uintptr(total), 4)
+		}
 		call("InvalidateRect", uintptr(wnd.Hwnd()), 0, 1)
 	}
 	exit := func(confirm bool) {
@@ -121,7 +163,8 @@ func Run(ctx context.Context, stop context.CancelFunc, class string, a *app.App,
 		quit = uintptr(buttons[1].Hwnd())
 		logs = uintptr(buttons[2].Hwnd())
 		retry = uintptr(buttons[3].Hwnd())
-		notice = create("STATIC", "", 0)
+		// 読み取り専用の複数行欄。作業領域を超える長文はスクロールできる。
+		notice = call("CreateWindowExW", 0, ptr("EDIT"), ptr(""), 0x50210844, 12, 12, 480, 100, uintptr(wnd.Hwnd()), 104, 0, 0)
 		if dark {
 			v := int32(1)
 			p := windows.NewLazySystemDLL("dwmapi.dll").NewProc("DwmSetWindowAttribute")
@@ -154,9 +197,9 @@ func Run(ctx context.Context, stop context.CancelFunc, class string, a *app.App,
 			call("MessageBoxW", uintptr(wnd.Hwnd()), ptr(e.Error()), ptr("irl-live-keeper"), 0x10)
 		}
 	})
-	buttons[1].On().BnClicked(func() { exit(true) })
+	buttons[1].On().BnClicked(func() { exit(ExitConfirmation()) })
 	buttons[2].On().BnClicked(func() { winproc.OpenFolder(a.WindowState().LogDir) })
-	buttons[3].On().BnClicked(func() { a.Restart() })
+	buttons[3].On().BnClicked(func() { a.Retry() })
 	wnd.On().Wm(co.WM(0x8001), func(ui.Wm) uintptr {
 		a.SecondInstanceBlocked()
 		return 0

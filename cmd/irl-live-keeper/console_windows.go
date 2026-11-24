@@ -36,6 +36,9 @@ func installConsoleStop(gui bool, stop func()) (func(), error) {
 	callback := syscall.NewCallback(func(ctrl uintptr) uintptr {
 		switch ctrl {
 		case 0, 1, 2:
+			// Ctrl+C・Ctrl+Break・コンソールの「×」を、ここで受けて止める手順を通す。
+			// AllocConsole した GUI のプロセスでは、Go の os/signal だけに任せると、止める手順を通らずに
+			// 窓ごと閉じた（S2-19 の K-11）。ここで受ける形は S2-19b の R-5 で確かめた。
 			stop()
 			select {
 			case <-done:

@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"github.com/teru358/irl-live-keeper/internal/logging"
 	"net/url"
 	"path/filepath"
 
@@ -80,5 +81,32 @@ func (a *App) SecondInstanceBlocked() {
 	defer a.mu.Unlock()
 	if a.current != nil {
 		a.current.logger.Slog().Info("second instance blocked")
+	}
+}
+
+// Retry は窓の再試行を記録してから、通常の再起動手順へ渡す。
+func (a *App) Retry() error {
+	a.windowLogMessage("retry requested")
+	return a.Restart()
+}
+
+func (a *App) windowLogMessage(message string, args ...any) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.current != nil {
+		a.current.logger.Slog().Info(message, args...)
+	} else {
+		dir := a.windowLog
+		if dir == "" {
+			dir = filepath.Join(a.opts.BaseDir, "logs")
+		}
+		if l, err := a.deps.openLogger(logging.Options{Dir: dir, KeepDays: 7, Stdout: a.opts.Stdout, Secrets: a.secrets}); err == nil {
+			if message == "restart failed" {
+				l.Slog().Error(message, args...)
+			} else {
+				l.Slog().Info(message, args...)
+			}
+			_ = l.Close()
+		}
 	}
 }
