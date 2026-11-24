@@ -95,3 +95,34 @@ func TestSceneListClassificationResponse(t *testing.T) {
 		})
 	}
 }
+
+type inputListBackend struct {
+	fakeBackend
+	list []obs.Input
+	err  error
+}
+
+func (b *inputListBackend) Inputs() ([]obs.Input, error) { return b.list, b.err }
+
+func TestInputListAPI(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		b    *inputListBackend
+		want int
+	}{
+		{"成功", &inputListBackend{list: []obs.Input{{UUID: "in-1", Name: "カメラ", Kind: "ffmpeg_source"}}}, 200},
+		{"未接続", &inputListBackend{err: obs.ErrAuxUnavailable}, 503},
+		{"期限", &inputListBackend{err: obs.ErrAuxTimeout}, 503},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			apiHandler(tc.b, nil).ServeHTTP(w, httptest.NewRequest("GET", "/api/obs/inputs", nil))
+			if w.Code != tc.want {
+				t.Fatalf("status = %d, body=%s", w.Code, w.Body.String())
+			}
+			if tc.want == 200 && w.Body.String() != `[{"uuid":"in-1","name":"カメラ","kind":"ffmpeg_source"}]`+"\n" {
+				t.Fatalf("body = %s", w.Body.String())
+			}
+		})
+	}
+}

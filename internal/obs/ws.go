@@ -14,6 +14,7 @@ import (
 	"github.com/andreykaipov/goobs"
 	"github.com/gorilla/websocket"
 
+	"github.com/teru358/irl-live-keeper/internal/scenemap"
 	"github.com/teru358/irl-live-keeper/internal/switcher"
 )
 
@@ -126,7 +127,9 @@ type WS struct {
 	warnBase  []i18n.Msg
 	warnMap   string     // 地図を読めずに空の地図でつないだときの理由
 	warnCams  []i18n.Msg // 地図で見つからなかったカメラ
-	mapFails  int        // 続けて地図を読めなかった接続の数
+	lastMap   *scenemap.Map
+	refresher *refresher
+	mapFails  int // 続けて地図を読めなかった接続の数
 }
 
 var _ Client = (*WS)(nil)

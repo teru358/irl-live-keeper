@@ -18,6 +18,18 @@ type sceneAccess interface {
 	SelectScene(string) error
 }
 
+type inputAccess interface {
+	Inputs() ([]obs.Input, error)
+}
+
+// Inputs returns the current OBS input list for the media-source selector.
+func (c *Core) Inputs() ([]obs.Input, error) {
+	if a, ok := c.obs.(inputAccess); ok {
+		return a.Inputs()
+	}
+	return nil, obs.ErrAuxUnavailable
+}
+
 func (c *Core) Scenes() ([]obs.Scene, error) {
 	if a, ok := c.obs.(sceneAccess); ok {
 		list, err := a.Scenes()

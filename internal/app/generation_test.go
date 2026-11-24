@@ -64,7 +64,8 @@ type generationOBS struct {
 	*generationPart
 }
 
-func (*generationOBS) Warnings() []string { return []string{"OBS 未接続"} }
+func (*generationOBS) Warnings() []string    { return []string{"OBS 未接続"} }
+func (*generationOBS) UpdateScenes([]string) {}
 
 type generationCore struct {
 	web.Backend

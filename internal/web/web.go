@@ -79,6 +79,10 @@ func apiHandler(b Backend, recent interface {
 			serveScenes(w, r, b, lang)
 			return
 		}
+		if r.URL.Path == "/api/obs/inputs" {
+			serveInputs(w, b, lang)
+			return
+		}
 		if r.URL.Path == "/api/sender" {
 			w.Header().Set("Cache-Control", "no-store")
 			if provider, ok := b.(interface{ Sender() SenderSettings }); ok {
@@ -187,7 +191,7 @@ func route(path string) (switcher.CommandKind, string, bool) {
 		return 0, http.MethodGet, true
 	case "/api/settings/preview":
 		return 0, http.MethodPost, true
-	case "/api/sender", "/api/obs/scenes", "/api/events", "/api/status", "/api/logs":
+	case "/api/sender", "/api/obs/scenes", "/api/obs/inputs", "/api/events", "/api/status", "/api/logs":
 		return 0, http.MethodGet, true
 	case "/api/obs/scene":
 		return 0, http.MethodPost, true
@@ -207,6 +211,20 @@ func route(path string) (switcher.CommandKind, string, bool) {
 	default:
 		return 0, "", false
 	}
+}
+
+func serveInputs(w http.ResponseWriter, b Backend, lang i18n.Lang) {
+	a, ok := b.(interface{ Inputs() ([]obs.Input, error) })
+	if !ok {
+		writeError(w, http.StatusServiceUnavailable, lang, i18n.New("api.disconnected"))
+		return
+	}
+	list, err := a.Inputs()
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, lang, i18n.New("api.disconnected"))
+		return
+	}
+	writeJSON(w, http.StatusOK, list)
 }
 
 func authorized(r *http.Request, password string) bool {

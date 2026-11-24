@@ -205,8 +205,33 @@ func (w *WS) setMapWarnings(m *scenemap.Map, emptyReason string) {
 		cams = cameraWarnings(w.cfg.Cameras, m)
 	}
 	w.mu.Lock()
+	w.lastMap = m
 	w.warnMap, w.warnCams = emptyReason, cams
 	w.mu.Unlock()
+}
+
+// UpdateScenes replaces the configured scene names used for OBS validation. When OBS is
+// connected it refreshes scene warnings from the always-open auxiliary connection and
+// schedules the existing scene-map refresher. When disconnected, the next OBSConnected
+// validation reads the new names.
+func (w *WS) UpdateScenes(names []string) {
+	names = append([]string(nil), names...)
+	w.mu.Lock()
+	w.cfg.Scenes = append([]string(nil), names...)
+	connected := w.cur != nil && w.open
+	r := w.refresher
+	m := w.lastMap
+	w.mu.Unlock()
+	if !connected {
+		return
+	}
+
+	list, err := w.aux.GetSceneList()
+	w.setNameWarnings(sceneNameWarnings(list, err, names))
+	w.setMapWarnings(m, "")
+	if r != nil {
+		r.kick()
+	}
 }
 
 func (w *WS) isLegacy() bool {

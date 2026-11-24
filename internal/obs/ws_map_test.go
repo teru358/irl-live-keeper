@@ -3,6 +3,7 @@ package obs
 import (
 	"context"
 	"slices"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -111,6 +112,37 @@ func TestFirstMapIsReadOnMainConnectionAndCarriedByOBSConnected(t *testing.T) {
 	// OBSConnected の前に読み終えている（OBSConnected のあとに本来の接続で読まない）
 	if hasWarning(h.w, "見つかりません") {
 		t.Errorf("カメラがあるのに警告: %v", h.w.Warnings())
+	}
+}
+
+func TestUpdateScenesReplacesWarningsThroughAuxiliaryConnection(t *testing.T) {
+	h := newMapHarness(t, func(w *WS) { w.cfg.Scenes = []string{"Missing old"} })
+	h.awaitConnected(1)
+	if got := h.w.Warnings(); len(got) != 1 || !strings.Contains(got[0], "Missing old") {
+		t.Fatalf("initial warnings = %v", got)
+	}
+	h.w.UpdateScenes([]string{"Live"})
+	if got := h.w.Warnings(); len(got) != 0 {
+		t.Fatalf("warnings after matching name = %v", got)
+	}
+	h.w.UpdateScenes([]string{"Missing new"})
+	if got := h.w.Warnings(); len(got) != 1 || !strings.Contains(got[0], "Missing new") || strings.Contains(strings.Join(got, " "), "Missing old") {
+		t.Fatalf("warnings after replacement = %v", got)
+	}
+	if requestsOnConn(h.s, 2, "GetSceneList") < 2 {
+		t.Fatal("scene-name validation did not use the auxiliary connection")
+	}
+}
+
+func TestUpdateScenesWhileDisconnectedUsesNewNamesOnReconnect(t *testing.T) {
+	h := newMapHarness(t, nil)
+	h.awaitConnected(1)
+	h.s.kill(1)
+	h.awaitDisconnected(1)
+	h.w.UpdateScenes([]string{"Missing after reconnect"})
+	h.awaitConnected(2)
+	if got := h.w.Warnings(); len(got) != 1 || !strings.Contains(got[0], "Missing after reconnect") {
+		t.Fatalf("warnings after reconnect = %v", got)
 	}
 }
 

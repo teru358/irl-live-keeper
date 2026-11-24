@@ -105,6 +105,7 @@ type obsRunner interface {
 	obs.Client
 	runner
 	Warnings() []string
+	UpdateScenes([]string)
 }
 type mediaWatcher interface {
 	core.MediaWatcher
@@ -779,6 +780,9 @@ func (b *pageBackend) SubscribeEvents(n int) *core.EventSub {
 
 func (b *pageBackend) Scenes() ([]obs.Scene, error) {
 	return b.Backend.(interface{ Scenes() ([]obs.Scene, error) }).Scenes()
+}
+func (b *pageBackend) Inputs() ([]obs.Input, error) {
+	return b.Backend.(interface{ Inputs() ([]obs.Input, error) }).Inputs()
 }
 func (b *pageBackend) SelectScene(ctx context.Context, uuid string) error {
 	return b.Backend.(interface {

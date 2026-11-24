@@ -462,6 +462,9 @@ func (s *sess) connect(r reloadResult, addr string) bool {
 	ctx, cancel := context.WithCancel(s.ctx)
 	s.ep = &epoch{ctx: ctx, cancel: cancel, trans: make(chan struct{}, 1)}
 	s.ep.refresher = newRefresher(w, s.ep, r.connected.Map, r.legacy)
+	w.mu.Lock()
+	w.refresher = s.ep.refresher
+	w.mu.Unlock()
 	s.state = stateRunning
 	w.setGate(c, true, false)
 	w.aux.SetMainConnected(true)
@@ -533,6 +536,11 @@ func (s *sess) endEpoch() {
 
 func (w *WS) closeEpoch(ep *epoch) {
 	ep.cancel()
+	w.mu.Lock()
+	if w.refresher == ep.refresher {
+		w.refresher = nil
+	}
+	w.mu.Unlock()
 	w.emitMu.Lock()
 	ep.dead = true
 	w.emitMu.Unlock()
@@ -901,26 +909,43 @@ func (w *WS) fetchConnected(ctx context.Context, c *mainConn, legacy bool, now f
 // checkNames は config のシーン名（待機シーンと開始時のシーン）が OBS にあるかを確かめ、なければ警告にする。
 // カメラのメディアソースの警告は、地図から作る。
 func (w *WS) checkNames(ctx context.Context, c *mainConn) {
-	var warns []i18n.Msg
-	if l, err := mcall(w, ctx, c, "GetSceneList", func(cli *goobs.Client) (*scenes.GetSceneListResponse, error) {
+	l, err := mcall(w, ctx, c, "GetSceneList", func(cli *goobs.Client) (*scenes.GetSceneListResponse, error) {
 		return cli.Scenes.GetSceneList()
-	}); err != nil {
-		warns = append(warns, i18n.New("obs.scene_list", "error", err.Error()))
-	} else {
-		have := map[string]bool{}
-		for _, s := range l.Scenes {
-			have[s.SceneName] = true
-		}
-		for _, n := range w.cfg.Scenes {
-			if n != "" && !have[n] {
-				warns = append(warns, i18n.New("obs.scene_missing", "name", fmt.Sprintf("%q", n)))
-			}
+	})
+	w.setNameWarnings(sceneNameWarnings(l, err, w.configuredScenes()))
+}
+
+// sceneNameWarnings は、OBS のシーンの一覧と config のシーン名から、警告を作る（つないだときの照合と、
+// すぐ反映の照合し直し〔UpdateScenes〕で同じ形にする）。
+func sceneNameWarnings(l *scenes.GetSceneListResponse, err error, names []string) []i18n.Msg {
+	if err != nil {
+		return []i18n.Msg{i18n.New("obs.scene_list", "error", err.Error())}
+	}
+	var warns []i18n.Msg
+	have := map[string]bool{}
+	for _, s := range l.Scenes {
+		have[s.SceneName] = true
+	}
+	for _, n := range names {
+		if n != "" && !have[n] {
+			warns = append(warns, i18n.New("obs.scene_missing", "name", fmt.Sprintf("%q", n)))
 		}
 	}
+	return warns
+}
+
+// setNameWarnings は、シーン名の警告をログに書き、status の warnings の元を置き換える。
+func (w *WS) setNameWarnings(warns []i18n.Msg) {
 	for _, m := range warns {
 		w.log.Warn("OBS configuration warning", "msg", i18n.Render(i18n.EN, m))
 	}
 	w.mu.Lock()
 	w.warnBase = warns
 	w.mu.Unlock()
+}
+
+func (w *WS) configuredScenes() []string {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return append([]string(nil), w.cfg.Scenes...)
 }

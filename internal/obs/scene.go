@@ -15,6 +15,13 @@ type Scene struct {
 	Name       string   `json:"name"`
 }
 
+// Input はメディアソース選択画面に渡す OBS 入力。
+type Input struct {
+	UUID string `json:"uuid"`
+	Name string `json:"name"`
+	Kind string `json:"kind"`
+}
+
 func (w *WS) Scenes() ([]Scene, error) {
 	r, err := w.aux.GetSceneList()
 	if err != nil {
@@ -24,6 +31,21 @@ func (w *WS) Scenes() ([]Scene, error) {
 	out := make([]Scene, 0, len(r.Scenes))
 	for _, s := range r.Scenes {
 		out = append(out, Scene{UUID: s.SceneUuid, Name: s.SceneName})
+	}
+	return out, nil
+}
+
+// Inputs は OBS の全入力を補助の接続で取得する。
+func (w *WS) Inputs() ([]Input, error) {
+	r, err := w.aux.GetInputList("")
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Input, 0, len(r.Inputs))
+	for _, in := range r.Inputs {
+		if in != nil {
+			out = append(out, Input{UUID: in.InputUuid, Name: in.InputName, Kind: in.InputKind})
+		}
 	}
 	return out, nil
 }
