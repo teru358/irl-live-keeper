@@ -83,7 +83,7 @@ mediamtx:
   - `switch` の上書きは、共通の値と合わせたあとの5つの値で、共通の閾値と同じ規則を確かめる。理由の項目名は `cameras[<番号>].switch.<項目>`（番号は0から）。`switch` の下に知らない項目があれば不正
   - `rtmp_enabled` と `srt_enabled` の両方が false なら不正
   - `obs.studio_mode_hide` は `standby`、`ignore`、`hide` のどれか（既定 `standby`。0b で足す）
-- **反映の区分**（第2段階の spec 7章の表を直す）: 表から `obs.monitored_scenes`、`obs.media_source`、`stream.name` を消す。すぐ反映に、カメラの `name`、`on_bad`、`switch` の上書きと `obs.studio_mode_hide`（0b）を足す（中核ループがカメラごとの Judge の閾値を差し替える。受信状態は保ち、積み上げた秒数は捨てる）。再起動して反映に、カメラの追加・削除・並べ替え・`id` の変更と、`rtmp_enabled`・`srt_enabled` を足す
+- **反映の区分**（第2段階の spec 7章の表を直す）: Config の全 leaf をパスごとに区分する表にする。表から `obs.monitored_scenes`、`obs.media_source`、`stream.name` を消す。すぐ反映に、`cameras[].name`、`cameras[].on_bad`、`cameras[].switch.*` と `obs.studio_mode_hide`（0b）を入れる（中核ループがカメラごとの Judge の閾値を差し替える。受信状態は保ち、積み上げた秒数は捨てる）。再起動して反映に、カメラの追加・削除・並べ替え・`cameras[].id` の変更と `mediamtx.rtmp_enabled`・`mediamtx.srt_enabled` を入れる。`language` と `stream.app` も再起動して反映する
 - **config.yaml の書き換え**（第2段階の spec 7章）: `cameras` は対応づけのシーケンスで、文字で差し替える書き方に当たらない。`cameras` の区分は、変えたときに区分ごと Node で書き出す（区分の外のコメントと空行は残す。区分の中のコメントは残らないことを設定の画面で知らせる。ユーザーが承認した）
 - **URL**: カメラごとに作る。資格情報は全カメラで共通
   - path は2段 `<app>/<id>`（`<app>` は `stream.app`、既定 `live`）。`stream.app` が空なら1段の `<id>`。決めるのは `config.(*Config).CameraPath(id)` の1か所で、mediamtx.yml の `paths` と権限、送信用と OBS 用の URL、API の照合（`/v3/paths/list` の名前、`/v3/srt/conns/list` の `path`）、OBS のメディアソースの照合がすべてこれを使う。検証: `/` `?` `#` `:` と空白を含む値、英数字・`_`・`-` 以外は不正（`:` は SRT の streamid の区切り）。Larix Broadcaster と IRL Pro は RTMP の URL を「アプリ名」と「ストリームキー」の2段で求め、1段の URL を受け付けない。MediaMTX は tcUrl の path とストリームキーを `/` でつないで path にするので、2段の path にすれば合う（URL を1本で送るアプリも、つないだ結果が同じ）

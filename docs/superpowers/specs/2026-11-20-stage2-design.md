@@ -258,10 +258,56 @@ irl-live-keeper(.exe)
 
 2段階だけにする（2026-11-20 のユーザーの裁定）。部品ごとの差し替え（OBS の接続先だけ替える、など）は作らない。
 
-| 区分 | 設定 |
+| 項目パス（配列要素は `[]`） | 区分 |
 |---|---|
-| **すぐ反映** | シーンの設定（`obs.standby_scene`、`obs.monitored_scenes`、`switch.auto_enabled`、`on_stream_start.enabled`・`scene`）、閾値（`switch.fail_kbps`・`low_sec`・`recover_kbps`・`recover_sec`・`down_sec`）、URL の表示（`stream.publish_host`・`publish_rtmp_port`・`publish_srt_port`・`obs_read_host`）、`admin.password`、`log.keep_days`、`gui.close_action` |
-| **再起動して反映** | それ以外すべて: `obs.host`・`port`・`password`・`media_source`、`mediamtx.*`（`binary`、`rtmp_port`、`srt_port`、`rtsp_port`、`api_port`）、`stream.name`・`publish_user`・`publish_pass`・`read_user`・`read_pass`、`admin.port`・`admin.lan`、`log.dir` |
+| `language` | 再起動して反映 |
+| `admin.port` | 再起動して反映 |
+| `admin.lan` | 再起動して反映 |
+| `admin.password` | すぐ反映 |
+| `mediamtx.binary` | 再起動して反映 |
+| `mediamtx.rtmp_port` | 再起動して反映 |
+| `mediamtx.srt_port` | 再起動して反映 |
+| `mediamtx.rtsp_port` | 再起動して反映 |
+| `mediamtx.api_port` | 再起動して反映 |
+| `mediamtx.rtmp_enabled` | 再起動して反映 |
+| `mediamtx.srt_enabled` | 再起動して反映 |
+| `stream.app` | 再起動して反映 |
+| `stream.publish_user` | 再起動して反映 |
+| `stream.publish_pass` | 再起動して反映 |
+| `stream.read_user` | 再起動して反映 |
+| `stream.read_pass` | 再起動して反映 |
+| `stream.obs_read_host` | すぐ反映 |
+| `stream.publish_rtmp_port` | すぐ反映 |
+| `stream.publish_srt_port` | すぐ反映 |
+| `stream.publish_host` | すぐ反映 |
+| `cameras[].id` | 再起動して反映 |
+| `cameras[].name` | すぐ反映 |
+| `cameras[].on_bad` | すぐ反映 |
+| `cameras[].switch.fail_kbps` | すぐ反映 |
+| `cameras[].switch.low_sec` | すぐ反映 |
+| `cameras[].switch.recover_kbps` | すぐ反映 |
+| `cameras[].switch.recover_sec` | すぐ反映 |
+| `cameras[].switch.down_sec` | すぐ反映 |
+| `obs.host` | 再起動して反映 |
+| `obs.port` | 再起動して反映 |
+| `obs.password` | 再起動して反映 |
+| `obs.standby_scene` | すぐ反映 |
+| `obs.scene_fallbacks[].scene` | すぐ反映 |
+| `obs.scene_fallbacks[].fallback` | すぐ反映 |
+| `obs.studio_mode_hide` | すぐ反映 |
+| `on_stream_start.enabled` | すぐ反映 |
+| `on_stream_start.scene` | すぐ反映 |
+| `switch.auto_enabled` | すぐ反映 |
+| `switch.fail_kbps` | すぐ反映 |
+| `switch.low_sec` | すぐ反映 |
+| `switch.recover_kbps` | すぐ反映 |
+| `switch.recover_sec` | すぐ反映 |
+| `switch.down_sec` | すぐ反映 |
+| `log.dir` | 再起動して反映 |
+| `log.keep_days` | すぐ反映 |
+| `gui.close_action` | すぐ反映 |
+
+Config にないパスは実行時には安全側で「再起動して反映」として扱う。テストは reflect で Config の全 leaf を列挙し、この表にないパスと Config に存在しない表のパスのどちらも検出する。`obs.monitored_scenes`、`obs.media_source`、`stream.name` は現行 Config にないため表に含めない。カメラの追加・削除・並べ替えはカメラ一覧の構造変更として再起動して反映する。
 
 - **再起動して反映**: 窓を開いたまま、本体を中で起動し直す（下の「世代」）。MediaMTX も止まるので届いている配信が切れ、待機の状態（持ち主と戻り先）も消える。配信中の設定の変更はテスト配信くらいなので、これでよい（ユーザーの判断）
 - **混ざったとき**: 再起動の項目が1つでもあれば、再起動だけを行う（新しい世代はすべての設定を読むので、すぐ反映の項目も含む）。なければ、すぐ反映の項目をすべて反映する。届け先がプロセスの寿命のもの（セッション、窓）は、世代の外にあるので、新しい世代を作るときに app が渡す（下の「作る順」の 5）。これで、`admin.password` を再起動の項目と一緒に保存しても、ほかのセッションは消える
