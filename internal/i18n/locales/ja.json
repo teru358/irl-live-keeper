@@ -147,7 +147,8 @@
     "service.need_value": "{flag} に値が必要です",
     "service.unknown_arg": "知らない引数です: {arg}",
     "api.scene_missing": "シーンが見つかりません",
-    "api.scene_failed": "シーンの切替に失敗しました"
+    "api.scene_failed": "シーンの切替に失敗しました",
+    "app.settings_apply_failed": "設定の反映に失敗しました。本体を再起動してください"
   },
   "ui": {
     "title": "IRL Live Keeper",

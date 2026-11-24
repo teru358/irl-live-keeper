@@ -207,6 +207,9 @@ func NewWithLogger(b Backend, password string, port int, a *Auth, events *Events
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		setupMu.Lock()
 		currentPassword := password
+		if provider, ok := b.(interface{ AdminPassword() string }); ok {
+			currentPassword = provider.AdminPassword()
+		}
 		setupMu.Unlock()
 		r = r.WithContext(context.WithValue(r.Context(), loggerKey{}, log))
 		// 合言葉を残さないよう、要求のログにはパスだけを書く。
@@ -408,6 +411,9 @@ func NewWithLogger(b Backend, password string, port int, a *Auth, events *Events
 				return
 			}
 		}
+		if valid {
+			r = r.WithContext(context.WithValue(r.Context(), settingsSessionKey{}, c.Value))
+		}
 		if r.URL.Path == "/api/logout" {
 			if !method("POST") {
 				return
@@ -446,4 +452,22 @@ func NewWithLogger(b Backend, password string, port int, a *Auth, events *Events
 		}
 		api.ServeHTTP(w, r)
 	})
+}
+
+// SettingsSession は認証済み Cookie のセッションだけを引き継ぐ。
+type settingsSessionKey struct{}
+
+func SettingsSession(r *http.Request) string {
+	v, _ := r.Context().Value(settingsSessionKey{}).(string)
+	return v
+}
+func (a *Auth) KeepSession(token string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for k := range a.sessions {
+		if k != token {
+			delete(a.sessions, k)
+			delete(a.sessionAuth, k)
+		}
+	}
 }

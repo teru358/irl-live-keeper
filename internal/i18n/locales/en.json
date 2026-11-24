@@ -147,7 +147,8 @@
     "service.need_value": "{flag} needs a value.",
     "service.unknown_arg": "Unknown argument: {arg}",
     "api.scene_missing": "Scene not found",
-    "api.scene_failed": "Scene switch failed"
+    "api.scene_failed": "Scene switch failed",
+    "app.settings_apply_failed": "Could not apply the settings. Restart the application"
   },
   "ui": {
     "title": "IRL Live Keeper",

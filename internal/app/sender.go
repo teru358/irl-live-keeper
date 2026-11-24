@@ -56,7 +56,15 @@ func senderAddresses(manual string, list func() ([]netIface, error)) []web.Sende
 	return out
 }
 func (b *pageBackend) Sender() web.SenderSettings {
-	return buildSender(b.senderConfig, systemInterfaces, b.senderDefault)
+	b.app.mu.Lock()
+	cfg := b.senderConfig
+	host := b.senderDefault
+	if b.app.liveConfig != nil {
+		cfg = b.app.liveConfig
+		host = ""
+	}
+	b.app.mu.Unlock()
+	return buildSender(cfg, systemInterfaces, host)
 }
 func buildSender(cfg *config.Config, list func() ([]netIface, error), defaultHost ...string) web.SenderSettings {
 	if cfg == nil {

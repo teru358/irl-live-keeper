@@ -14,5 +14,5 @@ func init() {
 }
 
 func init() {
-	Codes = append(Codes, "api.scene_missing", "api.scene_failed", "settings.local_only", "settings.admin_lan_close", "settings.port_missing", "settings.port_busy")
+	Codes = append(Codes, "api.scene_missing", "api.scene_failed", "settings.local_only", "settings.admin_lan_close", "settings.port_missing", "settings.port_busy", "app.settings_apply_failed")
 }

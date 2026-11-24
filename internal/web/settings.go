@@ -27,6 +27,7 @@ type SettingsStore struct {
 	CheckPorts func(*config.Config, *config.Config, []settings.ListeningPort) []settings.PortFailure
 	Backup     func() error // S2-29: preserve the running generation before writing.
 	Write      func([]byte) error
+	StartApply func()
 	ApplySaved func(old, next *config.Config, summary settings.ChangeSummary, updateOBSInput bool)
 }
 type SettingsBackend interface {
@@ -48,6 +49,7 @@ func serveSettings(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.
 		return
 	}
 	local := sourceKind(r) == "local"
+	var start func()
 	err := provider.SettingsTransaction(func(s *SettingsStore) {
 		fail := func(code int, key string) { writeError(w, code, lang, settingsMessage(key)) }
 		if r.Method == http.MethodGet {
@@ -158,6 +160,9 @@ func serveSettings(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.
 			fail(500, "api.internal")
 			return
 		}
+		if keeper, ok := b.(interface{ KeepSettingsSession(string) }); ok {
+			keeper.KeepSettingsSession(SettingsSession(r))
+		}
 		s.ApplySaved(old, &next, summary, req.UpdateOBSInput)
 		response := map[string]any{"ok": true, "apply": summary.Apply}
 		if old.Admin.Port != next.Admin.Port || old.Admin.LAN != next.Admin.LAN {
@@ -172,9 +177,16 @@ func serveSettings(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.
 			}
 		}
 		writeJSON(w, 202, response)
+		start = s.StartApply
 	})
 	if err != nil {
 		writeError(w, 500, lang, i18n.New("api.internal"))
+	}
+	if start != nil {
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		start()
 	}
 }
 

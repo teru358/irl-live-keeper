@@ -24,6 +24,7 @@ import (
 	"github.com/teru358/irl-live-keeper/internal/logging"
 	"github.com/teru358/irl-live-keeper/internal/obs"
 	"github.com/teru358/irl-live-keeper/internal/redact"
+	"github.com/teru358/irl-live-keeper/internal/settings"
 	"github.com/teru358/irl-live-keeper/internal/supervisor"
 	"github.com/teru358/irl-live-keeper/internal/switcher"
 	"github.com/teru358/irl-live-keeper/internal/web"
@@ -139,6 +140,7 @@ type Apply struct {
 }
 
 type generation struct {
+	obs      obsRunner
 	events   *web.Events
 	lang     i18n.Lang
 	ctx      context.Context
@@ -157,6 +159,10 @@ type generation struct {
 
 type App struct {
 	pendingSettings        *savedSettings
+	liveConfig             *config.Config
+	savedSession           string
+	settingsReady          chan struct{}
+	updateOBSInput         bool
 	windowLang             i18n.Lang
 	windowClose, windowLog string
 	windowGenerated        bool
@@ -234,7 +240,7 @@ func newApp(opts Options, deps appDeps) *App {
 			return &http.Server{Handler: web.NewWithAuth(c, p, app.adminPort, auth, lang), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
 		}
 	}
-	app = &App{auth: auth, opts: opts, initErr: deps.initJob(), deps: deps, apply: Apply{State: ApplyIdle}, restarts: make(chan struct{}, 1)}
+	app = &App{auth: auth, opts: opts, initErr: deps.initJob(), deps: deps, apply: Apply{State: ApplyIdle}, restarts: make(chan struct{}, 1), settingsReady: make(chan struct{}, 1)}
 	return app
 }
 
@@ -316,6 +322,20 @@ func (a *App) runApp(ctx context.Context) int {
 		select {
 		case <-ctx.Done():
 			g.logger.Slog().Info("Shutdown requested")
+		case <-a.settingsReady:
+			a.mu.Lock()
+			pending := a.pendingSettings
+			a.mu.Unlock()
+			if pending.Summary.Apply != settings.ApplyRestart {
+				a.applyLive(g, pending)
+				continue
+			}
+			// 自分の受け口へは待たずに送る（もう再起動が積まれていれば、その再起動が新しい設定を読む）
+			select {
+			case a.restarts <- struct{}{}:
+			default:
+			}
+			continue
 		case <-a.restarts:
 			g.logger.Slog().Info("restart requested")
 			previous := g
@@ -507,11 +527,7 @@ func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 	// 部品の context はシグナルの ctx から独立させる。シグナルは終わる手順（shutdown）の開始の合図にだけ使い、
 	// Stopping と HTTP の停止のあとで、shutdown が cancel を呼ぶ。
 	stage("process.configure")
-	if a.adminPassword != cfg.Admin.Password {
-		a.auth.ClearSessions()
-	}
-	a.adminPassword = cfg.Admin.Password
-	a.adminPort = cfg.Admin.Port
+	a.configureProcess(cfg)
 	stage("parts.create")
 	g := &generation{logger: logger, app: a, lang: lang}
 	runCtx, cancel := partsContext(ctx)
@@ -558,6 +574,7 @@ func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 	stage("core.new")
 	c := a.deps.newCore(deps)
 	g.core = c
+	g.obs = obsClient
 	stage("receivers.register")
 	var eventLogger interface {
 		Subscribe(int) (<-chan logging.Line, func())
@@ -605,6 +622,7 @@ func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 	wg.Go(func() { g.serveErr <- srv.Serve(ln) })
 	a.mu.Lock()
 	a.hash = candidate
+	a.liveConfig = cfg
 	a.current = g
 	a.mu.Unlock()
 	stage("config.commit")
@@ -750,8 +768,14 @@ type pageBackend struct {
 }
 
 func (b *pageBackend) DisplayStatus() map[string]any {
-	v := b.app.Apply()
-	return map[string]any{"apply": map[string]any{"state": v.State, "kind": v.Kind, "reason": v.Reason}, "generation": b.id, "language": b.language, "gui": map[string]any{"close_action": b.closeAction}, "admin": map[string]any{"lan": b.lan}}
+	b.app.mu.Lock()
+	defer b.app.mu.Unlock()
+	v := b.app.apply
+	closeAction := b.closeAction
+	if b.app.liveConfig != nil {
+		closeAction = b.app.liveConfig.GUI.CloseAction
+	}
+	return map[string]any{"apply": map[string]any{"state": v.State, "kind": v.Kind, "reason": v.Reason}, "generation": b.id, "language": b.language, "gui": map[string]any{"close_action": closeAction}, "admin": map[string]any{"lan": b.lan}}
 }
 func (b *pageBackend) PageLanguage() string { return b.language }
 func (b *pageBackend) RestartHTTP() (int, error) {
