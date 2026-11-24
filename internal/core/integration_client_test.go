@@ -238,7 +238,11 @@ func (g *genClient) SetSceneItemEnabled(scene string, id int, en bool) error {
 		}
 		if apply {
 			w.mu.Lock()
-			w.applyLocked(k, en, "本体（切断の直前に適用）", false)
+			// 応答待ちの解除は、接続の切断とは限らない（releaseHungDue）。
+			// 接続中の適用ではイベントを残す。欠落は modeDropEvent で別に注入する。
+			if ev, changed := w.applyLocked(k, en, "本体（応答待ちの解除時に適用）", false); changed && ev != nil {
+				w.enqueueLocked(ev, false, ik{}, false)
+			}
 			w.mu.Unlock()
 		}
 		return fmt.Errorf("%w: SetSceneItemEnabled（切断）", obs.ErrTimeout)

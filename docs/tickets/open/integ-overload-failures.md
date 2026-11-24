@@ -27,3 +27,64 @@ related: []
 - 2026-11-23: 起票。
 - 2026-11-23: 16本×TestIntegration でもまれに出る。S2-58 の確かめで、ブランチで 1/48（FB-INV-06 seed 20006: 改名で owner auto→none）、main で 1/48（INV-04 seed 30001: 回復から30秒で hidden.json が空でない）。seed 20006 だけを16本×4回回すと、ブランチも main も 0/64。S2-58 の変更によるものではない
 - 2026-11-23 夜: ふだんの負荷の `go test -race ./...` でも1回、`TestIntegrationFallbackInvariants/fault/seed25002`（入場: 戻り先 Nest に悪い hide のカメラ [sub] が表示されたままなのに本体が戻した）が落ちた。8本×3回で回すと、main でも直しのブランチでも 0/24。過負荷だけの揺れではないので、優先を上げて調べる候補
+
+## 2026-11-24 調査（integ-flake）
+
+### seed 25002 の判断
+
+保存ログ `/tmp/fbmis-logs/overload-14.log:310–330` では、12:00:42 の
+Camera/2 の true が modeHang(7)、12:00:47 に適用、12:00:50 に
+Nest/2 の false が modeError(3)、直後に Nest 復帰で sub 表示の違反となっている。
+重要なのは Nest/2 は hand で、sub は Camera/2 経由であること。
+Nest/2 の失敗だけでは sub の逆待違反の説明にならない。
+
+テスト側 (b) の具体的な不整合を確認した。`integration_client_test.go` の旧 modeHang は
+`applyLocked` の返すイベントを捨てていた。`integration_world_test.go:243` の
+releaseHungDue は偽時計の5秒で待ちを解除するだけで接続は切らない。
+したがって本体には false のまま、世界には true の sub が残る。
+`switcher/fallback_machine.go:89` の confirmedShown は確認済み H を非表示と数え、
+`switcher/items.go:666` は受け取ったイベントで地図を更新する。
+実クライアントは `obs/wssession.go:789` で表示変更イベントを転送する。
+この事象は「未確認 hide を本体が確認済みと判断した」という証拠ではない。
+
+ただし fault はそもそもイベント欠落を許すプロファイルであり、実 OBS における
+タイムアウトとイベント欠落の併発まで不可能と証明したわけではない。
+本体の不具合 (a) を示す証拠は得られず、本体は変更しない。
+
+### 修正
+
+modeHang の適用イベントを既存のキューへ残す（切断時には enqueueLocked が破棄する）。
+意図的な欠落の modeDropEvent は維持する。
+`integration_hung_test.go` に、要求開始の条件を待って偽時計を5秒進め、
+接続中の適用にイベントが伴うことを確認する固定テストを追加した。
+旧実装で失敗し、修正後に成功する。sleep の延長や検査の無効化はしていない。
+
+### 実時間への依存の棚卸し
+
+- integration_test.go:91: HiddenRetry 5ms（hidden.go:271 の実タイマー）、StopTimeout 300ms。
+- integration_test.go:145–172: 停止・Tick の5秒期限、停止の1.5秒判定。
+- integration_test.go:178–192: settle は80µs sleep、3回静か、最大600回。
+  faulty では inflight=0 を要求しない。処理完了の厳密な障壁ではない。
+- integration_test.go:220–239: Sample 5秒期限、保存の最大200回×1msポーリング。
+- integration_test.go:617: 回復の偽時計30秒と各1msの保存待ち。
+- integration_fb_test.go:413,798: コマンド等3秒期限。
+- integration_fb_test.go:539–549: fbSync は inflight を100µsごとに最大5秒待ち、Tick を渡す。
+- integration_test.go:706 / integration_fb_test.go:1079: goroutine cleanup の20msポーリング、5秒期限。
+- 遅着・hang解除・期待期限・回復時間は fakeClock だが、上記の非同期処理の進み方とは独立。
+
+INV-03 seed1132、INV-04 seed1047/30001、FB-INV-06 seed20006 は
+同じ原因と断定できない。特に INV-04 の保存待ち、settle の静かさには依然として
+スケジューリング依存があり、別途条件同期を設計する余地がある。
+
+
+### 今回の検証結果
+
+- 修正前 seed25002: -race -count=3 -cpu=1,2,8、0/9失敗。元の失敗は今回再現できなかった。
+- 固定テスト: 旧実装でイベント欠落の失敗。修正後 -race -count=16 -cpu=1,2,8、0/48失敗。
+- 修正後 seed25002: GOMAXPROCS=1、-race -count=16 -cpu=1,2,8、0/48失敗（140.309秒）。
+- go test -race ./internal/core -run '^TestIntegration' -count=1: 成功（49.192秒）。Hidden 210 seed、Fallback 48 seed と固定テストを含む。
+- seed1132/1047/20006/30001: -race -count=4 -cpu=1,8、各8回、計0/32失敗（25.471秒）。
+- git diff --check: 成功。16プロセス同時の外部 stress は未実施。
+- core の結合テストは偽 OBS を直接注入し、ソケットを使わず実行できた。全パッケージのソケットを使うテスト・実 OBS は未検証。
+- ログ: /tmp/flake-before.log、/tmp/flake-regression-after.log、/tmp/flake-seed-after.log、/tmp/flake-integration-after.log、/tmp/flake-other-seeds.log。
+- 元のseed失敗を今回再現できていないため、完全解消の実証ではない。チケットは未完了。本体変更・コミットなし。
