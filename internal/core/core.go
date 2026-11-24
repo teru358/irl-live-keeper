@@ -125,14 +125,16 @@ type Core struct {
 	now             func() time.Time
 
 	// 中核ループと実行役の間のチャネル。どれもバッファなし。
-	batches   chan *switcher.Batch // 中核ループ → 実行役。列の先頭を1つだけ差し出す
-	approvals chan approveReq      // 実行役 → 中核ループ
-	results   chan switcher.Event  // 実行役 → 中核ループ。SceneRequestDone と BatchDone を送った順に届ける
-	cmds      chan cmdReq          // Command → 中核ループ
-	stopped   chan struct{}        // Run が戻ったら閉じる
-	stopCh    chan stopReq         // Stopping → 中核ループ
+	batches    chan *switcher.Batch // 中核ループ → 実行役。列の先頭を1つだけ差し出す
+	approvals  chan approveReq      // 実行役 → 中核ループ
+	results    chan switcher.Event  // 実行役 → 中核ループ。SceneRequestDone と BatchDone を送った順に届ける
+	cmds       chan cmdReq          // Command → 中核ループ
+	stopped    chan struct{}        // Run が戻ったら閉じる
+	settingsCh chan settingsReq
+	stopCh     chan stopReq // Stopping → 中核ループ
 
-	snap atomic.Pointer[Snapshot]
+	snap     atomic.Pointer[Snapshot]
+	settings atomic.Pointer[Settings]
 
 	// ここから下は中核ループの goroutine だけが触る。
 	queue      []*switcher.Batch // 実行待ちのバッチ
@@ -210,13 +212,14 @@ func New(d Deps) *Core {
 		m: d.Machine, obs: d.OBS, standbyName: d.StandbyScene, fallbackRows: slices.Clone(d.SceneFallbacks),
 		samples: d.Samples, mediamtx: d.MediaMTX, warningMessages: d.WarningMessages, slowRead: d.SlowReaders,
 		log: d.Log, tick: d.Tick, now: d.Now,
-		batches:   make(chan *switcher.Batch),
-		approvals: make(chan approveReq),
-		results:   make(chan switcher.Event),
-		cmds:      make(chan cmdReq),
-		stopped:   make(chan struct{}),
-		stopCh:    make(chan stopReq),
-		unknown:   map[itemKey]bool{},
+		batches:    make(chan *switcher.Batch),
+		approvals:  make(chan approveReq),
+		results:    make(chan switcher.Event),
+		cmds:       make(chan cmdReq),
+		stopped:    make(chan struct{}),
+		stopCh:     make(chan stopReq),
+		settingsCh: make(chan settingsReq),
+		unknown:    map[itemKey]bool{},
 
 		studioHide: d.StudioModeHide, stopTimeout: d.StopTimeout, loadMessage: d.HiddenLoadMessage,
 		itemSeq: map[uint64]uint64{}, itemLogs: map[int]*itemLog{}, sourceNames: map[string][]string{},
@@ -260,6 +263,7 @@ func New(d Deps) *Core {
 		c.store = newHiddenStore(d.HiddenPath, d.HiddenWrite, c.persistRev)
 		c.pers = newPersister(c.store, d.HiddenRetry)
 	}
+	c.settings.Store(c.currentSettings(d.AutoEnabled, start))
 	c.publish()
 	return c
 }
@@ -355,6 +359,11 @@ func (c *Core) loop(ctx context.Context, tick <-chan time.Time) {
 			} else {
 				req.reply <- c.handle(switcher.Command{At: c.now(), Kind: req.kind})
 			}
+		case req := <-c.settingsCh:
+			c.applySettings(req.change)
+			c.publish()
+			req.reply <- nil
+			continue
 		case req := <-c.stopCh:
 			c.beginStop(req)
 		case req := <-c.approvals:

@@ -189,3 +189,45 @@ func TestJudgeZeroIsNeverGood(t *testing.T) {
 	steps = append(steps, step{g, LinkOK})
 	run(t, defaultTh, LinkLow, steps)
 }
+
+func TestSetThresholdsPreservesStateAndResetsCounters(t *testing.T) {
+	for _, state := range []LinkState{LinkOK, LinkLow, LinkDown} {
+		j := NewJudge(Thresholds{})
+		j.state = state
+		j.zero, j.below, j.good = time.Second, time.Second, time.Second
+		th := Thresholds{FailKbps: 100, RecoverKbps: 200, LowSec: 3 * time.Second, RecoverSec: 3 * time.Second, DownSec: 3 * time.Second}
+		j.SetThresholds(th)
+		if j.State() != state || j.zero != 0 || j.below != 0 || j.good != 0 || j.th != th {
+			t.Fatalf("state %v: %+v", state, j)
+		}
+	}
+}
+
+func TestSetThresholdsCountsAgain(t *testing.T) {
+	th := Thresholds{FailKbps: 100, RecoverKbps: 200, LowSec: 3 * time.Second, RecoverSec: 3 * time.Second, DownSec: 3 * time.Second}
+	for _, row := range []struct {
+		name  string
+		state LinkState
+		kbps  float64
+		want  LinkState
+	}{
+		{"below", LinkOK, 50, LinkLow}, {"zero", LinkLow, 0, LinkDown}, {"good", LinkLow, 300, LinkOK},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			j := NewJudge(th)
+			j.state = row.state
+			sample := Sample{Online: true, Kbps: row.kbps, Interval: time.Second}
+			j.Update(sample)
+			j.Update(sample)
+			j.SetThresholds(th)
+			for range 2 {
+				if got := j.Update(sample); got != row.state {
+					t.Fatalf("early transition: %v", got)
+				}
+			}
+			if got := j.Update(sample); got != row.want {
+				t.Fatalf("got %v want %v", got, row.want)
+			}
+		})
+	}
+}

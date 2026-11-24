@@ -84,3 +84,9 @@ func accumulate(acc time.Duration, met bool, d time.Duration) time.Duration {
 	}
 	return acc + d
 }
+
+// SetThresholds は状態を保って閾値を替え、連続時間をすべて捨てる。
+func (j *Judge) SetThresholds(th Thresholds) {
+	j.th = th
+	j.zero, j.below, j.good = 0, 0, 0
+}
