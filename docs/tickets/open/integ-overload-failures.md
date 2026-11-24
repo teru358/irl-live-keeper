@@ -88,3 +88,4 @@ INV-03 seed1132、INV-04 seed1047/30001、FB-INV-06 seed20006 は
 - core の結合テストは偽 OBS を直接注入し、ソケットを使わず実行できた。全パッケージのソケットを使うテスト・実 OBS は未検証。
 - ログ: /tmp/flake-before.log、/tmp/flake-regression-after.log、/tmp/flake-seed-after.log、/tmp/flake-integration-after.log、/tmp/flake-other-seeds.log。
 - 元のseed失敗を今回再現できていないため、完全解消の実証ではない。チケットは未完了。本体変更・コミットなし。
+- 2026-11-24: S2-28 の Codex の環境で、ふだんの負荷の `go test -race ./...` で `TestIntegrationHiddenInvariants/normal/seed1008`（INV-04）が1回落ちた。単独では通る。S2-28 は core を変えていない
