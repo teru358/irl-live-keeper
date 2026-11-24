@@ -162,6 +162,7 @@ type App struct {
 	generationID           uint64
 	auth                   *web.Auth
 	adminPassword          string
+	windowPasswordUnset    bool
 	adminPort              int
 	opts                   Options
 	initErr                error
@@ -403,15 +404,19 @@ func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 	a.windowLog = resolvePath(base, cfg.Log.Dir)
 	a.windowGenerated = a.windowGenerated || generated
 	a.windowPort = cfg.Admin.Port
+	a.windowPasswordUnset = cfg.Admin.Password == ""
 	a.mu.Unlock()
 	a.consoleLang = lang
+	if cfg.Admin.Password == "" {
+		fmt.Fprintln(stdout, strings.ReplaceAll(i18n.UI(lang)["console.password_unset"], "{port}", fmt.Sprint(cfg.Admin.Port)))
+	}
 	candidate := sha256.Sum256(raw)
 	a.rememberSecrets(cfg.Admin.Password, cfg.Stream.PublishPass, cfg.Stream.ReadPass, cfg.OBS.Password)
 	masker := redact.New(a.secrets...)
 	// 生成したパスワードを知る手段が config.yaml を開くことだけにならないよう、起動の表示より前に
 	// 失敗して終わるときは、終わる前に標準出力へ出す（ログには書かない）。
 	showGeneratedPassword := func() {
-		if shouldShowGeneratedPassword(generated, a.sensitiveOutput()) {
+		if cfg.Admin.Password != "" && shouldShowGeneratedPassword(generated, a.sensitiveOutput()) {
 			fmt.Fprint(stdout, adminPasswordLine(cfg.Admin.Password, lang))
 		}
 	}

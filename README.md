@@ -49,7 +49,7 @@ irl-live-keeper は、MediaMTX が受け取ったバイト数の差分から、�
 
 Linux では `irl-live-keeper service install` で user サービスを登録できます（既定）。ログアウト中も動かす場合は `loginctl enable-linger <ユーザー>` を設定してください。system サービスは `sudo irl-live-keeper service install --system --run-as <ユーザー>` で登録します。解除は `irl-live-keeper service uninstall [--system]` です。登録後の `systemctl` 手順と管理ページ URL はコマンドが表示します。
 
-1. zip を展開し、`irl-live-keeper(.exe)` を実行する。初回は `config.yaml` ができ、送信用 URL とパスワードが表示される
+1. zip を展開し、`irl-live-keeper(.exe)` を実行する。初回は `config.yaml` ができる。管理パスワードは同じ PC の管理ページで決める
 2. OBS の「ツール → WebSocket サーバー設定」でサーバーを有効にし、パスワードを `config.yaml` の `obs.password` に書く
 3. OBS に待機シーンを作り、`config.yaml` の `obs.standby_scene` にその名前を書く。監視対象のシーン（カメラ映像が映るシーン）は、書かなくてよい。OBS の中身（カメラのメディアソースが映るシーン）から自動で決める
    - 待機シーンの名前は「⚠回線待機中」のように、見てすぐわかる名前にしておくと、IRL Link の画面で待機に入ったことに気づける
@@ -76,7 +76,7 @@ Linux では `irl-live-keeper service install` で user サービスを登録で
 
 1. 配信 PC とスマホに Tailscale を入れ、同じアカウントで接続する
 2. `config.yaml` の `admin.lan` を `true` にして、本体を起動し直す（既定の `admin.port` は `8787`）
-3. スマホのブラウザで `http://<配信 PC の Tailscale アドレス>:<admin.port>/` を開き、ユーザー名 `admin` と管理パスワードでログインする。パスワードは初回起動時に表示される
+3. スマホのブラウザで `http://<配信 PC の Tailscale アドレス>:<admin.port>/` を開き、ユーザー名 `admin` と管理パスワードでログインする。パスワードは先に配信 PC で設定する
 
 ルーターで管理ページのポートを転送しないでください。インターネットへ直接公開しないでください。Tailscale VPN の通信は暗号化されますが、VPN に接続した相手の機器からも管理パスワードの表示と設定の変更ができます。VPN からの要求は LAN の機器と同じ扱いになるため、`mediamtx.binary` と `log.dir` は変更できません。
 
@@ -189,3 +189,5 @@ go test -race ./...
 [MIT License](LICENSE)
 
 同梱する MediaMTX（MIT License、著作権者 aler9）と、利用しているライブラリのライセンスは [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) を見てください。irl-live-keeper は MediaMTX の作者による公式のソフトウェアではありません。
+
+初回は管理パスワードが未設定です。同じ PC の `http://127.0.0.1:8787/`（ポートを変えた場合は `admin.port`）で8文字以上を2回入力して決めてください。Windows は窓の「管理ページを開く」から進めます。Linux / macOS は `config.yaml` の `admin.password` に8文字以上を書いて再起動することもできます。未設定の間は LAN・VPN と Basic 認証は使えません。既存のパスワードはそのまま使えます。

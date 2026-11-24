@@ -21,12 +21,12 @@ func serveAsset(w http.ResponseWriter, r *http.Request) bool {
 	http.StripPrefix("/assets/", http.FileServer(http.FS(sub))).ServeHTTP(w, r)
 	return true
 }
-func servePage(w http.ResponseWriter, b Backend, login bool) {
+func servePage(w http.ResponseWriter, b Backend, login bool, setup ...bool) {
 	language := "auto"
 	if v, ok := b.(interface{ PageLanguage() string }); ok {
 		language = v.PageLanguage()
 	}
-	data, _ := json.Marshal(map[string]any{"language": language, "login": login, "catalogs": map[string]any{"ja": i18n.UI(i18n.JA), "en": i18n.UI(i18n.EN)}})
+	data, _ := json.Marshal(map[string]any{"language": language, "login": login, "setup": len(setup) > 0 && setup[0], "catalogs": map[string]any{"ja": i18n.UI(i18n.JA), "en": i18n.UI(i18n.EN)}})
 	page, _ := assets.ReadFile("assets/page.html")
 	html := string(page)
 	if !login {

@@ -169,8 +169,9 @@ func TestRunは生成した設定の秘密をログファイルに書かない(t
 		if err != nil {
 			return nil, err
 		}
-		script := fmt.Sprintf("#!/bin/sh\necho 'publish pass=%s'\necho 'read pass=%s'\necho 'admin pass=%s'\nexec sleep 30\n",
-			cfg.Stream.PublishPass, cfg.Stream.ReadPass, cfg.Admin.Password)
+		// 管理ページのパスワードは初回の生成では空（S2-61）なので、送信と読み取りのパスワードで確かめる
+		script := fmt.Sprintf("#!/bin/sh\necho 'publish pass=%s'\necho 'read pass=%s'\nexec sleep 30\n",
+			cfg.Stream.PublishPass, cfg.Stream.ReadPass)
 		return cfg, os.WriteFile(bin, []byte(script), 0o700)
 	}
 
@@ -181,7 +182,8 @@ func TestRunは生成した設定の秘密をログファイルに書かない(t
 	logDir := filepath.Join(base, "logs")
 	// 偽の MediaMTX の出力が、置き換えられてログに載るまで待つ
 	waitFor(t, "偽の MediaMTX の出力がログに載る", func() bool {
-		return strings.Contains(readLogs2(logDir), "admin pass=***")
+		logs := readLogs2(logDir)
+		return strings.Contains(logs, "publish pass=***") && strings.Contains(logs, "read pass=***")
 	})
 	cancel()
 	select {
@@ -198,14 +200,15 @@ func TestRunは生成した設定の秘密をログファイルに書かない(t
 		t.Fatal("config が生成されていない")
 	}
 	out := stdout.String()
-	// 標準出力には、URL と生成した管理 API のパスワードが1回出る
-	for _, want := range []string{cfg.Admin.Password, cfg.Stream.PublishPass, cfg.Stream.ReadPass, "srt://", "rtmp://", "rtsp://"} {
+	// 管理ページのパスワードは初回の生成では空（S2-61。管理ページか config.yaml で決める）
+	if cfg.Admin.Password != "" {
+		t.Fatal("初回の生成で admin.password が空でない")
+	}
+	// 標準出力には、URL と生成した送信・読み取りのパスワードが出る
+	for _, want := range []string{cfg.Stream.PublishPass, cfg.Stream.ReadPass, "srt://", "rtmp://", "rtsp://"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("標準出力に %q がない", want)
 		}
-	}
-	if n := strings.Count(out, cfg.Admin.Password); n != 1 {
-		t.Errorf("管理 API のパスワードが標準出力に %d 回出た（1回のはず）", n)
 	}
 	// ログファイルには、秘密の文字列が1つも出ない
 	logs := readLogs(t, logDir)
@@ -228,7 +231,7 @@ func TestRunは生成した設定の秘密をログファイルに書かない(t
 		}
 	}
 	for name, secret := range map[string]string{
-		"admin.password": cfg.Admin.Password, "publish_pass": cfg.Stream.PublishPass, "read_pass": cfg.Stream.ReadPass,
+		"publish_pass": cfg.Stream.PublishPass, "read_pass": cfg.Stream.ReadPass,
 	} {
 		if strings.Contains(logs, secret) {
 			t.Errorf("ログファイルに %s が出ている", name)
@@ -237,7 +240,7 @@ func TestRunは生成した設定の秘密をログファイルに書かない(t
 	// 標準出力のうちログの行（起動の表示以外）にも出ない。偽の MediaMTX の行で確かめる
 	for _, line := range strings.Split(out, "\n") {
 		if strings.Contains(line, "component=mediamtx") {
-			for _, secret := range []string{cfg.Admin.Password, cfg.Stream.PublishPass, cfg.Stream.ReadPass} {
+			for _, secret := range []string{cfg.Stream.PublishPass, cfg.Stream.ReadPass} {
 				if strings.Contains(line, secret) {
 					t.Errorf("標準出力のログの行に秘密が出ている: %s", line)
 				}
@@ -269,10 +272,10 @@ func TestRunはOBSのパスワードをログファイルにも標準出力の�
 		}
 		// 雛形で空の password は obs.password の1箇所だけ
 		s := string(raw)
-		if strings.Count(s, `password: ""`) != 1 {
+		if strings.Count(s, `password: ""`) != 2 {
 			return nil, fmt.Errorf("config.yaml の空の password が1つではない")
 		}
-		s = strings.Replace(s, `password: ""`, fmt.Sprintf("password: %q", obsPass), 1)
+		s = strings.Replace(s, `password: ""               # 空なら`, fmt.Sprintf("password: %q               # 空なら", obsPass), 1)
 		s = regexp.MustCompile(`(?m)^(\s+port: )4455`).ReplaceAllString(s, fmt.Sprintf("${1}%d", obsPort))
 		if err := os.WriteFile(path, []byte(s), 0o600); err != nil {
 			return nil, err
@@ -346,7 +349,7 @@ func readLogs2(dir string) string {
 
 func TestRunは不正な設定で終了コード1と項目名を出す(t *testing.T) {
 	base := t.TempDir()
-	bad := "switch:\n  low_sec: 0\n  recover_kbps: 100\n"
+	bad := "admin:\n  password: short\nswitch:\n  low_sec: 0\n  recover_kbps: 100\n"
 	if err := os.WriteFile(filepath.Join(base, "config.yaml"), []byte(bad), 0o600); err != nil {
 		t.Fatal(err)
 	}

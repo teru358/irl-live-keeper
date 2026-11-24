@@ -49,7 +49,7 @@ irl-live-keeper calculates each camera's bitrate from the change in the number o
 
 On Linux, `irl-live-keeper service install` registers a user service (the default). To keep it running while logged out, enable lingering with `loginctl enable-linger <user>`. Register a system service with `sudo irl-live-keeper service install --system --run-as <user>`. Remove it with `irl-live-keeper service uninstall [--system]`. The command prints the `systemctl` steps and management page URL after registration.
 
-1. Extract the zip and run `irl-live-keeper` (`irl-live-keeper.exe` on Windows). On first start, it creates `config.yaml` and displays sender URLs and passwords.
+1. Extract the zip and run `irl-live-keeper` (`irl-live-keeper.exe` on Windows). On first start, it creates `config.yaml`. Set the admin password on the same PC in the admin page.
 2. In OBS, enable the server in “Tools → WebSocket Server Settings”. Put its password in `obs.password` in `config.yaml`.
 3. Create a standby scene in OBS and put its name in `obs.standby_scene` in `config.yaml`. You do not need to list monitored scenes (scenes showing camera video). The app finds them automatically from OBS (scenes containing camera media sources).
    - Give the standby scene an obvious name, such as “⚠Connection standby”. This makes it easy to notice in IRL Link when OBS enters standby.
@@ -76,7 +76,7 @@ On Linux, `irl-live-keeper service install` registers a user service (the defaul
 
 1. Install Tailscale on the streaming PC and phone. Connect both with the same account.
 2. Set `admin.lan` to `true` in `config.yaml`, then restart the app (the default `admin.port` is `8787`).
-3. On the phone, open `http://<streaming PC Tailscale address>:<admin.port>/` in a browser. Log in as `admin` with the management password. The password is shown on first start.
+3. On the phone, open `http://<streaming PC Tailscale address>:<admin.port>/` in a browser. Log in as `admin` with the management password. Set the password on the streaming PC first.
 
 Do not forward the management page port on your router. Do not expose it directly to the internet. Tailscale VPN traffic is encrypted, but devices connected to the VPN can also view the management password and change settings. VPN requests are treated like requests from LAN devices, so `mediamtx.binary` and `log.dir` cannot be changed.
 
@@ -189,3 +189,5 @@ The design is in `docs/superpowers/specs/2026-11-18-core-design.md`. The task li
 [MIT License](LICENSE)
 
 See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the bundled MediaMTX (MIT License, copyright holder: aler9) and the licenses for the libraries used. irl-live-keeper is not official software from the MediaMTX author.
+
+The admin password starts empty. On the same PC, open `http://127.0.0.1:8787/` (or your `admin.port`) and enter a password of at least 8 characters twice. On Windows, use “Open admin page” in the window. On Linux / macOS, you can also set `admin.password` in `config.yaml` and restart. LAN, VPN and Basic authentication are unavailable until setup is complete. Existing passwords continue to work.

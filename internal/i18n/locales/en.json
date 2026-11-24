@@ -259,6 +259,12 @@
     "window_exit_confirm": "Exit the application?",
     "window_stream_warning": "Automatic switching stops when you exit.",
     "window_generated": "Created config.yaml. Check publishing URLs on the admin page.",
-    "window_applying": "Applying settings (restarting)"
+    "window_applying": "Applying settings (restarting)",
+    "setup_title": "Set password",
+    "setup_confirm": "Confirm password",
+    "setup_mismatch": "Passwords do not match.",
+    "window_password_unset": "Open the admin page to set your password.",
+    "console.password_unset": "The admin password is not set. Set admin.password in config.yaml to at least 8 characters and restart. You can also set it in a browser on this PC at http://127.0.0.1:{port}/",
+    "api.setup_local": "Set the admin password on the streaming PC first."
   }
 }

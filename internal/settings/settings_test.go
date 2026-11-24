@@ -204,6 +204,8 @@ func TestGeneratedFields(t *testing.T) {
 					value = "ignore"
 				case "stream.obs_read_host", "stream.publish_host":
 					value = "localhost"
+				case "admin.password":
+					value = "initial-password" // 初回の生成では空（S2-61）。検証は空か8文字以上
 				}
 			}
 			t.Run(p, func(t *testing.T) {

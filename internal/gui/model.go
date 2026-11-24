@@ -78,6 +78,9 @@ func Build(s app.WindowState, dark bool) Model {
 			m.Notice = safe(i18n.Render(s.Language, v.LastError.Message))
 		}
 	}
+	if s.PasswordUnset {
+		m.Notice = t("window_password_unset")
+	}
 	if s.Generated && m.Notice == "" {
 		m.Notice = t("window_generated")
 	}

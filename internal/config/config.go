@@ -255,7 +255,7 @@ const defaultTemplate = `language: auto             # 画面の言語。auto（O
 admin:
   port: 8787                 # 管理 API と管理ページのポート
   lan: false                 # false なら 127.0.0.1 だけで待ち受ける。true ならすべてのインターフェース（IPv4 と IPv6）。別 PC から操作するときと、OBS と別の PC（中継 PC）に置くときだけ true にする（通信は平文。ルーターで転送しない）
-  password: "*"              # Basic 認証のパスワード（ユーザー名は admin）
+  password: ""               # Basic 認証のパスワード（ユーザー名は admin）
 
 mediamtx:
   binary: ""                 # 空なら実行ファイルと同じディレクトリの mediamtx(.exe)
@@ -512,8 +512,8 @@ func (c *Config) Validate() error {
 
 	c.validateSceneFallbacks(add)
 
-	if c.Admin.Password == "" {
-		add("admin.password", i18n.New("config.validation_06"))
+	if c.Admin.Password != "" && utf8.RuneCountInString(c.Admin.Password) < 8 {
+		add("admin.password", i18n.New("config.validation_08", "a", fmt.Sprint(utf8.RuneCountInString(c.Admin.Password))))
 	}
 
 	// ログ

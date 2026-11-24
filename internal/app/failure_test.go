@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -68,6 +69,11 @@ func newFailureFixture(t *testing.T) *failureFixture {
 	f := &failureFixture{r: &generationRecord{}}
 	base := t.TempDir()
 	cfg, _, raw, err := loadConfigBytes(base)
+	cfg.Admin.Password = "existing-password"
+	raw = []byte(strings.Replace(string(raw), `password: ""`, `password: "existing-password"`, 1))
+	if e := os.WriteFile(filepath.Join(base, configName), raw, 0600); e != nil {
+		t.Fatal(e)
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,7 +214,7 @@ func TestGeneration生成直後の失敗表示(t *testing.T) {
 			if err != nil || generated {
 				t.Fatalf("生成ファイルが維持されていない: %v", err)
 			}
-			if strings.Count(f.out.String(), adminPasswordLine(cfg.Admin.Password, i18n.Resolve(cfg.Language, i18n.OSLang))) != 1 {
+			if !strings.Contains(f.out.String(), strings.ReplaceAll(i18n.UI(i18n.Resolve(cfg.Language, i18n.OSLang))["console.password_unset"], "{port}", fmt.Sprint(cfg.Admin.Port))) {
 				t.Fatalf("パスワード表示=%s", f.out.String())
 			}
 		})

@@ -130,7 +130,8 @@ func TestValidate(t *testing.T) {
 		{"on_stream_start 有効で scene が待機と同じ 落ちる", func(c *Config) { c.OnStreamStart = OnStreamStart{Enabled: true, Scene: c.OBS.StandbyScene} }, "on_stream_start.scene"},
 		{"on_stream_start 有効で scene が待機と別 通る", func(c *Config) { c.OnStreamStart = OnStreamStart{Enabled: true, Scene: "Camera"} }, ""},
 
-		{"admin.password 空 落ちる", func(c *Config) { c.Admin.Password = "" }, "admin.password"},
+		{"admin.password 空 通る", func(c *Config) { c.Admin.Password = "" }, ""},
+		{"admin.password 短い", func(c *Config) { c.Admin.Password = "short" }, "admin.password"},
 		{"obs.password 空 通る", func(c *Config) { c.OBS.Password = "" }, ""},
 
 		{"log.dir 空 落ちる", func(c *Config) { c.Log.Dir = "" }, "log.dir"},
@@ -170,7 +171,7 @@ func TestValidate(t *testing.T) {
 func TestValidateは違反をすべて集める(t *testing.T) {
 	c := valid()
 	c.Switch.RecoverKbps = 1
-	c.Admin.Password = ""
+	c.Admin.Password = "short"
 	c.OBS.StandbyScene = ""
 	err := c.Validate()
 	if err == nil {
@@ -317,13 +318,16 @@ func TestGenerateとLoad(t *testing.T) {
 	}
 
 	re := regexp.MustCompile(`^[A-Za-z0-9]{24}$`)
-	secrets := []string{cfg.Admin.Password, cfg.Stream.PublishPass, cfg.Stream.ReadPass}
+	if cfg.Admin.Password != "" {
+		t.Fatal("initial password must be empty")
+	}
+	secrets := []string{cfg.Stream.PublishPass, cfg.Stream.ReadPass}
 	for _, s := range secrets {
 		if !re.MatchString(s) {
 			t.Errorf("生成した値が文字種・長さに合わない: %q", s)
 		}
 	}
-	if secrets[0] == secrets[1] || secrets[1] == secrets[2] || secrets[0] == secrets[2] {
+	if secrets[0] == secrets[1] {
 		t.Error("生成した値が重複している")
 	}
 }

@@ -9,9 +9,11 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/teru358/irl-live-keeper/internal/i18n"
 )
@@ -201,12 +203,20 @@ func NewWithEvents(b Backend, password string, port int, a *Auth, events *Events
 func NewWithLogger(b Backend, password string, port int, a *Auth, events *Events, log *slog.Logger, langs ...i18n.Lang) http.Handler {
 	api := apiHandler(b, events, langs...)
 	name := "irl_session_" + strconv.Itoa(port)
+	var setupMu sync.Mutex
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		setupMu.Lock()
+		currentPassword := password
+		setupMu.Unlock()
 		r = r.WithContext(context.WithValue(r.Context(), loggerKey{}, log))
 		// 合言葉を残さないよう、要求のログにはパスだけを書く。
 		log.Debug("Admin request", "method", r.Method, "path", r.URL.Path)
 		lang := i18n.Select(r.URL.Query().Get("lang"), r.Header.Get("Accept-Language"), langs...)
 		fail := func(status int, code string) {
+			if code == "api.setup_local" {
+				writeJSON(w, status, map[string]string{"code": code, "error": i18n.UI(lang)[code]})
+				return
+			}
 			if status == 401 && len(r.Header.Values("Authorization")) > 0 {
 				w.Header().Set("WWW-Authenticate", challenge)
 			}
@@ -234,6 +244,70 @@ func NewWithLogger(b Backend, password string, port int, a *Auth, events *Events
 				return false
 			}
 			return true
+		}
+
+		if currentPassword == "" {
+			allowedHost := func(host string) bool {
+				return host == "127.0.0.1:"+strconv.Itoa(port) || host == "localhost:"+strconv.Itoa(port) || host == "[::1]:"+strconv.Itoa(port)
+			}
+			originOK := true
+			if origin := r.Header.Get("Origin"); origin != "" {
+				u, err := url.Parse(origin)
+				originOK = err == nil && (u.Scheme == "http" || u.Scheme == "https") && allowedHost(u.Host) && u.User == nil && u.Path == "" && u.RawQuery == "" && u.Fragment == ""
+			}
+			if sourceKind(r) != "local" || !allowedHost(r.Host) || !originOK || len(r.Header.Values("Authorization")) > 0 {
+				fail(403, "api.setup_local")
+				return
+			}
+			if r.URL.Path == "/" && r.Method == "GET" {
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				w.Header().Set("Cache-Control", "no-store")
+				servePage(w, b, true, true)
+				return
+			}
+			if r.URL.Path != "/api/setup" && r.URL.Path != "/auth/once" && !(r.Method == "GET" && (r.URL.Path == "/assets/login.js" || r.URL.Path == "/assets/style.css")) {
+				fail(403, "api.setup_local")
+				return
+			}
+		}
+		if r.URL.Path == "/api/setup" {
+			if !method("POST") {
+				return
+			}
+			setupMu.Lock()
+			defer setupMu.Unlock()
+			if password != "" {
+				fail(409, "api.forbidden")
+				return
+			}
+			if r.Header.Get(headerName) != "1" {
+				fail(403, "api.forbidden")
+				return
+			}
+			var body struct {
+				Password string `json:"password"`
+			}
+			d := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
+			if d.Decode(&body) != nil || utf8.RuneCountInString(body.Password) < 8 {
+				fail(400, "api.invalid")
+				return
+			}
+			var extra any
+			if d.Decode(&extra) != io.EOF {
+				fail(400, "api.invalid")
+				return
+			}
+			setter, ok := b.(interface{ SetInitialPassword(string) error })
+			if !ok || setter.SetInitialPassword(body.Password) != nil {
+				fail(500, "api.internal")
+				return
+			}
+			password = body.Password
+			a.ClearSessions()
+			if issue("password") {
+				writeJSON(w, 200, map[string]bool{"ok": true})
+			}
+			return
 		}
 		if serveAsset(w, r) {
 			return
@@ -280,7 +354,7 @@ func NewWithLogger(b Backend, password string, port int, a *Auth, events *Events
 				fail(400, "api.invalid")
 				return
 			}
-			ok, wait := a.checkPassword(r, func() bool { return password != "" && equalHashed(body.Password, password) == 1 })
+			ok, wait := a.checkPassword(r, func() bool { return currentPassword != "" && equalHashed(body.Password, currentPassword) == 1 })
 			if waiting(wait) {
 				return
 			}
@@ -324,7 +398,7 @@ func NewWithLogger(b Backend, password string, port int, a *Auth, events *Events
 			ok := false
 			if len(r.Header.Values("Authorization")) > 0 {
 				var wait time.Duration
-				ok, wait = a.checkPassword(r, func() bool { return authorized(r, password) })
+				ok, wait = a.checkPassword(r, func() bool { return authorized(r, currentPassword) })
 				if waiting(wait) {
 					return
 				}

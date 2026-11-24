@@ -35,18 +35,19 @@ func (a *App) RunWindow(ctx context.Context) int {
 }
 
 type WindowState struct {
-	Snapshot    *core.Snapshot
-	Apply       Apply
-	Language    i18n.Lang
-	CloseAction string
-	LogDir      string
-	Generated   bool
+	PasswordUnset bool
+	Snapshot      *core.Snapshot
+	Apply         Apply
+	Language      i18n.Lang
+	CloseAction   string
+	LogDir        string
+	Generated     bool
 }
 
 func (a *App) WindowState() WindowState {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	s := WindowState{Apply: a.apply, Language: a.windowLang, CloseAction: a.windowClose, LogDir: a.windowLog, Generated: a.windowGenerated}
+	s := WindowState{PasswordUnset: a.windowPasswordUnset, Apply: a.apply, Language: a.windowLang, CloseAction: a.windowClose, LogDir: a.windowLog, Generated: a.windowGenerated}
 	if s.Language == "" {
 		s.Language = i18n.OSLang()
 	}

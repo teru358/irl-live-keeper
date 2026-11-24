@@ -259,6 +259,12 @@
     "window_exit_confirm": "終了しますか？",
     "window_stream_warning": "終了すると自動切替が止まります",
     "window_generated": "config.yaml を作りました。送信用 URL は管理ページで確かめてください",
-    "window_applying": "設定を反映しています（再起動中）"
+    "window_applying": "設定を反映しています（再起動中）",
+    "setup_title": "パスワードを決める",
+    "setup_confirm": "もう一度入力",
+    "setup_mismatch": "入力が一致しません",
+    "window_password_unset": "管理ページを開いてパスワードを決めてください",
+    "console.password_unset": "管理ページのパスワードが未設定です。config.yaml の admin.password に8文字以上を書いて、起動し直してください。同じ PC のブラウザで http://127.0.0.1:{port}/ を開いて決めることもできます",
+    "api.setup_local": "配信 PC で、管理ページのパスワードを先に決めてください"
   }
 }

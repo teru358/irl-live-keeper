@@ -28,16 +28,16 @@ func TestRunは生成後にポートの確認で失敗してもパスワード�
 		t.Fatalf("終了コード = %d, want 1\nstderr: %s", code, stderr.String())
 	}
 	pass := cfgOf().Admin.Password
-	if pass == "" {
+	if pass != "" {
 		t.Fatal("生成した設定を受け取れていない")
 	}
-	if !strings.Contains(stdout.String(), passwordLabel+"（config.yaml を生成しました）: "+pass) {
+	if !strings.Contains(stdout.String(), "admin.password") {
 		t.Errorf("標準出力に生成したパスワードがない:\n%s", stdout.String())
 	}
 	if strings.Contains(stdout.String(), "srt://") {
 		t.Error("起動を止めたのに起動の表示が出ている")
 	}
-	if got := readLogs(t, filepath.Join(base, "logs")); strings.Contains(got, pass) {
+	if got := readLogs(t, filepath.Join(base, "logs")); pass != "" && strings.Contains(got, pass) {
 		t.Errorf("ログファイルにパスワードが書かれた:\n%s", got)
 	}
 
@@ -46,7 +46,7 @@ func TestRunは生成後にポートの確認で失敗してもパスワード�
 	if code := run(context.Background(), base, &stdout2, &stderr2); code != 1 {
 		t.Fatalf("2回目の終了コード = %d, want 1", code)
 	}
-	if strings.Contains(stdout2.String(), passwordLabel) || strings.Contains(stdout2.String(), pass) {
+	if strings.Contains(stdout2.String(), passwordLabel) {
 		t.Errorf("生成していないのにパスワードを出した:\n%s", stdout2.String())
 	}
 }
@@ -67,7 +67,7 @@ func TestRunは生成後にログを開けなくてもパスワードを表示�
 	if !strings.Contains(stderr.String(), "ログを開けません") {
 		t.Fatalf("ログを開けない失敗になっていない:\n%s", stderr.String())
 	}
-	if pass := cfgOf().Admin.Password; pass == "" || !strings.Contains(stdout.String(), passwordLabel+"（config.yaml を生成しました）: "+pass) {
+	if pass := cfgOf().Admin.Password; pass != "" || !strings.Contains(stdout.String(), "admin.password") {
 		t.Errorf("標準出力に生成したパスワードがない:\n%s", stdout.String())
 	}
 }

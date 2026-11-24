@@ -209,14 +209,14 @@ func TestUnauthorized(t *testing.T) {
 }
 
 func TestEmptyPasswordNeverAuthenticates(t *testing.T) {
-	// config の検証で空のパスワードは弾くが、web 単体でも空の照合で通さない
+	// 未設定のときは Basic 認証を断る
 	b := &fakeBackend{}
 	r := httptest.NewRequest(http.MethodGet, "/api/status", nil)
 	r.SetBasicAuth("admin", "")
 	w := httptest.NewRecorder()
 	New(b, "").ServeHTTP(w, r)
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("code = %d, want 401", w.Code)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("code = %d, want 403", w.Code)
 	}
 }
 
