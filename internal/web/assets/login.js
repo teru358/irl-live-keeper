@@ -41,7 +41,7 @@ async function request(path, body, method) {
  const data = await r.json(); if (!r.ok) {const error=Error(data.error || t('failed'));error.code=data.code;error.fields=data.fields;error.status=r.status;throw error;} return data;
 }
 if (boot.login) el('login').hidden = false; el('admin').hidden = boot.login;
-el('setup-show').onclick=()=>{const show=el('password').type==='password';el('password').type=el('password-confirm').type=show?'text':'password';el('setup-show').textContent=t(show?'sender_hide':'sender_show');};
+if(boot.login)el('setup-show').onclick=()=>{const show=el('password').type==='password';el('password').type=el('password-confirm').type=show?'text':'password';el('setup-show').textContent=t(show?'sender_hide':'sender_show');};
 if(boot.setup){el('setup-fields').hidden=false;el('password').minLength=8;el('password').autocomplete='new-password';el('password-confirm').required=true;el('password-confirm').minLength=8;el('login-submit').textContent=t('setup_title');el('setup-show').onclick=()=>{const show=el('password').type==='password';el('password').type=el('password-confirm').type=show?'text':'password';el('setup-show').textContent=t(show?'sender_hide':'sender_show');};}
 el('login')?.addEventListener('submit', async e => { e.preventDefault(); try { if(boot.setup && el('password').value!==el('password-confirm').value)throw Error(t('setup_mismatch')); await request(boot.setup?'setup':'login', {password:el('password').value}); location.replace('/'); } catch(e) { text('error',e.message); } });
 if (!boot.login) {
@@ -177,6 +177,7 @@ if (!boot.login) {
   const notices=[];
   if(s.last_error?.message) notices.push(s.last_error.message);
   notices.push(...(o.warnings || []),...(s.warnings || []));
+  for(let i=notices.length-1;i>=0;i--)if(notices.indexOf(notices[i])!==i)notices.splice(i,1); // 同じ文は1回だけ
   const settingsWarnings=[...(o.warnings||[]),...(s.warnings||[])];if(settingsWarnings.length){text('settings-result',settingsWarnings.join(' '));text('sender-notice',settingsWarnings.join(' '));}
   el('warnings').replaceChildren(...notices.map(message=>{const item=document.createElement('p');item.className='warn';item.textContent=message;return item;}));
  }

@@ -115,6 +115,7 @@ dl.facts dt { color: var(--muted); }
 dl.facts dd { margin: 0; }
 .warn { border-left: 4px solid var(--low); padding: 8px 12px; background: var(--surface); border-radius: 0 8px 8px 0; font-size: 15px; }
 .warn { margin: 0 0 8px; }
+.warn:empty { display: none; } /* 項目の下の誤りの欄は、理由があるときだけ出す */
 .stream-zone { border-top: 1px solid var(--line); padding-top: 16px; }
 .cam-read .rate-value { color: var(--ink); font-size: 22px; font-weight: 700; }
 .cam-read .rate-unit { font-size: 13px; font-weight: 400; }
