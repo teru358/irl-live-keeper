@@ -302,9 +302,11 @@ func NewWithLogger(b Backend, password string, port int, a *Auth, events *Events
 			}
 			setter, ok := b.(interface{ SetInitialPassword(string) error })
 			if !ok || setter.SetInitialPassword(body.Password) != nil {
+				requestLogger(r).Warn("admin password setup failed", "source", sourceKind(r))
 				fail(500, "api.internal")
 				return
 			}
+			requestLogger(r).Info("admin password set", "source", sourceKind(r))
 			password = body.Password
 			a.ClearSessions()
 			if issue("password") {

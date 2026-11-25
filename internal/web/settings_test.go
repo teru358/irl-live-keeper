@@ -175,6 +175,9 @@ func TestRegenerateSettings(t *testing.T) {
 			if backupCalls != 1 || string(before) == string(b.store.Raw) {
 				t.Fatal("backup or rewrite missing")
 			}
+			if !strings.Contains(logOutput.String(), "settings saved") || !strings.Contains(logOutput.String(), "password regenerated") {
+				t.Fatal("missing audit log")
+			}
 			cfg, err := config.Parse(b.store.Raw)
 			if err != nil {
 				t.Fatal(err)

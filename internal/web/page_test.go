@@ -132,3 +132,15 @@ func TestSettingsPageControls(t *testing.T) {
 		}
 	}
 }
+
+func TestSettingsFailureAndRefreshPaths(t *testing.T) {
+	js, err := assets.ReadFile("assets/login.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"settings_not_saved", "text('settings-result',message)", "e.fields[p]", "settingsGroup=input.dataset.group", "scrollIntoView", "settings_reloaded", "settings_changed", "JSON.stringify([s.generation,s.apply])", "JSON.stringify(settingsValues)===settingsBaseline", "settingsRefreshPending=true"} {
+		if !strings.Contains(string(js), want) {
+			t.Errorf("missing error/refresh path %s", want)
+		}
+	}
+}

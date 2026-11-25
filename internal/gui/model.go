@@ -79,8 +79,18 @@ func Build(s app.WindowState, dark bool) Model {
 			m.Notice = safe(i18n.Render(s.Language, v.LastError.Message))
 		}
 	}
+	if s.Snapshot != nil {
+		for _, warning := range s.Snapshot.OBS.Warnings {
+			if warning.Code == "mediamtx.missing" {
+				if m.Notice != "" {
+					m.Notice += "\n"
+				}
+				m.Notice += safe(i18n.Render(s.Language, warning))
+			}
+		}
+	}
 	if s.PasswordUnset {
-		m.Notice = t("window_password_unset")
+		m.Notice = t("window_password_unset") + "\n" + m.Notice
 	}
 	if s.Generated && m.Notice == "" {
 		m.Notice = t("window_generated")

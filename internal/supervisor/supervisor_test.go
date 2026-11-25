@@ -437,3 +437,26 @@ func TestUnexpectedExitStillWarnsAfterSettle(t *testing.T) {
 		t.Errorf("思いがけない終了の WARN がない:\n%s", buf.String())
 	}
 }
+
+func TestMissingBinaryWarningDoesNotRepeat(t *testing.T) {
+	var out bytes.Buffer
+	s := New(nil, filepath.Join(t.TempDir(), "missing", "mediamtx"), t.TempDir(), slog.New(slog.NewTextHandler(&out, nil)))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	attempts := 0
+	s.sleep = func(context.Context, time.Duration) error {
+		attempts++
+		if attempts == 3 {
+			cancel()
+			return context.Canceled
+		}
+		return nil
+	}
+	s.Run(ctx)
+	if s.Status().LastMessage.Code != "mediamtx.missing" {
+		t.Fatalf("missing warning: %+v", s.Status())
+	}
+	if strings.Count(out.String(), "cannot start MediaMTX") != 1 {
+		t.Fatalf("repeated warning: %s", out.String())
+	}
+}

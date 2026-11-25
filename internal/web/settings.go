@@ -54,7 +54,12 @@ func serveSettings(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.
 	local := sourceKind(r) == "local"
 	var start func()
 	err := provider.SettingsTransaction(func(s *SettingsStore) {
-		fail := func(code int, key string) { writeError(w, code, lang, settingsMessage(key)) }
+		fail := func(code int, key string) {
+			if r.Method != http.MethodGet {
+				requestLogger(r).Warn("settings operation failed", "code", key, "source", sourceKind(r))
+			}
+			writeError(w, code, lang, settingsMessage(key))
+		}
 		if r.Method == http.MethodGet {
 			cfg, err := config.Parse(s.Raw)
 			if err != nil {
@@ -180,6 +185,7 @@ func serveSettings(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.
 			fields["values"] = i18n.Render(lang, settingsMessage("settings.invalid"))
 		}
 		if len(fields) > 0 {
+			requestLogger(r).Warn("settings operation failed", "code", "settings.invalid", "source", sourceKind(r))
 			writeJSON(w, 422, map[string]any{"error": i18n.Render(lang, settingsMessage("settings.invalid")), "fields": fields})
 			return
 		}
@@ -203,6 +209,7 @@ func serveSettings(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.
 			fields[f.Path] = i18n.Render(lang, f.Reason)
 		}
 		if len(fields) > 0 {
+			requestLogger(r).Warn("settings operation failed", "code", "settings.invalid", "source", sourceKind(r))
 			writeJSON(w, 422, map[string]any{"error": i18n.Render(lang, settingsMessage("settings.invalid")), "fields": fields})
 			return
 		}
@@ -234,6 +241,17 @@ func serveSettings(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.
 			if !regenerate || req.Target == "admin" {
 				keeper.KeepSettingsSession(SettingsSession(r))
 			}
+		}
+		paths := make([]string, 0, len(summary.Fields))
+		for _, field := range summary.Fields {
+			paths = append(paths, field.Path)
+		}
+		requestLogger(r).Info("settings saved", "paths", paths, "apply", summary.Apply, "source", sourceKind(r))
+		if revert {
+			requestLogger(r).Info("settings reverted", "source", sourceKind(r))
+		}
+		if regenerate {
+			requestLogger(r).Info("password regenerated", "target", req.Target, "source", sourceKind(r))
 		}
 		s.ApplySaved(old, &next, summary, req.UpdateOBSInput)
 		if revert {

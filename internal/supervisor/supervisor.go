@@ -162,13 +162,20 @@ func randomString(n int) (string, error) {
 // Run は ctx が終わるまで MediaMTX を起動し続ける。戻る前に子プロセスを止める。
 func (s *Supervisor) Run(ctx context.Context) {
 	backoff := minBackoff
+	lastReason := ""
 	for ctx.Err() == nil {
 		ran, err := s.runOnce(ctx)
 		if ctx.Err() != nil {
 			break
 		}
 		if err != nil {
-			s.log.Warn("cannot start MediaMTX", "error", err)
+			reason := err.Error()
+			if reason != lastReason {
+				s.log.Warn("cannot start MediaMTX", "error", err)
+			}
+			lastReason = reason
+		} else {
+			lastReason = ""
 		}
 		if ran >= stableAfter {
 			backoff = minBackoff
@@ -196,6 +203,9 @@ func (s *Supervisor) runOnce(ctx context.Context) (time.Duration, error) {
 		}
 		return 0, err
 	}
+	if _, err := os.Stat(s.binPath); errors.Is(err, os.ErrNotExist) {
+		return fail(i18n.Error{Message: i18n.New("mediamtx.missing", "directory", filepath.Dir(s.binPath)), Cause: err})
+	}
 	if err := CheckPorts(s.cfg); err != nil {
 		return fail(err)
 	}
@@ -222,6 +232,9 @@ func (s *Supervisor) runOnce(ctx context.Context) (time.Duration, error) {
 	start := s.now()
 	c, err := spawn(cmd)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) || errors.Is(err, exec.ErrNotFound) {
+			return fail(i18n.Error{Message: i18n.New("mediamtx.missing", "directory", filepath.Dir(s.binPath)), Cause: err})
+		}
 		return fail(i18n.Error{Message: i18n.New("mediamtx.start", "error", err.Error()), Cause: err})
 	}
 	s.setStatus(StateRunning, "")

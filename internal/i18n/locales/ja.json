@@ -153,7 +153,8 @@
     "api.scene_failed": "シーンの切替に失敗しました",
     "app.settings_apply_failed": "設定の反映に失敗しました。本体を再起動してください",
     "app.obs_url_pending": "OBS のメディアソースの URL をまだ書き換えていません。手で直すこともできます",
-    "app.obs_url_missing": "OBS に対象のメディアソースがないか、ffmpeg_source ではないため URL を書き換えられませんでした。手で直してください"
+    "app.obs_url_missing": "OBS に対象のメディアソースがないか、ffmpeg_source ではないため URL を書き換えられませんでした。手で直してください",
+    "mediamtx.missing": "MediaMTX の実行ファイルが見つかりません。{directory} に置くか、設定の mediamtx.binary で場所を指定してください。"
   },
   "ui": {
     "title": "IRL Live Keeper",
@@ -267,7 +268,6 @@
     "window_logs": "ログを開く",
     "window_retry": "もう一度試す",
     "window_restore": "元に戻して再起動",
-    "window_restore": "元に戻して再起動",
     "window_exit_confirm": "終了しますか？",
     "window_stream_warning": "終了すると自動切替が止まります",
     "window_generated": "config.yaml を作りました。送信用 URL は管理ページで確かめてください",
@@ -360,6 +360,9 @@
     "setting_option_ignore": "何もしない",
     "setting_option_minimize": "最小化",
     "setting_option_confirm": "確認する",
-    "setting_option_quit": "終了"
+    "setting_option_quit": "終了",
+    "settings_not_saved": "保存していません。",
+    "settings_reloaded": "読み直しました。",
+    "settings_changed": "設定が反映されました。未保存の変更があるため、読み直すときは「読み直す」を押してください。"
   }
 }

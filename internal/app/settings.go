@@ -77,10 +77,12 @@ func (a *App) updateOBSInputs(client any, connected switcher.OBSConnected) {
 				}); ok {
 					found, media, err := lookup.SetMediaInputURLByOldURL(oldURL, targets[id])
 					if err != nil {
+						a.windowLogMessage("obs media input update failed", "camera", id)
 						failed = true
 						continue
 					}
 					if found && media {
+						a.windowLogMessage("obs media input updated", "camera", id, "count", 1)
 						a.dropOBSInputMarker(id)
 						continue
 					}
@@ -93,12 +95,14 @@ func (a *App) updateOBSInputs(client any, connected switcher.OBSConnected) {
 		inputFailed := false
 		for _, uuid := range uuids {
 			if err := provider.SetMediaInputURL(uuid, targets[id]); err != nil {
+				a.windowLogMessage("obs media input update failed", "camera", id)
 				failed = true
 				inputFailed = true
 				continue
 			}
 		}
 		if !inputFailed {
+			a.windowLogMessage("obs media input updated", "camera", id, "count", len(uuids))
 			a.dropOBSInputMarker(id)
 		}
 	}

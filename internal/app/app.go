@@ -275,10 +275,10 @@ func (a *App) rememberSecrets(secrets ...string) {
 }
 
 // ErrApplying は反映中の操作を受け付けられないことを表す。
-var ErrApplying = errors.New("反映中です")
+var ErrApplying = errors.New("settings are being applied")
 
 // ErrNotRunning は実行役が操作を受け付けないことを表す。
-var ErrNotRunning = errors.New("実行中ではありません")
+var ErrNotRunning = errors.New("application is not running")
 
 // Restart は実行役へ再起動を依頼し、世代の停止を待たず戻る。
 func (a *App) Restart() error {
@@ -318,7 +318,7 @@ func (a *App) runApp(ctx context.Context) int {
 	g, err := a.createGeneration(ctx)
 	if err != nil {
 		if a.Apply().Kind == ApplyRestart {
-			a.windowLogMessage("restart failed", "error", a.Apply().Reason)
+			a.windowLogMessage("restart failed", "error", err.Error())
 		}
 		fmt.Fprintln(a.opts.Stderr, a.failureMessage(err))
 		return 1
@@ -379,7 +379,10 @@ func (a *App) runApp(ctx context.Context) int {
 }
 
 func (a *App) failureMessage(err error) string {
-	message := err.Error()
+	message := a.Apply().Reason
+	if message == "" {
+		message = i18n.Render(a.consoleLang, i18n.Reason(err))
+	}
 	if _, statErr := os.Stat(filepath.Join(a.opts.BaseDir, configName+".bak")); statErr == nil {
 		lang := a.consoleLang
 		if lang != i18n.JA && lang != i18n.EN {
@@ -410,23 +413,19 @@ func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 	// 設定。なければ生成する
 	cfg, generated, raw, err := a.deps.loadConfig(base)
 	if err != nil {
-		maskedErr := loadMasker.Mask(err.Error())
-		a.setApply(Apply{State: ApplyFailed, Kind: kind, Reason: maskedErr})
-		stage("apply.failed")
-		consoleErr := maskedErr
-		if i18n.OSLang() == i18n.EN {
-			var validation *config.ValidationError
-			if errors.As(err, &validation) {
-				lines := make([]string, len(validation.Fields))
-				for i, field := range validation.Fields {
-					lines[i] = field.Field + ": " + i18n.Render(i18n.EN, field.Message)
-				}
-				consoleErr = i18n.Render(i18n.EN, i18n.New("console.config_invalid", "details", strings.Join(lines, "\n  - ")))
-			} else {
-				consoleErr = i18n.Render(i18n.EN, i18n.New("console.config_load"))
+		message := i18n.New("console.config_load")
+		var validation *config.ValidationError
+		if errors.As(err, &validation) {
+			lines := make([]string, len(validation.Fields))
+			for i, field := range validation.Fields {
+				lines[i] = field.Field + ": " + loadMasker.Mask(i18n.Render(i18n.EN, field.Message))
 			}
+			message = i18n.New("console.config_invalid", "details", strings.Join(lines, "\n  - "))
 		}
-		return nil, &generationError{"config.load", errors.New(consoleErr)}
+		// 窓と管理ページの理由は本体の言語で（ログ用の英語は Error()）
+		a.setApply(Apply{State: ApplyFailed, Kind: kind, Reason: loadMasker.Mask(i18n.Render(a.consoleLang, message))})
+		stage("apply.failed")
+		return nil, &generationError{"config.load", i18n.Error{Message: message, Cause: err}}
 	}
 	lang := i18n.Resolve(cfg.Language, i18n.OSLang)
 	a.mu.Lock()
@@ -464,9 +463,10 @@ func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 	})
 	if err != nil {
 		showGeneratedPassword()
-		a.setApply(Apply{State: ApplyFailed, Kind: kind, Reason: masker.Mask(err.Error())})
+		message := i18n.New("console.logger_open", "error", masker.Mask(err.Error()))
+		a.setApply(Apply{State: ApplyFailed, Kind: kind, Reason: i18n.Render(lang, message)})
 		stage("apply.failed")
-		return nil, &generationError{"logger.open", errors.New(i18n.Render(lang, i18n.New("console.logger_open", "error", masker.Mask(err.Error()))))}
+		return nil, &generationError{"logger.open", i18n.Error{Message: message, Cause: err}}
 	}
 	log := logger.Slog()
 	if a.opts.CrashDir != "" {
@@ -493,11 +493,7 @@ func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 		reason := masker.Mask(i18n.Render(lang, i18n.Reason(err)))
 		a.setApply(Apply{State: ApplyFailed, Kind: kind, Reason: reason})
 		stage("apply.failed")
-		consoleErr := reason
-		if lang == i18n.EN {
-			consoleErr = i18n.Render(lang, i18n.New("console.port_check", "error", consoleErr))
-		}
-		return nil, &generationError{"ports.check", errors.New(consoleErr)}
+		return nil, &generationError{"ports.check", i18n.Error{Message: i18n.Text(masker.Mask(i18n.Render(i18n.EN, i18n.Reason(err)))), Cause: err}}
 	}
 
 	// 送信用 URL の host。起動時に1回だけ決める
@@ -596,6 +592,9 @@ func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 	if w, ok := obsClient.(interface{ WarningMessages() []i18n.Msg }); ok {
 		deps.WarningMessages = func() []i18n.Msg {
 			out := w.WarningMessages()
+			if m := sup.Status().LastMessage; m.Code == "mediamtx.missing" {
+				out = append(out, m)
+			}
 			// 中核ループから呼ばれるので App.mu を取らない（App が mu を持ったまま core を待つと互いに待ち合う）
 			pending := a.obsInputWarning.Load()
 			if pending.Code != "" {
@@ -659,9 +658,10 @@ func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 		g.exitCode = 1 // 止める処理の「終了しました」のログを、実際の終了コードに合わせる
 		g.stopGeneration()
 
-		a.setApply(Apply{State: ApplyFailed, Kind: kind, Reason: masker.Mask(err.Error())})
+		message := i18n.New("console.listen", "port", fmt.Sprint(cfg.Admin.Port), "address", addr, "error", masker.Mask(err.Error()))
+		a.setApply(Apply{State: ApplyFailed, Kind: kind, Reason: i18n.Render(lang, message)})
 		stage("apply.failed")
-		return nil, &generationError{"http.listen", errors.New(i18n.Render(lang, i18n.New("console.listen", "port", fmt.Sprint(cfg.Admin.Port), "address", addr, "error", masker.Mask(err.Error()))))}
+		return nil, &generationError{"http.listen", i18n.Error{Message: message, Cause: err}}
 	}
 	g.server = srv
 	stage("http.serve")
@@ -672,8 +672,8 @@ func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 	a.current = g
 	a.mu.Unlock()
 	stage("config.commit")
-	if kind == ApplyRestart {
-		log.Info("restart complete")
+	if kind != "" {
+		log.Info("restart complete", "kind", kind)
 	}
 	state := ApplyApplied
 	if kind == ApplyRevert {

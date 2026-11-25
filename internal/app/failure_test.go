@@ -320,3 +320,24 @@ func TestGenerationHTTP強制終了とServe異常(t *testing.T) {
 		})
 	}
 }
+
+func TestRestartFailureLogUsesEnglish(t *testing.T) {
+	f := newFailureFixture(t)
+	f.a.deps.checkPorts = func(*config.Config) error {
+		return i18n.Error{Message: i18n.New("mediamtx.missing", "directory", "test-folder")}
+	}
+	_, err := f.a.createGeneration(context.Background())
+	if err == nil {
+		t.Fatal("expected failure")
+	}
+	var out strings.Builder
+	slog.New(slog.NewTextHandler(&out, nil)).Error("restart failed", "error", err)
+	if !strings.Contains(out.String(), "MediaMTX executable was not found") {
+		t.Fatal(out.String())
+	}
+	for _, r := range out.String() {
+		if r >= 0x3000 && r <= 0x9fff {
+			t.Fatal("non-English failure log")
+		}
+	}
+}
