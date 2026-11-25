@@ -33,10 +33,10 @@ func TestLayoutFitsAtCommonDPIs(t *testing.T) {
 		dpi := dpi
 		t.Run(fmt.Sprintf("%d", dpi), func(t *testing.T) {
 			const rows = 4
-			layout := layoutForDPI(dpi, rows)
+			layout := layoutForDPI(dpi, rows, 5)
 			noticeHeight := layout.NoticeMinHeight
 			const frame = 39
-			height := layoutWindowHeight(layout, rows, noticeHeight, frame)
+			height := layoutWindowHeight(layout, rows, 5, noticeHeight, frame)
 			clientHeight := height - frame
 			rowsBottom := layout.Left + (rows-1)*layout.RowStep + layout.RowHeight
 			buttonsBottom := layout.ButtonTop + 4*layout.ButtonStep + layout.ButtonHeight
@@ -46,5 +46,23 @@ func TestLayoutFitsAtCommonDPIs(t *testing.T) {
 				t.Fatalf("DPI %d: content bottom %d + padding %d exceeds client height %d", dpi, bottom, layout.Padding, clientHeight)
 			}
 		})
+	}
+}
+
+func TestVisibleButtonLayoutsDoNotOverlapAndFit(t *testing.T) {
+	for _, dpi := range []int{96, 120, 144, 192} {
+		for _, rows := range []int{3, 4, 5} {
+			for _, buttons := range []int{3, 4, 5} {
+				for _, noticeHeight := range []int{100, 180, 320, 520} {
+					l := layoutForDPI(dpi, rows, buttons)
+					total := layoutWindowHeight(l, rows, buttons, noticeHeight, 39)
+					client := total - 39
+					buttonsBottom := l.ButtonTop + (buttons-1)*l.ButtonStep + l.ButtonHeight
+					if l.NoticeTop < buttonsBottom || l.NoticeTop+noticeHeight+l.Padding > client {
+						t.Fatalf("dpi=%d rows=%d buttons=%d notice=%d: layout=%+v total=%d", dpi, rows, buttons, noticeHeight, l, total)
+					}
+				}
+			}
+		}
 	}
 }

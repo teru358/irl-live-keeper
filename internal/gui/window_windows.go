@@ -85,7 +85,7 @@ func Run(ctx context.Context, stop context.CancelFunc, class string, a *app.App,
 		if systemDPI == 0 {
 			systemDPI = 96
 		}
-		metrics.MessageFont.Height = int32(int(metrics.MessageFont.Height) * dpi / systemDPI)
+		metrics.MessageFont.Height = int32(int(metrics.MessageFont.Height) * dpi * 115 / (systemDPI * 100))
 		newFont, _, _ := gdi.NewProc("CreateFontIndirectW").Call(uintptr(unsafe.Pointer(&metrics.MessageFont)))
 		if newFont == 0 {
 			return
@@ -118,7 +118,14 @@ func Run(ctx context.Context, stop context.CancelFunc, class string, a *app.App,
 		s := a.WindowState()
 		m := Build(s, dark)
 		noticeText := NoticeForWindow(m)
-		layout := layoutForDPI(dpi, len(m.Rows))
+		visibleButtons := 2
+		if m.Retry {
+			visibleButtons = 4
+		}
+		if m.Restore {
+			visibleButtons++
+		}
+		layout := layoutForDPI(dpi, len(m.Rows), visibleButtons)
 		for len(rows) < len(m.Rows) {
 			rows = append(rows, create("STATIC", "", 0))
 			colors = append(colors, fg)
@@ -134,12 +141,16 @@ func Run(ctx context.Context, stop context.CancelFunc, class string, a *app.App,
 			}
 		}
 		y := layout.ButtonTop
-		for i, b := range []struct {
-			h uintptr
-			k string
-		}{{open, "window_open"}, {quit, "window_exit"}, {logs, "window_logs"}, {retry, "window_retry"}, {restore, "window_restore"}} {
+		for _, b := range []struct {
+			h       uintptr
+			k       string
+			visible bool
+		}{{open, "window_open", true}, {quit, "window_exit", true}, {logs, "window_logs", m.Retry}, {retry, "window_retry", m.Retry}, {restore, "window_restore", m.Restore}} {
 			call("SetWindowTextW", b.h, ptr(Text(s.Language, b.k)))
-			move(b.h, layout.Left, y+i*layout.ButtonStep, layout.NoticeWidth, layout.ButtonHeight)
+			if b.visible {
+				move(b.h, layout.Left, y, layout.NoticeWidth, layout.ButtonHeight)
+				y += layout.ButtonStep
+			}
 		}
 		call("EnableWindow", open, boolint(m.CanOpen))
 		call("EnableWindow", retry, boolint(m.Retry))
@@ -173,7 +184,7 @@ func Run(ctx context.Context, stop context.CancelFunc, class string, a *app.App,
 		call("GetClientRect", uintptr(wnd.Hwnd()), uintptr(unsafe.Pointer(&client)))
 		frame := int(outer[3] - outer[1] - client[3])
 		top := layout.NoticeTop
-		total := layoutWindowHeight(layout, len(m.Rows), height, frame)
+		total := layoutWindowHeight(layout, len(m.Rows), visibleButtons, height, frame)
 		if available > 0 && total > available {
 			total = available
 			height = max(scaleDPI(24, dpi), total-frame-layout.Padding-top)

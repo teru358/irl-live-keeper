@@ -103,6 +103,20 @@ func TestServiceRows(t *testing.T) {
 	}
 }
 
+func TestMissingMediaMTXNoticeAppearsOnlyOnce(t *testing.T) {
+	warning := i18n.New("mediamtx.missing", "directory", "mediamtx")
+	s := app.WindowState{Language: i18n.JA, Snapshot: &core.Snapshot{
+		MediaMTX:  "stopped",
+		LastError: &core.LastError{Message: warning},
+		OBS:       core.OBSStatus{Warnings: []i18n.Msg{warning}},
+	}}
+	notice := Build(s, false).Notice
+	want := i18n.Render(i18n.JA, warning)
+	if got := strings.Count(notice, want); got != 1 {
+		t.Fatalf("MediaMTX の案内が %d 回出た: %q", got, notice)
+	}
+}
+
 func TestCameraDisplay(t *testing.T) {
 	for _, lang := range []i18n.Lang{i18n.JA, i18n.EN} {
 		for _, dark := range []bool{false, true} {

@@ -25,20 +25,22 @@ type windowLayout struct {
 
 // layoutForDPI contains only logical geometry, so the layout can be checked
 // without creating Windows controls.
-func layoutForDPI(dpi, rows int) (l windowLayout) {
+func layoutForDPI(dpi, rows, visibleButtons int) (l windowLayout) {
 	s := func(v int) int { return scaleDPI(v, dpi) }
 	l = windowLayout{
-		Width: s(540), Left: s(12), RowHeight: s(24), RowStep: s(28),
-		ButtonTop: s(16 + rows*28), ButtonStep: s(30), ButtonHeight: s(26),
-		NoticeTop: s(16 + rows*28 + 124), NoticeWidth: s(480), NoticeTextWidth: s(456),
+		Width: s(540), Left: s(12), RowHeight: s(28), RowStep: s(32),
+		ButtonTop: s(16 + rows*32), ButtonStep: s(35), ButtonHeight: s(30),
+		NoticeWidth: s(480), NoticeTextWidth: s(456),
 		NoticeMinHeight: s(100), Padding: s(12), MinimumHeight: s(431),
 	}
+	// Buttons occupy consecutive rows; hidden actions must not reserve space.
+	l.NoticeTop = l.ButtonTop + max(0, visibleButtons-1)*l.ButtonStep + l.ButtonHeight + s(8)
 	return
 }
 
-func layoutWindowHeight(l windowLayout, rows, noticeHeight, frame int) int {
+func layoutWindowHeight(l windowLayout, rows, visibleButtons, noticeHeight, frame int) int {
 	rowsBottom := l.Left + max(0, rows-1)*l.RowStep + l.RowHeight
-	buttonsBottom := l.ButtonTop + 4*l.ButtonStep + l.ButtonHeight
+	buttonsBottom := l.ButtonTop + max(0, visibleButtons-1)*l.ButtonStep + l.ButtonHeight
 	noticeBottom := l.NoticeTop + noticeHeight
 	contentBottom := max(rowsBottom, max(buttonsBottom, noticeBottom))
 	return max(l.MinimumHeight, contentBottom+l.Padding+frame)
@@ -146,6 +148,18 @@ func Build(s app.WindowState, dark bool) Model {
 			key = "window_restart_failed"
 		}
 		m.Notice = t(key) + "\n" + safe(s.Apply.Reason)
+	}
+	if m.Notice != "" {
+		seen := make(map[string]bool)
+		lines := strings.Split(m.Notice, "\n")
+		unique := lines[:0]
+		for _, line := range lines {
+			if !seen[line] {
+				seen[line] = true
+				unique = append(unique, line)
+			}
+		}
+		m.Notice = strings.Join(unique, "\n")
 	}
 	return m
 }
