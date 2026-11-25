@@ -82,6 +82,11 @@ func TestDesignV019Elements(t *testing.T) {
 			t.Fatal(id)
 		}
 	}
+	for _, part := range []string{"qrcode(0,'M')", "el('phone-qr').append", "createSvgTag"} {
+		if !strings.Contains(string(js), part) {
+			t.Fatal(part)
+		}
+	}
 	for key := range i18n.UI(i18n.JA) {
 		if strings.HasPrefix(key, "setting_") || strings.HasPrefix(key, "phone_") || strings.HasPrefix(key, "settings_group_") {
 			if i18n.UI(i18n.EN)[key] == "" {

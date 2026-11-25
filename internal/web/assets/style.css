@@ -212,11 +212,6 @@ body.in-standby .standby-tile { display: none; }
 #sender-address { display: block; width: 100%; min-height: 48px; margin-top: 6px; font-size: 16px; }
 .send-cam .seg { display: flex; margin: 10px 0 12px; }
 .send-cam .seg button { flex: 1; min-height: 48px; }
-.sender-qr { margin-top: 16px; }
-.sender-qr-toggle { min-height: 48px; padding: 8px 14px; border: 2px solid var(--act); border-radius: 10px; background: transparent; color: var(--act); font-weight: 700; }
-.sender-qr-image { width: min(256px, 100%); min-width: 240px; margin-top: 10px; padding: 8px; box-sizing: border-box; background: #fff; }
-.sender-qr-image svg { display: block; width: 100%; height: auto; }
-
 #obs[data-connected="true"]{color:var(--ok)}
 #obs[data-connected="false"]{color:var(--down)}
 
