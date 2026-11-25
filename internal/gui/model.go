@@ -28,8 +28,8 @@ type windowLayout struct {
 func layoutForDPI(dpi, rows, visibleButtons int) (l windowLayout) {
 	s := func(v int) int { return scaleDPI(v, dpi) }
 	l = windowLayout{
-		Width: s(540), Left: s(12), RowHeight: s(28), RowStep: s(32),
-		ButtonTop: s(16 + rows*32), ButtonStep: s(35), ButtonHeight: s(30),
+		Width: s(540), Left: s(12), RowHeight: s(36), RowStep: s(40),
+		ButtonTop: s(16 + rows*40), ButtonStep: s(43), ButtonHeight: s(38),
 		NoticeWidth: s(480), NoticeTextWidth: s(456),
 		NoticeMinHeight: s(100), Padding: s(12), MinimumHeight: s(431),
 	}

@@ -85,7 +85,7 @@ func Run(ctx context.Context, stop context.CancelFunc, class string, a *app.App,
 		if systemDPI == 0 {
 			systemDPI = 96
 		}
-		metrics.MessageFont.Height = int32(int(metrics.MessageFont.Height) * dpi * 115 / (systemDPI * 100))
+		metrics.MessageFont.Height = int32(int(metrics.MessageFont.Height) * dpi * 130 / (systemDPI * 100))
 		newFont, _, _ := gdi.NewProc("CreateFontIndirectW").Call(uintptr(unsafe.Pointer(&metrics.MessageFont)))
 		if newFont == 0 {
 			return
@@ -135,7 +135,7 @@ func Run(ctx context.Context, stop context.CancelFunc, class string, a *app.App,
 				call("ShowWindow", h, 5)
 				call("SetWindowTextW", h, ptr(m.Rows[i].Text))
 				colors[i] = m.Rows[i].Color
-				move(h, layout.Left, scaleDPI(12+i*28, dpi), layout.NoticeWidth, layout.RowHeight)
+				move(h, layout.Left, layout.Left+i*layout.RowStep, layout.NoticeWidth, layout.RowHeight)
 			} else {
 				call("ShowWindow", h, 0)
 			}
