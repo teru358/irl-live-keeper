@@ -118,6 +118,9 @@ func sourceKind(r *http.Request) string {
 	if ip != nil && ip.IsLoopback() {
 		return "local"
 	}
+	if v4 := ip.To4(); v4 != nil && v4[0] == 100 && v4[1] >= 64 && v4[1] <= 127 {
+		return "tailscale"
+	}
 	return "lan"
 }
 

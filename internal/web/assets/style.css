@@ -222,3 +222,16 @@ body.in-standby .standby-tile { display: none; }
 .settings-note{margin:40px 0 24px;color:var(--muted)}.settings-card{border:1px solid var(--line);border-radius:8px;padding:16px;margin:16px 0}.settings-card summary{cursor:pointer;font-weight:600}.settings-field .settings-badge{color:var(--ink);margin-left:4px}.settings-field input{box-shadow:none}
 .sender-table{width:100%;border-collapse:collapse;margin-top:16px}.sender-table .sender-field{display:table-row}.sender-table th{text-align:left;width:25%;font-weight:normal;padding:12px 8px}.sender-table td{padding:12px 8px;border-bottom:1px solid var(--line)}.sender-table input{width:100%;box-sizing:border-box;min-width:0}.sender-table button{margin:8px 8px 0 0}
 #phone-dialog{max-width:540px;width:calc(100% - 48px);box-sizing:border-box;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:12px;padding:24px}#phone-dialog::backdrop{background:#0008}#phone-qr svg{width:100%;max-width:320px;background:white}#phone-url{overflow-wrap:anywhere}#phone-dialog button{min-height:44px}#phone-address{max-width:100%;box-sizing:border-box}
+
+/* Shared password controls, including first-run setup. */
+.password-control{position:relative;display:inline-flex;flex:1;min-width:0;width:100%}
+.password-control input{width:100%;box-sizing:border-box;padding-right:48px!important}
+.password-eye{position:absolute;right:4px;top:50%;transform:translateY(-50%);width:40px;min-height:40px!important;padding:8px!important;margin:0!important;border:0!important;background:transparent!important;color:var(--ink)}
+.password-eye .eye-slash{display:none}.password-eye[aria-pressed=true] .eye-slash{display:block}
+#login input{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:10px}
+#settings-confirm h2{position:static;margin:0 0 20px}
+#settings-preview{margin-bottom:24px}#settings-preview p:first-child{margin-top:0}
+#settings-confirm>.row{margin-top:24px}
+#tally,.menu-btn{white-space:nowrap;flex-shrink:0}
+.sender-table{table-layout:fixed}.sender-table td{min-width:0}
+@media(max-width:599px){.top{gap:8px;padding:10px}.top h1{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tally{font-size:13px;padding:6px 8px}}

@@ -156,7 +156,10 @@
     "app.obs_url_missing": "OBS に対象のメディアソースがないか、ffmpeg_source ではないため URL を書き換えられませんでした。手で直してください",
     "mediamtx.missing": "MediaMTX の実行ファイルが見つかりません。{directory} に置くか、設定の mediamtx.binary で場所を指定してください。",
     "phone.lan_disabled": "LAN から開くをオンにしてください。",
-    "phone.invalid_host": "住所にはホスト名か IP アドレスを入力してください。"
+    "phone.invalid_host": "住所にはホスト名か IP アドレスを入力してください。",
+    "settings.invalid": "設定の内容を確認してください。",
+    "settings.applying": "設定を反映しています。完了してからやり直してください。",
+    "settings.hash_conflict": "設定が変更されています。読み直してからやり直してください。"
   },
   "ui": {
     "title": "IRL Live Keeper",
@@ -369,7 +372,7 @@
     "settings_group_other": "その他",
     "settings_restart_note": "＊ 反映にはアプリの再起動が必要",
     "settings_scene_missing": "OBS にありません",
-    "sender_copy_all": "URL を全部コピー",
+    "sender_copy_all": "ユーザー名とパスワードを含む URL を全部コピー",
     "sender_port": "ポート",
     "phone_open": "スマホで開く",
     "phone_hint": "屋外で使う住所を選び、出かける前に読み取ってください。ログインは住所ごとに別で、7日間有効です。",
@@ -424,6 +427,12 @@
     "setting_down_sec_help": "受信がなくなってから DOWN と判断するまでの秒数。",
     "setting_dir_help": "ログファイルを書き込むフォルダー。",
     "setting_keep_days_help": "この日数を超えたログを削除します。",
-    "setting_close_action_help": "窓の閉じるボタンを押したときの動作。"
+    "setting_close_action_help": "窓の閉じるボタンを押したときの動作。",
+    "settings_default_binary": "本体と同じフォルダ",
+    "settings_default_obs_read_host": "自動（127.0.0.1）",
+    "settings_default_publish_host": "自動（LAN の IPv4、見つからなければ 127.0.0.1）",
+    "settings_same_port": "{name}と同じ（{port}）",
+    "settings_undone": "取り消しました。",
+    "settings_lan_notice": "通信は平文で、LAN 内で盗み見られるおそれがあります。接続できる機器からパスワードの表示と設定の変更ができます。外からは通信が暗号化される VPN（Tailscale など）を使い、ルーターで転送しないでください。VPN の相手の機器からも操作できます。"
   }
 }

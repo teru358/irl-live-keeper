@@ -96,7 +96,7 @@ func TestSettingsOrder(t *testing.T) {
 		key                                       string
 	}{
 		{name: "applying", applying: true, code: 409, key: "applying"},
-		{name: "hash", lan: true, invalid: true, code: 409, key: "hash: reload settings"},
+		{name: "hash", lan: true, invalid: true, code: 409, key: "settings.hash_conflict"},
 		{name: "local", hash: true, lan: true, invalid: true, code: 403, key: "settings.local_only"},
 		{name: "validation", hash: true, invalid: true, port: true, code: 422, key: "fields"},
 		{name: "ports", hash: true, port: true, code: 422, key: "admin.port"},
@@ -440,5 +440,25 @@ func TestSettingsChangesListLength(t *testing.T) {
 	changes := settingsChanges(&next, settings.ClassifyChanges(&old, &next, true))
 	if len(changes) != 1 || changes[0].Path != "cameras" {
 		t.Fatalf("%+v", changes)
+	}
+}
+
+func TestRevertAuditOnly(t *testing.T) {
+	b := settingsFixture(t)
+	backup := *b.store.Current
+	backup.Log.KeepDays++
+	b.store.BackupRaw = configBytes(t, &backup)
+	var output bytes.Buffer
+	r := httptest.NewRequest("POST", "/api/settings/revert", strings.NewReader("{}"))
+	r.RemoteAddr = "127.0.0.1:4"
+	r.Header.Set(headerName, "1")
+	r = r.WithContext(context.WithValue(r.Context(), loggerKey{}, slog.New(slog.NewTextHandler(&output, nil))))
+	w := httptest.NewRecorder()
+	apiHandler(b, nil).ServeHTTP(w, r)
+	if w.Code != 202 {
+		t.Fatalf("%d %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(output.String(), "settings reverted") || strings.Contains(output.String(), "settings saved") {
+		t.Fatal(output.String())
 	}
 }

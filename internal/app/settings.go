@@ -186,7 +186,7 @@ func (b *pageBackend) SettingsTransaction(fn func(*web.SettingsStore)) error {
 	return nil
 }
 
-func (b *pageBackend) MarkRevert() { b.app.apply.Kind = ApplyRevert }
+func (b *pageBackend) MarkRevert() { b.app.apply.Kind = ApplyKind("settings_revert") }
 
 // ApplySaved は保存に成功したあと App.mu 内で呼ぶ。版と印を保持し、反映中にする。
 func (b *pageBackend) ApplySaved(old, next *config.Config, summary settings.ChangeSummary, updateOBSInput bool) {
@@ -316,7 +316,8 @@ func (a *App) applyLive(g *generation, saved *savedSettings) {
 		a.hash = sha256.Sum256(raw)
 	}
 	a.liveConfig = cfg
-	a.apply = Apply{State: ApplyApplied, Kind: ApplyKind("live")}
+	kind := a.apply.Kind
+	a.apply = Apply{State: ApplyApplied, Kind: kind}
 }
 
 // configureProcess は世代の作る順5。保存した Cookie の識別子はここまで保持する。

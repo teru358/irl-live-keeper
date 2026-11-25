@@ -134,3 +134,23 @@ func TestInjectedOperationLogger(t *testing.T) {
 		}
 	}
 }
+
+func TestSourceKindPeerAddress(t *testing.T) {
+	for _, tc := range []struct{ peer, want string }{
+		{"127.0.0.1:1234", "local"}, {"[::1]:1234", "local"},
+		{"192.168.1.2:1234", "lan"}, {"100.63.255.255:1234", "lan"},
+		{"100.64.0.0:1234", "tailscale"}, {"100.127.255.255:1234", "tailscale"},
+		{"100.128.0.0:1234", "lan"}, {"[::ffff:100.64.1.2]:1234", "tailscale"},
+		{"invalid", "lan"},
+	} {
+		t.Run(tc.peer, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodGet, "/", nil)
+			r.RemoteAddr = tc.peer
+			r.Header.Set("X-Forwarded-For", "100.64.1.1")
+			r.Header.Set("X-Real-IP", "127.0.0.1")
+			if got := sourceKind(r); got != tc.want {
+				t.Fatalf("got %s, want %s", got, tc.want)
+			}
+		})
+	}
+}

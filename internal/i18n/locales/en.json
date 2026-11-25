@@ -156,7 +156,10 @@
     "app.obs_url_missing": "The OBS media source was not found or is not an ffmpeg source, so its URL could not be updated. Please update it manually",
     "mediamtx.missing": "MediaMTX executable was not found. Place it in {directory} or specify its location with mediamtx.binary.",
     "phone.lan_disabled": "Enable LAN access first.",
-    "phone.invalid_host": "Enter a hostname or IP address."
+    "phone.invalid_host": "Enter a hostname or IP address.",
+    "settings.invalid": "Check the settings values.",
+    "settings.applying": "Settings are being applied. Try again when complete.",
+    "settings.hash_conflict": "Settings have changed. Reload them and try again."
   },
   "ui": {
     "title": "IRL Live Keeper",
@@ -369,7 +372,7 @@
     "settings_group_other": "Other",
     "settings_restart_note": "＊ Restart the app to apply these settings",
     "settings_scene_missing": "Not found in OBS",
-    "sender_copy_all": "Copy full URL",
+    "sender_copy_all": "Copy full URL including username and password",
     "sender_port": "Port",
     "phone_open": "Open on phone",
     "phone_hint": "Choose the address you will use outdoors and scan before leaving. Login is separate for each address and lasts seven days.",
@@ -424,6 +427,12 @@
     "setting_down_sec_help": "Seconds without reception before classifying as DOWN.",
     "setting_dir_help": "Folder in which log files are written.",
     "setting_keep_days_help": "Delete logs older than this number of days.",
-    "setting_close_action_help": "Action when the window close button is pressed."
+    "setting_close_action_help": "Action when the window close button is pressed.",
+    "settings_default_binary": "Same folder as the application",
+    "settings_default_obs_read_host": "Automatic (127.0.0.1)",
+    "settings_default_publish_host": "Automatic (LAN IPv4, or 127.0.0.1 if unavailable)",
+    "settings_same_port": "Same as {name} ({port})",
+    "settings_undone": "Settings reverted.",
+    "settings_lan_notice": "Traffic is unencrypted and may be observed on the LAN. Connected devices can view passwords and change settings. Use an encrypted VPN such as Tailscale for remote access; do not forward the port on your router. VPN peers can also operate this page. "
   }
 }

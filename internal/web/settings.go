@@ -246,7 +246,9 @@ func serveSettings(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.
 		for _, field := range summary.Fields {
 			paths = append(paths, field.Path)
 		}
-		requestLogger(r).Info("settings saved", "paths", paths, "apply", summary.Apply, "source", sourceKind(r))
+		if !revert {
+			requestLogger(r).Info("settings saved", "paths", paths, "apply", summary.Apply, "source", sourceKind(r))
+		}
 		if revert {
 			requestLogger(r).Info("settings reverted", "source", sourceKind(r))
 		}
@@ -291,13 +293,13 @@ func serveSettings(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.
 func settingsMessage(key string) i18n.Msg {
 	switch key {
 	case "settings.applying":
-		return i18n.New("api.invalid", "reason", "applying")
+		return i18n.New("settings.applying")
 	case "settings.hash_conflict":
-		return i18n.New("api.invalid", "reason", "hash: reload settings")
+		return i18n.New("settings.hash_conflict")
 	case "settings.invalid":
-		return i18n.New("api.invalid", "reason", "values")
+		return i18n.New("settings.invalid")
 	case "settings.not_implemented":
-		return i18n.New("api.invalid", "reason", "not implemented")
+		return i18n.New("settings.invalid")
 	case "settings.backup_missing", "settings.no_revert_difference":
 		return i18n.New(key)
 	default:

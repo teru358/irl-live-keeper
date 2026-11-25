@@ -14,7 +14,7 @@ func init() {
 }
 
 func init() {
-	Codes = append(Codes, "api.scene_missing", "api.scene_failed", "settings.local_only", "settings.admin_lan_close", "settings.port_missing", "settings.port_busy", "settings.backup_missing", "settings.no_revert_difference", "settings.admin_password_unset", "app.settings_apply_failed", "app.obs_url_pending", "app.obs_url_missing")
+	Codes = append(Codes, "api.scene_missing", "api.scene_failed", "settings.invalid", "settings.applying", "settings.hash_conflict", "settings.local_only", "settings.admin_lan_close", "settings.port_missing", "settings.port_busy", "settings.backup_missing", "settings.no_revert_difference", "settings.admin_password_unset", "app.settings_apply_failed", "app.obs_url_pending", "app.obs_url_missing")
 }
 
 func init() { Codes = append(Codes, "mediamtx.missing") }
