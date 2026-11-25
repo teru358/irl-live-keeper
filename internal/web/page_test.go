@@ -53,10 +53,32 @@ func TestPageStatusRestartSession(t *testing.T) {
 	if !strings.Contains(call("/", "GET", false).Body.String(), `"login":true`) {
 		t.Fatal("未認証の画面")
 	}
-	for _, path := range []string{"/assets/login.js", "/assets/style.css", "/assets/vendor/qrcode-generator-2.0.4.js"} {
+	for _, path := range []string{"/assets/login.js", "/assets/style.css", "/assets/vendor/qrcode-generator-2.0.4.js", "/assets/favicon-32.png", "/favicon.ico"} {
 		w := call(path, "GET", false)
-		if w.Code != 200 || !strings.Contains(w.Header().Get("Content-Type"), map[bool]string{true: "javascript", false: "text/css"}[strings.HasSuffix(path, "js")]) {
+		wantType := "text/css"
+		if strings.HasSuffix(path, "js") {
+			wantType = "javascript"
+		}
+		if strings.HasSuffix(path, ".png") || path == "/favicon.ico" {
+			wantType = "image/png"
+		}
+		if w.Code != 200 || !strings.Contains(w.Header().Get("Content-Type"), wantType) {
 			t.Fatal(path, w.Header())
+		}
+	}
+	pageHTML, err := assets.ReadFile("assets/page.html")
+	if err != nil || !strings.Contains(string(pageHTML), `<link rel="icon" type="image/png" href="/assets/favicon-32.png">`) || !strings.Contains(string(pageHTML), `<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">`) {
+		t.Fatal("favicon links missing from page head")
+	}
+	setupHandler := NewWithAuth(&fakeBackend{}, "", 8787, NewAuth(nil))
+	for _, path := range []string{"/assets/favicon-32.png", "/favicon.ico"} {
+		r := httptest.NewRequest("GET", path, nil)
+		r.Host = "localhost:8787"
+		r.RemoteAddr = "127.0.0.1:12345"
+		w := httptest.NewRecorder()
+		setupHandler.ServeHTTP(w, r)
+		if w.Code != 200 || !strings.Contains(w.Header().Get("Content-Type"), "image/png") {
+			t.Fatalf("password未設定時の %s: %d %v", path, w.Code, w.Header())
 		}
 	}
 	var status map[string]any

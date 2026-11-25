@@ -14,11 +14,17 @@ import (
 var assets embed.FS
 
 func serveAsset(w http.ResponseWriter, r *http.Request) bool {
-	if !strings.HasPrefix(r.URL.Path, "/assets/") {
+	path := r.URL.Path
+	if path == "/favicon.ico" {
+		path = "/assets/favicon-32.png"
+	}
+	if !strings.HasPrefix(path, "/assets/") {
 		return false
 	}
 	sub, _ := fs.Sub(assets, "assets")
-	http.StripPrefix("/assets/", http.FileServer(http.FS(sub))).ServeHTTP(w, r)
+	assetRequest := r.Clone(r.Context())
+	assetRequest.URL.Path = strings.TrimPrefix(path, "/assets/")
+	http.FileServer(http.FS(sub)).ServeHTTP(w, assetRequest)
 	return true
 }
 func servePage(w http.ResponseWriter, b Backend, login bool, setup ...bool) {

@@ -271,7 +271,7 @@ func NewWithLogger(b Backend, password string, port int, a *Auth, events *Events
 				servePage(w, b, true, true)
 				return
 			}
-			if r.URL.Path != "/api/setup" && r.URL.Path != "/auth/once" && !(r.Method == "GET" && (r.URL.Path == "/assets/login.js" || r.URL.Path == "/assets/style.css")) {
+			if r.URL.Path != "/api/setup" && r.URL.Path != "/auth/once" && !(r.Method == "GET" && (r.URL.Path == "/assets/login.js" || r.URL.Path == "/assets/style.css" || r.URL.Path == "/assets/favicon-32.png" || r.URL.Path == "/assets/apple-touch-icon.png" || r.URL.Path == "/favicon.ico")) {
 				fail(403, "api.setup_local")
 				return
 			}
