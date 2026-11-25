@@ -8,6 +8,49 @@ import (
 	"strings"
 )
 
+func noticeAreaHeight(textHeight, minimum, padding int) int {
+	return max(minimum, textHeight+padding)
+}
+
+func windowHeight(top, noticeHeight, padding, frame, minimum int) int {
+	return max(minimum, top+noticeHeight+padding+frame)
+}
+
+type windowLayout struct {
+	Width, Left, RowHeight, RowStep                                   int
+	ButtonTop, ButtonStep, ButtonHeight                               int
+	NoticeTop, NoticeWidth, NoticeTextWidth, NoticeMinHeight, Padding int
+	MinimumHeight                                                     int
+}
+
+// layoutForDPI contains only logical geometry, so the layout can be checked
+// without creating Windows controls.
+func layoutForDPI(dpi, rows int) (l windowLayout) {
+	s := func(v int) int { return scaleDPI(v, dpi) }
+	l = windowLayout{
+		Width: s(540), Left: s(12), RowHeight: s(24), RowStep: s(28),
+		ButtonTop: s(16 + rows*28), ButtonStep: s(30), ButtonHeight: s(26),
+		NoticeTop: s(16 + rows*28 + 124), NoticeWidth: s(480), NoticeTextWidth: s(456),
+		NoticeMinHeight: s(100), Padding: s(12), MinimumHeight: s(431),
+	}
+	return
+}
+
+func layoutWindowHeight(l windowLayout, rows, noticeHeight, frame int) int {
+	rowsBottom := l.Left + max(0, rows-1)*l.RowStep + l.RowHeight
+	buttonsBottom := l.ButtonTop + 4*l.ButtonStep + l.ButtonHeight
+	noticeBottom := l.NoticeTop + noticeHeight
+	contentBottom := max(rowsBottom, max(buttonsBottom, noticeBottom))
+	return max(l.MinimumHeight, contentBottom+l.Padding+frame)
+}
+
+func scaleDPI(value, dpi int) int {
+	if dpi <= 0 {
+		dpi = 96
+	}
+	return (value*dpi + 48) / 96
+}
+
 type Row struct{ Text, Color string }
 type Model struct {
 	Rows                    []Row

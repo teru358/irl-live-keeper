@@ -17,6 +17,21 @@ import (
 
 var user = windows.NewLazySystemDLL("user32.dll")
 var gdi = windows.NewLazySystemDLL("gdi32.dll")
+var uxtheme = windows.NewLazySystemDLL("uxtheme.dll")
+
+type logFontW struct {
+	Height, Width, Escapement, Orientation, Weight                                              int32
+	Italic, Underline, StrikeOut, CharSet, OutPrecision, ClipPrecision, Quality, PitchAndFamily byte
+	FaceName                                                                                    [32]uint16
+}
+
+type nonClientMetrics struct {
+	Size                                                                uint32
+	BorderWidth, ScrollWidth, ScrollHeight, CaptionWidth, CaptionHeight int32
+	SmallCaptionWidth, SmallCaptionHeight, MenuWidth, MenuHeight        int32
+	CaptionFont, SmallCaptionFont, MenuFont, StatusFont, MessageFont    logFontW
+	PaddedBorderWidth                                                   int32
+}
 
 func call(name string, args ...uintptr) uintptr {
 	r, _, _ := user.NewProc(name).Call(args...)
@@ -56,17 +71,54 @@ func Run(ctx context.Context, stop context.CancelFunc, class string, a *app.App,
 	var rows []uintptr
 	var colors []string
 	var notice, open, quit, logs, retry, restore uintptr
+	var font uintptr
+	var dpi int
 	var lastNotice string
 	done := make(chan int, 1)
 	started := false
-	create := func(kind, text string, id int) uintptr {
-		return call("CreateWindowExW", 0, ptr(kind), ptr(text), 0x50000000, 12, 12, 480, 24, uintptr(wnd.Hwnd()), uintptr(id), 0, 0)
+	applyFont := func() {
+		metrics := nonClientMetrics{Size: uint32(unsafe.Sizeof(nonClientMetrics{}))}
+		if call("SystemParametersInfoW", 0x29, uintptr(metrics.Size), uintptr(unsafe.Pointer(&metrics)), 0) == 0 {
+			return
+		}
+		systemDPI := int(call("GetDpiForSystem"))
+		if systemDPI == 0 {
+			systemDPI = 96
+		}
+		metrics.MessageFont.Height = int32(int(metrics.MessageFont.Height) * dpi / systemDPI)
+		newFont, _, _ := gdi.NewProc("CreateFontIndirectW").Call(uintptr(unsafe.Pointer(&metrics.MessageFont)))
+		if newFont == 0 {
+			return
+		}
+		oldFont := font
+		font = newFont
+		for _, h := range []uintptr{open, quit, logs, retry, restore, notice} {
+			if h != 0 {
+				call("SendMessageW", h, 0x30, font, 1)
+			}
+		}
+		if oldFont != 0 {
+			gdi.NewProc("DeleteObject").Call(oldFont)
+		}
 	}
-	move := func(h uintptr, y, height int) { call("MoveWindow", h, 12, uintptr(y), 480, uintptr(height), 1) }
+	create := func(kind, text string, id int) uintptr {
+		h := call("CreateWindowExW", 0, ptr(kind), ptr(text), 0x50000000, 12, 12, 480, 24, uintptr(wnd.Hwnd()), uintptr(id), 0, 0)
+		if font != 0 {
+			call("SendMessageW", h, 0x30, font, 1)
+		}
+		if dark {
+			uxtheme.NewProc("SetWindowTheme").Call(h, ptr("DarkMode_Explorer"), 0)
+		}
+		return h
+	}
+	move := func(h uintptr, x, y, width, height int) {
+		call("MoveWindow", h, uintptr(x), uintptr(y), uintptr(width), uintptr(height), 1)
+	}
 	update := func() {
 		s := a.WindowState()
 		m := Build(s, dark)
 		noticeText := NoticeForWindow(m)
+		layout := layoutForDPI(dpi, len(m.Rows))
 		for len(rows) < len(m.Rows) {
 			rows = append(rows, create("STATIC", "", 0))
 			colors = append(colors, fg)
@@ -76,18 +128,18 @@ func Run(ctx context.Context, stop context.CancelFunc, class string, a *app.App,
 				call("ShowWindow", h, 5)
 				call("SetWindowTextW", h, ptr(m.Rows[i].Text))
 				colors[i] = m.Rows[i].Color
-				move(h, 12+i*28, 24)
+				move(h, layout.Left, scaleDPI(12+i*28, dpi), layout.NoticeWidth, layout.RowHeight)
 			} else {
 				call("ShowWindow", h, 0)
 			}
 		}
-		y := 16 + len(m.Rows)*28
+		y := layout.ButtonTop
 		for i, b := range []struct {
 			h uintptr
 			k string
 		}{{open, "window_open"}, {quit, "window_exit"}, {logs, "window_logs"}, {retry, "window_retry"}, {restore, "window_restore"}} {
 			call("SetWindowTextW", b.h, ptr(Text(s.Language, b.k)))
-			move(b.h, y+i*30, 26)
+			move(b.h, layout.Left, y+i*layout.ButtonStep, layout.NoticeWidth, layout.ButtonHeight)
 		}
 		call("EnableWindow", open, boolint(m.CanOpen))
 		call("EnableWindow", retry, boolint(m.Retry))
@@ -100,11 +152,11 @@ func Run(ctx context.Context, stop context.CancelFunc, class string, a *app.App,
 		dc := call("GetDC", notice)
 		font := call("SendMessageW", notice, 0x31, 0, 0)
 		oldFont, _, _ := gdi.NewProc("SelectObject").Call(dc, font)
-		rect := [4]int32{0, 0, 456, 0}
+		rect := [4]int32{0, 0, int32(layout.NoticeTextWidth), 0}
 		call("DrawTextW", dc, ptr(noticeText), ^uintptr(0), uintptr(unsafe.Pointer(&rect)), 0x10|0x400|0x800)
 		gdi.NewProc("SelectObject").Call(dc, oldFont)
 		call("ReleaseDC", notice, dc)
-		height := max(100, int(rect[3])+12)
+		height := noticeAreaHeight(int(rect[3]), layout.NoticeMinHeight, layout.Padding)
 		var work [4]int32
 		monitor := call("MonitorFromWindow", uintptr(wnd.Hwnd()), 2)
 		info := struct {
@@ -120,24 +172,24 @@ func Run(ctx context.Context, stop context.CancelFunc, class string, a *app.App,
 		call("GetWindowRect", uintptr(wnd.Hwnd()), uintptr(unsafe.Pointer(&outer)))
 		call("GetClientRect", uintptr(wnd.Hwnd()), uintptr(unsafe.Pointer(&client)))
 		frame := int(outer[3] - outer[1] - client[3])
-		top := y + 124
-		total := top + height + 12 + frame
+		top := layout.NoticeTop
+		total := layoutWindowHeight(layout, len(m.Rows), height, frame)
 		if available > 0 && total > available {
 			total = available
-			height = max(24, total-frame-top-12)
+			height = max(scaleDPI(24, dpi), total-frame-layout.Padding-top)
 		}
-		move(notice, top, height)
+		move(notice, layout.Left, top, layout.NoticeWidth, height)
 		if lastNotice != noticeText {
 			call("SetWindowTextW", notice, ptr(noticeText))
 			lastNotice = noticeText
 		}
-		call("ShowScrollBar", notice, 1, boolint(int(rect[3])+12 > height))
-		if int(outer[3]-outer[1]) != total {
+		call("ShowScrollBar", notice, 1, boolint(int(rect[3])+layout.Padding > height))
+		if int(outer[3]-outer[1]) != total || int(outer[2]-outer[0]) != layout.Width {
 			newY := int(outer[1])
 			if available > 0 && newY+total > int(work[3]) {
 				newY = int(work[3]) - total
 			}
-			call("SetWindowPos", uintptr(wnd.Hwnd()), 0, uintptr(outer[0]), uintptr(newY), 540, uintptr(total), 4)
+			call("SetWindowPos", uintptr(wnd.Hwnd()), 0, uintptr(outer[0]), uintptr(newY), uintptr(layout.Width), uintptr(total), 4)
 		}
 		call("InvalidateRect", uintptr(wnd.Hwnd()), 0, 1)
 	}
@@ -169,6 +221,16 @@ func Run(ctx context.Context, stop context.CancelFunc, class string, a *app.App,
 		restore = uintptr(buttons[4].Hwnd())
 		// 読み取り専用の複数行欄。作業領域を超える長文はスクロールできる。
 		notice = call("CreateWindowExW", 0, ptr("EDIT"), ptr(""), 0x50210844, 12, 12, 480, 100, uintptr(wnd.Hwnd()), 104, 0, 0)
+		dpi = int(call("GetDpiForWindow", uintptr(wnd.Hwnd())))
+		if dpi == 0 {
+			dpi = 96
+		}
+		applyFont()
+		if dark {
+			for _, h := range []uintptr{open, quit, logs, retry, restore, notice} {
+				uxtheme.NewProc("SetWindowTheme").Call(h, ptr("DarkMode_Explorer"), 0)
+			}
+		}
 		if dark {
 			v := int32(1)
 			p := windows.NewLazySystemDLL("dwmapi.dll").NewProc("DwmSetWindowAttribute")
@@ -191,6 +253,20 @@ func Run(ctx context.Context, stop context.CancelFunc, class string, a *app.App,
 		default:
 			update()
 		}
+	})
+	wnd.On().Wm(co.WM(0x02e0), func(p ui.Wm) uintptr {
+		dpi = int(p.WParam & 0xffff)
+		if dpi <= 0 {
+			dpi = int(call("GetDpiForWindow", uintptr(wnd.Hwnd())))
+		}
+		var suggested [4]int32
+		if p.LParam != 0 {
+			windows.NewLazySystemDLL("kernel32.dll").NewProc("RtlMoveMemory").Call(uintptr(unsafe.Pointer(&suggested[0])), uintptr(p.LParam), unsafe.Sizeof(suggested))
+			call("SetWindowPos", uintptr(wnd.Hwnd()), 0, uintptr(suggested[0]), uintptr(suggested[1]), uintptr(suggested[2]-suggested[0]), uintptr(suggested[3]-suggested[1]), 4)
+		}
+		applyFont()
+		update()
+		return 0
 	})
 	buttons[0].On().BnClicked(func() {
 		u, e := a.WindowURL()
@@ -248,6 +324,9 @@ func Run(ctx context.Context, stop context.CancelFunc, class string, a *app.App,
 		return 1
 	})
 	wnd.RunAsMain()
+	if font != 0 {
+		gdi.NewProc("DeleteObject").Call(font)
+	}
 	stop()
 	if started {
 		return <-done
