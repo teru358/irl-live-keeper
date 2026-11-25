@@ -189,6 +189,8 @@ func route(path string) (switcher.CommandKind, string, bool) {
 	switch path {
 	case "/api/settings":
 		return 0, http.MethodGet, true
+	case "/api/phone-link":
+		return 0, http.MethodPost, true
 	case "/api/settings/preview":
 		return 0, http.MethodPost, true
 	case "/api/settings/revert":

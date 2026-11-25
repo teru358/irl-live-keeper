@@ -18,3 +18,5 @@ func init() {
 }
 
 func init() { Codes = append(Codes, "mediamtx.missing") }
+
+func init() { Codes = append(Codes, "phone.lan_disabled", "phone.invalid_host") }

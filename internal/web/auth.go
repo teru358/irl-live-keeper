@@ -395,7 +395,7 @@ func NewWithLogger(b Backend, password string, port int, a *Auth, events *Events
 			if !valid || r.URL.Query().Has("login") {
 				servePage(w, b, true)
 			} else {
-				servePage(w, b, false)
+				servePage(w, b, false, false, sourceKind(r) == "local")
 			}
 			return
 		}
@@ -412,6 +412,10 @@ func NewWithLogger(b Backend, password string, port int, a *Auth, events *Events
 				fail(401, "api.unauthorized")
 				return
 			}
+		}
+		if r.URL.Path == "/api/phone-link" {
+			servePhoneLink(w, r, b, a, port, lang)
+			return
 		}
 		if valid {
 			r = r.WithContext(context.WithValue(r.Context(), settingsSessionKey{}, c.Value))
