@@ -48,7 +48,7 @@ export function createEditor(container,{kind='template',value='',names=[],label=
  };
  const view=new EditorView({parent:container,state:EditorState.create({doc:value,extensions:[
   EditorState.phrases.of(phrases),EditorView.contentAttributes.of({'aria-label':label}),
-  lineNumbers(),drawSelection(),history(),lintGutter(),theme,syntaxHighlighting(colors),
+  lineNumbers(),EditorView.lineWrapping,drawSelection(),history(),lintGutter(),theme,syntaxHighlighting(colors),
   keymap.of([...completionKeymap,...defaultKeymap,...historyKeymap]),
   kind==='css'?css():[template,autocompletion({override:[completion]})],
   EditorView.updateListener.of(update=>{if(update.docChanged)onChange(update.state.doc.toString());}),
