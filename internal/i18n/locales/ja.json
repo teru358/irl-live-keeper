@@ -1,5 +1,9 @@
 {
   "messages": {
+    "template.syntax": "{line} 行 {column} 文字目: テンプレートの書き方が正しくありません",
+    "template.unknown": "{line} 行 {column} 文字目: 知らない値の名前です",
+    "template.format": "{line} 行 {column} 文字目: 型に合わない形です",
+    "template.comparison": "{line} 行 {column} 文字目: 時刻は比較できません",
     "fallback.scene": "scene_fallbacks の {row} 行目: scene「{name}」が OBS にないため、この行は使われません",
     "fallback.target": "scene_fallbacks の {row} 行目: fallback「{name}」が OBS にないため、共通の待機シーンへ逃がします",
     "hidden.retained": "別の OBS かシーンコレクションで隠した項目の記録が {count} 件残っています（その OBS とコレクションにつなぐと戻します）",

@@ -1,5 +1,9 @@
 {
   "messages": {
+    "template.syntax": "Line {line}, column {column}: Invalid template syntax",
+    "template.unknown": "Line {line}, column {column}: Unknown value name",
+    "template.format": "Line {line}, column {column}: Invalid format for type",
+    "template.comparison": "Line {line}, column {column}: Clock values cannot be compared",
     "fallback.scene": "scene_fallbacks row {row}: scene \"{name}\" is missing in OBS. This row is skipped.",
     "fallback.target": "scene_fallbacks row {row}: fallback \"{name}\" is missing in OBS. The shared standby scene will be used.",
     "hidden.retained": "{count} hidden item records remain for another OBS or scene collection. They will be restored when it is connected.",
