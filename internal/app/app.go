@@ -833,7 +833,9 @@ func (b *pageBackend) DisplayStatus() map[string]any {
 	}
 	return map[string]any{"apply": map[string]any{"state": v.State, "kind": v.Kind, "reason": v.Reason}, "generation": b.id, "language": b.language, "gui": map[string]any{"close_action": closeAction}, "admin": map[string]any{"lan": b.lan}}
 }
-func (b *pageBackend) PageLanguage() string { return b.language }
+func (b *pageBackend) PageLanguage() string                  { return b.language }
+func (b *pageBackend) SourceFilesStore() *sources.FilesStore { return b.app.SourceFilesStore() }
+func (b *pageBackend) AdminLANEnabled() bool                 { return b.lan }
 func (b *pageBackend) RestartHTTP() (int, error) {
 	err := b.app.Restart()
 	if errors.Is(err, ErrApplying) {

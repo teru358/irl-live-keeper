@@ -209,6 +209,10 @@ func NewWithLogger(b Backend, password string, port int, a *Auth, events *Events
 	name := "irl_session_" + strconv.Itoa(port)
 	var setupMu sync.Mutex
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/source/files/") {
+			serveSourceFile(w, r, b)
+			return
+		}
 		setupMu.Lock()
 		currentPassword := password
 		if provider, ok := b.(interface{ AdminPassword() string }); ok {

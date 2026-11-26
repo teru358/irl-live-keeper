@@ -168,7 +168,12 @@
     "sources.invalid": "Invalid source values or style range.",
     "sources.unreadable": "Cannot read sources.yaml, or its format or values are invalid. Repair it before saving.",
     "sources.duplicate": "Source name already exists.",
-    "sources.write_failed": "Cannot save sources."
+    "sources.write_failed": "Cannot save sources.",
+    "source_files.invalid": "Invalid image name, type, or contents. Use PNG, JPEG, GIF, WebP, AVIF, BMP, or SVG.",
+    "source_files.duplicate": "A file with that name already exists.",
+    "source_files.limit": "The limits are 5 MiB per file and 100 MiB total.",
+    "source_files.in_use": "This file is used by a source.",
+    "source_files.io": "Cannot read or write source files."
   },
   "ui": {
     "title": "IRL Live Keeper",

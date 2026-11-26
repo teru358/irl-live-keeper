@@ -15,3 +15,7 @@ func (a *App) SourcesStore() *sources.Store {
 }
 
 func (b *pageBackend) SourcesStore() *sources.Store { return b.sourceStore }
+
+func (a *App) SourceFilesStore() *sources.FilesStore {
+	return &sources.FilesStore{Dir: filepath.Join(a.opts.BaseDir, "source-files")}
+}

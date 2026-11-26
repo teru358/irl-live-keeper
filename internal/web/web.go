@@ -57,6 +57,13 @@ func apiHandler(b Backend, recent interface {
 				method = "GET"
 			}
 		}
+		if isSourceFilesAPI(r.URL.Path) {
+			method = sourceFilesMethod(r.URL.Path, r.Method)
+			if method == "" {
+				method = http.MethodGet
+			}
+			known = true
+		}
 		if r.URL.Path == "/api/settings" && r.Method == http.MethodPut {
 			method = http.MethodPut
 		}
@@ -78,6 +85,10 @@ func apiHandler(b Backend, recent interface {
 
 		if isSourcesPath(r.URL.Path) {
 			serveSources(w, r, b, lang)
+			return
+		}
+		if isSourceFilesAPI(r.URL.Path) {
+			serveSourceFilesAPI(w, r, b, lang)
 			return
 		}
 
@@ -197,6 +208,9 @@ func apiHandler(b Backend, recent interface {
 }
 
 func route(path string) (switcher.CommandKind, string, bool) {
+	if isSourceFilesAPI(path) {
+		return 0, http.MethodGet, true
+	}
 	if isSourcesPath(path) {
 		return 0, http.MethodGet, true
 	}

@@ -168,7 +168,12 @@
     "sources.invalid": "ソースの値または装飾の範囲が正しくありません。",
     "sources.unreadable": "sources.yaml を読み取れないか、形式・値が正しくありません。修正するまで保存できません。",
     "sources.duplicate": "ソースの名前が重複しています。",
-    "sources.write_failed": "ソースを保存できません。"
+    "sources.write_failed": "ソースを保存できません。",
+    "source_files.invalid": "画像の名前、形式、または内容が正しくありません。PNG・JPEG・GIF・WebP・AVIF・BMP・SVG を指定してください。",
+    "source_files.duplicate": "同じ名前の素材がすでにあります。",
+    "source_files.limit": "素材の上限は1ファイル5 MiB、合計100 MiBです。",
+    "source_files.in_use": "この素材はソースで使用中です。",
+    "source_files.io": "素材を読み書きできません。"
   },
   "ui": {
     "title": "IRL Live Keeper",

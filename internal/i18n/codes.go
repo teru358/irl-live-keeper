@@ -30,3 +30,7 @@ func init() {
 }
 
 func init() { Codes = append(Codes, "sources.render_failed") }
+
+func init() {
+	Codes = append(Codes, "source_files.invalid", "source_files.duplicate", "source_files.limit", "source_files.in_use", "source_files.io")
+}
