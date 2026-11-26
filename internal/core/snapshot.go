@@ -28,6 +28,7 @@ type Snapshot struct {
 
 // CameraStatus はカメラ1台の設定と、受信状態と最後の Sample の値。
 type CameraStatus struct {
+	StateSince  time.Time  `json:"-"`
 	FailKbps    float64    `json:"fail_kbps"`
 	RecoverKbps float64    `json:"recover_kbps"`
 	ID          string     `json:"id"`
@@ -79,9 +80,10 @@ type OBSStatus struct {
 // Stack は auto のスタック（下→上、今の地図での名前。0c）。auto 以外は空。ReturnScene は manual の単独の戻り先、
 // auto ならスタックの最下段。
 type StandbyStatus struct {
-	Owner       string   `json:"owner"` // none / auto / manual
-	ReturnScene *string  `json:"return_scene"`
-	Stack       []string `json:"stack"` // 空でも [] にする
+	Since       time.Time `json:"-"`
+	Owner       string    `json:"owner"` // none / auto / manual
+	ReturnScene *string   `json:"return_scene"`
+	Stack       []string  `json:"stack"` // 空でも [] にする
 }
 
 // LastError は最後に記録したエラー。Source は switcher か mediamtx。
@@ -208,6 +210,7 @@ func (c *Core) publish() {
 		e := *c.lastErr
 		s.LastError = &e
 	}
+	s.recordSince(c.snap.Load(), c.now())
 	c.snap.Store(&s)
 	c.notifySnapshot()
 }
@@ -377,4 +380,27 @@ func sceneDetails(m *scenemap.Map, standby string, rows []switcher.FallbackRow) 
 		}
 	}
 	return out
+}
+
+// recordSince は中核ループで公開する状態の開始時刻だけを記録する。
+func (s *Snapshot) recordSince(prev *Snapshot, now time.Time) {
+	for i := range s.Cameras {
+		cam := &s.Cameras[i]
+		cam.StateSince = now
+		if prev != nil {
+			for _, old := range prev.Cameras {
+				if old.ID == cam.ID && old.State == cam.State {
+					cam.StateSince = old.StateSince
+					break
+				}
+			}
+		}
+	}
+	s.OBS.Standby.Since = time.Time{}
+	if s.OBS.Standby.Owner != "none" {
+		s.OBS.Standby.Since = now
+		if prev != nil && prev.OBS.Standby.Owner != "none" {
+			s.OBS.Standby.Since = prev.OBS.Standby.Since
+		}
+	}
 }
