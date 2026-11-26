@@ -40,9 +40,27 @@ irl-live-keeper（MIT License）は、次のソフトウェアを利用してい
 | ソフトウェア | 版 | ライセンス | 著作権者 | 同梱ファイル |
 |---|---|---|---|---|
 | qrcode-generator | 2.0.4 | MIT | Copyright (c) 2009 Kazuhiko Arase | `internal/web/assets/vendor/qrcode-generator-2.0.4.js` |
+| lit-html | 3.3.3 | BSD-3-Clause | Copyright (c) 2017 Google LLC | `internal/web/assets/vendor/lit-html-3.3.3/`（`lit-html.js`、`directive.js`、`directive-helpers.js`、`directives/live.js`・`repeat.js`・`class-map.js`） |
+| @codemirror/state | 6.7.6 | MIT | Copyright (C) Marijn Haverbeke and others | `internal/web/assets/vendor/codemirror/codemirror-state@6.7.6.js` |
+| @codemirror/view | 6.43.15 | MIT | Copyright (C) Marijn Haverbeke and others | `internal/web/assets/vendor/codemirror/codemirror-view@6.43.15.js` |
+| @codemirror/language | 6.13.1 | MIT | Copyright (C) Marijn Haverbeke and others | `internal/web/assets/vendor/codemirror/codemirror-language@6.13.1.js` |
+| @codemirror/streamparser | 6.0.0 | MIT | Copyright (C) Marijn Haverbeke and others | `internal/web/assets/vendor/codemirror/codemirror-streamparser@6.0.0.js` |
+| @codemirror/commands | 6.11.1 | MIT | Copyright (C) Marijn Haverbeke and others | `internal/web/assets/vendor/codemirror/codemirror-commands@6.11.1.js` |
+| @codemirror/autocomplete | 6.20.4 | MIT | Copyright (C) Marijn Haverbeke and others | `internal/web/assets/vendor/codemirror/codemirror-autocomplete@6.20.4.js` |
+| @codemirror/lint | 6.9.7 | MIT | Copyright (C) Marijn Haverbeke and others | `internal/web/assets/vendor/codemirror/codemirror-lint@6.9.7.js` |
+| @codemirror/lang-css | 6.3.1 | MIT | Copyright (C) Marijn Haverbeke and others | `internal/web/assets/vendor/codemirror/codemirror-lang-css@6.3.1.js` |
+| @lezer/common | 1.5.5 | MIT | Copyright (C) Marijn Haverbeke and others | `internal/web/assets/vendor/codemirror/lezer-common@1.5.5.js` |
+| @lezer/highlight | 1.2.5 | MIT | Copyright (C) Marijn Haverbeke and others | `internal/web/assets/vendor/codemirror/lezer-highlight@1.2.5.js` |
+| @lezer/lr | 1.4.12 | MIT | Copyright (C) Marijn Haverbeke and others | `internal/web/assets/vendor/codemirror/lezer-lr@1.4.12.js` |
+| @lezer/css | 1.3.9 | MIT | Copyright (C) Marijn Haverbeke and others | `internal/web/assets/vendor/codemirror/lezer-css@1.3.9.js` |
+| style-mod | 4.1.4 | MIT | Copyright (C) Marijn Haverbeke and others | `internal/web/assets/vendor/codemirror/style-mod@4.1.4.js` |
+| crelt | 1.0.7 | MIT | Copyright (C) Marijn Haverbeke and others | `internal/web/assets/vendor/codemirror/crelt@1.0.7.js` |
+| w3c-keyname | 2.2.8 | MIT | Copyright (C) Marijn Haverbeke and others | `internal/web/assets/vendor/codemirror/w3c-keyname@2.2.8.js` |
+| @marijn/find-cluster-break | 1.0.4 | MIT | Copyright (C) Marijn Haverbeke and others | `internal/web/assets/vendor/codemirror/marijn-find-cluster-break@1.0.4.js` |
 
 - QR Code は株式会社デンソーウェーブの登録商標です。
-- 同梱するライセンスファイル: `internal/web/assets/vendor/LICENSE-qrcode-generator.txt`
+- 同梱するライセンスファイル: `internal/web/assets/vendor/LICENSE-qrcode-generator.txt`、`internal/web/assets/vendor/lit-html-3.3.3/LICENSE`、`internal/web/assets/vendor/codemirror/LICENSES/*.txt`
+- 同梱したファイルの版・取得元・sha256 は `internal/web/assets/vendor/VENDOR.txt`（npm の登録所の tarball を `dist.integrity` と照合して、手を加えずに置いた。2026-11-26）
 
 ### qrcode-generator の MIT License
 
