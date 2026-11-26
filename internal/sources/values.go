@@ -57,8 +57,8 @@ func cameraDefinitions(d map[string]template.Definition, p string) {
 	}
 }
 
-// Values は Render に渡す値。now は本体の時計を渡す。OBS 統計は S2-50 まで未定義。
-func Values(s core.Snapshot, now time.Time) map[string]template.Value {
+// Values は Render に渡す値。now は本体の時計を渡す。stats は補助接続から読んだ統計。
+func Values(s core.Snapshot, now time.Time, stats ...map[string]template.Value) map[string]template.Value {
 	v := map[string]template.Value{}
 	for n, d := range Definitions(s) {
 		v[n] = template.Value{Type: d.Type}
@@ -116,5 +116,12 @@ func Values(s core.Snapshot, now time.Time) map[string]template.Value {
 	}
 	str("mediamtx.state", s.MediaMTX)
 	v["now"] = template.Value{Defined: true, Type: template.Clock, Time: now}
+	for _, values := range stats {
+		for n, x := range values {
+			if s.OBS.Connected && (s.OBS.Streaming || n == "obs.fps" || n == "obs.render_skipped") {
+				v[n] = x
+			}
+		}
+	}
 	return v
 }

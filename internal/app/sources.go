@@ -1,6 +1,7 @@
 package app
 
 import (
+	"github.com/teru358/irl-live-keeper/internal/obs"
 	"github.com/teru358/irl-live-keeper/internal/sources"
 	"path/filepath"
 )
@@ -19,3 +20,11 @@ func (b *pageBackend) SourcesStore() *sources.Store { return b.sourceStore }
 func (a *App) SourceFilesStore() *sources.FilesStore {
 	return &sources.FilesStore{Dir: filepath.Join(a.opts.BaseDir, "source-files")}
 }
+
+func statisticsReader(o obsRunner) sources.StatisticsReader {
+	if p, ok := o.(interface{ Aux() *obs.Aux }); ok {
+		return p.Aux()
+	}
+	return nil
+}
+func (b *pageBackend) StatisticsReader() sources.StatisticsReader { return b.statistics }

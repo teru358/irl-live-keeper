@@ -607,3 +607,20 @@ func (p *parser) block() (node, error) {
 func wordToken(k string) bool {
 	return k == "name" || k == "number" || strings.Contains(" if elif else end and or not true false ", " "+k+" ")
 }
+
+// References reports whether name occurs as an identifier in a template tag.
+func References(text, name string) bool {
+	p := &parser{source: text}
+	err := p.lex()
+	if err != nil {
+		return false
+	}
+	for _, p := range p.parts {
+		for _, t := range p.ts {
+			if t.kind == "name" && t.text == name {
+				return true
+			}
+		}
+	}
+	return false
+}

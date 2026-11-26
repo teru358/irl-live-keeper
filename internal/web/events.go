@@ -18,17 +18,19 @@ import (
 
 // Events は世代に一つだけ作る配信係。登録は core.Run の前に行う。
 type Events struct {
-	sourceTexts map[string]string
-	langs       []i18n.Lang
-	mu          sync.Mutex
-	clients     map[*eventClient]bool
-	closed      bool
-	done        chan struct{}
-	finished    chan struct{}
-	backend     Backend
-	apply       func() any
-	ticker      func(time.Duration) (<-chan time.Time, func())
-	recent      interface {
+	statistics     sources.Statistics
+	statisticsDone chan struct{}
+	sourceTexts    map[string]string
+	langs          []i18n.Lang
+	mu             sync.Mutex
+	clients        map[*eventClient]bool
+	closed         bool
+	done           chan struct{}
+	finished       chan struct{}
+	backend        Backend
+	apply          func() any
+	ticker         func(time.Duration) (<-chan time.Time, func())
+	recent         interface {
 		Recent(int, slog.Level) []logging.Line
 	}
 }
@@ -70,6 +72,8 @@ func NewEvents(b Backend, logger interface {
 	if logger != nil {
 		lines, unsub = logger.Subscribe(256)
 	}
+	e.statisticsDone = make(chan struct{})
+	go e.pollStatistics()
 	e.updateSources(time.Now())
 	ticks, stop := e.ticker(time.Second)
 	go func() {
@@ -183,6 +187,9 @@ func (e *Events) Close() {
 		<-ch
 	}
 	<-e.finished
+	if e.statisticsDone != nil {
+		<-e.statisticsDone
+	}
 }
 func (e *Events) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	lang := i18n.Select(r.URL.Query().Get("lang"), "", e.langs...)
@@ -310,7 +317,7 @@ func (e *Events) updateSources(now time.Time) {
 	list := sourceList(e.backend)
 	for _, s := range list {
 		snapshot := e.backend.Snapshot()
-		text, err := sources.Render(s, snapshot, now)
+		text, err := sources.Render(s, snapshot, now, e.statisticsValues(now))
 		if err != nil {
 			slog.Warn(i18n.Render(i18n.EN, i18n.New("sources.render_failed")), "name", s.Name, "reason", err)
 		}

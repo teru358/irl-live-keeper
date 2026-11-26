@@ -628,7 +628,7 @@ func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 	if a.sourcesStore == nil {
 		a.sourcesStore = &sources.Store{Path: filepath.Join(a.opts.BaseDir, "sources.yaml")}
 	}
-	backend := &pageBackend{sourceStore: a.sourcesStore, Backend: c, senderConfig: cfg, senderDefault: host, app: a, id: id, language: cfg.Language, closeAction: cfg.GUI.CloseAction, lan: cfg.Admin.LAN}
+	backend := &pageBackend{sourceStore: a.sourcesStore, statistics: statisticsReader(obsClient), Backend: c, senderConfig: cfg, senderDefault: host, app: a, id: id, language: cfg.Language, closeAction: cfg.GUI.CloseAction, lan: cfg.Admin.LAN}
 	g.events = web.NewEvents(backend, eventLogger, nil, lang)
 
 	stage("parts.start")
@@ -814,6 +814,7 @@ func loadConfigBytes(base string) (cfg *config.Config, generated bool, raw []byt
 // pageBackend は本体の操作と世代固有の表示情報を管理画面に渡す。
 type pageBackend struct {
 	web.Backend
+	statistics            sources.StatisticsReader
 	sourceStore           *sources.Store
 	senderConfig          *config.Config
 	senderDefault         string

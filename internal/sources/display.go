@@ -9,12 +9,12 @@ import (
 )
 
 // Render is the single template assembly path for public and administrative views.
-func Render(s Source, snapshot core.Snapshot, now time.Time) (string, error) {
+func Render(s Source, snapshot core.Snapshot, now time.Time, stats ...map[string]template.Value) (string, error) {
 	p, err := template.Compile(s.Template, Definitions(snapshot))
 	if err != nil {
 		return "", err
 	}
-	return p.Render(Values(snapshot, now)), nil
+	return p.Render(Values(snapshot, now, stats...)), nil
 }
 
 func cssString(s string) string {

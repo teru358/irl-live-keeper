@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/teru358/irl-live-keeper/internal/i18n"
 	"github.com/teru358/irl-live-keeper/internal/sources"
+	"github.com/teru358/irl-live-keeper/internal/sources/template"
 	"html"
 	"log/slog"
 	"net/http"
@@ -79,7 +80,11 @@ func serveSource(w http.ResponseWriter, r *http.Request, b Backend, e *Events, l
 			}
 			break
 		}
-		text, _ := sources.Render(s, b.Snapshot(), time.Now())
+		var stats map[string]template.Value
+		if e != nil {
+			stats = e.statisticsValues(time.Now())
+		}
+		text, _ := sources.Render(s, b.Snapshot(), time.Now(), stats)
 		empty := ""
 		if text == "" {
 			empty = " irl-empty"
