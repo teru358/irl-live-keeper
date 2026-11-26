@@ -176,6 +176,11 @@
     "source_files.io": "Cannot read or write source files."
   },
   "ui": {
+    "editor_completions": "Completions",
+    "editor_diagnostics": "Diagnostics",
+    "editor_no_diagnostics": "No diagnostics",
+    "editor_close": "close",
+    "editor_control_character": "Control character",
     "title": "IRL Live Keeper",
     "menu": "Menu",
     "status": "Status",

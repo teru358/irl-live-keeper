@@ -2,8 +2,10 @@ package web
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"io/fs"
 	"strings"
 	"testing"
@@ -57,5 +59,46 @@ func TestVendorFilesMatchRecord(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+// TestCodeMirrorImportMap matches every bundled entry point, including dependencies.
+func TestCodeMirrorImportMap(t *testing.T) {
+	page, err := assets.ReadFile("assets/page.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := []byte("<script type=\"importmap\">")
+	if bytes.Count(page, start) != 1 {
+		t.Fatal("expected one import map")
+	}
+	body := bytes.SplitN(bytes.SplitN(page, start, 2)[1], []byte("</script>"), 2)[0]
+	var mapping struct {
+		Imports map[string]string `json:"imports"`
+	}
+	if err := json.Unmarshal(body, &mapping); err != nil {
+		t.Fatal(err)
+	}
+	if len(mapping.Imports) != 16 {
+		t.Fatalf("got %d imports, want 16", len(mapping.Imports))
+	}
+	record, err := assets.ReadFile("assets/vendor/VENDOR.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	count := 0
+	for _, line := range strings.Split(string(record), "\n") {
+		cols := strings.Split(line, "\t")
+		if len(cols) != 6 || !strings.HasPrefix(cols[0], "codemirror/") || !strings.HasSuffix(cols[0], ".js") {
+			continue
+		}
+		count++
+		name := cols[1][:strings.LastIndex(cols[1], "@")]
+		if got := mapping.Imports[name]; got != "/assets/vendor/"+cols[0] {
+			t.Errorf("%s: %q", name, got)
+		}
+	}
+	if count != 16 {
+		t.Fatalf("record has %d entry points", count)
 	}
 }

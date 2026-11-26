@@ -176,6 +176,11 @@
     "source_files.io": "素材を読み書きできません。"
   },
   "ui": {
+    "editor_completions": "補完候補",
+    "editor_diagnostics": "誤りの一覧",
+    "editor_no_diagnostics": "誤りはありません",
+    "editor_close": "閉じる",
+    "editor_control_character": "制御文字",
     "title": "IRL Live Keeper",
     "menu": "メニュー",
     "status": "状態",

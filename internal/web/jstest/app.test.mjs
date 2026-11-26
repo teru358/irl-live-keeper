@@ -16,4 +16,15 @@ test('confirmation identifies password target and warns only for restart during 
 test('SSE leaves settings operation notice and edits intact',()=>{const s=createStore({notice:'settings_applied',values:{admin:{port:99}},baseline:'saved',errors:{'admin.port':'invalid'},readings:{},flashes:{},cameraStates:{},logs:[],logLevel:'INFO'});applyEvent(s,'status',{obs:{connected:true},cameras:[]});assert.equal(s.get().notice,'settings_applied');assert.equal(s.get().values.admin.port,99);assert.equal(s.get().errors['admin.port'],'invalid');});
 test('settings request failures preserve status and message for 403 409 500',async()=>{for(const status of [403,409,500]){const request=createAPI({lang:'en',t:()=> 'failed',login:false},async()=>({status,ok:false,json:async()=>({code:'api.failure',error:'failure '+status})}));await assert.rejects(request('settings',{values:{}},'PUT'),e=>e.status===status&&e.message==='failure '+status);}});
 import {readFileSync,existsSync,readdirSync} from 'node:fs';
-test('all application imports resolve to bundled files',()=>{const dir=new URL('../assets/app/',import.meta.url);for(const name of readdirSync(dir).filter(n=>n.endsWith('.js'))){const source=readFileSync(new URL(name,dir),'utf8');for(const match of source.matchAll(/from\s+['"]([^'"]+)['"]/g))assert.ok(existsSync(new URL(match[1],dir)),name+': '+match[1]);}});
+test('all application imports resolve to bundled files',()=>{
+ const dir=new URL('../assets/app/',import.meta.url);
+ const page=readFileSync(new URL('../assets/page.html',import.meta.url),'utf8');
+ const imports=JSON.parse(page.match(/<script type="importmap">([\s\S]*?)<\/script>/)[1]).imports;
+ for(const name of readdirSync(dir).filter(n=>n.endsWith('.js'))){
+  const source=readFileSync(new URL(name,dir),'utf8');
+  for(const match of source.matchAll(/(?:from\s*|import\s*\()['"]([^'"]+)['"]/g)){
+   const path=match[1].startsWith('.')?match[1]:imports[match[1]]?.replace('/assets/','../');
+   assert.ok(path&&existsSync(new URL(path,dir)),name+': '+match[1]);
+  }
+ }
+});
