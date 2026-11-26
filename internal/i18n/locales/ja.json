@@ -1,5 +1,6 @@
 {
   "messages": {
+    "sources.render_failed": "ソースの組み立てに失敗しました",
     "template.syntax": "{line} 行 {column} 文字目: テンプレートの書き方が正しくありません",
     "template.unknown": "{line} 行 {column} 文字目: 知らない値の名前です",
     "template.format": "{line} 行 {column} 文字目: 型に合わない形です",

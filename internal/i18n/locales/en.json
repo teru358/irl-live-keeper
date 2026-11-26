@@ -1,5 +1,6 @@
 {
   "messages": {
+    "sources.render_failed": "Source rendering failed",
     "template.syntax": "Line {line}, column {column}: Invalid template syntax",
     "template.unknown": "Line {line}, column {column}: Unknown value name",
     "template.format": "Line {line}, column {column}: Invalid format for type",

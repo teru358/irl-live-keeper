@@ -88,7 +88,7 @@ func TestEventsTopicsAuth(t *testing.T) {
 	e := NewEvents(eventBackend{}, nil, nil)
 	defer e.Close()
 	h := NewWithEvents(eventBackend{}, "pw", 8787, NewAuth(nil), e)
-	for _, topic := range []string{"sources", "unknown", ""} {
+	for _, topic := range []string{"unknown", ""} {
 		r := httptest.NewRequest("GET", "/api/events?topics="+topic, nil)
 		r.SetBasicAuth("admin", "pw")
 		w := httptest.NewRecorder()

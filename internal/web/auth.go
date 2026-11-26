@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
@@ -218,6 +219,10 @@ func NewWithLogger(b Backend, password string, port int, a *Auth, events *Events
 		// 合言葉を残さないよう、要求のログにはパスだけを書く。
 		log.Debug("Admin request", "method", r.Method, "path", r.URL.Path)
 		lang := i18n.Select(r.URL.Query().Get("lang"), r.Header.Get("Accept-Language"), langs...)
+		if strings.HasPrefix(r.URL.Path, "/source/") {
+			serveSource(w, r, b, events, lang)
+			return
+		}
 		fail := func(status int, code string) {
 			if code == "api.setup_local" {
 				writeJSON(w, status, map[string]string{"code": code, "error": i18n.UI(lang)[code]})

@@ -28,3 +28,5 @@ func init() {
 func init() {
 	Codes = append(Codes, "sources.invalid", "sources.unreadable", "sources.duplicate", "sources.write_failed")
 }
+
+func init() { Codes = append(Codes, "sources.render_failed") }

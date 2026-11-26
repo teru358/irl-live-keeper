@@ -13,3 +13,5 @@ func (a *App) SourcesStore() *sources.Store {
 	}
 	return a.sourcesStore
 }
+
+func (b *pageBackend) SourcesStore() *sources.Store { return b.sourceStore }

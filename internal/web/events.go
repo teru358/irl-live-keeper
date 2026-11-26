@@ -3,8 +3,10 @@ package web
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/teru358/irl-live-keeper/internal/sources"
 	"log/slog"
 	"net/http"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -16,16 +18,17 @@ import (
 
 // Events は世代に一つだけ作る配信係。登録は core.Run の前に行う。
 type Events struct {
-	langs    []i18n.Lang
-	mu       sync.Mutex
-	clients  map[*eventClient]bool
-	closed   bool
-	done     chan struct{}
-	finished chan struct{}
-	backend  Backend
-	apply    func() any
-	ticker   func(time.Duration) (<-chan time.Time, func())
-	recent   interface {
+	sourceTexts map[string]string
+	langs       []i18n.Lang
+	mu          sync.Mutex
+	clients     map[*eventClient]bool
+	closed      bool
+	done        chan struct{}
+	finished    chan struct{}
+	backend     Backend
+	apply       func() any
+	ticker      func(time.Duration) (<-chan time.Time, func())
+	recent      interface {
 		Recent(int, slog.Level) []logging.Line
 	}
 }
@@ -67,11 +70,16 @@ func NewEvents(b Backend, logger interface {
 	if logger != nil {
 		lines, unsub = logger.Subscribe(256)
 	}
+	e.updateSources(time.Now())
+	ticks, stop := e.ticker(time.Second)
 	go func() {
+		defer stop()
 		defer close(e.finished)
 		defer unsub()
 		for {
 			select {
+			case now := <-ticks:
+				e.updateSources(now)
 			case <-e.done:
 				return
 			case _, ok := <-snapshots:
@@ -79,6 +87,7 @@ func NewEvents(b Backend, logger interface {
 					snapshots = nil
 					continue
 				}
+				e.updateSources(time.Now())
 				e.broadcast(eventMessage{kind: "status"})
 			case v, ok := <-events:
 				if !ok {
@@ -183,7 +192,7 @@ func (e *Events) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		raw = "status,sample"
 	}
 	for _, s := range strings.Split(raw, ",") {
-		if s != "status" && s != "sample" && s != "log" {
+		if s != "status" && s != "sample" && s != "log" && s != "sources" {
 			writeError(w, 400, lang, i18n.New("api.invalid", "reason", "topics"))
 			return
 		}
@@ -237,6 +246,14 @@ func (e *Events) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		return rc.Flush() == nil
 	}
+	if topics["sources"] {
+		e.mu.Lock()
+		value := e.sourceTexts
+		e.mu.Unlock()
+		if !send(eventMessage{"sources", sourcesPayload(value)}) {
+			return
+		}
+	}
 	if topics["status"] {
 		if !send(eventMessage{kind: "status"}) {
 			return
@@ -283,4 +300,38 @@ func (w *statusCapture) WriteHeader(int)     {}
 func (w *statusCapture) Write(b []byte) (int, error) {
 	w.body = append(w.body, b...)
 	return len(b), nil
+}
+
+func sourcesPayload(texts map[string]string) any {
+	return map[string]any{"sources": texts, "test_obs": map[string]any{"enabled": false, "simulate": nil, "reason": ""}}
+}
+func (e *Events) updateSources(now time.Time) {
+	next := map[string]string{}
+	list := sourceList(e.backend)
+	for _, s := range list {
+		snapshot := e.backend.Snapshot()
+		text, err := sources.Render(s, snapshot, now)
+		if err != nil {
+			slog.Warn(i18n.Render(i18n.EN, i18n.New("sources.render_failed")), "name", s.Name, "reason", err)
+		}
+		next[s.Name] = text
+	}
+	e.mu.Lock()
+	old := e.sourceTexts
+	e.sourceTexts = next
+	e.mu.Unlock()
+	if reflect.DeepEqual(old, next) {
+		return
+	}
+	for name, text := range next {
+		if previous, ok := old[name]; !ok || previous != text {
+			e.broadcast(eventMessage{"source:" + name, text})
+		}
+	}
+	for name := range old {
+		if _, ok := next[name]; !ok {
+			e.broadcast(eventMessage{"source:" + name, ""})
+		}
+	}
+	e.broadcast(eventMessage{"sources", sourcesPayload(next)})
 }
