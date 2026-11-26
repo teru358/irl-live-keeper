@@ -7,19 +7,21 @@ import (
 
 func TestDesignAssets(t *testing.T) {
 	page, _ := assets.ReadFile("assets/page.html")
+	app, _ := assets.ReadFile("assets/app/main.js")
 	css, _ := assets.ReadFile("assets/style.css")
 	for _, marker := range []string{`id="tabs"`, `id="summary"`, `id="sheet"`, `id="theme-switch"`} {
 		if !strings.Contains(string(page), marker) {
 			t.Fatal(marker)
 		}
 	}
-	for _, marker := range []string{`<dl class="facts">`, `id="obs"`, `id="standby"`, `id="mediamtx"`, `data-ui="warning"`, `.warn`, `class="stream-zone"`, `rate-value`} {
-		if !strings.Contains(string(page), marker) && !strings.Contains(string(css), marker) {
+	for _, marker := range []string{`<dl class="facts">`, `id="obs"`, `id="standby"`, `id="mediamtx"`, `t('warning')`, `.warn`, `class="stream-zone"`, `rate-value`} {
+		if !strings.Contains(string(page)+string(app), marker) && !strings.Contains(string(css), marker) {
 			t.Fatalf("試作に合わせた表示要素がない: %s", marker)
 		}
 	}
-	ops := string(page[strings.Index(string(page), `id="ops-panel"`):strings.Index(string(page), `</section></div>`)+len(`</section></div>`)])
-	manual, warning, showAll, stream := strings.Index(ops, `data-ui="manual_standby"`), strings.Index(ops, `data-ui="warning"`), strings.Index(ops, `data-ui="show_all"`), strings.Index(ops, `class="stream-zone"`)
+	ops := string(app)
+	manual, warning, showAll, stream := strings.Index(ops, `t('manual_standby')`), strings.Index(ops, `t('warning')`), strings.Index(ops, `t('show_all')`), strings.Index(ops, `class="stream-zone"`)
+
 	if manual < 0 || warning < manual || showAll < warning || stream < showAll {
 		t.Fatal("操作は手動の待機、注意、全ソース表示、配信の順に並べる")
 	}

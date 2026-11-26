@@ -104,7 +104,7 @@ func TestLogin照合前と誤り(t *testing.T) {
 			t.Fatal(w)
 		}
 	}
-	w := authRequest(h, "GET", "/assets/login.js", "", nil)
+	w := authRequest(h, "GET", "/assets/app/api.js", "", nil)
 	b, _ := io.ReadAll(w.Result().Body)
 	if w.Code != 200 || !bytes.Contains(b, []byte("fetch")) {
 		t.Fatal(w)

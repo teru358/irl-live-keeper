@@ -60,7 +60,7 @@ func TestSceneAuthenticationAndList(t *testing.T) {
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"uuid":"u"`) {
 		t.Fatal(w.Code, w.Body.String())
 	}
-	page, _ := assets.ReadFile("assets/page.html")
+	page, _ := assets.ReadFile("assets/app/main.js")
 	if !strings.Contains(string(page), `id="scenes"`) {
 		t.Fatal("一覧がない")
 	}

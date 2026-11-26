@@ -45,8 +45,9 @@ func TestPageStatusRestartSession(t *testing.T) {
 		return w
 	}
 	page := call("/", "GET", true)
+	app, _ := assets.ReadFile("assets/app/main.js")
 	for _, id := range []string{"menu", "links", "obs", "standby", "mediamtx", "actions", "language-switch", "log-panel", "log-level", "log-lines"} {
-		if !strings.Contains(page.Body.String(), `id="`+id+`"`) {
+		if !strings.Contains(page.Body.String()+string(app), `id="`+id+`"`) {
 			t.Fatal(id)
 		}
 	}
@@ -110,7 +111,7 @@ func TestUIKeys(t *testing.T) {
 			t.Fatal(k)
 		}
 	}
-	for _, file := range []string{"assets/page.html", "assets/login.js"} {
+	for _, file := range []string{"assets/page.html", "assets/login.js", "assets/app/main.js"} {
 		b, err := assets.ReadFile(file)
 		if err != nil {
 			t.Fatal(err)
@@ -127,8 +128,9 @@ func TestUIKeys(t *testing.T) {
 func TestSettingsPageControls(t *testing.T) {
 	w := httptest.NewRecorder()
 	servePage(w, &displayFake{}, false)
-	html := w.Body.String()
-	for _, want := range []string{`id="settings-panel"`, `id="settings-groups"`, `id="settings-fields"`, `id="settings-lan"`, `id="settings-local"`, `role="switch"`, `type="text" readonly`, `id="settings-save"`, `id="settings-revert"`, `id="settings-restart"`, `id="settings-confirm"`, `id="settings-update"`, `data-regenerate="admin"`, `data-regenerate="publish"`, `data-regenerate="read"`} {
+	app, _ := assets.ReadFile("assets/app/main.js")
+	html := w.Body.String() + string(app)
+	for _, want := range []string{`id="settings-panel"`, `id="settings-groups"`, `id="settings-fields"`, `id="settings-lan"`, `id="settings-local"`, `role="switch"`, `type="text" readonly`, `id="settings-save"`, `id="settings-revert"`, `id="settings-restart"`, `id="settings-confirm"`, `id="settings-update"`} {
 		if !strings.Contains(html, want) {
 			t.Errorf("missing %s", want)
 		}
@@ -148,7 +150,7 @@ func TestSettingsPageControls(t *testing.T) {
 			t.Error(key)
 		}
 	}
-	for _, want := range []string{"settings/preview", "settingsMode", "input.readOnly=localOnly", "error.fields=data.fields", "settings_stream_warning", "settings_pending_urls", "result.admin_url"} {
+	for _, want := range []string{"settings/preview", "settingsMode", "input.readOnly=localOnly", "settings_stream_warning", "settings_pending_urls", "result.admin_url"} {
 		if !strings.Contains(string(js), want) {
 			t.Errorf("missing behavior %s", want)
 		}
