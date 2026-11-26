@@ -68,7 +68,8 @@ func TestRestartセッションと合言葉の寿命(t *testing.T) {
 			r.AddCookie(c)
 			w = httptest.NewRecorder()
 			h.ServeHTTP(w, r)
-			if strings.Contains(w.Body.String(), `type="password"`) != change {
+			// ログインの画面は JS で描く（S2-63）ので、サーバーが入れる初めの状態の login で見る
+			if strings.Contains(w.Body.String(), `"login":true`) != change {
 				t.Fatal("再起動後のセッションが不正")
 			}
 			r = httptest.NewRequest("GET", "/auth/once?t="+pending, nil)
