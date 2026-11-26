@@ -90,3 +90,16 @@ func TestSourcesAdminAuthentication(t *testing.T) {
 		}
 	}
 }
+
+func TestSourceNames(t *testing.T) {
+	b := &sourcesBackend{}
+	names := sourceNames(b)
+	if len(names) == 0 {
+		t.Fatal("empty definitions")
+	}
+	for _, name := range names {
+		if strings.Contains(name, "password") || strings.Contains(name, "secret") {
+			t.Fatal(name)
+		}
+	}
+}

@@ -95,7 +95,7 @@ func TestSimulationTable(t *testing.T) {
 				check(n, want)
 			}
 			if mode == "offline" {
-				for _, n := range []string{"stream.elapsed", "stream.kbps", "stream.dropped", "stream.congestion", "session.low_count", "session.standby_total", "standby.return", "standby.for"} {
+				for _, n := range []string{"stream.elapsed", "stream.kbps", "stream.dropped", "stream.congestion", "standby.return", "standby.for"} {
 					check(n, nil)
 				}
 				check("obs.streaming", false)
@@ -110,16 +110,16 @@ func TestSimulationTable(t *testing.T) {
 				check("standby.for", float64(12))
 				check("obs.scene", "Wait")
 				check("obs.scene_class", "standby")
-				check("session.low_count", float64(1))
-				check("session.standby_total", float64(12))
 			} else {
 				check("standby.owner", "none")
 				check("standby.return", nil)
 				check("standby.for", nil)
 				check("obs.scene", "Live")
 				check("obs.scene_class", "monitored")
-				check("session.low_count", float64(0))
-				check("session.standby_total", float64(0))
+			}
+			// session.* は区切り3の保留のあいだ一覧にない（task 表 v1.14）
+			if _, ok := v["session.low_count"]; ok {
+				t.Fatal("session.low_count が保留なのに値にある")
 			}
 			if mode == "DOWN" {
 				check("link.protocol", "")

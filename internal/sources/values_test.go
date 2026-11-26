@@ -37,8 +37,12 @@ func TestValues(t *testing.T) {
 			add([]string{p + "srt.mbps"}, template.Number, "1")
 		}
 	}
-	add([]string{"session.low_count"}, template.Number, "0")
-	add([]string{"session.standby_total"}, template.Seconds, "hms")
+	// session.* は区切り3の保留のあいだ一覧に入れない（task 表 v1.14）
+	for _, n := range []string{"session.low_count", "session.standby_total"} {
+		if _, ok := d[n]; ok {
+			t.Fatalf("%s が保留なのに一覧にある", n)
+		}
+	}
 	if len(d) != len(expected) {
 		t.Fatalf("一覧の数 = %d, want %d", len(d), len(expected))
 	}

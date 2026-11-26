@@ -1,3 +1,4 @@
+import {mountSources} from './sources.js';
 import {mountShell} from './shell.js';
 import {mountSettings} from './settings.js';
 import {mountPhone} from './phone.js';
@@ -9,7 +10,7 @@ import {applyEvent,connectEvents} from './events.js';
 const boot=JSON.parse(document.querySelector('#bootstrap').textContent);
 const i18n=createI18n(boot), {lang,t}=i18n, request=createAPI({lang,t,login:boot.login});
 const shell=mountShell(boot,i18n,request);
-if(!boot.login){mountSettings(boot,t,request,shell.eye);mountPhone(t,request);}
+if(!boot.login){mountSettings(boot,t,request,shell.eye);mountPhone(t,request);mountSources(t,request,lang);}
 const store=createStore({status:null,statusVersion:0,readings:{},flashes:{},cameraStates:{},scenes:[],pendingScene:'',disconnected:false,restarting:false,since:0,notice:'',busy:'',logs:[],logLevel:'INFO',stick:true,sender:null,host:'',camera:'',protocols:{},visible:{},copied:{},senderNotice:'',settingsBusy:false});
 const update=fn=>store.update(fn), notice=e=>update(s=>{s.notice=e.message;});
 async function command(path){if(path==='stream/stop'&&!confirm(t('confirm_stop')))return;if(path==='cameras/show-all'&&!confirm(t('confirm_show')))return;update(s=>{s.busy=path;});try{await request(path,{});update(s=>{s.notice='';});}catch(e){notice(e);}finally{update(s=>{s.busy='';});}}

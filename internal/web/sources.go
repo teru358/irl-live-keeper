@@ -8,6 +8,7 @@ import (
 	"github.com/teru358/irl-live-keeper/internal/sources/template"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 )
 
@@ -53,7 +54,7 @@ func serveSources(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.L
 		}
 		if r.Method == "GET" {
 			if collection {
-				writeJSON(w, 200, map[string]any{"sources": list})
+				writeJSON(w, 200, map[string]any{"sources": list, "names": sourceNames(b), "default": sources.Default()})
 			} else if index >= 0 {
 				writeJSON(w, 200, list[index])
 			} else {
@@ -120,4 +121,13 @@ func serveSources(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.L
 		}
 		writeJSON(w, status, map[string]bool{"ok": true})
 	}
+}
+
+func sourceNames(b Backend) []string {
+	names := []string{}
+	for name := range sources.Definitions(b.Snapshot()) {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }

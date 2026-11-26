@@ -25,7 +25,7 @@ const theme=EditorView.theme({
 const colors=HighlightStyle.define([
  {tag:[tags.bracket,tags.punctuation],color:'var(--muted)'},
  {tag:tags.keyword,color:'var(--act)'},
- {tag:tags.variableName,color:'var(--ink)'},
+ {tag:tags.variableName,color:'var(--source-value)'},
  {tag:tags.string,color:'var(--ok)'},
  {tag:[tags.number,tags.atom],color:'var(--low)'},
  {tag:tags.operator,color:'var(--act)'},

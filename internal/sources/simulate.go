@@ -76,7 +76,7 @@ func (sim Simulation) Apply(s core.Snapshot, now time.Time, stats map[string]tem
 	put("standby.owner", "none")
 	put("standby.return", nil)
 	put("standby.for", nil)
-	for _, n := range []string{"stream.elapsed", "stream.kbps", "stream.dropped", "stream.congestion", "session.low_count", "session.standby_total"} {
+	for _, n := range []string{"stream.elapsed", "stream.kbps", "stream.dropped", "stream.congestion"} {
 		put(n, nil)
 	}
 	if sim.Mode == "offline" {
@@ -159,12 +159,6 @@ func (sim Simulation) Apply(s core.Snapshot, now time.Time, stats map[string]tem
 		put("standby.for", float64(12))
 		put("obs.scene", standby)
 		put("obs.scene_class", "standby")
-	}
-	put("session.low_count", float64(0))
-	put("session.standby_total", float64(0))
-	if sim.Mode == "standby" {
-		put("session.low_count", float64(1))
-		put("session.standby_total", float64(12))
 	}
 	put("stream.elapsed", float64(5025))
 	put("stream.kbps", float64(6000))

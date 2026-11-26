@@ -115,7 +115,7 @@ func TestUIKeys(t *testing.T) {
 			t.Fatal(k)
 		}
 	}
-	for _, file := range []string{"assets/page.html", "assets/app/settings.js", "assets/app/main.js", "assets/app/shell.js", "assets/app/phone.js", "assets/app/settings-state.js"} {
+	for _, file := range []string{"assets/page.html", "assets/app/settings.js", "assets/app/main.js", "assets/app/shell.js", "assets/app/phone.js", "assets/app/settings-state.js", "assets/app/sources.js"} {
 		b, err := assets.ReadFile(file)
 		if err != nil {
 			t.Fatal(err)
@@ -176,7 +176,7 @@ func TestSettingsFailureAndRefreshPaths(t *testing.T) {
 func pageModules(t *testing.T) []byte {
 	t.Helper()
 	var result []byte
-	for _, name := range []string{"main", "shell", "settings", "settings-state", "phone"} {
+	for _, name := range []string{"main", "shell", "settings", "settings-state", "phone", "sources"} {
 		b, err := assets.ReadFile("assets/app/" + name + ".js")
 		if err != nil {
 			t.Fatal(err)
@@ -184,4 +184,13 @@ func pageModules(t *testing.T) []byte {
 		result = append(result, b...)
 	}
 	return result
+}
+
+func TestSourcesPageControls(t *testing.T) {
+	app := string(pageModules(t))
+	for _, want := range []string{`id="sources-panel"`, `data-page="sources"`, `data-editor="template"`, `data-editor="css"`, `adoptedStyleSheets`, `attachShadow`, `src_discard`, `sources/test-obs/alive`} {
+		if !strings.Contains(app, want) {
+			t.Fatal(want)
+		}
+	}
 }

@@ -37,8 +37,7 @@ func Definitions(s core.Snapshot) map[string]template.Definition {
 	add("srt.loss", template.Number, "2")
 	add("srt.mbps", template.Number, "1")
 	add("stream.elapsed", template.Seconds, "hms")
-	add("session.low_count", template.Number, "0")
-	add("session.standby_total", template.Seconds, "hms")
+	// session.low_count と session.standby_total は配信の記録（区切り3）から取る値なので、区切り3を再開するまで一覧に入れない（task 表 v1.14）
 	for _, n := range []string{"stream.kbps", "stream.dropped", "obs.render_skipped"} {
 		add(n, template.Number, "0")
 	}
