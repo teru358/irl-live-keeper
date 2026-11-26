@@ -163,7 +163,11 @@
     "phone.invalid_host": "Enter a hostname or IP address.",
     "settings.invalid": "Check the settings values.",
     "settings.applying": "Settings are being applied. Try again when complete.",
-    "settings.hash_conflict": "Settings have changed. Reload them and try again."
+    "settings.hash_conflict": "Settings have changed. Reload them and try again.",
+    "sources.invalid": "Invalid source values or style range.",
+    "sources.unreadable": "Cannot read sources.yaml, or its format or values are invalid. Repair it before saving.",
+    "sources.duplicate": "Source name already exists.",
+    "sources.write_failed": "Cannot save sources."
   },
   "ui": {
     "title": "IRL Live Keeper",
@@ -437,6 +441,10 @@
     "settings_default_publish_host": "Automatic (LAN IPv4, or 127.0.0.1 if unavailable)",
     "settings_same_port": "Same as {name} ({port})",
     "settings_undone": "Settings reverted.",
-    "settings_lan_notice": "Traffic is unencrypted and may be observed on the LAN. Connected devices can view passwords and change settings. Use an encrypted VPN such as Tailscale for remote access; do not forward the port on your router. VPN peers can also operate this page. "
+    "settings_lan_notice": "Traffic is unencrypted and may be observed on the LAN. Connected devices can view passwords and change settings. Use an encrypted VPN such as Tailscale for remote access; do not forward the port on your router. VPN peers can also operate this page. ",
+    "sources_invalid": "Invalid source values or style range.",
+    "sources_unreadable": "Cannot read sources.yaml, or its format or values are invalid. Repair it before saving.",
+    "sources_duplicate": "Source name already exists.",
+    "sources_write_failed": "Cannot save sources."
   }
 }

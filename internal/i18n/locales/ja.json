@@ -163,7 +163,11 @@
     "phone.invalid_host": "住所にはホスト名か IP アドレスを入力してください。",
     "settings.invalid": "設定の内容を確認してください。",
     "settings.applying": "設定を反映しています。完了してからやり直してください。",
-    "settings.hash_conflict": "設定が変更されています。読み直してからやり直してください。"
+    "settings.hash_conflict": "設定が変更されています。読み直してからやり直してください。",
+    "sources.invalid": "ソースの値または装飾の範囲が正しくありません。",
+    "sources.unreadable": "sources.yaml を読み取れないか、形式・値が正しくありません。修正するまで保存できません。",
+    "sources.duplicate": "ソースの名前が重複しています。",
+    "sources.write_failed": "ソースを保存できません。"
   },
   "ui": {
     "title": "IRL Live Keeper",
@@ -437,6 +441,10 @@
     "settings_default_publish_host": "自動（LAN の IPv4、見つからなければ 127.0.0.1）",
     "settings_same_port": "{name}と同じ（{port}）",
     "settings_undone": "取り消しました。",
-    "settings_lan_notice": "通信は平文で、LAN 内で盗み見られるおそれがあります。接続できる機器からパスワードの表示と設定の変更ができます。外からは通信が暗号化される VPN（Tailscale など）を使い、ルーターで転送しないでください。VPN の相手の機器からも操作できます。"
+    "settings_lan_notice": "通信は平文で、LAN 内で盗み見られるおそれがあります。接続できる機器からパスワードの表示と設定の変更ができます。外からは通信が暗号化される VPN（Tailscale など）を使い、ルーターで転送しないでください。VPN の相手の機器からも操作できます。",
+    "sources_invalid": "ソースの値または装飾の範囲が正しくありません。",
+    "sources_unreadable": "sources.yaml を読み取れないか、形式・値が正しくありません。修正するまで保存できません。",
+    "sources_duplicate": "ソースの名前が重複しています。",
+    "sources_write_failed": "ソースを保存できません。"
   }
 }

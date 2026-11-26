@@ -24,3 +24,7 @@ func init() { Codes = append(Codes, "phone.lan_disabled", "phone.invalid_host") 
 func init() {
 	Codes = append(Codes, "template.syntax", "template.unknown", "template.format", "template.comparison")
 }
+
+func init() {
+	Codes = append(Codes, "sources.invalid", "sources.unreadable", "sources.duplicate", "sources.write_failed")
+}

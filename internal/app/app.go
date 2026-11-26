@@ -25,6 +25,7 @@ import (
 	"github.com/teru358/irl-live-keeper/internal/obs"
 	"github.com/teru358/irl-live-keeper/internal/redact"
 	"github.com/teru358/irl-live-keeper/internal/settings"
+	"github.com/teru358/irl-live-keeper/internal/sources"
 	"github.com/teru358/irl-live-keeper/internal/supervisor"
 	"github.com/teru358/irl-live-keeper/internal/switcher"
 	"github.com/teru358/irl-live-keeper/internal/web"
@@ -160,6 +161,7 @@ type generation struct {
 }
 
 type App struct {
+	sourcesStore           *sources.Store
 	pendingSettings        *savedSettings
 	liveConfig             *config.Config
 	savedSession           string

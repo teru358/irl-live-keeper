@@ -51,6 +51,12 @@ func apiHandler(b Backend, recent interface {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		lang := i18n.Select(r.URL.Query().Get("lang"), r.Header.Get("Accept-Language"), defaultLang...)
 		kind, method, known := route(r.URL.Path)
+		if isSourcesPath(r.URL.Path) {
+			method = r.Method
+			if !sourcesMethod(r.URL.Path, r.Method) {
+				method = "GET"
+			}
+		}
 		if r.URL.Path == "/api/settings" && r.Method == http.MethodPut {
 			method = http.MethodPut
 		}
@@ -67,6 +73,11 @@ func apiHandler(b Backend, recent interface {
 
 		if (method == http.MethodPost || method == http.MethodPut || method == http.MethodDelete) && r.Header.Get(headerName) != "1" {
 			writeError(w, http.StatusForbidden, lang, i18n.New("api.forbidden"))
+			return
+		}
+
+		if isSourcesPath(r.URL.Path) {
+			serveSources(w, r, b, lang)
 			return
 		}
 
@@ -186,6 +197,9 @@ func apiHandler(b Backend, recent interface {
 }
 
 func route(path string) (switcher.CommandKind, string, bool) {
+	if isSourcesPath(path) {
+		return 0, http.MethodGet, true
+	}
 	switch path {
 	case "/api/settings":
 		return 0, http.MethodGet, true
