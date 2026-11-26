@@ -150,7 +150,7 @@ if (!boot.login) {
  let wasConnected=false;
  function render(s) {
  settingsStreaming=!!s.obs.streaming;settingsOBS=!!s.obs.connected;
- const applyKey=JSON.stringify([s.generation,s.apply]);if(settingsApplyKey!==applyKey){const previous=settingsApplyKey;settingsApplyKey=applyKey;if(settingsData&&(previous!==undefined||settingsRefreshPending)&&['applied','reverted'].includes(s.apply?.state)){settingsRefreshPending=false;if(JSON.stringify(settingsValues)===settingsBaseline)loadSettings().then(()=>{if(s.apply.kind==='settings_revert')text('settings-result',t('settings_undone'));});else text('settings-result',t('settings_changed'));}}
+ const applyKey=JSON.stringify([s.generation,s.apply]);if(settingsApplyKey!==applyKey){const previous=settingsApplyKey;settingsApplyKey=applyKey;if(settingsData&&(previous!==undefined||settingsRefreshPending)&&['applied','reverted'].includes(s.apply?.state)){settingsRefreshPending=false;if(JSON.stringify(settingsValues)===settingsBaseline)loadSettings().then(()=>{if(s.apply.kind==='settings_revert')text('settings-result',t('settings_undone'));else if(s.apply.state==='applied')text('settings-result',t('settings_applied'));});else text('settings-result',t('settings_changed'));}}
  if(s.apply?.state==='failed'||s.apply?.state==='reverted')text('settings-result',t('settings_'+s.apply.state)+(typeof s.apply.reason==='string'?' '+s.apply.reason:s.apply.error?.message?' '+s.apply.error.message:''));
  currentScene=s.obs.scene_uuid;
  if(pendingScene && (currentScene===pendingScene || !s.obs.connected)){clearTimeout(sceneTimer);pendingScene='';}
@@ -194,7 +194,7 @@ if (!boot.login) {
   if(s.last_error?.message) notices.push(s.last_error.message);
   notices.push(...(o.warnings || []),...(s.warnings || []));
   for(let i=notices.length-1;i>=0;i--)if(notices.indexOf(notices[i])!==i)notices.splice(i,1); // 同じ文は1回だけ
-  const settingsWarnings=[...(o.warnings||[]),...(s.warnings||[])];if(settingsWarnings.length){text('settings-result',settingsWarnings.join(' '));text('sender-notice',settingsWarnings.join(' '));}
+  const settingsWarnings=[...(o.warnings||[]),...(s.warnings||[])];if(settingsWarnings.length){text('sender-notice',settingsWarnings.join(' '));} // 設定の結果の欄には書かない（保存の知らせを上書きするため）
   el('warnings').replaceChildren(...notices.map(message=>{const item=document.createElement('p');item.className='warn';item.textContent=message;return item;}));
  }
  request('status').then(render).catch(e=>text('error',e.message));
