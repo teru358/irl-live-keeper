@@ -7,6 +7,7 @@ import (
 
 func TestDesignAssets(t *testing.T) {
 	page, _ := assets.ReadFile("assets/page.html")
+	page = append(page, pageModules(t)...)
 	app, _ := assets.ReadFile("assets/app/main.js")
 	css, _ := assets.ReadFile("assets/style.css")
 	for _, marker := range []string{`id="tabs"`, `id="summary"`, `id="sheet"`, `id="theme-switch"`} {

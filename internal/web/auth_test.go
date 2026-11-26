@@ -86,7 +86,7 @@ func TestOnce期限一回ヘッダーログ(t *testing.T) {
 		t.Fatal(w)
 	}
 	w = authRequest(h, "GET", w.Header().Get("Location"), "", nil)
-	if !strings.Contains(w.Body.String(), `type="password"`) || strings.Contains(w.Body.String(), "<script>") {
+	if !strings.Contains(w.Body.String(), `"login":true`) || strings.Contains(w.Body.String(), "<script>") {
 		t.Fatal(w)
 	}
 }

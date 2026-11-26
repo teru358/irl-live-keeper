@@ -7,8 +7,7 @@ get は凍結した値を返す。購読通知と描画は queueMicrotask でま
 notice / senderNotice は操作の知らせ、status は SSE の状況専用。SSE は知らせを変更しない。
 EventSource 標準の再接続を使う。events.js と api.js と store.js は DOM 非依存。
 
-login.js は設定・再生成の確認窓・スマホ・ログイン・初回パスワードと、メニュー・テーマ・言語の操作を担当する。
-API と翻訳は共通 module を使う。keeper-page / keeper-status / keeper-regenerate / keeper-restarting が移行境界。
-移行した画面と既存設定のエラー root も分け、SSE の再描画で設定の知らせを消さない。
-再生成の確認窓と残りの共通部分は S2-63 で移す。
+shell.js はログイン・初回パスワード・メニュー・テーマ・言語、settings.js は設定と再生成の確認窓、phone.js はスマホ用リンクを担当する。
+入力値と未保存の基準、欄のエラー、操作の知らせは各 store に保持する。入力には live() を使う。
+SSE は設定の状況と保存済み値の再取得だけを扱い、操作の知らせを変更しない。
 Node テストは assets 外の jstest に置く。Go から Node を自動起動せず、開発時に明示実行する。

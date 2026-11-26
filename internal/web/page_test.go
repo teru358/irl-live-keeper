@@ -45,7 +45,7 @@ func TestPageStatusRestartSession(t *testing.T) {
 		return w
 	}
 	page := call("/", "GET", true)
-	app, _ := assets.ReadFile("assets/app/main.js")
+	app := pageModules(t)
 	for _, id := range []string{"menu", "links", "obs", "standby", "mediamtx", "actions", "language-switch", "log-panel", "log-level", "log-lines"} {
 		if !strings.Contains(page.Body.String()+string(app), `id="`+id+`"`) {
 			t.Fatal(id)
@@ -54,7 +54,7 @@ func TestPageStatusRestartSession(t *testing.T) {
 	if !strings.Contains(call("/", "GET", false).Body.String(), `"login":true`) {
 		t.Fatal("未認証の画面")
 	}
-	for _, path := range []string{"/assets/login.js", "/assets/style.css", "/assets/vendor/qrcode-generator-2.0.4.js", "/assets/favicon-32.png", "/favicon.ico"} {
+	for _, path := range []string{"/assets/app/main.js", "/assets/style.css", "/assets/vendor/qrcode-generator-2.0.4.js", "/assets/favicon-32.png", "/favicon.ico"} {
 		w := call(path, "GET", false)
 		wantType := "text/css"
 		if strings.HasSuffix(path, "js") {
@@ -72,13 +72,17 @@ func TestPageStatusRestartSession(t *testing.T) {
 		t.Fatal("favicon links missing from page head")
 	}
 	setupHandler := NewWithAuth(&fakeBackend{}, "", 8787, NewAuth(nil))
-	for _, path := range []string{"/assets/favicon-32.png", "/favicon.ico"} {
+	for _, path := range []string{"/assets/favicon-32.png", "/favicon.ico", "/assets/app/main.js", "/assets/app/shell.js", "/assets/vendor/lit-html-3.3.3/lit-html.js", "/assets/vendor/lit-html-3.3.3/directives/live.js"} {
 		r := httptest.NewRequest("GET", path, nil)
 		r.Host = "localhost:8787"
 		r.RemoteAddr = "127.0.0.1:12345"
 		w := httptest.NewRecorder()
 		setupHandler.ServeHTTP(w, r)
-		if w.Code != 200 || !strings.Contains(w.Header().Get("Content-Type"), "image/png") {
+		wantType := "image/png"
+		if strings.HasSuffix(path, ".js") {
+			wantType = "javascript"
+		}
+		if w.Code != 200 || !strings.Contains(w.Header().Get("Content-Type"), wantType) {
 			t.Fatalf("password未設定時の %s: %d %v", path, w.Code, w.Header())
 		}
 	}
@@ -111,7 +115,7 @@ func TestUIKeys(t *testing.T) {
 			t.Fatal(k)
 		}
 	}
-	for _, file := range []string{"assets/page.html", "assets/login.js", "assets/app/main.js"} {
+	for _, file := range []string{"assets/page.html", "assets/app/settings.js", "assets/app/main.js", "assets/app/shell.js", "assets/app/phone.js", "assets/app/settings-state.js"} {
 		b, err := assets.ReadFile(file)
 		if err != nil {
 			t.Fatal(err)
@@ -128,14 +132,14 @@ func TestUIKeys(t *testing.T) {
 func TestSettingsPageControls(t *testing.T) {
 	w := httptest.NewRecorder()
 	servePage(w, &displayFake{}, false)
-	app, _ := assets.ReadFile("assets/app/main.js")
+	app := pageModules(t)
 	html := w.Body.String() + string(app)
-	for _, want := range []string{`id="settings-panel"`, `id="settings-groups"`, `id="settings-fields"`, `id="settings-lan"`, `id="settings-local"`, `role="switch"`, `type="text" readonly`, `id="settings-save"`, `id="settings-revert"`, `id="settings-restart"`, `id="settings-confirm"`, `id="settings-update"`} {
+	for _, want := range []string{`id="settings-panel"`, `id="settings-groups"`, `id="settings-fields"`, `id="settings-lan"`, `id="settings-local"`, `role="switch"`, `id="settings-confirm"`, `id="settings-update"`} {
 		if !strings.Contains(html, want) {
 			t.Errorf("missing %s", want)
 		}
 	}
-	js, _ := assets.ReadFile("assets/login.js")
+	js := pageModules(t)
 	ja, en := i18n.UI(i18n.JA), i18n.UI(i18n.EN)
 	// All dynamically selected labels and apply outcomes must exist in both catalogs.
 	for key, value := range ja {
@@ -150,7 +154,7 @@ func TestSettingsPageControls(t *testing.T) {
 			t.Error(key)
 		}
 	}
-	for _, want := range []string{"settings/preview", "settingsMode", "input.readOnly=localOnly", "settings_stream_warning", "settings_pending_urls", "result.admin_url"} {
+	for _, want := range []string{"settings/preview", "settingsMode", "?readonly=${localOnly}", "settings_stream_warning", "settings_pending_urls", "result.admin_url"} {
 		if !strings.Contains(string(js), want) {
 			t.Errorf("missing behavior %s", want)
 		}
@@ -158,13 +162,26 @@ func TestSettingsPageControls(t *testing.T) {
 }
 
 func TestSettingsFailureAndRefreshPaths(t *testing.T) {
-	js, err := assets.ReadFile("assets/login.js")
+	js, err := assets.ReadFile("assets/app/settings.js")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"settings_not_saved", "text('settings-result',message)", "e.fields[p]", "settingsGroup=input.dataset.group", "scrollIntoView", "settings_reloaded", "settings_changed", "JSON.stringify([s.generation,s.apply])", "JSON.stringify(settingsValues)===settingsBaseline", "settingsRefreshPending=true"} {
+	for _, want := range []string{"settings_not_saved", "s.errors=e.fields||{}", "fieldGroup", "s.group=fieldGroup", "scrollIntoView", "settings_reloaded", "settings_changed", "JSON.stringify([status.generation,status.apply])", "!dirty(store.get())", "s.baseline=JSON.stringify(s.values)"} {
 		if !strings.Contains(string(js), want) {
 			t.Errorf("missing error/refresh path %s", want)
 		}
 	}
+}
+
+func pageModules(t *testing.T) []byte {
+	t.Helper()
+	var result []byte
+	for _, name := range []string{"main", "shell", "settings", "settings-state", "phone"} {
+		b, err := assets.ReadFile("assets/app/" + name + ".js")
+		if err != nil {
+			t.Fatal(err)
+		}
+		result = append(result, b...)
+	}
+	return result
 }

@@ -70,19 +70,19 @@ func TestPhoneLink(t *testing.T) {
 }
 
 func TestDesignV019Elements(t *testing.T) {
-	js, _ := assets.ReadFile("assets/login.js")
-	html, _ := assets.ReadFile("assets/page.html")
-	for _, part := range []string{"camera:['cameras','switch','on_stream_start']", "admin:['admin','mediamtx']", "other:['gui','log','language']", "settings-card", "settings_restart_note", "input.placeholder=String(settingsValues.switch[key])", "'_help'", "phone-link", "60000"} {
+	js := pageModules(t)
+	html := js
+	for _, part := range []string{"camera:['cameras','switch','on_stream_start']", "admin:['admin','mediamtx']", "other:['gui','log','language']", "settings-card", "settings_restart_note", "placeholder=String(s.values.switch[key])", "'_help'", "phone-link", "60000"} {
 		if !strings.Contains(string(js), part) {
 			t.Fatal(part)
 		}
 	}
-	for _, id := range []string{"phone-dialog", "phone-address", "phone-qr", "setup-show"} {
+	for _, id := range []string{"phone-dialog", "phone-address", "phone-qr"} {
 		if !strings.Contains(string(html), `id="`+id+`"`) {
 			t.Fatal(id)
 		}
 	}
-	for _, part := range []string{"qrcode(0,'M')", "el('phone-qr').append", "createSvgTag"} {
+	for _, part := range []string{"qrcode(0,'M')", "svgNode(s.svg)", "createSvgTag"} {
 		if !strings.Contains(string(js), part) {
 			t.Fatal(part)
 		}

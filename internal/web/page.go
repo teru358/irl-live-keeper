@@ -35,10 +35,5 @@ func servePage(w http.ResponseWriter, b Backend, login bool, setup ...bool) {
 	data, _ := json.Marshal(map[string]any{"local": len(setup) > 1 && setup[1], "language": language, "login": login, "setup": len(setup) > 0 && setup[0], "catalogs": map[string]any{"ja": i18n.UI(i18n.JA), "en": i18n.UI(i18n.EN)}})
 	page, _ := assets.ReadFile("assets/page.html")
 	html := string(page)
-	if !login {
-		start := strings.Index(html, "<form")
-		end := strings.Index(html, "</form>") + len("</form>")
-		html = html[:start] + html[end:]
-	}
 	fmt.Fprint(w, strings.Replace(html, "BOOTSTRAP", string(data), 1))
 }
