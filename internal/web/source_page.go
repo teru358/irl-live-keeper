@@ -84,7 +84,11 @@ func serveSource(w http.ResponseWriter, r *http.Request, b Backend, e *Events, l
 		if e != nil {
 			stats = e.statisticsValues(time.Now())
 		}
-		text, _ := sources.Render(s, b.Snapshot(), time.Now(), stats)
+		sim := sources.Simulation{}
+		if e != nil {
+			sim = e.simulation(time.Now())
+		}
+		text, _ := sources.RenderSimulation(s, b.Snapshot(), time.Now(), stats, sim)
 		empty := ""
 		if text == "" {
 			empty = " irl-empty"

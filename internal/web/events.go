@@ -18,6 +18,10 @@ import (
 
 // Events は世代に一つだけ作る配信係。登録は core.Run の前に行う。
 type Events struct {
+	updateMu      sync.Mutex
+	testOBS       testOBS
+	publishedTest testOBS
+
 	statistics     sources.Statistics
 	statisticsDone chan struct{}
 	sourceTexts    map[string]string
@@ -98,6 +102,7 @@ func NewEvents(b Backend, logger interface {
 					events = nil
 					continue
 				}
+				e.stopSimulationEvent(v)
 				switch v := v.(type) {
 				case core.SampleEvent:
 					e.broadcast(eventMessage{"sample", sampleJSON(v)})
@@ -257,7 +262,7 @@ func (e *Events) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		e.mu.Lock()
 		value := e.sourceTexts
 		e.mu.Unlock()
-		if !send(eventMessage{"sources", sourcesPayload(value)}) {
+		if !send(eventMessage{"sources", e.sourcesPayload(value)}) {
 			return
 		}
 	}
@@ -309,25 +314,27 @@ func (w *statusCapture) Write(b []byte) (int, error) {
 	return len(b), nil
 }
 
-func sourcesPayload(texts map[string]string) any {
-	return map[string]any{"sources": texts, "test_obs": map[string]any{"enabled": false, "simulate": nil, "reason": ""}}
-}
 func (e *Events) updateSources(now time.Time) {
+	e.updateMu.Lock()
+	defer e.updateMu.Unlock()
+	sim := e.simulation(now)
 	next := map[string]string{}
 	list := sourceList(e.backend)
 	for _, s := range list {
 		snapshot := e.backend.Snapshot()
-		text, err := sources.Render(s, snapshot, now, e.statisticsValues(now))
+		text, err := sources.RenderSimulation(s, snapshot, now, e.statisticsValues(now), sim)
 		if err != nil {
 			slog.Warn(i18n.Render(i18n.EN, i18n.New("sources.render_failed")), "name", s.Name, "reason", err)
 		}
 		next[s.Name] = text
 	}
 	e.mu.Lock()
+	stateChanged := !reflect.DeepEqual(e.publishedTest, e.testOBS)
+	e.publishedTest = e.testOBS
 	old := e.sourceTexts
 	e.sourceTexts = next
 	e.mu.Unlock()
-	if reflect.DeepEqual(old, next) {
+	if reflect.DeepEqual(old, next) && !stateChanged {
 		return
 	}
 	for name, text := range next {
@@ -340,5 +347,5 @@ func (e *Events) updateSources(now time.Time) {
 			e.broadcast(eventMessage{"source:" + name, ""})
 		}
 	}
-	e.broadcast(eventMessage{"sources", sourcesPayload(next)})
+	e.broadcast(eventMessage{"sources", e.sourcesPayload(next)})
 }

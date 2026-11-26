@@ -12,9 +12,15 @@ import (
 )
 
 func isSourcesPath(p string) bool {
-	return p == "/api/sources" || strings.HasPrefix(p, "/api/sources/") && sources.NamePattern.MatchString(strings.TrimPrefix(p, "/api/sources/"))
+	return p == "/api/sources/test-obs/alive" || p == "/api/sources" || strings.HasPrefix(p, "/api/sources/") && sources.NamePattern.MatchString(strings.TrimPrefix(p, "/api/sources/"))
 }
 func sourcesMethod(p, m string) bool {
+	if p == "/api/sources/preview" || p == "/api/sources/test-obs/alive" {
+		return m == "POST"
+	}
+	if p == "/api/sources/test-obs" {
+		return m == "PUT" || m == "DELETE"
+	}
 	if p == "/api/sources" {
 		return m == "GET" || m == "POST"
 	}

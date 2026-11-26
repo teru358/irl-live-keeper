@@ -37,6 +37,8 @@ func TestValues(t *testing.T) {
 			add([]string{p + "srt.mbps"}, template.Number, "1")
 		}
 	}
+	add([]string{"session.low_count"}, template.Number, "0")
+	add([]string{"session.standby_total"}, template.Seconds, "hms")
 	if len(d) != len(expected) {
 		t.Fatalf("一覧の数 = %d, want %d", len(d), len(expected))
 	}
@@ -84,7 +86,7 @@ func TestValues(t *testing.T) {
 			t.Error(n)
 		}
 	}
-	for _, n := range []string{"session.low_count", "session.standby_total", "urls", "password"} {
+	for _, n := range []string{"urls", "password"} {
 		if _, ok := d[n]; ok {
 			t.Error(n)
 		}

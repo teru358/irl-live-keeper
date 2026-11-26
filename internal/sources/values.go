@@ -37,6 +37,8 @@ func Definitions(s core.Snapshot) map[string]template.Definition {
 	add("srt.loss", template.Number, "2")
 	add("srt.mbps", template.Number, "1")
 	add("stream.elapsed", template.Seconds, "hms")
+	add("session.low_count", template.Number, "0")
+	add("session.standby_total", template.Seconds, "hms")
 	for _, n := range []string{"stream.kbps", "stream.dropped", "obs.render_skipped"} {
 		add(n, template.Number, "0")
 	}

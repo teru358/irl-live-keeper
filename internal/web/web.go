@@ -84,6 +84,9 @@ func apiHandler(b Backend, recent interface {
 		}
 
 		if isSourcesPath(r.URL.Path) {
+			if serveSimulation(w, r, b, recent, lang) {
+				return
+			}
 			serveSources(w, r, b, lang)
 			return
 		}
