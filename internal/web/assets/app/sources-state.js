@@ -50,6 +50,7 @@ export function deletePrompt(item,list,t){
 }
 export function clearEditor(state){
  state.draft=null;state.base=null;state.preview=null;
+ state.valueGroups=[];state.valuesOpen=false;state.valuesFilter='';state.valuesError='';
  state.previewError='';state.editorError='';state.editorNotice='';state.styleInputs={};state.diagnostics=[];
 }
 export const visibleLayout=(saved,mobile)=>({axis:mobile?'vertical':saved.axis,showAxis:saved.mode==='split'&&!mobile});
@@ -68,4 +69,20 @@ export function openEditor(state,source){
  state.preview=null;state.editorNotice='';state.editorError='';state.styleInputs={};
  const error=source?brokenError(state.broken,source.name):null;
  state.previewError=error?.error||'';state.diagnostics=templateDiagnostics(error);
+}
+
+// Labels use src_value_<definition name>; camera IDs share camera.* labels.
+export function sourceValueGroups(groups,filter,t){
+ const query=filter.toLowerCase();
+ return groups.map(group=>{
+  const camera=group.kind==='camera'?group.camera:null;
+  const key=camera?'camera:'+camera.id:group.kind;
+  const title=camera?t('src_values_camera').replace(/\{(id|name)\}/g,(_,field)=>camera[field]):t('src_values_'+group.kind);
+  const values=group.values.map(value=>{
+   const name=camera?'camera.'+value.name.slice(('camera.'+camera.id+'.').length):value.name;
+   const meaning=t('src_value_'+name);
+   return {...value,meaning,label:value.name+': '+meaning,text:value.text??'—'};
+  }).filter(value=>value.name.toLowerCase().includes(query)||value.meaning.toLowerCase().includes(query));
+  return {key,title,values};
+ }).filter(group=>group.values.length);
 }

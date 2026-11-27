@@ -13,7 +13,7 @@ import (
 )
 
 func isSourcesPath(p string) bool {
-	return p == "/api/sources/test-obs/alive" || p == "/api/sources" || strings.HasPrefix(p, "/api/sources/") && sources.NamePattern.MatchString(strings.TrimPrefix(p, "/api/sources/"))
+	return p == "/api/source-values" || p == "/api/sources/test-obs/alive" || p == "/api/sources" || strings.HasPrefix(p, "/api/sources/") && sources.NamePattern.MatchString(strings.TrimPrefix(p, "/api/sources/"))
 }
 func sourcesMethod(p, m string) bool {
 	if p == "/api/sources/preview" || p == "/api/sources/test-obs/alive" {
@@ -22,7 +22,7 @@ func sourcesMethod(p, m string) bool {
 	if p == "/api/sources/test-obs" {
 		return m == "PUT" || m == "DELETE"
 	}
-	if p == "/api/sources" {
+	if p == "/api/sources" || p == "/api/source-values" {
 		return m == "GET" || m == "POST"
 	}
 	return m == "GET" || m == "PUT" || m == "DELETE"

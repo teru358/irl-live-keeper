@@ -55,6 +55,14 @@ func (e *Events) sourcesPayload(texts map[string]string) any {
 	defer e.mu.Unlock()
 	return map[string]any{"sources": texts, "test_obs": e.testOBS}
 }
+
+// decodeSourcesRequest shares preview's strict shape, single JSON value and size limit.
+func decodeSourcesRequest(w http.ResponseWriter, r *http.Request, v any) bool {
+	d := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10))
+	d.DisallowUnknownFields()
+	return d.Decode(v) == nil && d.Decode(new(any)) == io.EOF
+}
+
 func serveSimulation(w http.ResponseWriter, r *http.Request, b Backend, recent any, lang i18n.Lang) bool {
 	path := r.URL.Path
 	if path != "/api/sources/preview" && path != "/api/sources/test-obs" && path != "/api/sources/test-obs/alive" {
@@ -62,11 +70,7 @@ func serveSimulation(w http.ResponseWriter, r *http.Request, b Backend, recent a
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	fail := func(code int) { writeError(w, code, lang, i18n.New("sources.invalid")) }
-	decode := func(v any) bool {
-		d := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10))
-		d.DisallowUnknownFields()
-		return d.Decode(v) == nil && d.Decode(new(any)) == io.EOF
-	}
+
 	e, _ := recent.(*Events)
 	now := time.Now()
 	if path != "/api/sources/preview" {
@@ -76,7 +80,7 @@ func serveSimulation(w http.ResponseWriter, r *http.Request, b Backend, recent a
 		}
 		var sim sources.Simulation
 		if r.Method == "PUT" {
-			if !decode(&sim) {
+			if !decodeSourcesRequest(w, r, &sim) {
 				fail(400)
 				return true
 			}
@@ -122,7 +126,7 @@ func serveSimulation(w http.ResponseWriter, r *http.Request, b Backend, recent a
 		Source   *json.RawMessage   `json:"source"`
 		Simulate sources.Simulation `json:"simulate"`
 	}
-	if !decode(&req) || (req.Names == nil) == (req.Source == nil) {
+	if !decodeSourcesRequest(w, r, &req) || (req.Names == nil) == (req.Source == nil) {
 		fail(400)
 		return true
 	}
