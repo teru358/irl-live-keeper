@@ -462,6 +462,7 @@
     "sources_duplicate": "Source name already exists.",
     "sources_write_failed": "Cannot save sources.",
     "sources": "Sources",
+    "src_needs_repair": "Needs repair",
     "src_unsaved": "Unsaved",
     "src_view": "View",
     "src_split_axis": "Split direction",

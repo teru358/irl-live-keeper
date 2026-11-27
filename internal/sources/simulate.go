@@ -165,6 +165,9 @@ func (sim Simulation) Apply(s core.Snapshot, now time.Time, stats map[string]tem
 	return v, nil
 }
 func RenderSimulation(src Source, s core.Snapshot, now time.Time, stats map[string]template.Value, sim Simulation) (string, error) {
+	if src.Broken != nil {
+		return "", nil
+	}
 	p, err := template.Compile(src.Template, Definitions(s))
 	if err != nil {
 		return "", err

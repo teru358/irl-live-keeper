@@ -321,11 +321,11 @@ func (w *statusCapture) Write(b []byte) (int, error) {
 }
 
 func (e *Events) updateSources(now time.Time) {
+	list := sourceList(e.backend)
 	e.updateMu.Lock()
 	sim, reason := e.simulationState(now)
 	defer func() { e.updateMu.Unlock(); e.logSimulationStop(reason) }()
 	next := map[string]string{}
-	list := sourceList(e.backend)
 	for _, s := range list {
 		snapshot := e.backend.Snapshot()
 		text, err := sources.RenderSimulation(s, snapshot, now, e.statisticsValues(now), sim)

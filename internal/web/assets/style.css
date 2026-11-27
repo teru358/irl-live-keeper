@@ -301,3 +301,6 @@ body.in-standby .standby-tile { display: none; }
 .source-editor-notice { margin:8px 0 16px; white-space:pre-line; }
 #sources-panel p[role=alert] { color:var(--down); }
 #sources-panel p[role=status]:empty, #sources-panel p[role=alert]:empty { display:none; }
+.source-repair { color:var(--down); overflow-wrap:anywhere; }
+.source-repair-badge { display:inline-block; border:1px solid currentColor; border-radius:4px; padding:2px 8px; font-size:14px; font-weight:600; }
+.source-repair p { margin:8px 0 0; font-size:14px; }

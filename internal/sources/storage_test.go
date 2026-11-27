@@ -10,7 +10,7 @@ import (
 func TestStorageValidationAndRecovery(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "sources.yaml")
 	store := Store{Path: p}
-	for _, bad := range []string{"[", "- name: demo\n  extra: true\n", "- name: demo\n- name: demo\n", "- name: demo\n  obs_width: 0\n", "- name: demo\n  template: '{unknown}'\n", "[]\n---\n[]\n"} {
+	for _, bad := range []string{"[", "- name: demo\n  extra: true\n", "- name: demo\n- name: demo\n", "- name: demo\n  obs_width: 0\n", "[]\n---\n[]\n"} {
 		if e := os.WriteFile(p, []byte(bad), 0600); e != nil {
 			t.Fatal(e)
 		}

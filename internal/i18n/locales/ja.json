@@ -462,6 +462,7 @@
     "sources_duplicate": "ソースの名前が重複しています。",
     "sources_write_failed": "ソースを保存できません。",
     "sources": "ソース",
+    "src_needs_repair": "直しが要る",
     "src_unsaved": "未保存",
     "src_view": "表示",
     "src_split_axis": "分割の向き",

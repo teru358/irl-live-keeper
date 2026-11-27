@@ -40,7 +40,7 @@ func serveSources(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.L
 	err := provider.SourcesStore().Transaction(b.Snapshot(), func(list []sources.Source, loadErr error) ([]sources.Source, bool) {
 		if loadErr != nil {
 			if r.Method == "GET" {
-				writeJSON(w, 200, map[string]any{"sources": []sources.Source{}, "error": i18n.Render(lang, i18n.New("sources.unreadable")), "code": "sources.unreadable"})
+				writeJSON(w, 200, map[string]any{"sources": []sources.Source{}, "broken": map[string]any{}, "names": sourceNames(b), "default": sources.Default(), "error": i18n.Render(lang, i18n.New("sources.unreadable")), "code": "sources.unreadable"})
 			} else {
 				writeError(w, 409, lang, i18n.New("sources.unreadable"))
 			}
@@ -54,7 +54,13 @@ func serveSources(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.L
 		}
 		if r.Method == "GET" {
 			if collection {
-				writeJSON(w, 200, map[string]any{"sources": list, "names": sourceNames(b), "default": sources.Default()})
+				broken := map[string]any{}
+				for _, src := range list {
+					if e := src.Broken; e != nil {
+						broken[src.Name] = map[string]any{"code": e.Message.Code, "error": i18n.Render(lang, e.Message), "line": e.Line, "column": e.Column}
+					}
+				}
+				writeJSON(w, 200, map[string]any{"sources": list, "broken": broken, "names": sourceNames(b), "default": sources.Default()})
 			} else if index >= 0 {
 				writeJSON(w, 200, list[index])
 			} else {
