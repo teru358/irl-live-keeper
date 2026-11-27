@@ -32,10 +32,16 @@ func TestSourcesMethods(t *testing.T) {
 		}
 		return w.Body.String()
 	}
-	body := `{"name":"demo","template":"{link.kbps}"}`
+	body := `{"name":"demo","template":"{camera.kbps}"}`
 	call("POST", "/api/sources", body, false, 403)
 	call("POST", "/api/sources", body, true, 201)
 	call("POST", "/api/sources", body, true, 409)
+	for _, old := range []string{"link.state", "link.kbps", "link.online", "link.protocol", "link.state_for", "srt.rtt", "srt.loss", "srt.mbps"} {
+		got := call("POST", "/api/sources", `{"name":"removed","template":"{`+old+`}"}`, true, 422)
+		if !strings.Contains(got, `"code":"template.unknown"`) {
+			t.Fatal(got)
+		}
+	}
 	call("GET", "/api/sources", "", false, 200)
 	got := call("GET", "/api/sources/demo", "", false, 200)
 	if !strings.Contains(got, `"obs_width":800`) {

@@ -8,22 +8,18 @@ import (
 	"github.com/teru358/irl-live-keeper/internal/sources/template"
 )
 
-// Definitions は Compile に渡す一覧。カメラは Snapshot の設定順で、link は先頭の別名。
+// Definitions は Compile に渡す一覧。camera.* は今のシーンに映る1台のカメラの値。
 // 呼び出しごとに独立した map を返す。資格情報と保留中の session は含めない。
 func Definitions(s core.Snapshot) map[string]template.Definition {
 	d := map[string]template.Definition{}
 	add := func(name string, typ template.Type, format string) {
 		d[name] = template.Definition{Type: typ, Format: format}
 	}
-	cameraDefinitions(d, "link.")
-	for _, n := range []string{"rtt", "loss", "mbps"} {
-		delete(d, "link.srt."+n)
-	}
+	cameraDefinitions(d, "camera.")
+	add("camera.id", template.String, "")
 	for _, c := range s.Cameras {
 		prefix := "camera." + c.ID + "."
 		cameraDefinitions(d, prefix)
-		add(prefix+"name", template.String, "")
-		add(prefix+"hidden", template.Number, "0")
 	}
 	for _, n := range []string{"standby.owner", "standby.return", "obs.scene", "obs.scene_class", "obs.scene_health", "mediamtx.state"} {
 		add(n, template.String, "")
@@ -33,9 +29,6 @@ func Definitions(s core.Snapshot) map[string]template.Definition {
 	}
 	add("standby.for", template.Seconds, "hms")
 	add("now", template.Clock, "hm")
-	add("srt.rtt", template.Number, "0")
-	add("srt.loss", template.Number, "2")
-	add("srt.mbps", template.Number, "1")
 	add("stream.elapsed", template.Seconds, "hms")
 	// session.low_count と session.standby_total は配信の記録（区切り3）から取る値なので、区切り3を再開するまで一覧に入れない（task 表 v1.14）
 	for _, n := range []string{"stream.kbps", "stream.dropped", "obs.render_skipped"} {
@@ -47,9 +40,10 @@ func Definitions(s core.Snapshot) map[string]template.Definition {
 }
 
 func cameraDefinitions(d map[string]template.Definition, p string) {
-	for _, n := range []string{"state", "protocol"} {
+	for _, n := range []string{"state", "protocol", "name"} {
 		d[p+n] = template.Definition{Type: template.String}
 	}
+	d[p+"hidden"] = template.Definition{Type: template.Number, Format: "0"}
 	d[p+"kbps"] = template.Definition{Type: template.Number, Format: "0"}
 	d[p+"online"] = template.Definition{Type: template.Bool}
 	d[p+"state_for"] = template.Definition{Type: template.Seconds, Format: "hms"}
@@ -79,26 +73,21 @@ func Values(s core.Snapshot, now time.Time, stats ...map[string]template.Value) 
 			num(p+"mbps", c.SRT.RecvMbps)
 		}
 	}
-	for i, c := range s.Cameras {
+	for _, c := range s.Cameras {
 		p := "camera." + c.ID + "."
 		str(p+"name", c.Name)
 		num(p+"hidden", float64(c.Hidden))
-		prefixes := []string{p}
-		if i == 0 {
-			prefixes = append(prefixes, "link.")
-			srt("srt.", c)
-		}
-		for _, p := range prefixes {
-			str(p+"state", c.State)
-			str(p+"protocol", c.Protocol)
-			num(p+"kbps", c.Kbps)
-			boolean(p+"online", c.Online)
-			seconds(p+"state_for", c.StateSince)
-			if p != "link." {
-				srt(p+"srt.", c)
-			}
-		}
+		str(p+"state", c.State)
+		str(p+"protocol", c.Protocol)
+		num(p+"kbps", c.Kbps)
+		boolean(p+"online", c.Online)
+		seconds(p+"state_for", c.StateSince)
+		srt(p+"srt.", c)
 	}
+	if s.OBS.Connected {
+		currentCameraValues(v, s.OBS.SceneCameras)
+	}
+
 	str("standby.owner", s.OBS.Standby.Owner)
 	if s.OBS.Standby.ReturnScene != nil {
 		str("standby.return", *s.OBS.Standby.ReturnScene)
@@ -125,4 +114,24 @@ func Values(s core.Snapshot, now time.Time, stats ...map[string]template.Value) 
 		}
 	}
 	return v
+}
+
+// currentCameraValues は今のシーンに映るカメラが1台なら、そのカメラの値を写す。
+// テストの状況でシーンを変えた場合も使うため、以前の camera.* を先に未定義に戻す。
+func currentCameraValues(v map[string]template.Value, ids []string) {
+	fields := map[string]template.Definition{}
+	cameraDefinitions(fields, "")
+	for field, def := range fields {
+		value := template.Value{Type: def.Type}
+		if len(ids) == 1 {
+			if x, ok := v["camera."+ids[0]+"."+field]; ok {
+				value = x
+			}
+		}
+		v["camera."+field] = value
+	}
+	v["camera.id"] = template.Value{Type: template.String}
+	if len(ids) == 1 && v["camera.name"].Defined {
+		v["camera.id"] = template.Value{Defined: true, Type: template.String, String: ids[0]}
+	}
 }

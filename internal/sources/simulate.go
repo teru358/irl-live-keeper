@@ -89,7 +89,7 @@ func (sim Simulation) Apply(s core.Snapshot, now time.Time, stats map[string]tem
 	if sim.Mode == "DOWN" {
 		state, kbps = "DOWN", 0
 	}
-	for i, c := range s.Cameras {
+	for _, c := range s.Cameras {
 		p := "srt"
 		if c.Online && c.Protocol != "" {
 			p = c.Protocol
@@ -97,32 +97,24 @@ func (sim Simulation) Apply(s core.Snapshot, now time.Time, stats map[string]tem
 		if state == "DOWN" {
 			p = ""
 		}
-		prefixes := []string{"camera." + c.ID + "."}
-		if i == 0 {
-			prefixes = append(prefixes, "link.")
+		prefix := "camera." + c.ID + "."
+		put(prefix+"state", state)
+		put(prefix+"kbps", kbps)
+		put(prefix+"online", state != "DOWN")
+		put(prefix+"protocol", p)
+		put(prefix+"state_for", float64(12))
+		sp := prefix + "srt."
+		for _, n := range []string{"rtt", "loss", "mbps"} {
+			put(sp+n, nil)
 		}
-		for _, prefix := range prefixes {
-			put(prefix+"state", state)
-			put(prefix+"kbps", kbps)
-			put(prefix+"online", state != "DOWN")
-			put(prefix+"protocol", p)
-			put(prefix+"state_for", float64(12))
-			sp := prefix + "srt."
-			if prefix == "link." {
-				sp = "srt."
+		if p == "srt" {
+			rtt, loss := float64(250), 0.05
+			if state == "OK" {
+				rtt, loss = 80, 0
 			}
-			for _, n := range []string{"rtt", "loss", "mbps"} {
-				put(sp+n, nil)
-			}
-			if p == "srt" {
-				rtt, loss := float64(250), 0.05
-				if state == "OK" {
-					rtt, loss = 80, 0
-				}
-				put(sp+"rtt", rtt)
-				put(sp+"loss", loss)
-				put(sp+"mbps", kbps/1000)
-			}
+			put(sp+"rtt", rtt)
+			put(sp+"loss", loss)
+			put(sp+"mbps", kbps/1000)
 		}
 	}
 	keys := make([]string, 0, len(s.SceneDetails))
@@ -137,17 +129,21 @@ func (sim Simulation) Apply(s core.Snapshot, now time.Time, stats map[string]tem
 		return a.Name < b.Name
 	})
 	scene, standby := "", ""
+	var sceneCameras, standbyCameras []string
 	for _, k := range keys {
 		sc := s.SceneDetails[k]
 		if scene == "" && (sc.Kind == "camera" || sc.Kind == "monitored") {
 			scene = sc.Name
+			sceneCameras = sc.Cameras
 		}
 		if standby == "" && sc.Kind == "standby" {
 			standby = sc.Name
+			standbyCameras = sc.Cameras
 		}
 	}
 	if scene == "" && s.OBS.SceneClass == "monitored" {
 		scene = s.OBS.Scene
+		// 地図がなければ、シーン名だけ既存の表示に使う。カメラは推測しない。
 	}
 	put("obs.scene", scene)
 	put("obs.scene_class", "monitored")
@@ -159,7 +155,9 @@ func (sim Simulation) Apply(s core.Snapshot, now time.Time, stats map[string]tem
 		put("standby.for", float64(12))
 		put("obs.scene", standby)
 		put("obs.scene_class", "standby")
+		sceneCameras = standbyCameras
 	}
+	currentCameraValues(v, sceneCameras)
 	put("stream.elapsed", float64(5025))
 	put("stream.kbps", float64(6000))
 	put("stream.dropped", float64(0))

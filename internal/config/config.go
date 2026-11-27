@@ -596,6 +596,9 @@ func (c *Config) validateCameras(add func(field string, reason i18n.Msg)) {
 		switch {
 		case cam.ID == "all" || cam.ID == "all_others":
 			add(p+".id", i18n.New("config.validation_22", "a", fmt.Sprintf("%s", cam.ID)))
+		case cam.ID == "state" || cam.ID == "kbps" || cam.ID == "online" || cam.ID == "protocol" ||
+			cam.ID == "state_for" || cam.ID == "srt" || cam.ID == "id" || cam.ID == "name" || cam.ID == "hidden":
+			add(p+".id", i18n.New("config.validation_35", "a", cam.ID))
 		case !cameraIDRe.MatchString(cam.ID):
 			add(p+".id", i18n.New("config.validation_23", "a", fmt.Sprintf("%q", cam.ID)))
 		default:

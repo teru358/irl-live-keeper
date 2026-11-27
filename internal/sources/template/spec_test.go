@@ -19,7 +19,7 @@ func TestSpecLexicalAndGrammar(t *testing.T) {
 		{rule: "字句: 引用符の復号", input: `{if text == "a\"b\\c{}"}Y{end}`, want: "Y"},
 		{rule: "字句: 予約語は名前全体で一致", input: "{if nota}Y{end}", want: "Y"},
 		{rule: "字句: 数値の負号と小数", input: "{if -1.5 < 0}Y{end}", want: "Y"},
-		{rule: "文法: 比較はnotより先 900", input: "{if not link.kbps < 800}Y{else}N{end}", want: "Y"},
+		{rule: "文法: 比較はnotより先 900", input: "{if not camera.kbps < 800}Y{else}N{end}", want: "Y"},
 		{rule: "文法: notはandより先", input: "{if not false and false}Y{else}N{end}", want: "N"},
 		{rule: "文法: andはorより先", input: "{if true or false and false}Y{end}", want: "Y"},
 		{rule: "文法: 括弧でnotの範囲を限定", input: "{if (not a) == false}Y{end}", want: "Y"},
@@ -33,17 +33,17 @@ func TestSpecLexicalAndGrammar(t *testing.T) {
 		{rule: "制御行: 差し込みだけの行は保持", input: " {a} \n", want: " 10 \n"},
 	}
 	values := map[string]Value{
-		"a":         {Defined: true, Type: Number, Number: 10},
-		"text":      {Defined: true, Type: String, String: "a\"b\\c{}"},
-		"nota":      boolean(true),
-		"link.kbps": {Defined: true, Type: Number, Number: 900},
+		"a":           {Defined: true, Type: Number, Number: 10},
+		"text":        {Defined: true, Type: String, String: "a\"b\\c{}"},
+		"nota":        boolean(true),
+		"camera.kbps": {Defined: true, Type: Number, Number: 900},
 	}
 	for _, c := range cases {
 		t.Run(c.rule, func(t *testing.T) { run(t, c.input, c.want, values) })
 	}
 	t.Run("文法: 比較はnotより先 700", func(t *testing.T) {
-		values["link.kbps"] = Value{Defined: true, Type: Number, Number: 700}
-		run(t, "{if not link.kbps < 800}Y{else}N{end}", "N", values)
+		values["camera.kbps"] = Value{Defined: true, Type: Number, Number: 700}
+		run(t, "{if not camera.kbps < 800}Y{else}N{end}", "N", values)
 	})
 }
 
