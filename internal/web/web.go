@@ -11,12 +11,9 @@ import (
 	"log/slog"
 	"net/http"
 	"slices"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/teru358/irl-live-keeper/internal/core"
-	"github.com/teru358/irl-live-keeper/internal/logging"
 	"github.com/teru358/irl-live-keeper/internal/switcher"
 )
 
@@ -45,9 +42,7 @@ type Backend interface {
 }
 
 // New は管理用の JSON API を返す。
-func apiHandler(b Backend, recent interface {
-	Recent(int, slog.Level) []logging.Line
-}, defaultLang ...i18n.Lang) http.Handler {
+func apiHandler(b Backend, events *Events, defaultLang ...i18n.Lang) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		lang := i18n.Select(r.URL.Query().Get("lang"), r.Header.Get("Accept-Language"), defaultLang...)
 		kind, method, known := route(r.URL.Path)
@@ -85,10 +80,10 @@ func apiHandler(b Backend, recent interface {
 
 		if isSourcesPath(r.URL.Path) {
 			if r.URL.Path == "/api/source-values" {
-				serveSourceValues(w, r, b, recent, lang)
+				serveSourceValues(w, r, b, events, lang)
 				return
 			}
-			if serveSimulation(w, r, b, recent, lang) {
+			if serveSimulation(w, r, b, events, lang) {
 				return
 			}
 			serveSources(w, r, b, lang)
@@ -119,39 +114,6 @@ func apiHandler(b Backend, recent interface {
 			} else {
 				writeJSON(w, 503, map[string]string{"error": i18n.Render(lang, i18n.New("api.stopped"))})
 			}
-			return
-		}
-		if r.URL.Path == "/api/logs" {
-			raw := r.URL.Query().Get("lines")
-			n := 500
-			if r.URL.Query().Has("lines") {
-				parsed, err := strconv.Atoi(raw)
-				if err != nil || parsed < 1 {
-					writeError(w, 400, lang, i18n.New("api.invalid", "reason", "lines"))
-					return
-				}
-				n = min(parsed, 2000)
-			}
-			minLevel := slog.LevelInfo
-			switch strings.ToUpper(r.URL.Query().Get("level")) {
-			case "", "INFO":
-			case "WARN":
-				minLevel = slog.LevelWarn
-			case "ERROR":
-				minLevel = slog.LevelError
-			default:
-				writeError(w, 400, lang, i18n.New("api.invalid", "reason", "level"))
-				return
-			}
-			lines := []logging.Line{}
-			if recent != nil {
-				lines = recent.Recent(n, minLevel)
-			}
-			values := make([]map[string]any, 0, len(lines))
-			for _, line := range lines {
-				values = append(values, map[string]any{"t": line.At, "level": strings.ToUpper(line.Level.String()), "text": line.Text})
-			}
-			writeJSON(w, 200, values)
 			return
 		}
 
@@ -232,7 +194,7 @@ func route(path string) (switcher.CommandKind, string, bool) {
 		return 0, http.MethodPost, true
 	case "/api/settings/regenerate":
 		return 0, http.MethodPost, true
-	case "/api/sender", "/api/obs/scenes", "/api/obs/inputs", "/api/events", "/api/status", "/api/logs":
+	case "/api/sender", "/api/obs/scenes", "/api/obs/inputs", "/api/events", "/api/status":
 		return 0, http.MethodGet, true
 	case "/api/obs/scene":
 		return 0, http.MethodPost, true

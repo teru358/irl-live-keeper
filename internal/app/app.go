@@ -613,14 +613,6 @@ func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 	g.core = c
 	g.obs = obsClient
 	stage("receivers.register")
-	var eventLogger interface {
-		Subscribe(int) (<-chan logging.Line, func())
-	}
-	if l, ok := logger.(interface {
-		Subscribe(int) (<-chan logging.Line, func())
-	}); ok {
-		eventLogger = l
-	}
 	a.mu.Lock()
 	a.generationID++
 	id := a.generationID
@@ -630,7 +622,7 @@ func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 	}
 	a.sourcesStore.SetLogger(log)
 	backend := &pageBackend{sourceStore: a.sourcesStore, statistics: statisticsReader(obsClient), Backend: c, senderConfig: cfg, senderDefault: host, app: a, id: id, language: cfg.Language, closeAction: cfg.GUI.CloseAction, lan: cfg.Admin.LAN}
-	g.events = web.NewEvents(backend, eventLogger, nil, lang)
+	g.events = web.NewEvents(backend, logger, nil, lang)
 
 	stage("parts.start")
 	g.started = true

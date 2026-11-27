@@ -46,9 +46,20 @@ func TestPageStatusRestartSession(t *testing.T) {
 	}
 	page := call("/", "GET", true)
 	app := pageModules(t)
-	for _, id := range []string{"menu", "links", "obs", "standby", "mediamtx", "actions", "language-switch", "log-panel", "log-level", "log-lines"} {
+	for _, id := range []string{"menu", "links", "obs", "standby", "mediamtx", "actions", "language-switch"} {
 		if !strings.Contains(page.Body.String()+string(app), `id="`+id+`"`) {
 			t.Fatal(id)
+		}
+	}
+	removed := []string{"log-panel", "soon"}
+	for _, id := range removed {
+		if strings.Contains(string(app), `id="`+id+`"`) {
+			t.Errorf("removed element remains: %s", id)
+		}
+	}
+	for _, page := range []string{"history", "logs"} {
+		if strings.Contains(string(app), `data-page="`+page+`"`) {
+			t.Errorf("removed menu remains: %s", page)
 		}
 	}
 	if !strings.Contains(call("/", "GET", false).Body.String(), `"login":true`) {

@@ -9,7 +9,7 @@ import (
 	"github.com/teru358/irl-live-keeper/internal/sources/template"
 )
 
-func serveSourceValues(w http.ResponseWriter, r *http.Request, b Backend, recent any, lang i18n.Lang) {
+func serveSourceValues(w http.ResponseWriter, r *http.Request, b Backend, events *Events, lang i18n.Lang) {
 	w.Header().Set("Cache-Control", "no-store")
 	var req struct {
 		Simulate sources.Simulation `json:"simulate"`
@@ -21,9 +21,9 @@ func serveSourceValues(w http.ResponseWriter, r *http.Request, b Backend, recent
 	now := time.Now()
 	snapshot := b.Snapshot()
 	var stats map[string]template.Value
-	if e, ok := recent.(*Events); ok && e != nil {
-		e.wantStatistics(now)
-		stats = e.statisticsValues(now)
+	if events != nil {
+		events.wantStatistics(now)
+		stats = events.statisticsValues(now)
 	}
 	values, err := req.Simulate.Apply(snapshot, now, stats)
 	if err != nil {

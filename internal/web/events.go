@@ -14,7 +14,6 @@ import (
 
 	"github.com/teru358/irl-live-keeper/internal/core"
 	"github.com/teru358/irl-live-keeper/internal/i18n"
-	"github.com/teru358/irl-live-keeper/internal/logging"
 )
 
 // Events は世代に一つだけ作る配信係。登録は core.Run の前に行う。
@@ -37,9 +36,6 @@ type Events struct {
 	backend        Backend
 	apply          func() any
 	ticker         func(time.Duration) (<-chan time.Time, func())
-	recent         interface {
-		Recent(int, slog.Level) []logging.Line
-	}
 }
 type eventMessage struct {
 	kind  string
@@ -54,20 +50,13 @@ type eventClient struct {
 }
 
 // NewEvents は受け手を登録し、配信を開始する。Close で必ず終了させる。
-func NewEvents(b Backend, logger interface {
-	Subscribe(int) (<-chan logging.Line, func())
-}, apply func() any, langs ...i18n.Lang) *Events {
+func NewEvents(b Backend, logger interface{ Slog() *slog.Logger }, apply func() any, langs ...i18n.Lang) *Events {
 	e := &Events{clients: make(map[*eventClient]bool), done: make(chan struct{}), finished: make(chan struct{}), backend: b, apply: apply}
 	e.logger = slog.New(slog.NewTextHandler(io.Discard, nil))
-	if l, ok := logger.(interface{ Slog() *slog.Logger }); ok {
-		e.logger = l.Slog()
+	if logger != nil {
+		e.logger = logger.Slog()
 	}
 	e.langs = langs
-	if recent, ok := logger.(interface {
-		Recent(int, slog.Level) []logging.Line
-	}); ok {
-		e.recent = recent
-	}
 	e.ticker = func(d time.Duration) (<-chan time.Time, func()) { t := time.NewTicker(d); return t.C, t.Stop }
 	var snapshots <-chan struct{}
 	var events <-chan core.Event
@@ -78,11 +67,6 @@ func NewEvents(b Backend, logger interface {
 		snapshots = c.SubscribeSnapshots()
 		events = c.SubscribeEvents(256).C
 	}
-	var lines <-chan logging.Line
-	unsub := func() {}
-	if logger != nil {
-		lines, unsub = logger.Subscribe(256)
-	}
 	e.statisticsDone = make(chan struct{})
 	go e.pollStatistics()
 	e.updateSources(time.Now())
@@ -90,7 +74,6 @@ func NewEvents(b Backend, logger interface {
 	go func() {
 		defer stop()
 		defer close(e.finished)
-		defer unsub()
 		for {
 			select {
 			case now := <-ticks:
@@ -116,12 +99,6 @@ func NewEvents(b Backend, logger interface {
 				case core.DroppedEvent:
 					e.broadcast(eventMessage{"dropped", map[string]int{"n": v.N}})
 				}
-			case v, ok := <-lines:
-				if !ok {
-					lines = nil
-					continue
-				}
-				e.broadcast(eventMessage{"log", map[string]any{"t": v.At, "level": v.Level.String(), "text": v.Text}})
 			}
 		}
 	}()
@@ -175,13 +152,6 @@ func (e *Events) broadcast(m eventMessage) {
 	}
 }
 
-func (e *Events) Recent(n int, level slog.Level) []logging.Line {
-	if e == nil || e.recent == nil {
-		return []logging.Line{}
-	}
-	return e.recent.Recent(n, level)
-}
-
 // Close は新規接続を拒否し、書き込み中の接続も中断して全ハンドラーを待つ。
 func (e *Events) Close() {
 	e.mu.Lock()
@@ -211,7 +181,7 @@ func (e *Events) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		raw = "status,sample"
 	}
 	for _, s := range strings.Split(raw, ",") {
-		if s != "status" && s != "sample" && s != "log" && s != "sources" {
+		if s != "status" && s != "sample" && s != "sources" {
 			writeError(w, 400, lang, i18n.New("api.invalid", "reason", "topics"))
 			return
 		}

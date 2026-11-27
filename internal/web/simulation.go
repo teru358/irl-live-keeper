@@ -63,7 +63,7 @@ func decodeSourcesRequest(w http.ResponseWriter, r *http.Request, v any) bool {
 	return d.Decode(v) == nil && d.Decode(new(any)) == io.EOF
 }
 
-func serveSimulation(w http.ResponseWriter, r *http.Request, b Backend, recent any, lang i18n.Lang) bool {
+func serveSimulation(w http.ResponseWriter, r *http.Request, b Backend, e *Events, lang i18n.Lang) bool {
 	path := r.URL.Path
 	if path != "/api/sources/preview" && path != "/api/sources/test-obs" && path != "/api/sources/test-obs/alive" {
 		return false
@@ -71,7 +71,6 @@ func serveSimulation(w http.ResponseWriter, r *http.Request, b Backend, recent a
 	w.Header().Set("Cache-Control", "no-store")
 	fail := func(code int) { writeError(w, code, lang, i18n.New("sources.invalid")) }
 
-	e, _ := recent.(*Events)
 	now := time.Now()
 	if path != "/api/sources/preview" {
 		if e == nil {

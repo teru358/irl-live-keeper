@@ -3,7 +3,6 @@ package web
 import (
 	"context"
 	"encoding/json"
-	"github.com/teru358/irl-live-keeper/internal/logging"
 	"github.com/teru358/irl-live-keeper/internal/sources"
 	"log/slog"
 	"net/http/httptest"
@@ -212,10 +211,9 @@ func (l *simulationLog) Handle(_ context.Context, r slog.Record) error {
 	l.lines = append(l.lines, line)
 	return nil
 }
-func (l *simulationLog) WithAttrs([]slog.Attr) slog.Handler          { return l }
-func (l *simulationLog) WithGroup(string) slog.Handler               { return l }
-func (l *simulationLog) Slog() *slog.Logger                          { return slog.New(l) }
-func (l *simulationLog) Subscribe(int) (<-chan logging.Line, func()) { return nil, func() {} }
+func (l *simulationLog) WithAttrs([]slog.Attr) slog.Handler { return l }
+func (l *simulationLog) WithGroup(string) slog.Handler      { return l }
+func (l *simulationLog) Slog() *slog.Logger                 { return slog.New(l) }
 func TestSimulationOperationLogs(t *testing.T) {
 	b := &sourcesBackend{store: sources.Store{Path: filepath.Join(t.TempDir(), "sources.yaml")}}
 	log := &simulationLog{}
