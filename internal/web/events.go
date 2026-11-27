@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/teru358/irl-live-keeper/internal/sources"
+	"io"
 	"log/slog"
 	"net/http"
 	"reflect"
@@ -18,6 +19,7 @@ import (
 
 // Events は世代に一つだけ作る配信係。登録は core.Run の前に行う。
 type Events struct {
+	logger        *slog.Logger
 	updateMu      sync.Mutex
 	testOBS       testOBS
 	publishedTest testOBS
@@ -55,6 +57,10 @@ func NewEvents(b Backend, logger interface {
 	Subscribe(int) (<-chan logging.Line, func())
 }, apply func() any, langs ...i18n.Lang) *Events {
 	e := &Events{clients: make(map[*eventClient]bool), done: make(chan struct{}), finished: make(chan struct{}), backend: b, apply: apply}
+	e.logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	if l, ok := logger.(interface{ Slog() *slog.Logger }); ok {
+		e.logger = l.Slog()
+	}
 	e.langs = langs
 	if recent, ok := logger.(interface {
 		Recent(int, slog.Level) []logging.Line
@@ -316,8 +322,8 @@ func (w *statusCapture) Write(b []byte) (int, error) {
 
 func (e *Events) updateSources(now time.Time) {
 	e.updateMu.Lock()
-	defer e.updateMu.Unlock()
-	sim := e.simulation(now)
+	sim, reason := e.simulationState(now)
+	defer func() { e.updateMu.Unlock(); e.logSimulationStop(reason) }()
 	next := map[string]string{}
 	list := sourceList(e.backend)
 	for _, s := range list {

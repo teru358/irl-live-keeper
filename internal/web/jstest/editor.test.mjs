@@ -29,3 +29,10 @@ test('editor entry does not import CodeMirror until mount',async()=>{
  const {mountEditor}=await import('../assets/app/editor.js');
  assert.equal(typeof mountEditor,'function');
 });
+
+import * as lexer from '../assets/app/template-lexer.js';
+test('completion opens at bare brace and excludes escaped braces, strings and formats',()=>{
+ for(const [text,from] of [['{',1],['{{',null],['{li',1],['{link.',1],['{if ',4],['{if link.state == "',null],['{x:',null],['{x:hm',null],['abc {',5],['{{{',3],['{if link.state == "a\\"b',null],['{x}',null]]){
+  assert.deepEqual(lexer.templateCompletion(text),from===null?null:{from},text);
+ }
+});

@@ -9,6 +9,9 @@ import (
 )
 
 func noticeAreaHeight(textHeight, minimum, padding int) int {
+	if textHeight <= 0 {
+		return 0
+	}
 	return max(minimum, textHeight+padding)
 }
 
@@ -41,9 +44,12 @@ func layoutForDPI(dpi, rows, visibleButtons int) (l windowLayout) {
 func layoutWindowHeight(l windowLayout, rows, visibleButtons, noticeHeight, frame int) int {
 	rowsBottom := l.Left + max(0, rows-1)*l.RowStep + l.RowHeight
 	buttonsBottom := l.ButtonTop + max(0, visibleButtons-1)*l.ButtonStep + l.ButtonHeight
-	noticeBottom := l.NoticeTop + noticeHeight
+	noticeBottom := 0
+	if noticeHeight > 0 {
+		noticeBottom = l.NoticeTop + noticeHeight
+	}
 	contentBottom := max(rowsBottom, max(buttonsBottom, noticeBottom))
-	return max(l.MinimumHeight, contentBottom+l.Padding+frame)
+	return contentBottom + l.Padding + frame
 }
 
 func scaleDPI(value, dpi int) int {

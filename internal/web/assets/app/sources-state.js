@@ -5,4 +5,50 @@ export const assetText=name=>'url("/source/files/'+encodeURIComponent(name)+'")'
 export const previewRequest=(draft,names,simulate)=>({...draft?{source:draft}:{names},simulate});
 export const valueText=name=>'{'+name+'}';
 export const conditionText=(condition,body='')=>'{if '+condition+'}'+body+'{end}';
-export function sourceURL(settings,auto,name){const a=settings?.admin||{},host=settings?.stream?.obs_read_host||'';const loop=/^127\./.test(host)||['localhost','::1'].includes(host.toLowerCase());const selected=a.lan?(host||auto||'127.0.0.1'):'127.0.0.1';return {url:'http://'+(selected.includes(':')?'['+selected+']':selected)+':'+(a.port||8787)+'/source/'+encodeURIComponent(name),hint:!a.lan&&!!host&&!loop};}
+
+export function sourceURL(settings,auto,name){
+ const admin=settings?.admin||{},host=(settings?.stream?.obs_read_host||'').replace(/^\[|\]$/g,'');
+ const loop=/^127\./.test(host)||['localhost','::1'].includes(host.toLowerCase());
+ const remote=host&&!loop?host:auto;
+ const url=h=>'http://'+(h.includes(':')?'['+h.replace(/^\[|\]$/g,'')+']':h)+':'+(admin.port||8787)+'/source/'+encodeURIComponent(name);
+ return {url:url('127.0.0.1'),remoteURL:admin.lan&&remote?url(remote):null,hint:!admin.lan&&!!host&&!loop};
+}
+export function editorInsertion(doc,selection,hasCursor,text,asset=false){
+ const from=hasCursor?selection.from:doc.length,to=hasCursor?selection.to:doc.length;
+ const insert=asset?(hasCursor?assetText(text):(doc&&!doc.endsWith('\n')?'\n':'')+'.irl-source { background-image: '+assetText(text)+'; }'):text;
+ return {from,to,insert};
+}
+export const decorationInput=value=>value===0||value==null?'':String(value);
+export const decorationNumber=value=>value===''?0:Number(value);
+export function appearanceChanged(draft,base){
+ const appearance=source=>Object.fromEntries(Object.entries(source).filter(([key])=>!['name','title','template','obs_width','obs_height'].includes(key)));
+ return dirty(appearance(draft),appearance(base));
+}
+export function applyPreview(state,data){
+ state.previewError=data.template_error?.error||'';
+ if(state.draft){if(!data.template_error)state.preview=data;}
+ else if(!data.template_error)state.texts=data.sources;
+}
+export function applySourceEvent(state,data,stopped){
+ const test=data.test_obs;
+ const reset=!test.enabled&&test.reason==='stream_started'&&(state.test||state.testReason!=='stream_started');
+ if(reset){state.mode='actual';state.testNotice=stopped;if(state.preview)state.preview={...state.preview,text:''};}
+ if(state.mode==='actual')state.texts=data.sources;
+ state.test=test.enabled;state.testReason=test.reason;
+ return reset;
+}
+export function previewChanges(previous,next){
+ return {text:!previous||previous.text!==next.text||previous.name!==next.name,
+  style:!previous||previous.name!==next.name||previous.css!==next.css||previous.version!==next.version};
+}
+export function deletePrompt(item,list,t){
+ const label=source=>source.title||source.name;
+ const prompt=t('src_confirmdelete').replace('{name}',()=>label(item));
+ const used=item.used_by?.map(name=>label(list.find(src=>src.name===name)||{name}));
+ return prompt+(used?.length?'\n'+t('src_used').replace('{sources}',()=>used.join(', ')):'');
+}
+export function clearEditor(state){
+ state.draft=null;state.base=null;state.preview=null;
+ state.previewError='';state.editorError='';state.editorNotice='';state.styleInputs={};
+}
+export const visibleLayout=(saved,mobile)=>({axis:mobile?'vertical':saved.axis,showAxis:saved.mode==='split'&&!mobile});

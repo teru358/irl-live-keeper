@@ -38,3 +38,21 @@ export function tokenizeTemplate(text) {
  for(let pos=0;pos<text.length;){const t=nextTemplateToken(text,pos,state);tokens.push({text:text.slice(pos,t.end),style:t.style});pos=t.end;}
  return tokens;
 }
+
+// Completion context at the cursor, including an opening brace without a name.
+export function templateCompletion(prefix,explicit=false){
+ const state=templateState();let start=0,last=null,format=false;
+ for(let pos=0;pos<prefix.length;){
+  const wasTag=state.tag,t=nextTemplateToken(prefix,pos,state),text=prefix.slice(pos,t.end);
+  if(!wasTag&&state.tag){start=t.end;format=false;}
+  if(state.tag&&text===':')format=true;
+  last={...t,text};pos=t.end;
+ }
+ if(!state.tag||format||last?.text.startsWith('"'))return null;
+ const word=/[A-Za-z_][A-Za-z0-9_.]*$/.exec(prefix.slice(start));
+ if(last?.style==='invalid'&&!(word&&word[0].endsWith('.')))return null;
+ const bare=prefix.slice(start)==='';
+ const condition=/^(?:if|elif)\s+$/.test(prefix.slice(start));
+ if(!word&&!bare&&!condition&&!explicit)return null;
+ return {from:word?prefix.length-word[0].length:prefix.length};
+}

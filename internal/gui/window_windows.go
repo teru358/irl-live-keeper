@@ -167,7 +167,12 @@ func Run(ctx context.Context, stop context.CancelFunc, class string, a *app.App,
 		call("DrawTextW", dc, ptr(noticeText), ^uintptr(0), uintptr(unsafe.Pointer(&rect)), 0x10|0x400|0x800)
 		gdi.NewProc("SelectObject").Call(dc, oldFont)
 		call("ReleaseDC", notice, dc)
-		height := noticeAreaHeight(int(rect[3]), layout.NoticeMinHeight, layout.Padding)
+		textHeight := int(rect[3])
+		if noticeText == "" {
+			textHeight = 0
+		}
+		height := noticeAreaHeight(textHeight, layout.NoticeMinHeight, layout.Padding)
+		call("ShowWindow", notice, show(noticeText != ""))
 		var work [4]int32
 		monitor := call("MonitorFromWindow", uintptr(wnd.Hwnd()), 2)
 		info := struct {
@@ -187,7 +192,9 @@ func Run(ctx context.Context, stop context.CancelFunc, class string, a *app.App,
 		total := layoutWindowHeight(layout, len(m.Rows), visibleButtons, height, frame)
 		if available > 0 && total > available {
 			total = available
-			height = max(scaleDPI(24, dpi), total-frame-layout.Padding-top)
+			if noticeText != "" {
+				height = max(scaleDPI(24, dpi), total-frame-layout.Padding-top)
+			}
 		}
 		move(notice, layout.Left, top, layout.NoticeWidth, height)
 		if lastNotice != noticeText {

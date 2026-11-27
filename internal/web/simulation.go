@@ -19,11 +19,13 @@ type testOBS struct {
 	Alive    time.Time          `json:"-"`
 }
 
-func (e *Events) simulation(now time.Time) sources.Simulation {
+// simulationState returns the log reason to its caller, which must release all
+// locks before writing it to the generation logger.
+func (e *Events) simulationState(now time.Time) (sources.Simulation, string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	reason := ""
 	if e.testOBS.Enabled {
-		reason := ""
 		if e.backend.Snapshot().OBS.Streaming {
 			reason = "stream_started"
 		} else if now.Sub(e.testOBS.Alive) >= 45*time.Second {
@@ -34,9 +36,19 @@ func (e *Events) simulation(now time.Time) sources.Simulation {
 		}
 	}
 	if e.testOBS.Enabled {
-		return e.testOBS.Simulate
+		return e.testOBS.Simulate, ""
 	}
-	return sources.Simulation{}
+	return sources.Simulation{}, reason
+}
+func (e *Events) simulation(now time.Time) sources.Simulation {
+	sim, reason := e.simulationState(now)
+	e.logSimulationStop(reason)
+	return sim
+}
+func (e *Events) logSimulationStop(reason string) {
+	if reason != "" {
+		e.logger.Info("test obs stopped", "reason", reason)
+	}
 }
 func (e *Events) sourcesPayload(texts map[string]string) any {
 	e.mu.Lock()
@@ -81,6 +93,7 @@ func serveSimulation(w http.ResponseWriter, r *http.Request, b Backend, recent a
 			writeJSON(w, 409, map[string]string{"code": "sources.test_streaming", "error": i18n.Render(lang, i18n.New("sources.test_streaming"))})
 			return true
 		}
+		previous := e.testOBS
 		switch {
 		case r.Method == "DELETE":
 			e.testOBS = testOBS{Reason: "disabled"}
@@ -91,6 +104,15 @@ func serveSimulation(w http.ResponseWriter, r *http.Request, b Backend, recent a
 		}
 		e.mu.Unlock()
 		e.updateMu.Unlock()
+		if r.Method == "PUT" && (!previous.Enabled || previous.Simulate.Mode != sim.Mode) {
+			mode := sim.Mode
+			if mode == "" {
+				mode = "actual"
+			}
+			e.logger.Info("test obs enabled", "mode", mode)
+		} else if r.Method == "DELETE" && previous.Enabled {
+			e.logger.Info("test obs disabled")
+		}
 		e.updateSources(now)
 		writeJSON(w, 200, e.sourcesPayload(e.texts()))
 		return true
@@ -118,7 +140,12 @@ func serveSimulation(w http.ResponseWriter, r *http.Request, b Backend, recent a
 		if err != nil {
 			var te *template.Error
 			if errors.As(err, &te) {
-				writeJSON(w, 422, map[string]any{"error": i18n.Render(lang, te.Message), "code": te.Message.Code, "line": te.Line, "column": te.Column})
+				detail := map[string]any{"error": i18n.Render(lang, te.Message), "code": te.Message.Code, "line": te.Line, "column": te.Column}
+				if req.Source != nil {
+					writeJSON(w, 200, map[string]any{"template_error": detail})
+				} else {
+					writeJSON(w, 422, detail)
+				}
 			} else {
 				fail(422)
 			}
@@ -188,11 +215,15 @@ func (e *Events) stopSimulationEvent(v interface{ Kind() string }) {
 	if streaming {
 		e.updateMu.Lock()
 		e.mu.Lock()
-		if e.testOBS.Enabled {
+		stopped := e.testOBS.Enabled
+		if stopped {
 			e.testOBS = testOBS{Reason: "stream_started"}
 		}
 		e.mu.Unlock()
 		e.updateMu.Unlock()
+		if stopped {
+			e.logSimulationStop("stream_started")
+		}
 		e.updateSources(time.Now())
 	}
 }

@@ -7,6 +7,7 @@ import (
 
 func TestNoticeAreaHeight(t *testing.T) {
 	for _, tc := range []struct{ text, minimum, padding, want int }{
+		{0, 100, 12, 0},
 		{40, 100, 12, 100},
 		{100, 100, 12, 112},
 		{240, 100, 12, 252},
@@ -63,6 +64,19 @@ func TestVisibleButtonLayoutsDoNotOverlapAndFit(t *testing.T) {
 					}
 				}
 			}
+		}
+	}
+}
+
+func TestEmptyNoticeRemovesAreaAtCommonDPIs(t *testing.T) {
+	for _, dpi := range []int{96, 120, 144, 192} {
+		l := layoutForDPI(dpi, 4, 3)
+		want := l.ButtonTop + 2*l.ButtonStep + l.ButtonHeight + l.Padding + 39
+		if got := layoutWindowHeight(l, 4, 3, 0, 39); got != want {
+			t.Errorf("dpi=%d empty notice: got %d want %d", dpi, got, want)
+		}
+		if full := layoutWindowHeight(l, 4, 3, l.NoticeMinHeight, 39); full <= want {
+			t.Errorf("notice did not expand window")
 		}
 	}
 }

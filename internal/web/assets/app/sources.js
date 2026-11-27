@@ -1,52 +1,99 @@
 import {html,render} from '../vendor/lit-html-3.3.3/lit-html.js';
 import {live} from '../vendor/lit-html-3.3.3/directives/live.js';
+import {repeat} from '../vendor/lit-html-3.3.3/directives/repeat.js';
 import {createStore} from './store.js';
 import {mountEditor} from './editor.js';
-import {layout,remember,dirty,assetText,previewRequest,sourceURL} from './sources-state.js';
+import {layout,remember,dirty,previewRequest,sourceURL,decorationInput,decorationNumber,appearanceChanged,applyPreview,applySourceEvent,previewChanges,deletePrompt,clearEditor,visibleLayout} from './sources-state.js';
 export function mountSources(t,request,lang){
  const root=document.querySelector('#sources-panel');
+ const mobile=window.matchMedia('(max-width:700px)');
  let storage;try{storage=window.localStorage;}catch(_){}
- const store=createStore({list:[],names:[],defaults:null,draft:null,base:null,fresh:false,layout:layout(storage),mode:'actual',custom:'{}',texts:{},preview:null,files:[],notice:'',busy:false,streaming:false,test:false,active:false,settings:null,autoHost:''});
+ const store=createStore({list:[],names:[],defaults:null,draft:null,base:null,fresh:false,mobile:mobile.matches,layout:layout(storage),mode:'actual',custom:'{}',texts:{},preview:null,files:[],notice:'',editorNotice:'',editorError:'',previewError:'',testNotice:'',testReason:'',styleInputs:{},styleVersions:{},busy:false,streaming:false,test:false,active:false,settings:null,autoHost:''});
  const update=f=>store.update(f);let editors=[],generation=0,previewVersion=0,timer,events,polling=false;
- const fail=e=>update(s=>{s.notice=e.message;});
+ const fail=e=>update(s=>{if(s.draft)s.editorError=e.message;else s.notice=e.message;});
  const sim=s=>({mode:({ok:'OK',low:'LOW',down:'DOWN',auto:'standby'})[s.mode]||s.mode,...s.mode==='custom'?{values:JSON.parse(s.custom)}:{}});
  const sourcePath=n=>'/source/'+encodeURIComponent(n);
- function shadow(host,text,css,name){const r=host.shadowRoot||host.attachShadow({mode:'open'});r.replaceChildren();if(css!==undefined){const sheet=new CSSStyleSheet();sheet.replaceSync(css);r.adoptedStyleSheets=[sheet];}else{const link=document.createElement('link');link.rel='stylesheet';link.href=sourcePath(name)+'/style.css';r.append(link);}const box=document.createElement('div');box.className='irl-source irl-source-'+name+(text?'':' irl-empty');const span=document.createElement('span');span.className='irl-text';span.textContent=text||'';box.append(span);r.append(box);}
+ // DOM component state lives with each host; renders only update changed parts.
+ const shadows=new WeakMap();
+ function shadow(host,text='',css,name,version=0){
+  let component=shadows.get(host);
+  const next={name,text,css,version},changes=previewChanges(component?.value,next);
+  if(!component){
+   const root=host.shadowRoot||host.attachShadow({mode:'open'});
+   const box=document.createElement('div'),span=document.createElement('span');
+   span.className='irl-text';box.append(span);root.append(box);
+   component={root,box,span};shadows.set(host,component);
+  }
+  if(changes.style){
+   if(css!==undefined){
+    component.sheet??=new CSSStyleSheet();component.sheet.replaceSync(css);
+    component.root.adoptedStyleSheets=[component.sheet];
+   }else{
+    if(!component.link){component.link=document.createElement('link');component.link.rel='stylesheet';component.root.prepend(component.link);}
+    component.link.href=sourcePath(name)+'/style.css?v='+version;
+   }
+  }
+  if(changes.text){
+   component.box.className='irl-source irl-source-'+name+(text?'':' irl-empty');
+   component.span.textContent=text;
+  }
+  component.value=next;
+ }
  async function load(){try{const d=await request('sources');const f=await request('source-files');const settings=await request('settings');const sender=await request('sender');update(s=>{s.list=d.sources;s.names=d.names;s.defaults=d.default;s.files=f.files;s.settings=settings.values;s.autoHost=sender.addresses.find(a=>a.kind==='lan')?.address||'';if(d.error)s.notice=d.error;});await preview();}catch(e){fail(e);}}
- async function preview(){const version=++previewVersion,s=store.get();try{const data=await request('sources/preview',previewRequest(s.draft,s.list.map(x=>x.name),sim(s)));if(version!==previewVersion)return;editors[0]?.setErrors([]);update(x=>{if(s.draft)x.preview=data;else x.texts=data.sources;});}catch(e){if(version!==previewVersion)return;if(e.line)editors[0]?.setErrors([{line:e.line,column:e.column,message:e.message}]);fail(e);}}
+ async function preview(){
+  const version=++previewVersion,s=store.get();
+  try{
+   const data=await request('sources/preview',previewRequest(s.draft,s.list.map(x=>x.name),sim(s)));
+   if(version!==previewVersion)return;
+   const error=data.template_error;
+   editors[0]?.setErrors(error?[{line:error.line,column:error.column,message:error.error}]:[]);
+   update(x=>applyPreview(x,data));
+  }catch(e){if(version!==previewVersion)return;if(s.draft)update(x=>{x.previewError=e.message;});else fail(e);}
+ }
  function change(fn){++previewVersion;editors[0]?.setErrors([]);update(fn);clearTimeout(timer);timer=setTimeout(()=>{timer=null;preview();},300);}
- function close(){const s=store.get();if(s.draft&&dirty(s.draft,s.base)&&!confirm(t('src_discard')))return false;++generation;++previewVersion;for(const ed of editors)ed.destroy();editors=[];update(x=>{x.draft=null;x.base=null;x.preview=null;});return true;}
- async function open(src){if(!close())return;update(s=>{s.draft=structuredClone(src||{...s.defaults,name:'',title:'',template:'',css:'',style:{}});s.base=structuredClone(s.draft);s.fresh=!src;s.notice='';});const token=++generation;await new Promise(queueMicrotask);try{const s=store.get();const mounted=[];for(const kind of ['template','css']){const ed=await mountEditor(root.querySelector('[data-editor="'+kind+'"]'),{kind,value:s.draft[kind],names:s.names,label:t('src_'+kind),t,onChange:value=>change(x=>{x.draft[kind]=value;})});if(token!==generation){ed.destroy();return;}mounted.push(ed);}editors=mounted;preview();}catch(e){fail(e);}}
- async function save(){const s=store.get(),snapshot=structuredClone(s.draft);update(x=>{x.busy=true;});try{await request('sources'+(s.fresh?'':'/'+encodeURIComponent(snapshot.name)),snapshot,s.fresh?'POST':'PUT');update(x=>{x.base=snapshot;x.fresh=false;x.notice=t('src_saved');});await load();}catch(e){if(e.line)editors[0]?.setErrors([{line:e.line,column:e.column,message:e.message}]);fail(e);}finally{update(x=>{x.busy=false;});}}
- async function remove(src){if(!confirm(t('src_confirmdelete')))return;try{await request('sources/'+encodeURIComponent(src.name),undefined,'DELETE');await load();}catch(e){fail(e);}}
+ function close(){const s=store.get();if(s.draft&&dirty(s.draft,s.base)&&!confirm(t('src_discard')))return false;++generation;++previewVersion;for(const ed of editors)ed.destroy();editors=[];clearTimeout(timer);timer=null;update(clearEditor);return true;}
+ async function open(src){if(!close())return;update(s=>{s.draft=structuredClone(src||{...s.defaults,name:'',title:'',template:'',css:'',style:{}});s.base=structuredClone(s.draft);s.fresh=!src;s.editorNotice='';s.editorError='';s.previewError='';s.styleInputs={};});const token=++generation;await new Promise(queueMicrotask);try{const s=store.get();for(const kind of ['template','css']){const ed=await mountEditor(root.querySelector('[data-editor="'+kind+'"]'),{kind,value:s.draft[kind],names:s.names,label:t('src_'+kind),t,onChange:value=>change(x=>{x.draft[kind]=value;})});if(token!==generation){ed.destroy();return;}editors.push(ed);}preview();}catch(e){fail(e);}}
+ async function save(){const s=store.get(),snapshot=structuredClone(s.draft);update(x=>{x.busy=true;x.editorError='';x.editorNotice='';});try{await request('sources'+(s.fresh?'':'/'+encodeURIComponent(snapshot.name)),snapshot,s.fresh?'POST':'PUT');update(x=>{x.base=snapshot;x.fresh=false;x.editorNotice=t('src_saved')+(!s.fresh&&appearanceChanged(snapshot,s.base)?'\n'+t('src_obs_refresh'):'');x.styleVersions[snapshot.name]=(x.styleVersions[snapshot.name]||0)+1;});await load();}catch(e){if(e.line){editors[0]?.setErrors([{line:e.line,column:e.column,message:e.message}]);update(x=>{x.previewError=e.message;});}else fail(e);}finally{update(x=>{x.busy=false;});}}
+ async function remove(src){if(!confirm(deletePrompt(src,store.get().list,t)))return;try{await request('sources/'+encodeURIComponent(src.name),undefined,'DELETE');await load();}catch(e){fail(e);}}
  async function obs(enabled){try{const d=await request('sources/test-obs',enabled?sim(store.get()):undefined,enabled?'PUT':'DELETE');receive(d);}catch(e){fail(e);}}
- function receive(d){update(s=>{if(s.mode==='actual')s.texts=d.sources;if(s.test&&!d.test_obs.enabled&&d.test_obs.reason==='stream_started')s.notice=t('src_stopped');s.test=d.test_obs.enabled;});}
- async function removeFile(file){if(!confirm(t('src_confirmdelete')+(file.used_by?.length?'\n'+t('src_used')+file.used_by.join(', '):'')))return;try{await request('source-files/'+encodeURIComponent(file.name)+(file.used_by?.length?'?confirm=true':''),undefined,'DELETE');await load();}catch(e){fail(e);}}
- async function upload(e){const file=e.target.files[0];if(!file)return;try{const body=new FormData();body.append('file',file);const r=await fetch('/api/source-files?lang='+lang,{method:'POST',headers:{'X-IRL-Live-Keeper':'1'},body});const d=await r.json();if(!r.ok)throw Error(d.error||t('failed'));await load();}catch(e){fail(e);}}
- function url(src){const s=store.get();return sourceURL(s.settings,s.autoHost,src.name).url;}
+ function receive(d){
+  let reset=false;update(s=>{reset=applySourceEvent(s,d,t('src_stopped'));});
+  if(reset){++previewVersion;clearTimeout(timer);timer=null;if(store.get().draft)preview();}
+ }
+ async function removeFile(file){if(!confirm(deletePrompt(file,store.get().list,t)))return;try{await request('source-files/'+encodeURIComponent(file.name)+(file.used_by?.length?'?confirm=true':''),undefined,'DELETE');await load();}catch(e){fail(e);}}
+ function insertCSSAsset(name){const editor=editors[1];if(!editor)return;editor.view.dom.closest('details').open=true;editor.insertAsset(name);}
+ async function upload(e){const input=e.target,file=input.files[0];if(!file)return;try{const body=new FormData();body.append('file',file);const r=await fetch('/api/source-files?lang='+lang,{method:'POST',headers:{'X-IRL-Live-Keeper':'1'},body});const d=await r.json();if(!r.ok)throw Error(d.error||t('failed'));await load();}catch(e){fail(e);}finally{input.value='';}}
 
- const mobile=window.matchMedia('(max-width:700px)');
- mobile.addEventListener('change',()=>update(()=>{}));
+ mobile.addEventListener('change',e=>update(s=>{s.mobile=e.matches;}));
  const field=(s,key,type='text',style=false)=>{
- const value=(style?s.draft.style[key]:s.draft[key])??'';
- const input=kind=>html`<input aria-label=${t('src_'+key)} type=${kind} step="any" .value=${live(String(kind==='color'&& !/^#[0-9a-f]{6}$/i.test(value)?'#000000':value))} ?disabled=${s.busy} @input=${e=>{const v=type==='number'?Number(e.target.value):e.target.value;change(x=>{(style?x.draft.style:x.draft)[key]=v;});}}>`;
- const unit=['font_size','outline_width','shadow_blur','shadow_x','shadow_y','border_radius','padding','obs_width','obs_height'].includes(key)?'px':key==='background_opacity'?'0–1':'';
- return html`<label class="source-field">${t('src_'+key)}<span class="source-input">${style&&key.includes('color')?input('color'):''}${input(type)}${unit?html`<span class="hint">${unit}</span>`:''}</span></label>`;
+  const stored=(style?s.draft.style[key]:s.draft[key])??'';
+  const value=style?(s.styleInputs[key]??decorationInput(stored)):stored;
+  const input=kind=>html`<input name=${'source-'+(style?'style-':'')+key+(kind==='color'?'-picker':'')} aria-label=${t('src_'+key)} type=${kind} step="any" .value=${live(String(kind==='color'?(/^#[0-9a-f]{6,8}$/i.test(value)?value.slice(0,7):'#000000'):value))} ?disabled=${s.busy} @input=${e=>{
+   const raw=e.target.value,v=type==='number'?decorationNumber(raw):raw;
+   change(x=>{(style?x.draft.style:x.draft)[key]=v;if(style)x.styleInputs[key]=raw;});
+  }}>`;
+  const unit=['font_size','outline_width','shadow_blur','shadow_x','shadow_y','border_radius','padding','obs_width','obs_height'].includes(key)?'px':key==='background_opacity'?'0–1':'';
+  return html`<label class="source-field">${t('src_'+key)}<span class="source-input">${style&&key.includes('color')?html`<span class=${'source-color'+(value?'':' empty')} title=${value||t('src_unset')}>${input('color')}</span>`:''}${input(type)}${unit?html`<span class="hint">${unit}</span>`:''}</span></label>`;
  };
- const segments=(label,values,current,select)=>html`<div class="source-control"><span class="hint">${label}</span><div class="seg" role="group" aria-label=${label}>${values.map(v=>html`<button type="button" aria-pressed=${String(current===v)} ?disabled=${v==='horizontal'&&mobile.matches} @click=${()=>select(v)}>${t('src_'+v)}</button>`)}</div></div>`;
- const testBar=s=>html`<div class="source-test">${segments(t('src_test'),['actual','ok','low','down','auto','offline','custom'],s.mode,mode=>{change(x=>{x.mode=mode;});if(s.test)queueMicrotask(()=>obs(true));})}${s.mode==='custom'?html`<label class="source-field">${t('src_custom_hint')}<textarea .value=${live(s.custom)} @input=${e=>{const value=e.target.value;change(x=>{x.custom=value;});}}></textarea></label>`:''}<div class="settings-field source-obs"><label><input type="checkbox" role="switch" .checked=${s.test} ?disabled=${s.streaming} @change=${e=>obs(e.target.checked)}>${t('src_obs')}</label></div></div>`;
- const copy=src=>html`<div class="source-url"><input readonly .value=${url(src)} aria-label=${t('sender_obs')}><button class="btn" @click=${async()=>{try{await navigator.clipboard.writeText(url(src));}catch(_){fail(Error(t('sender_manual')));}}}>${t('sender_copy')}</button></div>`;
- function view(s){const axis=mobile.matches?'vertical':s.layout.axis;return html`<h2>${t('sources')}</h2>${s.draft?html`
+ const segments=(label,values,current,select)=>html`<div class="source-control"><span class="hint">${label}</span><div class="seg" role="group" aria-label=${label}>${values.map(v=>html`<button type="button" aria-pressed=${String(current===v)} @click=${()=>select(v)}>${t('src_'+v)}</button>`)}</div></div>`;
+ const testBar=s=>html`<div class="source-test">${segments(t('src_test'),['actual','ok','low','down','auto','offline','custom'],s.mode,mode=>{change(x=>{x.mode=mode;});if(s.test)queueMicrotask(()=>obs(true));})}${s.mode==='custom'?html`<label class="source-field">${t('src_custom_hint')}<textarea name="source-test-custom" .value=${live(s.custom)} @input=${e=>{const value=e.target.value;change(x=>{x.custom=value;});}}></textarea></label>`:''}<div class="settings-field source-obs"><label><input name="source-test-obs" type="checkbox" role="switch" .checked=${s.test} ?disabled=${s.streaming} @change=${e=>obs(e.target.checked)}>${t('src_obs')}</label></div></div>`;
+ const copy=(src,s)=>{
+  const urls=sourceURL(s.settings,s.autoHost,src.name);
+  const row=(url,kind)=>html`<label class="source-field">${t('src_url_'+kind)}<span class="source-url"><input name=${'source-url-'+kind+'-'+src.name} readonly .value=${url} aria-label=${t('src_url_'+kind)}><button class="btn" @click=${async()=>{try{await navigator.clipboard.writeText(url);}catch(_){fail(Error(t('sender_manual')));}}}>${t('sender_copy')}</button></span></label>`;
+  return html`${row(urls.url,'local')}${urls.remoteURL?row(urls.remoteURL,'remote'):''}`;
+ };
+ function view(s){const {axis,showAxis}=visibleLayout(s.layout,s.mobile);return html`<h2>${t('sources')}</h2>${s.draft?html`
  <div class="source-header">${field(s,'title')}${s.fresh?field(s,'name'):''}<div class="source-actions"><button class="btn primary" ?disabled=${s.busy} @click=${save}>${t('src_save')}</button><button class="btn" ?disabled=${s.busy} @click=${close}>${t('src_close')}</button>${dirty(s.draft,s.base)?html`<span class="source-dirty">${t('src_unsaved')}</span>`:''}</div></div>
- <div class="source-toolbar">${testBar(s)}${segments(t('src_view'),['editonly','previewonly','split'],s.layout.mode,mode=>setLayout({mode}))}${s.layout.mode==='split'?segments(t('src_split_axis'),['horizontal','vertical'],axis,axis=>setLayout({axis})):''}</div>
- <div class=${'source-workspace '+s.layout.mode+' '+axis}><div class="source-edit"><div class="source-insert"><label class="source-field">${t('src_value')}<select @change=${e=>{editors[0]?.insertValue(e.target.value);e.target.value='';}}><option value="">${t('src_value')}</option>${s.names.map(n=>html`<option value=${n}>${n}</option>`)}</select></label><button class="btn" @click=${()=>editors[0]?.insertCondition('link.kbps < 800','')}>${t('src_condition')}</button><label class="source-field">${t('src_files')}<select @change=${e=>{if(e.target.value)editors[0]?.insert('/source/files/'+encodeURIComponent(e.target.value));e.target.value='';}}><option value="">${t('src_insert')}</option>${s.files.map(f=>html`<option value=${f.name}>${f.name}</option>`)}</select></label></div><div class="source-editor-label">${t('src_template')}</div><div data-editor="template"></div></div><div class="source-preview" data-preview="editor" aria-label=${t('src_previewonly')}></div></div>
- <details class="source-section"><summary>${t('src_decoration')}</summary><div class="source-fields">${['font','font_size','color','font_weight','outline_color','outline_width','shadow_color','shadow_blur','shadow_x','shadow_y','background_color','background_opacity','border_radius','padding'].map(k=>field(s,k,['font','color','outline_color','shadow_color','background_color'].includes(k)?'text':'number',true))}${['align','transition'].map(k=>html`<label class="source-field">${t('src_'+k)}<select .value=${s.draft.style[k]||''} @change=${e=>{const v=e.target.value;change(x=>{x.draft.style[k]=v;});}}><option value=""></option>${(k==='align'?['left','center','right']:['none','fade']).map(v=>html`<option value=${v} ?selected=${s.draft.style[k]===v}>${t('src_'+v)}</option>`)}</select></label>`)}</div></details>
+ <p class="source-editor-notice" role="status">${s.editorNotice}</p><p role="alert">${s.editorError||s.previewError}</p>
+ <div class="source-toolbar">${testBar(s)}${segments(t('src_view'),['editonly','previewonly','split'],s.layout.mode,mode=>setLayout({mode}))}${showAxis?segments(t('src_split_axis'),['horizontal','vertical'],axis,axis=>setLayout({axis})):''}</div>
+ <div class=${'source-workspace '+s.layout.mode+' '+axis}><div class="source-edit"><div class="source-insert"><label class="source-field">${t('src_value')}<select name="source-insert-value" @change=${e=>{editors[0]?.insertValue(e.target.value);e.target.value='';}}><option value="">${t('src_value')}</option>${s.names.map(n=>html`<option value=${n}>${n}</option>`)}</select></label><button class="btn" @click=${()=>editors[0]?.insertCondition('link.kbps < 800','')}>${t('src_condition')}</button><label class="source-field">${t('src_files')}<select name="source-insert-file" @change=${e=>{if(e.target.value)editors[0]?.insert('/source/files/'+encodeURIComponent(e.target.value));e.target.value='';}}><option value="">${t('src_insert')}</option>${s.files.map(f=>html`<option value=${f.name}>${f.name}</option>`)}</select></label></div><div class="source-editor-label">${t('src_template')}</div><div data-editor="template"></div></div><div class="source-preview" data-preview="editor" aria-label=${t('src_previewonly')}></div></div>
+ <details class="source-section"><summary>${t('src_decoration')}</summary><div class="source-fields">${['font','font_size','color','font_weight','outline_color','outline_width','shadow_color','shadow_blur','shadow_x','shadow_y','background_color','background_opacity','border_radius','padding'].map(k=>field(s,k,['font','color','outline_color','shadow_color','background_color'].includes(k)?'text':'number',true))}${['align','transition'].map(k=>html`<label class="source-field">${t('src_'+k)}<select name=${'source-style-'+k} .value=${s.draft.style[k]||''} @change=${e=>{const v=e.target.value;change(x=>{x.draft.style[k]=v;});}}><option value=""></option>${(k==='align'?['left','center','right']:['none','fade']).map(v=>html`<option value=${v} ?selected=${s.draft.style[k]===v}>${t('src_'+v)}</option>`)}</select></label>`)}</div></details>
  <details class="source-section"><summary>${t('src_css')}</summary><p class="hint">${t('src_css_hint')}</p><div data-editor="css"></div></details>
- <details class="source-section"><summary>${t('src_files')}</summary><label class="source-field">${t('src_upload')}<input type="file" accept="image/png,image/jpeg,image/gif,image/webp" @change=${upload}></label>${s.files.map(f=>html`<div class="source-file"><span>${f.name}</span><button class="btn" @click=${()=>editors[1]?.insert(assetText(f.name))}>${t('src_insert')}</button><button class="btn" @click=${()=>removeFile(f)}>${t('src_delete')}</button></div>`)}</details>
- <details class="source-section"><summary>${t('src_obs_import')}</summary><div class="source-fields">${field(s,'obs_width','number')}${field(s,'obs_height','number')}</div>${s.fresh?html`<p class="hint">${t('src_save_url')}</p>`:copy(s.draft)}<p>${t('src_steps')}</p>${sourceURL(s.settings,s.autoHost,s.draft.name).hint?html`<p class="hint">${t('src_lan_hint')}</p>`:''}</details>`:html`
- <div class="source-toolbar">${testBar(s)}<button class="btn primary" @click=${()=>open()}>${t('src_new')}</button></div><div class="source-cards">${s.list.map(src=>html`<article><h3>${src.title||src.name}</h3>${copy(src)}<div class="source-preview" data-preview=${src.name}></div><div class="source-actions"><button class="btn" @click=${()=>open(src)}>${t('src_edit')}</button><button class="btn" @click=${()=>remove(src)}>${t('src_delete')}</button></div><details><summary>${t('src_obs_import')}</summary><p>${t('src_steps')}</p>${sourceURL(s.settings,s.autoHost,src.name).hint?html`<p>${t('src_lan_hint')}</p>`:''}<p>${t('src_width')}: ${src.obs_width} × ${t('src_height')}: ${src.obs_height}</p></details></article>`)}</div>`}<p role="status">${s.notice}</p>`;}
- function setLayout(v){if(v.axis==='horizontal'&&mobile.matches)return;const next={...store.get().layout,...v};remember(storage,next);update(s=>{s.layout=next;});}
- store.subscribe(s=>{try{render(view(s),root);for(const host of root.querySelectorAll('[data-preview]')){const key=host.dataset.preview;if(key==='editor'){if(s.preview)shadow(host,s.preview.text,s.preview.css,s.draft.name);}else shadow(host,s.texts[key],undefined,key);}}catch(e){console.error(e);render(html`<p role="alert">${t('failed')}</p>`,root);}});
+ <details class="source-section"><summary>${t('src_files')}</summary><label class="source-field">${t('src_upload')}<input name="source-upload" type="file" accept="image/png,image/jpeg,image/gif,image/webp" @change=${upload}></label>${s.files.map(f=>html`<div class="source-file"><span>${f.name}</span><button class="btn" @click=${()=>insertCSSAsset(f.name)}>${t('src_insert')}</button><button class="btn" @click=${()=>removeFile(f)}>${t('src_delete')}</button></div>`)}</details>
+ <details class="source-section"><summary>${t('src_obs_import')}</summary><div class="source-fields">${field(s,'obs_width','number')}${field(s,'obs_height','number')}</div>${s.fresh?html`<p class="hint">${t('src_save_url')}</p>`:copy(s.draft,s)}<p>${t('src_steps')}</p>${sourceURL(s.settings,s.autoHost,s.draft.name).hint?html`<p class="hint">${t('src_lan_hint')}</p>`:''}</details>`:html`
+ <div class="source-toolbar">${testBar(s)}<button class="btn primary" @click=${()=>open()}>${t('src_new')}</button></div><div class="source-cards">${repeat(s.list,src=>src.name,src=>html`<article><h3>${src.title||src.name}</h3>${copy(src,s)}<div class="source-preview" data-preview=${src.name}></div><div class="source-actions"><button class="btn" @click=${()=>open(src)}>${t('src_edit')}</button><button class="btn" @click=${()=>remove(src)}>${t('src_delete')}</button></div><details><summary>${t('src_obs_import')}</summary><p>${t('src_steps')}</p>${sourceURL(s.settings,s.autoHost,src.name).hint?html`<p>${t('src_lan_hint')}</p>`:''}<p>${t('src_width')}: ${src.obs_width} × ${t('src_height')}: ${src.obs_height}</p></details></article>`)}</div>`}<p role="status">${s.testNotice}</p>${s.draft?'':html`<p role="status">${s.notice}</p>`}`;}
+ function setLayout(v){if(v.axis==='horizontal'&&store.get().mobile)return;const next={...store.get().layout,...v};remember(storage,next);update(s=>{s.layout=next;});}
+ store.subscribe(s=>{try{render(view(s),root);for(const host of root.querySelectorAll('[data-preview]')){const key=host.dataset.preview;if(s.draft){shadow(host,s.preview?.text||'',s.preview?.css||'',s.draft.name);}else shadow(host,s.texts[key],undefined,key,s.styleVersions[key]||0);}}catch(e){console.error(e);render(html`<p role="alert">${t('failed')}</p>`,root);}});
  window.addEventListener('keeper-before-page',e=>{if(e.detail!=='sources'&&!close())e.preventDefault();});
  window.addEventListener('beforeunload',e=>{const s=store.get();if(s.draft&&dirty(s.draft,s.base)){e.preventDefault();e.returnValue='';}});
  window.addEventListener('keeper-status',e=>update(s=>{s.streaming=e.detail.obs.streaming;}));

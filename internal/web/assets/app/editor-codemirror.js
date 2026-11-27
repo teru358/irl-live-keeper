@@ -6,7 +6,8 @@ import {defaultKeymap, history, historyKeymap} from '@codemirror/commands';
 import {autocompletion, completionKeymap} from '@codemirror/autocomplete';
 import {setDiagnostics, lintGutter} from '@codemirror/lint';
 import {css} from '@codemirror/lang-css';
-import {templateState, nextTemplateToken, tokenizeTemplate} from './template-lexer.js';
+import {editorInsertion} from './sources-state.js';
+import {templateState, nextTemplateToken, templateCompletion} from './template-lexer.js';
 
 const template=StreamLanguage.define({
  startState:templateState,
@@ -34,30 +35,28 @@ const colors=HighlightStyle.define([
 export function createEditor(container,{kind='template',value='',names=[],label='',onChange=()=>{},t=key=>key}={}) {
  const phrases=Object.fromEntries([["Completions", "editor_completions"], ["Diagnostics", "editor_diagnostics"], ["No diagnostics", "editor_no_diagnostics"], ["close", "editor_close"], ["Control character", "editor_control_character"]].map(([phrase,key])=>[phrase,t(key)]));
  const completion=context=>{
-  const prefix=context.state.doc.sliceString(0,context.pos);
-  const tokens=tokenizeTemplate(prefix);
-  const state=templateState();
-  for(let p=0;p<prefix.length;){p=nextTemplateToken(prefix,p,state).end;}
-  const word=context.matchBefore(/[A-Za-z_][A-Za-z0-9_.]*$/);
-  const last=tokens.at(-1);
-  // 打ちかけの名前（`link.`）の最後の `.` は字句では誤りになるが、補完は出す
-  if(!state.tag||state.format||last?.style==='string')return null;
-  if(last?.style==='invalid'&&!(word&&word.text.endsWith('.')))return null;
-  if(!word&&!context.explicit)return null;
-  return {from:word?word.from:context.pos,options:names.map(name=>({label:name,type:'variable'})),validFor:/^[A-Za-z_][A-Za-z0-9_.]*$/};
+  const range=templateCompletion(context.state.doc.sliceString(0,context.pos),context.explicit);
+  if(!range)return null;
+  return {...range,options:names.map(name=>({label:name,type:'variable'})),validFor:/^[A-Za-z0-9_.]*$/};
  };
+ let cursorPlaced=false;
  const view=new EditorView({parent:container,state:EditorState.create({doc:value,extensions:[
-  EditorState.phrases.of(phrases),EditorView.contentAttributes.of({'aria-label':label}),
+  EditorState.phrases.of(phrases),EditorView.contentAttributes.of({'aria-label':label,'name':'source-editor-'+kind}),
+  EditorView.domEventHandlers({pointerdown(){cursorPlaced=true;},keydown(){cursorPlaced=true;}}),
   lineNumbers(),EditorView.lineWrapping,drawSelection(),history(),lintGutter(),theme,syntaxHighlighting(colors),
   keymap.of([...completionKeymap,...defaultKeymap,...historyKeymap]),
   kind==='css'?css():[template,autocompletion({override:[completion]})],
   EditorView.updateListener.of(update=>{if(update.docChanged)onChange(update.state.doc.toString());}),
  ]})});
- const insert=text=>{view.dispatch(view.state.replaceSelection(text),{scrollIntoView:true});view.focus();};
+ const insert=(text,asset=false)=>{
+  const change=editorInsertion(view.state.doc.toString(),view.state.selection.main,cursorPlaced,text,asset);
+  view.dispatch({changes:change,selection:{anchor:change.from+change.insert.length},scrollIntoView:true});
+  view.focus();
+ };
  return {
   view,getValue:()=>view.state.doc.toString(),
   setValue(text){if(text!==view.state.doc.toString())view.dispatch({changes:{from:0,to:view.state.doc.length,insert:text}});},
-  insert,insertValue:name=>insert('{'+name+'}'),
+  insert,insertAsset:name=>insert(name,true),insertValue:name=>insert('{'+name+'}'),
   insertCondition:(condition='',body='')=>insert('{if '+condition+'}'+body+'{end}'),
   // API positions: 1-based line and Unicode character; CM uses UTF-16.
   setErrors(errors){view.dispatch(setDiagnostics(view.state,errors.map(error=>{

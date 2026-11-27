@@ -22,8 +22,13 @@ lit-html は空の安定した入れ物（同じテンプレート位置の div�
 入力途中の setValue は避ける（IME のイベントは CodeMirror 標準のまま）。
 
 返り値: getValue()、setValue(text)、insert(text)、insertValue(name)、
-insertCondition(condition, body)、setErrors([{line, column, message}])、
-destroy()、view。差し込みは選択範囲を置き換え、未選択ならカーソル位置に入れる。
+insertCondition(condition, body)、insertAsset(name)、setErrors([{line, column, message}])、
+destroy()、view。差し込みは、人がカーソルを置いたあとは選択範囲を置き換え、未選択ならカーソル位置に入れる。
+まだ置いていないときは末尾に入れる。insertAsset は未操作の CSS では新しい行に完全な背景の規則を入れる。
 条件には式（例: link.kbps < 800）を渡す。message は API が翻訳した文を渡す。
 line/column は1始まり、column は Unicode 文字単位。エラーは現在の文書に対応する
 プレビュー応答だけを渡し、編集後には setErrors([]) で古い印を消す。
+
+ソースの編集は previewError / editorError / editorNotice を持ち、一覧の notice と分ける。
+sources の SSE によるテスト解除の案内は testNotice に置き、操作の知らせは上書きしない。
+プレビューの Shadow DOM は部品の境界で保持し、文字・CSS・保存の版が変わった部分だけ更新する。

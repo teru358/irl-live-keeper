@@ -1,11 +1,16 @@
 package web
 
 import (
+	"context"
+	"encoding/json"
+	"github.com/teru358/irl-live-keeper/internal/logging"
 	"github.com/teru358/irl-live-keeper/internal/sources"
+	"log/slog"
 	"net/http/httptest"
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -17,7 +22,7 @@ func TestPreviewSimulation(t *testing.T) {
 		path, body string
 		status     int
 		want       string
-	}{{"/api/sources", `{"name":"a","template":"{obs.streaming}"}`, 201, `"ok":true`}, {"/api/sources/preview", `{"names":["a"],"simulate":{"mode":"OK"}}`, 200, `"a":"true"`}, {"/api/sources/preview", `{"source":{"template":"{obs.streaming}","css":".irl-text{color:red}"},"simulate":{"mode":"offline"}}`, 200, `"text":"false"`}, {"/api/sources/preview", `{"source":{"template":"{unknown}"}}`, 422, `"column":`}, {"/api/sources/preview", `{"names":[],"source":{}}`, 400, `"error":`}} {
+	}{{"/api/sources", `{"name":"a","template":"{obs.streaming}"}`, 201, `"ok":true`}, {"/api/sources/preview", `{"names":["a"],"simulate":{"mode":"OK"}}`, 200, `"a":"true"`}, {"/api/sources/preview", `{"source":{"template":"{obs.streaming}","css":".irl-text{color:red}"},"simulate":{"mode":"offline"}}`, 200, `"text":"false"`}, {"/api/sources/preview", `{"source":{"template":"{unknown}"}}`, 200, `"template_error":`}, {"/api/sources/preview", `{"names":[],"source":{}}`, 400, `"error":`}} {
 		r := httptest.NewRequest("POST", tc.path, strings.NewReader(tc.body))
 		r.Header.Set(headerName, "1")
 		w := httptest.NewRecorder()
@@ -138,5 +143,121 @@ func TestPublicSimulationOptIn(t *testing.T) {
 	defer fresh.Close()
 	if fresh.simulation(time.Now()).Mode != "" {
 		t.Fatal("new generation")
+	}
+}
+
+func TestPreviewErrorContracts(t *testing.T) {
+	b := &sourcesBackend{store: sources.Store{Path: filepath.Join(t.TempDir(), "sources.yaml")}}
+	h := apiHandler(b, nil)
+	for _, tc := range []struct {
+		method, path, body string
+		status             int
+	}{
+		{"POST", "/api/sources/preview", `{"source":{"template":"{if "}}`, 200},
+		{"POST", "/api/sources/preview", `{"source":{"template":"{unknown}"}}`, 200},
+		{"POST", "/api/sources/preview", `{`, 400},
+		{"POST", "/api/sources/preview", `{"source":{"style":{"color":"bad"}}}`, 422},
+		{"POST", "/api/sources/preview", `{"source":{},"simulate":{"mode":"bad"}}`, 422},
+		{"POST", "/api/sources/preview", `{"names":["missing"]}`, 404},
+		{"POST", "/api/sources", `{"name":"a","template":"ok"}`, 201},
+		{"POST", "/api/sources", `{"name":"b","template":"{unknown}"}`, 422},
+		{"PUT", "/api/sources/a", `{"name":"a","template":"{if "}`, 422},
+	} {
+		r := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+		r.Header.Set(headerName, "1")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != tc.status {
+			t.Fatalf("%s: %d %s", tc.body, w.Code, w.Body.String())
+		}
+		if tc.status == 200 {
+			var data map[string]json.RawMessage
+			if err := json.Unmarshal(w.Body.Bytes(), &data); err != nil {
+				t.Fatal(err)
+			}
+			if len(data) != 1 || data["template_error"] == nil {
+				t.Fatal("unexpected preview fields", w.Body.String())
+			}
+			var fields map[string]any
+			_ = json.Unmarshal(data["template_error"], &fields)
+			if len(fields) != 4 || fields["code"] == nil || fields["error"] == nil || fields["line"] == nil || fields["column"] == nil {
+				t.Fatal(fields)
+			}
+		}
+	}
+}
+
+type simulationLog struct {
+	mu     sync.Mutex
+	lines  []string
+	events *Events
+}
+
+func (l *simulationLog) Enabled(context.Context, slog.Level) bool { return true }
+func (l *simulationLog) Handle(_ context.Context, r slog.Record) error {
+	if l.events != nil {
+		if !l.events.mu.TryLock() {
+			panic("logging while events lock held")
+		}
+		l.events.mu.Unlock()
+		if !l.events.updateMu.TryLock() {
+			panic("logging while update lock held")
+		}
+		l.events.updateMu.Unlock()
+	}
+	line := r.Message
+	r.Attrs(func(a slog.Attr) bool { line += " " + a.Key + "=" + a.Value.String(); return true })
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.lines = append(l.lines, line)
+	return nil
+}
+func (l *simulationLog) WithAttrs([]slog.Attr) slog.Handler          { return l }
+func (l *simulationLog) WithGroup(string) slog.Handler               { return l }
+func (l *simulationLog) Slog() *slog.Logger                          { return slog.New(l) }
+func (l *simulationLog) Subscribe(int) (<-chan logging.Line, func()) { return nil, func() {} }
+func TestSimulationOperationLogs(t *testing.T) {
+	b := &sourcesBackend{store: sources.Store{Path: filepath.Join(t.TempDir(), "sources.yaml")}}
+	log := &simulationLog{}
+	e := NewEvents(b, log, nil)
+	defer e.Close()
+	// This backend has no subscriptions; calls below are synchronous.
+	log.events = e
+	h := apiHandler(b, e)
+	call := func(method, body string) {
+		t.Helper()
+		r := httptest.NewRequest(method, "/api/sources/test-obs", strings.NewReader(body))
+		r.Header.Set(headerName, "1")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != 200 {
+			t.Fatal(w.Code, w.Body.String())
+		}
+	}
+	call("PUT", `{"mode":"OK"}`)
+	call("PUT", `{"mode":"OK"}`)
+	call("PUT", `{"mode":"LOW"}`)
+	call("DELETE", "")
+	call("DELETE", "")
+	call("PUT", `{"mode":"custom","values":{"obs.scene":"secret-value"}}`)
+	call("PUT", `{"mode":"custom","values":{"obs.scene":"another-secret"}}`)
+	e.mu.Lock()
+	at := e.testOBS.Alive
+	e.mu.Unlock()
+	e.updateSources(at.Add(45 * time.Second))
+	e.updateSources(at.Add(46 * time.Second))
+	for _, kind := range []string{"stream", "obs_connected"} {
+		call("PUT", `{"mode":"OK"}`)
+		e.stopSimulationEvent(simStream{kind, true})
+		e.stopSimulationEvent(simStream{kind, true})
+	}
+	call("PUT", `{"mode":"DOWN"}`)
+	b.snap.OBS.Streaming = true
+	e.updateSources(time.Now())
+	log.mu.Lock()
+	defer log.mu.Unlock()
+	want := []string{"test obs enabled mode=OK", "test obs enabled mode=LOW", "test obs disabled", "test obs enabled mode=custom", "test obs stopped reason=timeout", "test obs enabled mode=OK", "test obs stopped reason=stream_started", "test obs enabled mode=OK", "test obs stopped reason=stream_started", "test obs enabled mode=DOWN", "test obs stopped reason=stream_started"}
+	if !reflect.DeepEqual(log.lines, want) {
+		t.Fatalf("logs=%q want=%q", log.lines, want)
 	}
 }
