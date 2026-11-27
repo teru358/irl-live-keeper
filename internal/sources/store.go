@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"log/slog"
 	"math"
 	"os"
 	"path/filepath"
@@ -41,13 +42,15 @@ type Style struct {
 	Transition        string  `json:"transition" yaml:"transition"`
 }
 type Source struct {
-	Name      string `json:"name" yaml:"name"`
-	Title     string `json:"title" yaml:"title"`
-	Template  string `json:"template" yaml:"template"`
-	Style     Style  `json:"style" yaml:"style"`
-	CSS       string `json:"css" yaml:"css"`
-	OBSWidth  int    `json:"obs_width" yaml:"obs_width"`
-	OBSHeight int    `json:"obs_height" yaml:"obs_height"`
+	// Broken is derived from the current snapshot and never persisted or exposed as source JSON.
+	Broken    *template.Error `json:"-" yaml:"-"`
+	Name      string          `json:"name" yaml:"name"`
+	Title     string          `json:"title" yaml:"title"`
+	Template  string          `json:"template" yaml:"template"`
+	Style     Style           `json:"style" yaml:"style"`
+	CSS       string          `json:"css" yaml:"css"`
+	OBSWidth  int             `json:"obs_width" yaml:"obs_width"`
+	OBSHeight int             `json:"obs_height" yaml:"obs_height"`
 }
 
 func Default() Source { return Source{OBSWidth: 800, OBSHeight: 200} }
@@ -86,14 +89,65 @@ func (e *ValidationError) Error() string { return i18n.Render(i18n.JA, e.Message
 
 // Store serializes reload and replacement. Every transaction reads the disk again.
 type Store struct {
-	mu   sync.Mutex
-	Path string
+	mu     sync.Mutex
+	Path   string
+	logger *slog.Logger
+	broken map[string]brokenState
+}
+
+type brokenState struct {
+	template, code string
+	line, column   int
+}
+
+// SetLogger selects the current generation logger without resetting warning history.
+func (s *Store) SetLogger(logger *slog.Logger) {
+	s.mu.Lock()
+	s.logger = logger
+	s.mu.Unlock()
+}
+
+// brokenChanges runs before the transaction callback, which may modify the list.
+func (s *Store) brokenChanges(list []Source) []struct{ name, code string } {
+	next := make(map[string]brokenState)
+	changed := []struct{ name, code string }{}
+	for _, src := range list {
+		if src.Broken == nil {
+			continue
+		}
+		e := src.Broken
+		state := brokenState{src.Template, e.Message.Code, e.Line, e.Column}
+		next[src.Name] = state
+		if previous, ok := s.broken[src.Name]; !ok || previous != state {
+			changed = append(changed, struct{ name, code string }{src.Name, e.Message.Code})
+		}
+	}
+	s.broken = next
+	return changed
 }
 
 func (s *Store) Transaction(snapshot core.Snapshot, f func([]Source, error) ([]Source, bool)) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	list, err := s.read(snapshot)
+	var changed []struct{ name, code string }
+	var logger *slog.Logger
+	err := func() error {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		list, err := s.read(snapshot)
+		changed = s.brokenChanges(list)
+		logger = s.logger
+		return s.replace(list, err, f)
+	}()
+	// Logging can wait on subscribers or a file, so release the store lock first.
+	if logger == nil {
+		logger = slog.Default()
+	}
+	for _, change := range changed {
+		logger.Warn("source template needs repair", "name", change.name, "code", change.code)
+	}
+	return err
+}
+
+func (s *Store) replace(list []Source, err error, f func([]Source, error) ([]Source, bool)) error {
 	next, write := f(list, err)
 	if !write || err != nil {
 		return nil
@@ -150,8 +204,15 @@ func (s *Store) read(snapshot core.Snapshot) ([]Source, error) {
 		if dec.Decode(&v) != nil {
 			return fail()
 		}
-		if v.Validate(snapshot) != nil || seen[v.Name] {
+		if seen[v.Name] {
 			return fail()
+		}
+		if err := v.Validate(snapshot); err != nil {
+			var te *template.Error
+			if !errors.As(err, &te) {
+				return fail()
+			}
+			v.Broken = te
 		}
 		seen[v.Name] = true
 		list = append(list, v)

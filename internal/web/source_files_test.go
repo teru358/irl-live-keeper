@@ -111,10 +111,16 @@ func TestDeletingUsedFileReturnsSourceNames(t *testing.T) {
 	if err := b.sourceStore.Transaction(b.Snapshot(), func(list []sources.Source, err error) ([]sources.Source, bool) {
 		source := sources.Default()
 		source.Name = "overlay"
+		source.Template = "{link.kbps}"
 		source.CSS = "body { background-image: url('/source/files/photo.png'); }"
 		return append(list, source), true
 	}); err != nil {
 		t.Fatal(err)
+	}
+	wList := httptest.NewRecorder()
+	apiHandler(b, nil).ServeHTTP(wList, httptest.NewRequest("GET", "/api/source-files", nil))
+	if wList.Code != 200 || !strings.Contains(wList.Body.String(), `"used_by":["overlay"]`) {
+		t.Fatal(wList.Code, wList.Body.String())
 	}
 	r := httptest.NewRequest("DELETE", "/api/source-files/photo.png", nil)
 	r.Header.Set(headerName, "1")

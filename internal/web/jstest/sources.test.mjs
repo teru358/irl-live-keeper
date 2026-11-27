@@ -88,3 +88,41 @@ test('mobile split hides axis choice and preserves desktop preference',()=>{
  assert.deepEqual(state.visibleLayout(saved,false),{axis:'horizontal',showAxis:true});
  assert.equal(state.visibleLayout({mode:'editonly',axis:'vertical'},false).showAxis,false);
 });
+test('saved broken sources expose the same positioned error as draft previews',()=>{
+ const error={code:'template.unknown',error:'1 行 2 文字目: 知らない値の名前です',line:1,column:2};
+ assert.deepEqual(state.templateDiagnostics(error),[{line:1,column:2,message:error.error}]);
+ assert.deepEqual(state.templateDiagnostics(null),[]);
+ const s={defaults:{obs_width:800},broken:{bad:error},notice:'kept',texts:{bad:'stale'}};
+ const src={name:'bad',template:'{link.kbps}',style:{}};
+ state.openEditor(s,src);
+ assert.equal(s.previewError,error.error);assert.equal(s.preview,null);
+ assert.deepEqual(s.diagnostics,state.templateDiagnostics(error));
+ assert.deepEqual(s.draft,src);assert.equal(dirty(s.draft,s.base),false);
+ s.draft.template='fixed';assert.equal(s.base.template,'{link.kbps}');
+ assert.equal(s.notice,'kept');
+ state.applyPreview(s,{text:'fixed',css:''});
+ assert.equal(s.previewError,'');assert.deepEqual(s.diagnostics,[]);
+ state.applyPreview(s,{template_error:error});
+ assert.equal(s.previewError,'1 行 2 文字目: 知らない値の名前です');
+ assert.deepEqual(s.diagnostics,state.templateDiagnostics(error));
+ state.clearEditor(s);assert.deepEqual(s.diagnostics,[]);
+ state.openEditor(s,{name:'good',template:'hello',style:{}});
+ assert.equal(s.previewError,'');assert.deepEqual(s.diagnostics,[]);
+});
+test('collection loads preserve source JSON, refresh broken markers and clear stale preview text',()=>{
+ const source={name:'bad',template:'{link.kbps}'};
+ const data={sources:[source],broken:{bad:{code:'template.unknown',error:'unknown',line:1,column:2}},names:['now'],default:{obs_width:800}};
+ const s={texts:{bad:'stale'},notice:'kept'};
+ state.applyCollection(s,data);
+ assert.deepEqual(s.list,[source]);assert.deepEqual(s.broken,data.broken);
+ assert.equal(s.texts.bad,'');assert.deepEqual(s.names,['now']);assert.equal(s.defaults.obs_width,800);
+ assert.equal('broken' in s.list[0],false);assert.equal(s.notice,'kept');
+ state.applyCollection(s,{...data,broken:{}});assert.deepEqual(s.broken,{});
+});
+test('valid source names that match Object properties do not need repair',()=>{
+ for(const name of ['constructor','toString','__proto__']){
+  const s={defaults:{},broken:{},texts:{}};
+  state.openEditor(s,{name,template:'hello'});
+  assert.equal(s.previewError,'');assert.deepEqual(s.diagnostics,[]);
+ }
+});

@@ -26,6 +26,7 @@ export function appearanceChanged(draft,base){
 }
 export function applyPreview(state,data){
  state.previewError=data.template_error?.error||'';
+ state.diagnostics=templateDiagnostics(data.template_error);
  if(state.draft){if(!data.template_error)state.preview=data;}
  else if(!data.template_error)state.texts=data.sources;
 }
@@ -49,6 +50,22 @@ export function deletePrompt(item,list,t){
 }
 export function clearEditor(state){
  state.draft=null;state.base=null;state.preview=null;
- state.previewError='';state.editorError='';state.editorNotice='';state.styleInputs={};
+ state.previewError='';state.editorError='';state.editorNotice='';state.styleInputs={};state.diagnostics=[];
 }
 export const visibleLayout=(saved,mobile)=>({axis:mobile?'vertical':saved.axis,showAxis:saved.mode==='split'&&!mobile});
+
+export const brokenError=(broken,name)=>Object.hasOwn(broken,name)?broken[name]:null;
+export const templateDiagnostics=error=>error?[{line:error.line,column:error.column,message:error.error}]:[];
+export function applyCollection(state,data){
+ state.list=data.sources;state.broken=data.broken||{};
+ state.names=data.names;state.defaults=data.default;
+ for(const name of Object.keys(state.broken))state.texts[name]='';
+ if(data.error)state.notice=data.error;
+}
+export function openEditor(state,source){
+ state.draft=structuredClone(source||{...state.defaults,name:'',title:'',template:'',css:'',style:{}});
+ state.base=structuredClone(state.draft);state.fresh=!source;
+ state.preview=null;state.editorNotice='';state.editorError='';state.styleInputs={};
+ const error=source?brokenError(state.broken,source.name):null;
+ state.previewError=error?.error||'';state.diagnostics=templateDiagnostics(error);
+}

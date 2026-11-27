@@ -628,6 +628,7 @@ func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 	if a.sourcesStore == nil {
 		a.sourcesStore = &sources.Store{Path: filepath.Join(a.opts.BaseDir, "sources.yaml")}
 	}
+	a.sourcesStore.SetLogger(log)
 	backend := &pageBackend{sourceStore: a.sourcesStore, statistics: statisticsReader(obsClient), Backend: c, senderConfig: cfg, senderDefault: host, app: a, id: id, language: cfg.Language, closeAction: cfg.GUI.CloseAction, lan: cfg.Admin.LAN}
 	g.events = web.NewEvents(backend, eventLogger, nil, lang)
 
