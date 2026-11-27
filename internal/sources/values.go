@@ -78,7 +78,9 @@ func Values(s core.Snapshot, now time.Time, stats ...map[string]template.Value) 
 		str(p+"name", c.Name)
 		num(p+"hidden", float64(c.Hidden))
 		str(p+"state", c.State)
-		str(p+"protocol", c.Protocol)
+		if c.Protocol != "" { // v0.26: 受信していなければ未定義
+			str(p+"protocol", c.Protocol)
+		}
 		num(p+"kbps", c.Kbps)
 		boolean(p+"online", c.Online)
 		seconds(p+"state_for", c.StateSince)

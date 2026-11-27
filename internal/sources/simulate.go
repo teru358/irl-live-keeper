@@ -101,7 +101,11 @@ func (sim Simulation) Apply(s core.Snapshot, now time.Time, stats map[string]tem
 		put(prefix+"state", state)
 		put(prefix+"kbps", kbps)
 		put(prefix+"online", state != "DOWN")
-		put(prefix+"protocol", p)
+		if p == "" {
+			put(prefix+"protocol", nil)
+		} else {
+			put(prefix+"protocol", p)
+		}
 		put(prefix+"state_for", float64(12))
 		sp := prefix + "srt."
 		for _, n := range []string{"rtt", "loss", "mbps"} {

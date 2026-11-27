@@ -25,6 +25,7 @@ type Events struct {
 	publishedTest testOBS
 
 	statistics     sources.Statistics
+	valuesUntil    time.Time // 値の一覧のために統計を読む期限（e.mu）
 	statisticsDone chan struct{}
 	sourceTexts    map[string]string
 	langs          []i18n.Lang

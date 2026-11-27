@@ -3,6 +3,7 @@ package web
 import (
 	"github.com/teru358/irl-live-keeper/internal/sources"
 	"testing"
+	"time"
 )
 
 func TestStatisticsDemand(t *testing.T) {
@@ -26,5 +27,25 @@ func TestStatisticsDemand(t *testing.T) {
 	}
 	if e.needsStatistics(nil) {
 		t.Fatal("no sources")
+	}
+}
+
+// v0.26: 編集の画面の「値の一覧」を開いている間（最後の /api/source-values から5秒）は、
+// 統計を使うソースがなくても読む。
+func TestStatisticsDemandValueList(t *testing.T) {
+	e := &Events{clients: map[*eventClient]bool{}}
+	start := time.Now()
+	e.wantStatistics(start)
+	if !e.needsStatistics(nil) {
+		t.Fatal("値の一覧を開いた直後に読まない")
+	}
+	old := &Events{clients: map[*eventClient]bool{}}
+	old.wantStatistics(start.Add(-statisticsValuesHold - time.Second))
+	if old.needsStatistics(nil) {
+		t.Fatal("値の一覧を閉じて5秒たっても読む")
+	}
+	e.wantStatistics(start.Add(-time.Hour)) // 古い時刻で短くしない
+	if !e.needsStatistics(nil) {
+		t.Fatal("古い要求で期限が縮んだ")
 	}
 }

@@ -25,7 +25,7 @@ func TestSimulation(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if v["camera.a.kbps"].Number != tc.kbps || v["camera.a.online"].Bool != tc.online || v["camera.a.protocol"].String != tc.protocol || v["camera.a.srt.rtt"].Defined {
+			if v["camera.a.kbps"].Number != tc.kbps || v["camera.a.online"].Bool != tc.online || v["camera.a.protocol"].String != tc.protocol || v["camera.a.protocol"].Defined != (tc.protocol != "") || v["camera.a.srt.rtt"].Defined {
 				t.Fatal(v)
 			}
 			if tc.mode != "DOWN" && !v["camera.b.srt.rtt"].Defined {
@@ -123,7 +123,7 @@ func TestSimulationTable(t *testing.T) {
 				t.Fatal("session.low_count が保留なのに値にある")
 			}
 			if mode == "DOWN" {
-				check("camera.a.protocol", "")
+				check("camera.a.protocol", nil)
 				for _, n := range []string{"rtt", "loss", "mbps"} {
 					check("camera.a.srt."+n, nil)
 				}

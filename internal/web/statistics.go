@@ -11,9 +11,26 @@ func (e *Events) statisticsValues(now time.Time) map[string]template.Value {
 	defer e.mu.Unlock()
 	return e.statistics.Values(now)
 }
+
+// statisticsValuesHold は、最後の /api/source-values のあと統計を読み続ける時間（spec v0.26）。
+// 値の一覧は開いている間1秒ごとに取るので、閉じれば数秒で読まなくなる。
+const statisticsValuesHold = 5 * time.Second
+
+// wantStatistics は、値の一覧が今の値を取った時刻を受け、統計を読み続ける期限を延ばす。
+func (e *Events) wantStatistics(at time.Time) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if until := at.Add(statisticsValuesHold); until.After(e.valuesUntil) {
+		e.valuesUntil = until
+	}
+}
+
 func (e *Events) needsStatistics(list []sources.Source) bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if time.Now().Before(e.valuesUntil) {
+		return true
+	}
 	for _, s := range list {
 		if !sources.UsesStatistics(s) {
 			continue

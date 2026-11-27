@@ -84,6 +84,10 @@ func TestValues(t *testing.T) {
 	if v["now"].Time != now {
 		t.Error("now")
 	}
+	// v0.26: 受信していないカメラの protocol は空の文字でなく未定義
+	if v["camera.rear.protocol"].Defined {
+		t.Errorf("camera.rear.protocol = %+v, want 未定義", v["camera.rear.protocol"])
+	}
 	for _, n := range []string{"stream.elapsed", "stream.kbps", "stream.dropped", "stream.congestion", "obs.fps", "obs.render_skipped"} {
 		if v[n].Defined {
 			t.Error(n)

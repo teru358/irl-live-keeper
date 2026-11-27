@@ -22,6 +22,7 @@ func serveSourceValues(w http.ResponseWriter, r *http.Request, b Backend, recent
 	snapshot := b.Snapshot()
 	var stats map[string]template.Value
 	if e, ok := recent.(*Events); ok && e != nil {
+		e.wantStatistics(now)
 		stats = e.statisticsValues(now)
 	}
 	values, err := req.Simulate.Apply(snapshot, now, stats)
