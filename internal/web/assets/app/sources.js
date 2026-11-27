@@ -3,13 +3,13 @@ import {live} from '../vendor/lit-html-3.3.3/directives/live.js';
 import {repeat} from '../vendor/lit-html-3.3.3/directives/repeat.js';
 import {createStore} from './store.js';
 import {mountEditor} from './editor.js';
-import {layout,remember,dirty,previewRequest,sourceURL,decorationInput,decorationNumber,appearanceChanged,applyPreview,applySourceEvent,previewChanges,deletePrompt,clearEditor,visibleLayout,templateDiagnostics,applyCollection,openEditor,brokenError} from './sources-state.js';
+import {layout,remember,dirty,previewRequest,sourceURL,decorationInput,decorationNumber,appearanceChanged,applyPreview,applySourceEvent,previewChanges,deletePrompt,clearEditor,visibleLayout,templateDiagnostics,applyCollection,openEditor,brokenError,sourceValueGroups} from './sources-state.js';
 export function mountSources(t,request,lang){
  const root=document.querySelector('#sources-panel');
  const mobile=window.matchMedia('(max-width:700px)');
  let storage;try{storage=window.localStorage;}catch(_){}
- const store=createStore({list:[],broken:{},diagnostics:[],names:[],defaults:null,draft:null,base:null,fresh:false,mobile:mobile.matches,layout:layout(storage),mode:'actual',custom:'{}',texts:{},preview:null,files:[],notice:'',editorNotice:'',editorError:'',previewError:'',testNotice:'',testReason:'',styleInputs:{},styleVersions:{},busy:false,streaming:false,test:false,active:false,settings:null,autoHost:''});
- const update=f=>store.update(f);let editors=[],generation=0,previewVersion=0,timer,events,polling=false;
+ const store=createStore({list:[],broken:{},diagnostics:[],names:[],defaults:null,draft:null,base:null,fresh:false,mobile:mobile.matches,layout:layout(storage),mode:'actual',custom:'{}',texts:{},preview:null,files:[],notice:'',editorNotice:'',editorError:'',previewError:'',testNotice:'',testReason:'',styleInputs:{},styleVersions:{},busy:false,streaming:false,test:false,active:false,valueGroups:[],valuesOpen:false,valuesFilter:'',valuesError:'',settings:null,autoHost:''});
+ const update=f=>store.update(f);let editors=[],generation=0,previewVersion=0,timer,events,polling=false,valuesPolling=false,valuesVersion=0;
  const fail=e=>update(s=>{if(s.draft)s.editorError=e.message;else s.notice=e.message;});
  const sim=s=>({mode:({ok:'OK',low:'LOW',down:'DOWN',auto:'standby'})[s.mode]||s.mode,...s.mode==='custom'?{values:JSON.parse(s.custom)}:{}});
  const sourcePath=n=>'/source/'+encodeURIComponent(n);
@@ -49,15 +49,32 @@ export function mountSources(t,request,lang){
    update(x=>applyPreview(x,data));
   }catch(e){if(version!==previewVersion)return;if(s.draft)update(x=>{x.previewError=e.message;});else fail(e);}
  }
- function change(fn){++previewVersion;editors[0]?.setErrors([]);update(s=>{s.diagnostics=[];s.previewError='';fn(s);});clearTimeout(timer);timer=setTimeout(()=>{timer=null;preview();},300);}
- function close(){const s=store.get();if(s.draft&&dirty(s.draft,s.base)&&!confirm(t('src_discard')))return false;++generation;++previewVersion;for(const ed of editors)ed.destroy();editors=[];clearTimeout(timer);timer=null;update(clearEditor);return true;}
+ async function refreshValues(){
+  const s=store.get();
+  if(!s.active||!s.draft||!s.valuesOpen||valuesPolling)return;
+  const version=valuesVersion;valuesPolling=true;
+  try{
+   const data=await request('source-values',s.mode==='actual'?undefined:{simulate:sim(s)});
+   if(version!==valuesVersion)return;
+   update(x=>{x.valueGroups=data.groups;x.valuesError='';});
+  }catch(e){if(version===valuesVersion)update(x=>{x.valuesError=e.message;});}
+  finally{valuesPolling=false;if(version!==valuesVersion)refreshValues();}
+ }
+ function toggleValues(e){
+  const open=e.currentTarget.open;
+  if(store.get().valuesOpen===open)return;
+  ++valuesVersion;update(s=>{s.valuesOpen=open;});
+  if(open)refreshValues();
+ }
+ function change(fn){const before=store.get();++previewVersion;editors[0]?.setErrors([]);update(s=>{s.diagnostics=[];s.previewError='';fn(s);});const next=store.get();if(before.mode!==next.mode||before.custom!==next.custom){++valuesVersion;refreshValues();}clearTimeout(timer);timer=setTimeout(()=>{timer=null;preview();},300);}
+ function close(){const s=store.get();if(s.draft&&dirty(s.draft,s.base)&&!confirm(t('src_discard')))return false;++generation;++previewVersion;++valuesVersion;for(const ed of editors)ed.destroy();editors=[];clearTimeout(timer);timer=null;update(clearEditor);return true;}
  async function open(src){if(!close())return;update(s=>openEditor(s,src));const token=++generation;await new Promise(queueMicrotask);try{const s=store.get();for(const kind of ['template','css']){const ed=await mountEditor(root.querySelector('[data-editor="'+kind+'"]'),{kind,value:s.draft[kind],names:s.names,label:t('src_'+kind),t,onChange:value=>change(x=>{x.draft[kind]=value;})});if(token!==generation){ed.destroy();return;}editors.push(ed);}editors[0]?.setErrors(store.get().diagnostics);preview();}catch(e){fail(e);}}
  async function save(){const s=store.get(),snapshot=structuredClone(s.draft);update(x=>{x.busy=true;x.editorError='';x.editorNotice='';});try{await request('sources'+(s.fresh?'':'/'+encodeURIComponent(snapshot.name)),snapshot,s.fresh?'POST':'PUT');update(x=>{x.base=snapshot;x.fresh=false;x.editorNotice=t('src_saved')+(!s.fresh&&appearanceChanged(snapshot,s.base)?'\n'+t('src_obs_refresh'):'');x.styleVersions[snapshot.name]=(x.styleVersions[snapshot.name]||0)+1;});await load();}catch(e){if(e.line){const diagnostics=templateDiagnostics({...e,error:e.message});editors[0]?.setErrors(diagnostics);update(x=>{x.previewError=e.message;x.diagnostics=diagnostics;});}else fail(e);}finally{update(x=>{x.busy=false;});}}
  async function remove(src){if(!confirm(deletePrompt(src,store.get().list,t)))return;try{await request('sources/'+encodeURIComponent(src.name),undefined,'DELETE');await load();}catch(e){fail(e);}}
  async function obs(enabled){update(x=>{x.testNotice='';});try{const d=await request('sources/test-obs',enabled?sim(store.get()):undefined,enabled?'PUT':'DELETE');receive(d);}catch(e){fail(e);}}
  function receive(d){
   let reset=false;update(s=>{reset=applySourceEvent(s,d,t('src_stopped'));});
-  if(reset){++previewVersion;clearTimeout(timer);timer=null;if(store.get().draft)preview();}
+  if(reset){++valuesVersion;refreshValues();++previewVersion;clearTimeout(timer);timer=null;if(store.get().draft)preview();}
  }
  async function removeFile(file){if(!confirm(deletePrompt(file,store.get().list,t)))return;try{await request('source-files/'+encodeURIComponent(file.name)+(file.used_by?.length?'?confirm=true':''),undefined,'DELETE');await load();}catch(e){fail(e);}}
  function insertCSSAsset(name){const editor=editors[1];if(!editor)return;editor.view.dom.closest('details').open=true;editor.insertAsset(name);}
@@ -81,11 +98,20 @@ export function mountSources(t,request,lang){
   const row=(url,kind)=>html`<label class="source-field">${t('src_url_'+kind)}<span class="source-url"><input name=${'source-url-'+kind+'-'+src.name} readonly .value=${url} aria-label=${t('src_url_'+kind)}><button class="btn" @click=${async()=>{try{await navigator.clipboard.writeText(url);}catch(_){fail(Error(t('sender_manual')));}}}>${t('sender_copy')}</button></span></label>`;
   return html`${row(urls.url,'local')}${urls.remoteURL?row(urls.remoteURL,'remote'):''}`;
  };
+ const valuesList=s=>{
+  const groups=sourceValueGroups(s.valueGroups,s.valuesFilter,t);
+  return html`<details class="source-section source-values" .open=${s.valuesOpen} @toggle=${toggleValues}>
+   <summary>${t('src_values')}${s.mode!=='actual'?html` <span class="source-values-test">${t('src_values_test')}</span>`:''}</summary>
+   <label class="source-field">${t('src_values_filter')}<input name="source-values-filter" type="search" placeholder=${t('src_values_filter_hint')} .value=${live(s.valuesFilter)} @input=${e=>{const value=e.target.value;update(x=>{x.valuesFilter=value;});}}></label>
+   <p role="alert">${s.valuesError}</p>
+   <div class="source-values-scroll">${repeat(groups,g=>g.key,g=>html`<section class="source-value-group"><h3>${g.title}</h3>${repeat(g.values,v=>v.name,v=>html`<button type="button" class="source-value-row" aria-label=${v.label} @click=${()=>editors[0]?.insertValue(v.name)}><span class="source-value-name">${v.name}</span><span>${v.meaning}</span><span class="source-value-text">${v.text}</span></button>`)}</section>`)}${!groups.length?html`<p class="hint">${t('src_values_empty')}</p>`:''}</div>
+  </details>`;
+ };
  function view(s){const {axis,showAxis}=visibleLayout(s.layout,s.mobile);return html`<h2>${t('sources')}</h2>${s.draft?html`
  <div class="source-header">${field(s,'title')}${s.fresh?field(s,'name'):''}<div class="source-actions"><button class="btn primary" ?disabled=${s.busy} @click=${save}>${t('src_save')}</button><button class="btn" ?disabled=${s.busy} @click=${close}>${t('src_close')}</button>${dirty(s.draft,s.base)?html`<span class="source-dirty">${t('src_unsaved')}</span>`:''}</div></div>
  <p class="source-editor-notice" role="status">${s.editorNotice}</p><p role="alert">${s.editorError||s.previewError}</p>
  <div class="source-toolbar">${testBar(s)}${segments(t('src_view'),['editonly','previewonly','split'],s.layout.mode,mode=>setLayout({mode}))}${showAxis?segments(t('src_split_axis'),['horizontal','vertical'],axis,axis=>setLayout({axis})):''}</div>
- <div class=${'source-workspace '+s.layout.mode+' '+axis}><div class="source-edit"><div class="source-insert"><label class="source-field">${t('src_value')}<select name="source-insert-value" @change=${e=>{editors[0]?.insertValue(e.target.value);e.target.value='';}}><option value="">${t('src_value')}</option>${s.names.map(n=>html`<option value=${n}>${n}</option>`)}</select></label><button class="btn" @click=${()=>editors[0]?.insertCondition('camera.kbps < 800','')}>${t('src_condition')}</button><label class="source-field">${t('src_files')}<select name="source-insert-file" @change=${e=>{if(e.target.value)editors[0]?.insert('/source/files/'+encodeURIComponent(e.target.value));e.target.value='';}}><option value="">${t('src_insert')}</option>${s.files.map(f=>html`<option value=${f.name}>${f.name}</option>`)}</select></label></div><div class="source-editor-label">${t('src_template')}</div><div data-editor="template"></div></div><div class="source-preview" data-preview="editor" aria-label=${t('src_previewonly')}></div></div>
+ <div class=${'source-workspace '+s.layout.mode+' '+axis}><div class="source-edit"><div class="source-insert"><button class="btn" @click=${()=>editors[0]?.insertCondition('camera.kbps < 800','')}>${t('src_condition')}</button><label class="source-field">${t('src_files')}<select name="source-insert-file" @change=${e=>{if(e.target.value)editors[0]?.insert('/source/files/'+encodeURIComponent(e.target.value));e.target.value='';}}><option value="">${t('src_insert')}</option>${s.files.map(f=>html`<option value=${f.name}>${f.name}</option>`)}</select></label></div>${valuesList(s)}<div class="source-editor-label">${t('src_template')}</div><div data-editor="template"></div></div><div class="source-preview" data-preview="editor" aria-label=${t('src_previewonly')}></div></div>
  <details class="source-section"><summary>${t('src_decoration')}</summary><div class="source-fields">${['font','font_size','color','font_weight','outline_color','outline_width','shadow_color','shadow_blur','shadow_x','shadow_y','background_color','background_opacity','border_radius','padding'].map(k=>field(s,k,['font','color','outline_color','shadow_color','background_color'].includes(k)?'text':'number',true))}${['align','transition'].map(k=>html`<label class="source-field">${t('src_'+k)}<select name=${'source-style-'+k} .value=${s.draft.style[k]||''} @change=${e=>{const v=e.target.value;change(x=>{x.draft.style[k]=v;});}}><option value=""></option>${(k==='align'?['left','center','right']:['none','fade']).map(v=>html`<option value=${v} ?selected=${s.draft.style[k]===v}>${t('src_'+v)}</option>`)}</select></label>`)}</div></details>
  <details class="source-section"><summary>${t('src_css')}</summary><p class="hint">${t('src_css_hint')}</p><div data-editor="css"></div></details>
  <details class="source-section"><summary>${t('src_files')}</summary><label class="source-field">${t('src_upload')}<input name="source-upload" type="file" accept="image/png,image/jpeg,image/gif,image/webp" @change=${upload}></label>${s.files.map(f=>html`<div class="source-file"><span>${f.name}</span><button class="btn" @click=${()=>insertCSSAsset(f.name)}>${t('src_insert')}</button><button class="btn" @click=${()=>removeFile(f)}>${t('src_delete')}</button></div>`)}</details>
@@ -96,7 +122,8 @@ export function mountSources(t,request,lang){
  window.addEventListener('keeper-before-page',e=>{if(e.detail!=='sources'&&!close())e.preventDefault();});
  window.addEventListener('beforeunload',e=>{const s=store.get();if(s.draft&&dirty(s.draft,s.base)){e.preventDefault();e.returnValue='';}});
  window.addEventListener('keeper-status',e=>update(s=>{s.streaming=e.detail.obs.streaming;}));
- window.addEventListener('keeper-page',e=>{const active=e.detail==='sources';update(s=>{s.active=active;});events?.close();events=null;if(active){load();events=new EventSource('/api/events?topics=sources&lang='+lang);events.addEventListener('sources',e=>{try{receive(JSON.parse(e.data));}catch(err){console.error(err);}});}});
+ window.addEventListener('keeper-page',e=>{const active=e.detail==='sources';++valuesVersion;update(s=>{s.active=active;});events?.close();events=null;if(active){load();events=new EventSource('/api/events?topics=sources&lang='+lang);events.addEventListener('sources',e=>{try{receive(JSON.parse(e.data));}catch(err){console.error(err);}});}});
+ setInterval(()=>{refreshValues();},1000);
  setInterval(async()=>{const s=store.get();if(!s.active||polling||timer)return;polling=true;try{if(s.mode!=='actual'||s.draft)await preview();}finally{polling=false;}},1000);
  setInterval(()=>{if(store.get().test)request('sources/test-obs/alive',{}).then(receive).catch(fail);},15000);
 }

@@ -84,6 +84,10 @@ func apiHandler(b Backend, recent interface {
 		}
 
 		if isSourcesPath(r.URL.Path) {
+			if r.URL.Path == "/api/source-values" {
+				serveSourceValues(w, r, b, recent, lang)
+				return
+			}
 			if serveSimulation(w, r, b, recent, lang) {
 				return
 			}

@@ -304,3 +304,17 @@ body.in-standby .standby-tile { display: none; }
 .source-repair { color:var(--down); overflow-wrap:anywhere; }
 .source-repair-badge { display:inline-block; border:1px solid currentColor; border-radius:4px; padding:2px 8px; font-size:14px; font-weight:600; }
 .source-repair p { margin:8px 0 0; font-size:14px; }
+
+.source-values-test { display:inline-block; border:1px solid var(--line); border-radius:4px; padding:2px 6px; font-size:12px; font-weight:400; }
+.source-values-scroll { max-height:360px; overflow:auto; overflow-anchor:none; margin-top:12px; }
+.source-value-group h3 { margin:16px 0 8px; font-size:14px; overflow-wrap:anywhere; }
+.source-value-group:first-child h3 { margin-top:0; }
+.source-value-row { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,.6fr); gap:8px; width:100%; padding:10px 4px; border:0; border-bottom:1px solid var(--line); background:transparent; color:var(--ink); text-align:left; font:inherit; font-size:13px; cursor:pointer; }
+.source-value-row > span { min-width:0; overflow-wrap:anywhere; white-space:pre-wrap; }
+.source-value-name { color:var(--source-value); font-family:monospace; }
+.source-value-text { font-variant-numeric:tabular-nums; }
+.source-value-row:hover { background:var(--bg); }
+.source-value-row:focus-visible { outline:2px solid var(--act); outline-offset:-2px; }
+@media(max-width:700px) {
+ .source-value-row { grid-template-columns:minmax(0,1fr); gap:4px; }
+}
