@@ -7,13 +7,13 @@ import (
 )
 
 var defs = map[string]Definition{
-	"a":         {Number, ""},
-	"b":         {Bool, ""},
-	"text":      {String, ""},
-	"sec":       {Seconds, ""},
-	"now":       {Clock, ""},
-	"link.kbps": {Number, ""},
-	"nota":      {Bool, ""},
+	"a":           {Number, ""},
+	"b":           {Bool, ""},
+	"text":        {String, ""},
+	"sec":         {Seconds, ""},
+	"now":         {Clock, ""},
+	"camera.kbps": {Number, ""},
+	"nota":        {Bool, ""},
 }
 
 func run(t *testing.T, s, want string, v map[string]Value) {
@@ -54,7 +54,7 @@ func TestLanguage(t *testing.T) {
 		{"{a}|{a:1}|{a:2}|{a:3}|{a:4}|{a:5}|{a:6}", "10|10.4|10.40|10.400|10.4000|10.40000|10.400000"},
 		{"{text}|{b}", "<script>&|false"},
 		{"{if sec>5025}Y{end}", "Y"},
-		{"{link.kbps}{if not link.kbps}Y{end}{if not (link.kbps != 5)}Y{end}", "YY"},
+		{"{camera.kbps}{if not camera.kbps}Y{end}{if not (camera.kbps != 5)}Y{end}", "YY"},
 	} {
 		t.Run(c.s, func(t *testing.T) { run(t, c.s, c.w, v) })
 	}

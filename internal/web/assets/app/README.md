@@ -25,7 +25,7 @@ lit-html は空の安定した入れ物（同じテンプレート位置の div�
 insertCondition(condition, body)、insertAsset(name)、setErrors([{line, column, message}])、
 destroy()、view。差し込みは、人がカーソルを置いたあとは選択範囲を置き換え、未選択ならカーソル位置に入れる。
 まだ置いていないときは末尾に入れる。insertAsset は未操作の CSS では新しい行に完全な背景の規則を入れる。
-条件には式（例: link.kbps < 800）を渡す。message は API が翻訳した文を渡す。
+条件には式（例: camera.kbps < 800）を渡す。message は API が翻訳した文を渡す。
 line/column は1始まり、column は Unicode 文字単位。エラーは現在の文書に対応する
 プレビュー応答だけを渡し、編集後には setErrors([]) で古い印を消す。
 
