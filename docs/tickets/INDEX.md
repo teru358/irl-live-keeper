@@ -1,14 +1,15 @@
 # チケット一覧
 
 自動生成: `ticket.py index` (tickets skill)。手で編集しない。
-未完了: 3 件。完了分は closed/。
+未完了: 4 件。完了分は closed/。
 
-## 設計待ち (3)
+## 設計待ち (4)
 
-### 機能 (2)
+### 機能 (3)
 
 | id | 優先 | 起票 | 概要 |
 |---|---|---|---|
+| [source-style-live-update](open/source-style-live-update.md) | 中 | 2026-11-27 | ソースの見た目の保存を、開いている OBS へ自動で届ける |
 | [ntfy-notify](open/ntfy-notify.md) | 低 | 2026-11-24 | ntfy で回線の悪化と待機の切り替えをスマホに知らせる（検討） |
 | [unused-camera-display](open/unused-camera-display.md) | 低 | 2026-11-25 | 今のコレクションにメディアソースがないカメラを、警告でなく「使っていない」と出す（検討） |
 
