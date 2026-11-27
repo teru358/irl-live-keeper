@@ -1,7 +1,7 @@
 # irl-live-keeper 設計 — 第2段階（小さな窓、管理ページ、ソース）
 
 - 作成日: 2026-11-20
-- 版: v0.24（変更は末尾の変更履歴を参照）
+- 版: v0.25（変更は末尾の変更履歴を参照）
 - **追加の方針（v0.8、2026-11-23 のユーザーの指示）**: 屋外からの操作（VPN で管理ページを開き、配信とシーンを操作する）、日本語と英語、画面のデザイン。第14節。この文書のほかの節と食い違うときは第14節を優先する
 - **シーンごとの逃がし先（0c）**: 区切り0の 0b のあとに、`docs/superpowers/specs/2026-11-21-scene-fallback-design.md` を入れる（2026-11-21 のユーザーの裁定）
 - **複数のカメラ（v0.6）**: 第2段階の頭（区切り0）に、複数のカメラ `docs/superpowers/specs/2026-11-21-multi-camera-design.md` を入れる（2026-11-21 のユーザーの裁定）。この文書の 4章〜9章（小さな窓、管理ページ、補助の接続の開く条件、反映の区分、作る順と止める順、記録、ソース）の一部は、その文書の第9節と第10節で置き換える。食い違うときはその文書を優先する
@@ -220,7 +220,7 @@ irl-live-keeper(.exe)
 | OBS | `GET /api/obs/scenes`、`GET /api/obs/inputs` | `GetSceneList` と `GetInputList`。未接続なら 503。2秒で応答がなければ 503（下） |
 | 操作 | 今の `POST /api/stream/start|stop`、`/api/standby/on|off`、シーンの切り替え `POST /api/obs/scene`（v0.8。第14節）。`POST /api/restart` | `restart` は本体を中で起動し直す（第7節「世代」。202 を返す。反映の途中なら 409） |
 | ログ | `GET /api/logs?lines=500&level=` | 直近の行（本体のメモリに持つ直近の行。パスワードを置き換えたあとの行だけを持つ。ファイルは読まない） |
-| ソース（2b） | `GET/POST /api/sources`、`GET/PUT/DELETE /api/sources/{name}`、`POST /api/sources/preview`、`GET /api/source-values`、`PUT/DELETE /api/sources/test-obs`、`POST /api/sources/test-obs/alive` | 第9節。どれも認証が要る |
+| ソース（2b） | `GET/POST /api/sources`、`GET/PUT/DELETE /api/sources/{name}`、`POST /api/sources/preview`、`GET/POST /api/source-values`、`PUT/DELETE /api/sources/test-obs`、`POST /api/sources/test-obs/alive` | 第9節。どれも認証が要る |
 | ソースのページ（2b） | `GET /source/{name}`、`GET /source/{name}/style.css`、`GET /source/{name}/events`、`GET /source/assets/source.js` | 第9節。認証なし |
 
 - エラーの形は今どおり `{"error": "<理由>"}`。設定の検証の失敗は 422 で `{"error": "...", "fields": {"<項目>": "<理由>"}}`
@@ -656,6 +656,10 @@ operand   = 名前 | 数値 | 文字列 | "true" | "false" | "(" expr ")" ;
 | 時刻 | `now`（今の時刻） | 時刻 | 本体の時計 |
 | 本体 | `mediamtx.state` | 文字列 | core |
 
+- **値の一覧の画面**（v0.25、2026-11-27 のユーザーの裁定）: 編集の画面のテンプレートの上に、たためる区分「値の一覧」を置く（今の「値」の選ぶ欄に替える。PC もスマホも同じ。スマホでは縦に並ぶ）。上に絞り込みの入力欄（名前と意味の部分一致）。区分ごとに見出しをつけて並べる: 「今のシーンのカメラ」（`camera.*`）、カメラごと（見出しは「カメラ: <id>（<name>）」、設定の順）、「待機」、「OBS」、「配信」、「その他」（`now`、`mediamtx.state`）。1行に、名前（色分けと同じ紫）、意味（短い名前と単位。例「受信のビットレート（kbps）」「状態（OK / LOW / DOWN）」）、今の値（既定の形で組み立てた文字。未定義は「—」）。行を押すと、その名前をテンプレートに差し込む（差し込みの先は今の差し込みのボタンと同じ決まり）。区分を開いている間、今の値を1秒ごとに取り直す
+  - 今の値は、「回線の状況のテスト」で選んでいる状況の値（プレビューと同じ値）。「実際」以外のときは、一覧の見出しに「テストの値」の印を出す
+  - 意味の文は、文の表に値の名前ごとに持つ（カメラごとの値は `camera.*` と同じ文を使う）。日本語と英語
+  - **`GET /api/source-values`**（実際の値）と **`POST /api/source-values`**（本文 `{"simulate": …}`。`POST /api/sources/preview` の `simulate` と同じ形）: `{"groups": [{"kind": "current_camera" | "camera" | "standby" | "obs" | "stream" | "other", "camera": {"id", "name"}（kind が camera のときだけ）, "values": [{"name", "type", "format", "text"}]}]}` を返す。`text` は既定の形で組み立てた文字、未定義なら `null`。並びは上の区分の順、区分の中は決まった順（`state`、`kbps`、`online`、`protocol`、`state_for`、`srt.*`、`id`、`name`、`hidden` など）。資格情報は入れない（今の値の一覧と同じ）。認証が要る。`POST` は独自ヘッダーが要る
 - **今のシーンのカメラ**（v0.23、2026-11-27 のユーザーの裁定）: `camera.*`（id のない名前）は、OBS の今のシーン（`obs.scene`。Studio Mode でも program のシーン）に映るカメラ（Snapshot の `obs.scene_cameras`）が**ちょうど1台**のとき、そのカメラの `camera.<id>.*` と同じ値。映るカメラが0台（待機シーンなど）、2台以上、OBS に未接続のときは、すべて未定義。同じブラウザソースを複数のシーンに置くと、シーンごとにそのシーンのカメラの値になる。決まったカメラを指すときは `camera.<id>.*` を使う。前の版の `link.*`（先頭のカメラの別名）と `srt.*` は、何を指すか分かりにくいのでなくした（まだ配布していない）
 - カメラの `id` には、`camera.*` の値の名前（`state`、`kbps`、`online`、`protocol`、`state_for`、`srt`、`id`、`name`、`hidden`）を使えない（`camera.kbps` と `camera.<id>.kbps` がぶつかるため。config の検証で断り、理由を出す）
 - 「core」は Snapshot から読む。カメラの `state_for` と `standby.for` のために、core に「今の受信状態になった時刻」と「持ち主が `none` でなくなった時刻」を足す（Snapshot に入れる）
@@ -937,3 +941,4 @@ operand   = 名前 | 数値 | 文字列 | "true" | "false" | "(" expr ")" ;
 | 2026-11-27 | v0.22 | S2-54 の気になる点: ソースのカードの URL は「この PC の OBS 用」の `127.0.0.1` を常に出し、`admin.lan` が true なら「別の PC の OBS 用」を並べる。見た目の保存は開いている OBS に届かないので案内を出す（自動はチケット）。配信の開始で「OBS にも反映」を切ったら、管理ページのテストも「実際の値」に戻す。「OBS にも反映」のログ。プレビューのテンプレートの誤りは 200 で返す | 2026-11-27 のユーザーの裁定（S2-54 の結果） | この版の commit |
 | 2026-11-27 | v0.23 | ソースの値: `link.*` と `srt.*`（先頭のカメラの別名）をなくし、`camera.*`（今のシーンに映るカメラが1台のときその値、ほかは未定義）を足した。カメラの `id` に値の名前を使えない | 2026-11-27 のユーザーの裁定（`link` が何を指すか分からない。共通のブラウザソースを複数のシーンで使い回したい） | この版の commit |
 | 2026-11-27 | v0.24 | 10章: 保存してあるテンプレートが今の値の一覧で通らないとき、そのソースだけを「直しが要る」にし、ほかのソースは動かし続ける | 2026-11-27 のユーザーの裁定（カメラの id の変更などで、1つのソースのためにすべてのソースが消えないように） | この版の commit |
+| 2026-11-27 | v0.25 | 9章「使える値」に、編集の画面の「値の一覧」（たためる区分、区分ごと、名前・意味・今の値、押すと差し込む、絞り込み、テストの値）と `GET`・`POST /api/source-values` の形を足した（S2-46・S2-53 で作り漏れていた） | 2026-11-27 のユーザーの裁定 | この版の commit |
