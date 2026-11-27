@@ -88,7 +88,7 @@ func TestEventsTopicsAuth(t *testing.T) {
 	e := NewEvents(eventBackend{}, nil, nil)
 	defer e.Close()
 	h := NewWithEvents(eventBackend{}, "pw", 8787, NewAuth(nil), e)
-	for _, topic := range []string{"unknown", ""} {
+	for _, topic := range []string{"unknown", "", "log", "status,log", "log,sources"} {
 		r := httptest.NewRequest("GET", "/api/events?topics="+topic, nil)
 		r.SetBasicAuth("admin", "pw")
 		w := httptest.NewRecorder()
@@ -117,31 +117,6 @@ func TestEventsOverflow(t *testing.T) {
 	}
 	close(c.ended)
 	e.Close()
-}
-
-func TestEventsLogTopics(t *testing.T) {
-	e := NewEvents(eventBackend{}, nil, nil)
-	defer e.Close()
-	w := &eventWriter{h: make(http.Header), flushed: make(chan struct{}, 8)}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		e.ServeHTTP(w, httptest.NewRequest("GET", "/api/events?topics=log", nil).WithContext(ctx))
-	}()
-	<-w.flushed
-	e.broadcast(eventMessage{"status", nil})
-	e.broadcast(eventMessage{"sample", nil})
-	e.broadcast(eventMessage{"log", map[string]any{"t": time.Now(), "level": "INFO", "text": "行"}})
-	<-w.flushed
-	cancel()
-	<-done
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if strings.Contains(w.body, "event: status") || strings.Contains(w.body, "event: sample") || !strings.Contains(w.body, "event: log") {
-		t.Fatal(w.body)
-	}
 }
 
 func TestEventsLanguage(t *testing.T) {

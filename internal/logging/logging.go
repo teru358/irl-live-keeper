@@ -8,8 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
-	"strings"
 	"sync"
 	"time"
 
@@ -20,36 +18,6 @@ const (
 	// dateLayout はファイル名と、日付の比較に使う形式。
 	dateLayout = "2006-01-02"
 )
-
-const (
-	// recentMax は Recent が持つ行の上限。
-	recentMax = 2000
-	// recentSlack は recent を詰め直すまでに余分にためる行数。持つ行は Recent で recentMax に絞る。
-	recentSlack = 256
-)
-
-// levelRe は slog のテキストの行の level= の値を取る。
-var levelRe = regexp.MustCompile(`(?:^| )level=(\S+)`)
-
-// Line は書いた1行。Text は置き換えのあとの行（標準出力とファイルに書くのと同じ。末尾の改行なし）。
-type Line struct {
-	At    time.Time  // その行を書いた時刻
-	Level slog.Level // 読めなければ slog.LevelInfo
-	Text  string
-}
-
-// parseLevel は置き換えの前の行から水準を読む。読めなければ Info。
-func parseLevel(raw string) slog.Level {
-	m := levelRe.FindStringSubmatch(raw)
-	if m == nil {
-		return slog.LevelInfo
-	}
-	var lv slog.Level
-	if err := lv.UnmarshalText([]byte(m[1])); err != nil {
-		return slog.LevelInfo
-	}
-	return lv
-}
 
 // fileNameRe は消す対象の名前の形。日付の妥当性は time.Parse で確かめる。
 var fileNameRe = regexp.MustCompile(`^irl-live-keeper-(\d{4}-\d{2}-\d{2})\.log$`)
@@ -80,9 +48,6 @@ type Logger struct {
 	fileDate string   // file の日付（YYYY-MM-DD）。file が nil のときは空
 	closed   bool
 
-	subs   map[*subscriber]struct{} // mu で守る
-	recent []Line                   // 直近の行（古い順）。mu で守る。recentMax を超えたら古い方を落とす
-
 	log *slog.Logger
 }
 
@@ -104,7 +69,6 @@ func Open(o Options) (*Logger, error) {
 		stdout:   o.Stdout,
 		now:      o.Now,
 		masker:   redact.New(o.Secrets...),
-		subs:     map[*subscriber]struct{}{},
 	}
 	if l.stdout == nil {
 		l.stdout = os.Stdout
@@ -152,10 +116,6 @@ func (l *Logger) Close() error {
 		return nil
 	}
 	l.closed = true
-	for sub := range l.subs {
-		close(sub.ch)
-		delete(l.subs, sub)
-	}
 	if l.file == nil {
 		return nil
 	}
@@ -184,11 +144,6 @@ func (l *Logger) write(p []byte) (int, error) {
 
 	masked := l.masker.Mask(string(p))
 	line := []byte(masked)
-	l.publish(Line{
-		At:    l.now(),
-		Level: parseLevel(string(p)),
-		Text:  strings.TrimRight(masked, "\r\n"),
-	})
 	var errs []error
 	if _, err := l.stdout.Write(line); err != nil {
 		errs = append(errs, err)
@@ -205,77 +160,12 @@ func (l *Logger) write(p []byte) (int, error) {
 	return len(p), errors.Join(errs...)
 }
 
-// publish は行を直近の行へ足し、すべての受け手へ止まらずに送る（満ちていれば捨てる）。mu を持つこと。
-func (l *Logger) publish(ln Line) {
-	l.recent = append(l.recent, ln)
-	// 毎回詰め直さないよう、少し余分にためてから、新しい recentMax 行だけを残す
-	if len(l.recent) >= recentMax+recentSlack {
-		l.recent = append(l.recent[:0], l.recent[len(l.recent)-recentMax:]...)
-	}
-	for sub := range l.subs {
-		select {
-		case sub.ch <- ln:
-		default:
-		}
-	}
-}
-
-type subscriber struct{ ch chan Line }
-
 // AddSecrets は秘密を足す。動作中でも呼べる。空の要素は無視する。
 // 足したあとに書く行では、Open で渡した値も足した値も *** に置き換わる。
 func (l *Logger) AddSecrets(s ...string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.masker.Add(s...)
-}
-
-// Subscribe は、これから書く行を受け取る容量 n のチャネルと、解除する関数を返す（n は1以上。それ以外は panic）。
-// 受け手が満ちていれば、その行はその受け手には送らず捨てる。書き込みは止まらない。
-// 解除するとチャネルを閉じる。解除は2回呼んでもよい。Close でも、残っている受け手のチャネルを閉じる。
-func (l *Logger) Subscribe(n int) (<-chan Line, func()) {
-	if n < 1 {
-		panic("logging: Subscribe の容量は1以上")
-	}
-	sub := &subscriber{ch: make(chan Line, n)}
-	l.mu.Lock()
-	if l.closed {
-		close(sub.ch)
-	} else {
-		l.subs[sub] = struct{}{}
-	}
-	l.mu.Unlock()
-	return sub.ch, func() {
-		l.mu.Lock()
-		defer l.mu.Unlock()
-		if _, ok := l.subs[sub]; ok {
-			delete(l.subs, sub)
-			close(sub.ch)
-		}
-	}
-}
-
-// Recent は、水準が minLevel 以上の直近の行のうち新しい方から n 行を、古い順に返す。
-// 持つのは最大 2000 行。n が 2000 を超えたら 2000、n が 0 以下なら空。
-func (l *Logger) Recent(n int, minLevel slog.Level) []Line {
-	if n <= 0 {
-		return []Line{}
-	}
-	n = min(n, recentMax)
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	var out []Line
-	lowest := max(0, len(l.recent)-recentMax)
-	for i := len(l.recent) - 1; i >= lowest && len(out) < n; i-- {
-		if l.recent[i].Level >= minLevel {
-			out = append(out, l.recent[i])
-		}
-	}
-	slices.Reverse(out)
-	if out == nil {
-		out = []Line{}
-	}
-	return out
 }
 
 // fileFor は date のファイルを返す。開いているのが別の日付なら閉じて開き直す。呼び出し側が mu を持つこと。

@@ -55,7 +55,7 @@ func TestEventsGenerationShutdown(t *testing.T) {
 	w := &sseWriter{h: make(http.Header), ready: make(chan struct{}, 1)}
 	done := make(chan struct{})
 	// ハンドラーの終了通知も Close が待つことを、外側の通知との順序によらず確認する。
-	go func() { e.ServeHTTP(w, httptest.NewRequest("GET", "/api/events?topics=log", nil)); close(done) }()
+	go func() { e.ServeHTTP(w, httptest.NewRequest("GET", "/api/events?topics=status", nil)); close(done) }()
 	<-w.ready
 	_, cancel := context.WithCancel(context.Background())
 	r := &generationRecord{}
