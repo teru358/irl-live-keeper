@@ -1,6 +1,5 @@
 {
   "messages": {
-    "src_upload_names": "Names are normalized before upload. Some compatibility ideographs become standard characters; remaining combining marks become underscores.",
     "source_files.name_too_long": "The name is too long. Use at most 128 UTF-8 bytes including the extension (about 41 Japanese characters plus .png).",
     "sources.render_failed": "Source rendering failed",
     "template.html_lex": "Line {line}, column {column}: Invalid HTML syntax",
@@ -213,6 +212,7 @@
     "source_files.scan_limit": "The assets folder has too many entries; only the first {limit} were checked."
   },
   "ui": {
+    "src_upload_names": "Names are normalized before upload. Some compatibility ideographs become standard characters; remaining combining marks become underscores.",
     "editor_completions": "Completions",
     "editor_diagnostics": "Diagnostics",
     "editor_no_diagnostics": "No diagnostics",

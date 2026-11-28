@@ -1,6 +1,5 @@
 {
   "messages": {
-    "src_upload_names": "送信前に文字を整えます。一部の互換漢字は標準の字に変わり、結合できない濁点やアクセント等は _ になります。",
     "source_files.name_too_long": "名前が長すぎます。拡張子を含め128バイト以内にしてください（日本語41字＋.pngが目安です）",
     "sources.render_failed": "ソースの組み立てに失敗しました",
     "template.html_lex": "{line} 行 {column} 文字目: HTML の書き方が正しくありません",
@@ -213,6 +212,7 @@
     "source_files.scan_limit": "素材のフォルダの項目が多すぎるため、最初の {limit} 項目だけを調べました。"
   },
   "ui": {
+    "src_upload_names": "送信前に文字を整えます。一部の互換漢字は標準の字に変わり、結合できない濁点やアクセント等は _ になります。",
     "editor_completions": "補完候補",
     "editor_diagnostics": "誤りの一覧",
     "editor_no_diagnostics": "誤りはありません",
