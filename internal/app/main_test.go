@@ -123,9 +123,14 @@ func runInBackground(ctx context.Context, base string, stdout, stderr *syncBuffe
 	return done
 }
 
+// waitFor は cond が真になるのを待つ。待つ相手はログファイルや別プロセス（偽の MediaMTX）の出力で、
+// 来たことを知らせる経路が試験の側にない（ログファイルへ書く本体のロガーと、別プロセスの標準出力を通る）ので、
+// 間隔をおいて見直す。上限は負荷で起動が遅れても足りる長さにする（go test -race ./... を4本並べて繰り返すと、
+// 偽の MediaMTX の出力がログに載るまでに10秒を超えることが43回に1回あった）。条件が成り立てばすぐ戻るので、
+// 通常の所要時間は変わらない。
 func waitFor(t *testing.T, what string, cond func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(60 * time.Second)
 	for time.Now().Before(deadline) {
 		if cond() {
 			return

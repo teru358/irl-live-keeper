@@ -1,9 +1,12 @@
 package core
 
 import (
+	"errors"
 	"fmt"
 	"math/rand"
+	"os"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -94,8 +97,11 @@ type world struct {
 	nextItem  int
 
 	pending []pendEv
-	late    []lateApply
-	hung    []hungReq
+	// humanTransit は、pending から取り出して本体へ送っている途中（本体がまだ受け取っていない）の人の操作の数。
+	// 世界はもう変わっているのに本体は知らないので、pending にあるのと同じに数える。
+	humanTransit int
+	late         []lateApply
+	hung         []hungReq
 
 	// 本体が最後に true→false にした項目（人が触れば外れる）。
 	appOwned map[ik]bool
@@ -121,6 +127,11 @@ type world struct {
 	kbps   map[string]float64
 
 	hiddenPath string
+	// writeMu と writeGen は、hidden.json への書き込みを本体の世代で区切る。落ちた本体（プロセスごと死んだもの）の書き込みは、
+	// 死んだあとには起きない。試験では Run を止めても persister の worker が残って、新しい世代が書いた hidden.json を古い中身で
+	// 上書きしうる（trackedHiddenPath の注意書きの「既知の制約」）ので、世代が替わったあとの古い世代の書き込みは捨てる。
+	writeMu  sync.Mutex
+	writeGen int
 
 	violations []string
 	trace      []string
@@ -130,6 +141,15 @@ type world struct {
 	inflight   atomic.Int64 // 実行中の OBS の要求の数（0c: 静かな時点の判定）
 	evCount    atomic.Int64 // 本体へ流したイベントの数（0c: 履歴が変わるのはイベントかコマンドのあと）
 	stats      worldStats
+
+	// 実時間の短い待ちの代わりに、動きを数えて待つための印（settle、fbSync、hidden.json の書き込みの待ち）。
+	wake           chan struct{} // 動きがあったことを待ち手に知らせる（容量1。取りこぼさないが、余分に起きることはある）
+	coreBusy       atomic.Int64  // 中核ループが列に積んだバッチのうち、BatchDone をまだ処理していない数（積んだ・実行役が受け取った・終えた）
+	persistObs     atomic.Int64  // 中核ループが最後の observe で見た persistRev（hidden.json の保存を求めた最後の番号）
+	settleTimedOut atomic.Int64  // settle が時間切れで諦めた回数（診断用）
+	// 食い違いの診断（失敗の出力の頭に出す）。世界の program を変えた履歴と、本体に渡した SceneChanged の列。実時間つき。
+	progHist []string
+	sceneLog []string
 
 	// 0c の拡張（nil なら 0b と同じ世界）。
 	fb       *fbWorld
@@ -154,7 +174,7 @@ func newWorld(seed int64, clk *fakeClock, hiddenPath string, faulty bool) *world
 		},
 		cont: map[string]*wCont{}, program: camera, streaming: true, connected: true, faulty: faulty,
 		hiddenPath: hiddenPath, appOwned: map[ik]bool{}, mark: map[string]bool{}, markSeq: map[string]int64{}, approvedSeq: map[ik]int64{}, humanTrueAt: map[time.Time]ik{}, humanRestoredOwned: map[ik]bool{}, trueIssued: map[ik]bool{}, uncertain: map[ik]*bool{}, nextItem: 100,
-		kbps: map[string]float64{},
+		kbps: map[string]float64{}, wake: make(chan struct{}, 1),
 	}
 	add := func(name string, group bool, items ...*wItem) {
 		w.cont[name] = &wCont{name: name, group: group, items: items}
@@ -329,7 +349,7 @@ func (w *world) cameraOfItemLocked(k ik) string {
 // ---- イベントの流し方 ----
 
 func (w *world) humanPendingLocked() bool {
-	return slices.ContainsFunc(w.pending, func(p pendEv) bool { return p.human })
+	return w.humanTransit > 0 || slices.ContainsFunc(w.pending, func(p pendEv) bool { return p.human })
 }
 
 // enqueueLocked はイベントを、応答のあとに遅れて流すものとして入れる（順序は保つ）。
@@ -388,13 +408,24 @@ func (w *world) enqueueLocked(ev switcher.Event, human bool, k ik, val bool) {
 func (w *world) send(ch chan switcher.Event, gd chan struct{}, ev switcher.Event) {
 	select {
 	case ch <- ev:
-		if sc, ok := ev.(switcher.SceneChanged); ok {
+		switch x := ev.(type) {
+		case switcher.SceneChanged:
 			w.mu.Lock()
-			w.logf("届けた: SceneChanged %s", sc.Scene)
+			w.logf("届けた: SceneChanged %s", x.Scene)
+			w.sceneLog = appendCap(w.sceneLog, fmt.Sprintf("%s 本体に渡した SceneChanged %s（%s）", time.Now().Format("15:04:05.000000"), x.Scene, x.SceneUUID), diagKeep)
+			w.mu.Unlock()
+		case switcher.OBSConnected: // 本体は OBSConnected の Scene からも今のシーンを決めるので、列に入れる
+			w.mu.Lock()
+			w.sceneLog = appendCap(w.sceneLog, fmt.Sprintf("%s 本体に渡した OBSConnected（シーン %s、%s）", time.Now().Format("15:04:05.000000"), x.Scene, x.SceneUUID), diagKeep)
+			w.mu.Unlock()
+		case switcher.OBSDisconnected:
+			w.mu.Lock()
+			w.sceneLog = appendCap(w.sceneLog, fmt.Sprintf("%s 本体に渡した OBSDisconnected", time.Now().Format("15:04:05.000000")), diagKeep)
 			w.mu.Unlock()
 		}
 		w.evCount.Add(1)
 		w.activity.Add(1)
+		w.poke()
 	case <-gd:
 	case <-w.done:
 	}
@@ -418,8 +449,16 @@ func (w *world) deliverDueSerial(all bool) {
 		p := w.pending[0]
 		w.pending = w.pending[1:]
 		ch, gd := w.evCh, w.genDone
+		if p.human {
+			w.humanTransit++ // 取り出してから本体が受け取るまでの間も、人の操作は未着
+		}
 		w.mu.Unlock()
 		w.send(ch, gd, p.ev)
+		if p.human {
+			w.mu.Lock()
+			w.humanTransit--
+			w.mu.Unlock()
+		}
 	}
 }
 
@@ -427,6 +466,12 @@ func (w *world) deliverDueSerial(all bool) {
 func (w *world) sendNow(ev switcher.Event) {
 	w.sendMu.Lock()
 	defer w.sendMu.Unlock()
+	w.sendNowSerial(ev)
+}
+
+// sendNowSerial は sendMu を持って呼ぶ。世界の状態を変えてからこのイベントを流すまでを、sendMu の下で続けて行う呼び出し側
+// （偽の OBS の要求、人の操作）は、世界が変わった順と、本体に届くイベントの順が入れ替わらない。ロックの順は sendMu → mu。
+func (w *world) sendNowSerial(ev switcher.Event) {
 	w.deliverDueSerial(true)
 	w.mu.Lock()
 	ch, gd := w.evCh, w.genDone
@@ -490,4 +535,153 @@ func (w *world) observeCore(v any) {
 			w.approvedSeq[ik{a.SceneUUID, a.ItemID}] = w.seq
 		}
 	}
+}
+
+// ---- 動きを数えて待つ（実時間の短い待ちの代わり） ----
+
+const diagKeep = 60 // 診断に残す履歴の数
+
+func appendCap(l []string, s string, n int) []string {
+	l = append(l, s)
+	if len(l) > n*2 {
+		l = slices.Clone(l[len(l)-n:])
+	}
+	return l
+}
+
+// noteProgramLocked は世界の program を変えた直後に呼ぶ（診断の履歴。実時間と偽の時計つき）。
+func (w *world) noteProgramLocked(why string) {
+	w.progHist = appendCap(w.progHist, fmt.Sprintf("%s [%s] 世界の program を %s（%s）に: %s", time.Now().Format("15:04:05.000000"), w.clk.Now().Format("15:04:05"), w.sceneNameLocked(w.program), w.program, why), diagKeep)
+}
+
+// diagString は、状態の食い違いのときに読む診断（世界の program の履歴と、本体に渡した SceneChanged の列）。
+func (w *world) diagString() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	last := func(l []string) string {
+		if len(l) > diagKeep {
+			l = l[len(l)-diagKeep:]
+		}
+		return strings.Join(l, "\n")
+	}
+	return fmt.Sprintf("世界の program の履歴（古い順、直近 %d）:\n%s\n本体に渡した SceneChanged の列（古い順、直近 %d）:\n%s", diagKeep, last(w.progHist), diagKeep, last(w.sceneLog))
+}
+
+// poke は待ち手に動きを知らせる。待ち手がいなくても、1つは残る。
+func (w *world) poke() {
+	select {
+	case w.wake <- struct{}{}:
+	default:
+	}
+}
+
+func (w *world) drainWake() {
+	select {
+	case <-w.wake:
+	default:
+	}
+}
+
+// integWaits は、動きを待つ処理が、知らせで起きた回数と、保険の時間切れで起きた回数（時間切れが多ければ、知らせの抜けがある）。
+var integWaits struct{ poked, timedOut, settleGaveUp atomic.Int64 }
+
+// waitWake は動きの知らせか、max（取りこぼしの保険）のどちらか早いほうまで待つ。
+func (w *world) waitWake(max time.Duration) {
+	t := time.NewTimer(max)
+	defer t.Stop()
+	select {
+	case <-w.wake:
+		integWaits.poked.Add(1)
+	case <-t.C:
+		integWaits.timedOut.Add(1)
+	}
+}
+
+// reportIntegWaits は、知らせで起きた回数と時間切れの回数を、IRL_INTEG_STATS があれば標準エラーに出す（負荷の試験の確かめ用）。
+func reportIntegWaits(name string) {
+	if os.Getenv("IRL_INTEG_STATS") == "" {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "INTEG-WAITS %s: 知らせで起きた=%d 保険の時間切れ=%d settle の打ち切り=%d\n", name, integWaits.poked.Load(), integWaits.timedOut.Load(), integWaits.settleGaveUp.Load())
+}
+
+// reqStart と reqEnd は、OBS の要求の実行中の数（inflight）の出入り。終わりは待ち手に知らせる。
+func (w *world) reqStart() { w.inflight.Add(1) }
+func (w *world) reqEnd() {
+	w.inflight.Add(-1)
+	w.poke()
+}
+
+// coreIdle は、世界の側から見て、本体が静かかを答える。実行中の OBS の要求がなく、中核ループが積んだバッチがすべて終わっている。
+// 応えない要求（hung）を待っている実行役は、偽の時計が進むまで進めないので、静かと数える。
+func (w *world) coreIdle() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if len(w.hung) > 0 {
+		return true
+	}
+	return w.inflight.Load() == 0 && w.coreBusy.Load() == 0
+}
+
+// observeGen は本体の1世代の中核ループのフック（中核ループの goroutine で呼ばれる）。observeCore に加えて、
+// 列に積まれたバッチと BatchDone を数える（積んだ数から終えた数を引いた残りが coreBusy）。Replace で列の先頭に入る代わりのバッチも、
+// その approval の observe で列を見て拾う。保存を求めた最後の番号（persistRev）も写す。
+func (w *world) observeGen(c *Core) func(any) {
+	seen, done := map[int]bool{}, map[int]bool{}
+	busy := 0
+	return func(v any) {
+		w.observeCore(v)
+		for _, b := range c.queue {
+			if !seen[b.BatchID] {
+				seen[b.BatchID] = true
+				busy++
+			}
+		}
+		if d, ok := v.(switcher.BatchDone); ok && seen[d.BatchID] && !done[d.BatchID] {
+			done[d.BatchID] = true
+			busy--
+		}
+		changed := w.coreBusy.Swap(int64(busy)) != int64(busy)
+		w.persistObs.Store(int64(c.persistRev))
+		if _, tick := v.(switcher.Tick); !tick || changed {
+			w.poke() // Tick は待ち手自身が送るので、知らせない（知らせると待ちが空回りする）
+		}
+	}
+}
+
+// pokeAfterWrite は hidden.json の書き込みの関数を包み、書き終えたら待ち手に知らせる（inner が nil なら既定の書き込み）。
+func (w *world) pokeAfterWrite(inner func(string, []byte) error) func(string, []byte) error {
+	if inner == nil {
+		inner = atomicWrite
+	}
+	return func(p string, b []byte) error {
+		err := inner(p, b)
+		w.poke()
+		return err
+	}
+}
+
+var errDeadGen = errors.New("この世代の本体は終わっている（書き込みは起きない）")
+
+// gateWrite は世代 gen の hidden.json の書き込みの関数。writeGen が gen でなければ（古い世代なら）何も書かずに失敗を返す。
+// 書き込み中に世代が替わるときは、writeMu で書き込みの終わりを待つ。
+func (w *world) gateWrite(gen int, inner func(string, []byte) error) func(string, []byte) error {
+	if inner == nil {
+		inner = atomicWrite
+	}
+	return func(p string, b []byte) error {
+		w.writeMu.Lock()
+		defer w.writeMu.Unlock()
+		if w.writeGen != gen {
+			return errDeadGen
+		}
+		return inner(p, b)
+	}
+}
+
+// switchWriteGen は書き込みの世代を替える（古い世代の書き込み中なら、その終わりを待つ。以後の古い世代の書き込みは捨てられる）。
+func (w *world) switchWriteGen(gen int) {
+	w.writeMu.Lock()
+	w.writeGen = gen
+	w.writeMu.Unlock()
 }

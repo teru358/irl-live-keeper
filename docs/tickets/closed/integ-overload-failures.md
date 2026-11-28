@@ -1,16 +1,16 @@
 ---
 id: integ-overload-failures
 title: 結合のテストが強い過負荷（32本×2回）で INV-03・INV-04・入場の逆順で落ちる
-status: 裁定待ち
+status: 是正済
 priority: 低
 kind: 保守
 opened: 2026-11-23
-closed: null
+closed: 2026-11-28
 related: []
 ---
 # [integ-overload-failures] 結合のテストが強い過負荷（32本×2回）で INV-03・INV-04・入場の逆順で落ちる
 
-**状態**: 裁定待ち / **優先**: 低 / **種別**: 保守
+**状態**: 是正済 / **優先**: 低 / **種別**: 保守
 
 ## 現象
 
@@ -22,12 +22,15 @@ related: []
 
 ## 修正内容
 
+- 2026-11-28: 試験だけ直した。(1) 偽の OBS の SetSceneUUID・StartStream・StopStream と、人の切替・配信の切替（humanScene、fbHumanScene、fbDelete、streamToggle、recoverAll）で、世界を変えてからイベントを送る・積むまでを sendMu の下で続けて行う（ロックの順は sendMu→mu）ので、SceneChanged の順が世界の変わった順と入れ替わらない。人の操作が pending から取り出されて本体へ渡る途中も未着と数える（humanTransit）。(2) settle・fbSync・INV-04 の30秒の待ちの sleep をやめ、observe のフックで数えた「積んだバッチ・BatchDone」と要求の出入りと hidden.json の書き込みの終わりの知らせで待つ（waitHiddenWritten は persistRev と writtenRev を比べる）。(3) hidden.json の書き込みを本体の世代で区切り、落ちた世代の persister の worker が新しい世代の hidden.json を古い中身で上書きする試験の側の隙間を塞いだ（INV-01・INV-04 の残りの原因）。(4) 食い違いの診断（世界の program の履歴と渡した SceneChanged・OBSConnected の列、実時間つき）を失敗の出力の頭に、世界の記録の末尾を続けて出す。(5) internal/app の waitFor の上限を10秒から60秒に。負荷の下（16本並べ、-race の core のバイナリ、HiddenInvariants と FallbackInvariants を各 count=6、ほかの作業で load average 60〜80）: 直す前 6/96 回が落ちた（INV-01・02・03・04・status の食い違い）、直したあと 0/192 回（途中の版は 3/96）。settle の打ち切り 0。
+
 ## 経緯
 
 - 2026-11-23: 起票。
 - 2026-11-23: 16本×TestIntegration でもまれに出る。S2-58 の確かめで、ブランチで 1/48（FB-INV-06 seed 20006: 改名で owner auto→none）、main で 1/48（INV-04 seed 30001: 回復から30秒で hidden.json が空でない）。seed 20006 だけを16本×4回回すと、ブランチも main も 0/64。S2-58 の変更によるものではない
 - 2026-11-23 夜: ふだんの負荷の `go test -race ./...` でも1回、`TestIntegrationFallbackInvariants/fault/seed25002`（入場: 戻り先 Nest に悪い hide のカメラ [sub] が表示されたままなのに本体が戻した）が落ちた。8本×3回で回すと、main でも直しのブランチでも 0/24。過負荷だけの揺れではないので、優先を上げて調べる候補
 - 2026-11-28: 状態: 裁定待ち — 2026-11-28: ふつうの go test ./... で FallbackInvariants/normal/seed20011 が1回落ちた（世界 program=Dual、status scene=SubOnly、静かな時点）。調べ（sonnet、約400回、load avg 27 まで、2コアの閉じ込めも）では 20011 は0回で未再現。本体の Machine は最後の SceneChanged だけで今のシーンを決め、順が入れ替わらない限り間違う道は見つからない。試験の偽の OBS の SetSceneUUID が mu を放してから sendNow するので、走者の humanScene と重なると SceneChanged の順が入れ替わりうる（未検証の候補）。負荷の下では別に HiddenInvariants seed1008・FallbackInvariants late seed30001 の INV-04（約110回に1〜2回）、HiddenInvariants fault seed5034 の INV-01（2コアで6回に1回）、internal/app の TestRun の10秒の待ち（43回に1回）が出た。どれも実時間の待ち（settle の 80µs、fbSync の 100µs、second() の 1ms、HiddenRetry 5ms）に寄る。判断は (c)、(a) 寄り。直し方の案: 偽の OBS の順を sendMu の下で守る、sleep のポーリングをやめて中核ループのフックで待つ、INV-04 は hidden.json の書き込みの数えに追いつくまで待つ、食い違いのときに世界の program の履歴と渡した SceneChanged の列を出す診断
+- 2026-11-28: 是正内容 — 試験だけ直した。(1) 偽の OBS の SetSceneUUID・StartStream・StopStream と、人の切替・配信の切替（humanScene、fbHumanScene、fbDelete、streamToggle、recoverAll）で、世界を変えてからイベントを送る・積むまでを sendMu の下で続けて行う（ロックの順は sendMu→mu）ので、SceneChanged の順が世界の変わった順と入れ替わらない。人の操作が pending から取り出されて本体へ渡る途中も未着と数える（humanTransit）。(2) settle・fbSync・INV-04 の30秒の待ちの sleep をやめ、observe のフックで数えた「積んだバッチ・BatchDone」と要求の出入りと hidden.json の書き込みの終わりの知らせで待つ（waitHiddenWritten は persistRev と writtenRev を比べる）。(3) hidden.json の書き込みを本体の世代で区切り、落ちた世代の persister の worker が新しい世代の hidden.json を古い中身で上書きする試験の側の隙間を塞いだ（INV-01・INV-04 の残りの原因）。(4) 食い違いの診断（世界の program の履歴と渡した SceneChanged・OBSConnected の列、実時間つき）を失敗の出力の頭に、世界の記録の末尾を続けて出す。(5) internal/app の waitFor の上限を10秒から60秒に。負荷の下（16本並べ、-race の core のバイナリ、HiddenInvariants と FallbackInvariants を各 count=6、ほかの作業で load average 60〜80）: 直す前 6/96 回が落ちた（INV-01・02・03・04・status の食い違い）、直したあと 0/192 回（途中の版は 3/96）。settle の打ち切り 0。
 
 ## 2026-11-24 調査（integ-flake）
 
