@@ -1,6 +1,8 @@
-# S2-77 HTML 本文検査の設計案 v2
+# S2-77 HTML 本文検査の設計案 v3
 
-改訂: sol・Fable の全文レビューと指揮者の決めを反映。
+改訂 v3: Fable の閉鎖確認 N1〜N8 と指揮者の決めを反映。文字参照・差し込み・木の再検査・共通入力表を補強。
+
+改訂 v2: sol・Fable の全文レビューと指揮者の決めを反映。
 URL の字句・CSS の改行と差し込み・文字参照の規則を確定。
 入れ子を JSON に集約し、DOMParser 前の文字列検査を追加。
 共通入力表を拡充し、rendered の期待と S2-78 のブラウザ試験を分離。
@@ -15,7 +17,7 @@ URL の字句・CSS の改行と差し込み・文字参照の規則を確定。
 
 ```json
 {
-  "version": 2,
+  "version": 3,
   "elements": [
     "div",
     "span",
@@ -222,7 +224,8 @@ URL の字句・CSS の改行と差し込み・文字参照の規則を確定。
       "h6"
     ],
     "rejectHeadingDescendants": true,
-    "implicitTbody": true
+    "implicitTbody": true,
+    "maxDepth": 64
   }
 }
 ```
@@ -239,12 +242,12 @@ Go と JS とも、ブラウザの HTML 自動修復に依存しない同じ走�
 4. `<` の直後（終了なら `</` の直後）に ASCII 英字で始まる要素名を読む。名前は ASCII 英数字と `-`。それ以外の `<` も字句誤り。要素名・属性名に `{` があれば位置の誤り。要素と属性の間、属性どうしの間は HTML 空白（SP、TAB、LF、CR、FF）が必要。
 5. 属性名は ASCII 英字・数字・`_`・`-`・`.`・`:` の列。`=` の前後の空白は許す。値は `"…"` のみで、省略・無引用・単引用は拒否。直前の属性の引用符から次の属性名までにも空白が要る。小文字化後の同名属性は重複。閉じは `>` または `/>`。`/` は直後の `>` と一組のときだけ許し、属性区切りや `/ >` は拒否。終了要素には属性・自己終了を許さず空白と `>` のみ。
 6. 開始 `style` 要素が確定したら生テキストへ。ASCII 大小を無視した `</style` の直後が HTML 空白・`/`・`>` のときだけ生テキストを終了する。その後も終了要素の文法で読む（`</style/>` は終了要素の字句誤り）。`</stylesheet>` は CSS の文字のまま。`</STYLE >` は正しい閉じ。引用符・CSS コメント内であってもこの終了判定を行う。EOF なら開始位置で誤り。
-7. style と src の固定値は、セミコロン必須の数値参照（10進・16進）と `&amp;` `&lt;` `&gt;` `&quot;` `&apos;` `&nbsp;` だけを1回戻す。ほかの `&`＋英数字は template.html_lex。数値参照の桁あふれ、Unicode 範囲外、0x80〜0x9F、サロゲート、NUL は template.html_lex（`&` の位置）。戻した文字を HTML/テンプレートとして再字句化しない。style 生テキストでは戻さない。ほかの属性と本文では数値参照ゼロも template.html_nul とし、それ以外の文字参照は出力で原文を保持し、空白判定には HTML の文字参照として戻した文字を使う。
-8. 復号後の CSS/URL を検査する。復号文字から元入力への対応を保持し、参照から生じた違反は `&` の位置へ戻す。ただし CSS 文字列内の改行は開始引用符を指す。組み立ては固定文字の意味を保ち、差し込む値を必ず HTML エスケープする。値の NUL は除去する。本文・属性とも `& < > " '` を逃がす。
+7. style と src の固定値は、セミコロン必須の数値参照（10進・16進）と `&amp;` `&lt;` `&gt;` `&quot;` `&apos;` `&nbsp;` だけを1回戻す。これらの許可参照の先頭でない `&` は、裸の `&` やセミコロンのない数値参照も含めすべて template.html_lex（`&` の位置）。数値参照の桁あふれ、Unicode 範囲外、0x80〜0x9F、サロゲート、NUL は template.html_lex（`&` の位置）。戻した文字を HTML/テンプレートとして再字句化しない。style 生テキストでは戻さない。ほかの属性と本文では数値参照ゼロも template.html_nul とし、それ以外の文字参照は出力で原文を保持し、table・thead・tbody・tr の直下の空白判定では、TAB・LF・FF・CR・SP になるセミコロンつき数値参照だけを空白とする。それ以外の `&` は名前つき参照を含め非空白文字として template.html_nesting（`&` の位置）。
+8. 復号後の CSS/URL を検査する。復号文字から元入力への対応を保持し、参照から生じた違反は `&` の位置へ戻す。ただし CSS 文字列内の改行は開始引用符を指す。組み立ては固定文字の意味を保ち、差し込む値を必ず HTML エスケープする。値の NUL は除去する。本文・属性とも Go の `html.EscapeString` と同じく `& < > " '` をそれぞれ `&amp;` `&lt;` `&gt;` `&#34;` `&#39;` に逃がす。
 
 位置は元入力の Unicode コードポイント、行・文字目とも1始まり。LF で行を進め文字目を1へ戻し、CR は通常の1文字（CRLF は LF で改行）。Go の byte offset と JS の UTF-16 offset をそのまま返さない。EOF は末尾の次。制御タグだけの行の除去や復号で元位置を失わない。
 
-誤りは左から走査して最初に確定したもの1件。開始・終了要素の字句が確定してから入れ子を見る（H112）。禁止要素/属性は名前が確定した時点で報告。位置は要素なら `<`、属性なら属性名先頭、属性値の引用符誤りなら値先頭、CSS の違反なら関数名・at-rule の `@`・逆斜線、URL なら値の先頭。閉じ不足は開始 `<`、枝の不整合は境界の `{`。枝内で入口以前の要素を閉じる終了要素はその `<` で template.html_branch。属性をまたぐ if は開始の `{` で template.html_branch。属性内で完結する制御タグの構文誤りは既存 template.syntax。閉じない開始要素と文字の `<` は template.html_lex。
+誤りは左から走査して最初に確定したもの1件。style/src の固定値では文字参照を先にすべて戻し、その段階の誤りは元位置で左から最初を返す。復号がすべて成功した後に CSS/URL を検査し、元の文字の位置で左から最初の誤りを返す（H289 は URL より後ろの &foo; の html_lex が先）。開始・終了要素の字句が確定してから入れ子を見る（H112）。禁止要素/属性は名前が確定した時点で報告。位置は要素なら `<`、属性なら属性名先頭、属性値の引用符誤りなら値先頭、CSS の違反なら関数名・at-rule の `@`・逆斜線、URL なら値の先頭（引用符つき CSS URL は開始引用符）。閉じ不足は開始 `<`、枝の不整合は境界の `{`。枝内で入口以前の要素を閉じる終了要素はその `<` で template.html_branch。属性をまたぐ if は開始の `{` で template.html_branch。属性内で完結する制御タグの構文誤りは既存 template.syntax。閉じない開始要素と文字の `<` は template.html_lex。
 
 | code（新設） | 日本語の理由案 | English reason | 位置 |
 |---|---|---|---|
@@ -272,20 +275,20 @@ Go と JS とも、ブラウザの HTML 自動修復に依存しない同じ走�
 
 | 項目 | 規則 |
 |---|---|
-| 要素 | スタックで一致する閉じを要求。br/hr/img は積まず、`/>` も許す。ほかの自己終了、void の終了要素、省略閉じは拒否 |
+| 要素 | スタックで一致する閉じを要求。要素の深さはルート直下を1として64まで（void も1段と数える）。65段目の開始 `<` で template.html_nesting。br/hr/img は積まず、`/>` も許す。ほかの自己終了、void の終了要素、省略閉じは拒否 |
 | if | 入口の要素スタックを枝ごとに複製。elif/else/end で入口と同一でなければ html_branch。入口以前に開いた要素も枝で閉じられない。else がない空枝も検査。全枝を検査し実行時の真偽で省かない |
 | 属性の if | 許可された1つの引用符値の内部で完結。属性や要素をまたぐ制御を拒否。枝ごとに HTML 状態も入口と一致させる |
 | 差し込み | 本文と JSON の許可属性のみ。id/width/height/lang/dir/src、名前、無引用値には禁止 |
-| style 属性 | Number の差し込みのみ。Seconds/Clock/String/Bool と if/elif/else/end を拒否。形は既存 Number の0〜6。未定義は空。url 内・CSS 文字列内・識別子文字 `[A-Za-z0-9_-]` と @ と # に隣り合う位置では html_template_position。{{・}} も html_template_position。保存時は空と数値の2通りで CSS 検査を通し、描画後も再検査。単位の接尾辞（px 等）は数値トークンの単位として許す（H226 と棒の行） |
-| style とコメント | 中の `{}` は CSS/コメントの文字。既知の値らしい記述は style の注意にするだけで参照に数えない |
+| style 属性 | Number の差し込みのみ。Seconds/Clock/String/Bool と if/elif/else/end を拒否。形は既存 Number の0〜6。未定義は空。url 内・CSS 文字列内・CSS コメント内は html_template_position。`{` の直前の識別子文字 `[A-Za-z0-9_-]`（`-` を含む）と @ と # はすべて拒否。`}` の直後は ASCII 英字だけの並びか `%` で、その次が識別子文字でも `(` でもないときだけ単位として許す。それ以外の識別子文字との隣接は拒否。違反位置は `{`。{{・}} も html_template_position。続いた差し込みは1つと見て、取り除くと前後が `/` と `*` または `*` と `/` になる位置も html_template_position。片側だけの `/`（`calc(100%/{cam1.kbps})`）は許す。保存時は空と数値の2通りで CSS 検査を通し、描画後も再検査。負の値は `calc(-1 * {x}px)` と書く |
+| style 要素と HTML コメント | 中の `{}` は CSS/コメントの文字。既知の値らしい記述は style の注意にするだけで参照に数えない |
 
-入れ子の唯一の表は第1節 JSON の nesting。parents と children は両方を適用する。p の禁止は全子孫、li は ul/ol に達する前の li 先祖、見出しは全子孫の見出しを拒否する。restrictedTextParents の直下は許可された子要素・空白・コメント・制御タグのみ。非空白文字と差し込みは枝の中でも html_nesting（文字/参照の先頭または `{`）。table 直下の style も拒否。直接 tr の tbody 補完だけは許し、走査器の比較用の木にも反映する。これ以上の木の一致の保証は S2-78 の試験で確認する。
+入れ子の唯一の表は第1節 JSON の nesting。parents と children は両方を適用する。p の禁止は全子孫、li は ul/ol に達する前の li 先祖、見出しは全子孫の見出しを拒否する。要素の入れ子の深さは最上位を1として64までとし、65個目の開始 `<` で template.html_nesting。void も要素として深さを数える。restrictedTextParents の直下は許可された子要素・HTML 空白・コメント・制御タグのみ。文字参照の空白は第2節7の限定規則を使う。空白は直書きの TAB・LF・FF・CR・SP と、それらになるセミコロンつき数値参照のみ。ほかの `&`（名前つき参照も含む）は非空白文字。非空白文字と差し込みは枝の中でも html_nesting（文字/参照の先頭または `{`）。table 直下の style も拒否。直接 tr の tbody 補完だけは許し、走査器の比較用の木にも反映する。補完 tbody は最初の直下の tr で始まり、次の thead・tbody の開始か table の終わりまでとし、間の空白とコメントを含む。これ以上の木の一致の保証は S2-78 の試験で確認する。
 
 ## 4. CSS と URL
 
 1. style 属性は復号後、style 要素は生テキストで検査。CSS 入力は CRLF を1つの LF、単独 CR と FF を LF に前処理し、元位置の対応を保つ。文字列内の LF・CR・FF（文字参照由来も含む）は開始引用符で template.css_syntax。全域の逆斜線はコメント・文字列内も css_escape。閉じない文字列・コメント・url は css_syntax。
 2. コメントはトークン間の区切りで、前後の識別子を連結しない。関数名は直前が ASCII 識別子文字 `[A-Za-z0-9_-]` でない位置から始まる最長の識別子。ASCII 以外は区切り。直後が `(` のとき関数とし、大文字小文字を無視し、JSON の vendor 接頭辞を外して禁止関数と比較する。@import は拒否。通常の文字列・コメント内は関数/at-rule としない。src: 記述子と src( 関数は区別する。
-3. `url(` の直後は空白だけ読み飛ばす。次が引用符なら「文字列 → 空白かコメント → `)`」。文字列前のコメントは拒否。引用符でなければ `)` までを生 URL とし、前後の空白だけ除く。内部の空白・引用符・`(`・`/*` は値の文字としてそのまま全体一致の URL 検査にかけ、失敗は template.html_url。空の値も html_url。閉じの `)` 自体がなければ css_syntax。url (...) は関数ではない。
+3. `url(` の直後は空白だけ読み飛ばす。次が引用符なら「文字列 → 空白かコメント → `)`」。文字列前のコメントは拒否。引用符つき URL の文字列の後に空白・コメント・`)` 以外があれば template.css_syntax（開始引用符）。引用符つき URL の URL 違反も開始引用符を指す。引用符でなければ `)` までを生 URL とし、前後の空白だけ除く。内部の空白・引用符・`(`・`/*` は値の文字としてそのまま全体一致の URL 検査にかけ、失敗は template.html_url。空の値も html_url。閉じの `)` 自体がなければ css_syntax。url (...) は関数ではない。
 4. URL は構文を除いた値で照合し、src は trim しない。URL 解決・percent decode・パス正規化はしない。素材は JSON の asset と CheckPath の予約名・末尾ドット規則を適用し、さらに //・..・?・#・% を拒否。拡張子のみ大小無視。存在確認は合否から分ける。
 5. img.src は素材または data:image/ のみ。CSS url は素材、data:image/、data:font/、fragment。data URL の条件は「data:image/ または data:font/（ASCII 大小無視）で始まり、`,` を含む」。空データも許す。データ部には //・.. の拒否を適用せず、クエリ/fragment を外部 URL と解釈しない。fragment は JSON の fragmentPattern に全体一致。img.src の fragment と data:font/ は不可。別 MIME・相対/外部 URL・javascript: は拒否。
 6. CSS の全文パーサーや関数の許可一覧は作らない。calc/rgb/var/local/format 等は許す。URL を持つ関数は既知の一覧の更新で追う。未知の関数を網羅して拒否する保証はせず、最後の守りは CSP と管理ページのプレビューの iframe の CSP。
@@ -298,7 +301,7 @@ CSP（第6章）は `default-src 'none'; script-src 'self'; style-src 'self' 'un
 
 管理ページと source.js は、まず組み立てた文字列のまま、保存検査と同じ字句・URL・CSS の検査を JS の rendered モードで行う。差は本体が付ける素材末尾の `?v=<12文字の小文字の16進>` を1つだけ許すこと。任意クエリ・重複 v・fragment は拒否し、保存モードで利用者の v を断る。テンプレートは再解釈しない。
 
-通った文字列だけを `DOMParser.parseFromString('<!doctype html><html><head></head><body>' + html, 'text/html')` に渡す。その後、木を検査する。要素は localName と namespaceURI（`http://www.w3.org/1999/xhtml`）で照合、属性は名前空間なしだけ。head は空、body は属性なしを要求し、body.childNodes 以下に許可表を適用する。先頭/途中の style は body 内。補完 tbody は許す。属性値は復号済みで二重復号せず、style.textContent は生テキスト。元の引用符や重複属性の保証は前段の文字列検査が担う。rendered の誤りは code だけ比較し、元の行・文字目を要求しない。
+通った文字列だけを `DOMParser.parseFromString('<!doctype html><html><head></head><body>' + html, 'text/html')` に渡す。その後、木を検査する。要素は localName と namespaceURI（`http://www.w3.org/1999/xhtml`）で照合、属性は名前空間なしだけ。head は空、body は属性なしを要求し、body.childNodes 以下に許可表を適用する。先頭/途中の style は body 内。補完 tbody は許す。属性値は復号済みで二重復号せず、style.textContent は生テキスト。DOM の style 属性の値・style 要素の textContent・img の src に URL と CSS の検査をもう一度かける。元の引用符や重複属性の保証は前段の文字列検査が担う。rendered の誤りは code だけ比較し、元の行・文字目を要求しない。
 
 木をすべて検査してから iframe 文書へ importNode する。管理ページ自身には innerHTML で入れない。iframe は sandbox="allow-same-origin"、外枠は認証つき /api/sources/frame、OBS と同じ CSP。source.js も同じ関数で全木の検査成功後に id/位置/要素名の差分を適用する。不合格なら受信した節を写さず誤りを表示/記録し、危険な節を部分挿入しない。初回外枠は空。
 
@@ -308,13 +311,13 @@ CSP（第6章）は `default-src 'none'; script-src 'self'; style-src 'self' 'un
 
 ## 7. Go/Node 共通入力表
 
-`internal/sources/html_cases.json` 案。defs は共通、mode は save / rendered。save の error は code/line/column、rendered は code のみ。refs の省略は空集合。任意欄 values は差し込む値、html は期待する出力、warnings は注意（省略は比較しない、空配列は注意なし）。values の行は検査後に組み立てて html と比較する。
+`internal/sources/html_cases.json` 案。defs は共通、mode は save / rendered。入力の重複は mode・input・values の組で判定する（save/rendered の対と値違いは別試験）。save の error は code/line/column、rendered は code のみ。refs の省略は空集合。任意欄 values は差し込む値、html は期待する出力、warnings は注意の code の文字列の配列（省略は比較しない、空配列は注意なし）。code は `template.style_literal`（style 要素内の既知の値らしい `{…}`）、`template.asset_missing`（ない素材）とする。ない素材の試験は refs のパスが索引にない fixture を使う。html のある行は検査後に組み立てて html と比較する。
 
-試験は3層: (1) Go と Node が字句・URL・CSS の関数を直接呼ぶ（rendered モードも含む）。(2) Node は小さな偽の節で木の検査を呼び、名前空間、head/body、属性等を確認。(3) 本物の DOMParser は S2-78 の chromium-devtools で試す。Node 標準に DOMParser はない。ok の行を DOMParser に通し、tbody 補完を反映した走査器の木と同じことを確認する。値エスケープ行は追加 img が0件、title/本文が元値と一致、外向き要求0件を確認。外部 URL の rendered 行は DOMParser 呼出0件・挿入0件・外向き要求0件、更新失敗時は前回表示を保持することも確認する。
+試験は3層: (1) Go と Node が字句・URL・CSS の関数を直接呼ぶ（rendered モードも含む）。(2) は共通入力表に置かず JS の試験に手で書く。Node は小さな偽の節で木の検査を呼び、名前空間、head/body、属性、DOM 値の URL/CSS 再検査等を確認。(3) 本物の DOMParser は S2-78 の chromium-devtools で試す。Node 標準に DOMParser はない。ok の行を DOMParser に通し、tbody 補完を反映した走査器の木と同じことを確認する。比較は文字列でなく木で行う（innerHTML は `--!>` や本文の `"` の出し方が異なる）。本文の CR と CRLF は DOM では LF になる。値エスケープ行は追加 img が0件、title/本文が元値と一致、外向き要求0件を確認。外部 URL の rendered 行は DOMParser 呼出0件・挿入0件・外向き要求0件、更新失敗時は前回表示を保持することも確認する。
 
 ```json
 {
-  "version": 2,
+  "version": 3,
   "defs": {"cam1.kbps": {"type": "number", "format": "0"}, "cam1.name": {"type": "string"}, "cam1.state": {"type": "string"}, "cam1.online": {"type": "bool"}, "stream.elapsed": {"type": "seconds"}, "obs.streaming": {"type": "bool"}, "now": {"type": "clock"}},
   "cases": [
     {"id": "H001", "mode": "save", "input": "<div></div>", "expect": "ok", "reason": "許可要素 div"},
@@ -341,7 +344,7 @@ CSP（第6章）は `default-src 'none'; script-src 'self'; style-src 'self' 'un
     {"id": "H022", "mode": "save", "input": "<table><tbody><tr><td>x</td></tr></tbody></table>", "expect": "ok", "reason": "許可要素 tbody"},
     {"id": "H023", "mode": "save", "input": "<table><tr><td>x</td></tr></table>", "expect": "ok", "reason": "許可要素 tr"},
     {"id": "H024", "mode": "save", "input": "<table><tr><th>x</th></tr></table>", "expect": "ok", "reason": "許可要素 th"},
-    {"id": "H025", "mode": "save", "input": "<table><tbody><tr><td>x</td></tr></tbody></table>", "expect": "ok", "reason": "許可要素 td"},
+    {"id": "H025", "mode": "save", "input": "<table><thead><tr><td>x</td></tr></thead><tbody><tr><td>y</td></tr></tbody></table>", "expect": "ok", "reason": "許可要素 td"},
     {"id": "H026", "mode": "save", "input": "<h1></h1>", "expect": "ok", "reason": "許可要素 h1"},
     {"id": "H027", "mode": "save", "input": "<h2></h2>", "expect": "ok", "reason": "許可要素 h2"},
     {"id": "H028", "mode": "save", "input": "<h3></h3>", "expect": "ok", "reason": "許可要素 h3"},
@@ -564,7 +567,7 @@ CSP（第6章）は `default-src 'none'; script-src 'self'; style-src 'self' 'un
     {"id": "H245", "mode": "rendered", "input": "<style>.x{content:\"\r\n;background:url(https://evil.example/x);x:\"}</style>", "expect": "error", "reason": "CSS 文字列の CRLF", "error": {"code": "template.css_syntax"}},
     {"id": "H246", "mode": "save", "input": "<style>.x{content:\"\f;background:url(https://evil.example/x);x:\"}</style>", "expect": "error", "reason": "CSS 文字列の FF", "error": {"code": "template.css_syntax", "line": 1, "column": 19}},
     {"id": "H247", "mode": "rendered", "input": "<style>.x{content:\"\f;background:url(https://evil.example/x);x:\"}</style>", "expect": "error", "reason": "CSS 文字列の FF", "error": {"code": "template.css_syntax"}},
-    {"id": "H248", "mode": "save", "input": "<span style=\"content:'a&#10;;background:url(/api/status)\"></span>", "expect": "error", "reason": "文字参照からの CSS 改行", "error": {"code": "template.css_syntax", "line": 1, "column": 22}},
+    {"id": "H248", "mode": "save", "input": "<span style=\"content:'a&#xA;;background:url(/api/status)\"></span>", "expect": "error", "reason": "文字参照からの CSS 改行", "error": {"code": "template.css_syntax", "line": 1, "column": 22}},
     {"id": "H249", "mode": "save", "input": "<span style=\"content:'a&#13;;background:url(/api/status)\"></span>", "expect": "error", "reason": "文字参照からの CSS 改行", "error": {"code": "template.css_syntax", "line": 1, "column": 22}},
     {"id": "H250", "mode": "save", "input": "<span style=\"content:'a&#12;;background:url(/api/status)\"></span>", "expect": "error", "reason": "文字参照からの CSS 改行", "error": {"code": "template.css_syntax", "line": 1, "column": 22}},
     {"id": "H251", "mode": "save", "input": "<div><tbody><tr><td>x</td></tr></tbody></div>", "expect": "error", "reason": "table 系の親", "error": {"code": "template.html_nesting", "line": 1, "column": 6}},
@@ -588,9 +591,32 @@ CSP（第6章）は `default-src 'none'; script-src 'self'; style-src 'self' 'un
     {"id": "H269", "mode": "save", "input": "<img src=\"&#128;\">", "expect": "error", "reason": "src の不許可数値参照", "error": {"code": "template.html_lex", "line": 1, "column": 11}},
     {"id": "H270", "mode": "save", "input": "<img src=\"&#xD800;\">", "expect": "error", "reason": "src の不許可数値参照", "error": {"code": "template.html_lex", "line": 1, "column": 11}},
     {"id": "H271", "mode": "save", "input": "<img src=\"&#999999999999999999999;\">", "expect": "error", "reason": "src の不許可数値参照", "error": {"code": "template.html_lex", "line": 1, "column": 11}},
-    {"id": "H272", "mode": "save", "input": "<span title=\"{cam1.name}\">{cam1.name}</span>", "expect": "ok", "reason": "属性と本文の値をエスケープ", "values": {"cam1.name": "\"><img src=\"https://evil.example/x\" onerror=\"alert(1)\">"}, "html": "<span title=\"&quot;&gt;&lt;img src=&quot;https://evil.example/x&quot; onerror=&quot;alert(1)&quot;&gt;\">&quot;&gt;&lt;img src=&quot;https://evil.example/x&quot; onerror=&quot;alert(1)&quot;&gt;</span>", "warnings": []},
+    {"id": "H272", "mode": "save", "input": "<span title=\"{cam1.name}\">{cam1.name}</span>", "expect": "ok", "reason": "属性と本文の値をエスケープ", "values": {"cam1.name": "\"><img src=\"https://evil.example/x\" onerror=\"alert(1)\">"}, "html": "<span title=\"&#34;&gt;&lt;img src=&#34;https://evil.example/x&#34; onerror=&#34;alert(1)&#34;&gt;\">&#34;&gt;&lt;img src=&#34;https://evil.example/x&#34; onerror=&#34;alert(1)&#34;&gt;</span>", "warnings": []},
     {"id": "H273", "mode": "save", "input": "<span title=\"{cam1.name}\">{cam1.name}</span>", "expect": "ok", "reason": "値の NUL を除去", "values": {"cam1.name": "a\u0000b"}, "html": "<span title=\"ab\">ab</span>", "warnings": []},
-    {"id": "H274", "mode": "rendered", "input": "<img src=\"https://evil.example/probe\">", "expect": "error", "reason": "DOMParser 前に外部 URL を拒否", "error": {"code": "template.html_url"}}
+    {"id": "H274", "mode": "rendered", "input": "<img src=\"https://evil.example/probe\">", "expect": "error", "reason": "DOMParser 前に外部 URL を拒否", "error": {"code": "template.html_url"}},
+    {"id": "H275", "mode": "save", "input": "<span style=\"background:&#117rl(//evil)\"></span>", "expect": "error", "reason": "セミコロンのない数値参照", "error": {"code": "template.html_lex", "line": 1, "column": 25}},
+    {"id": "H276", "mode": "rendered", "input": "<span style=\"background:&#117rl(//evil)\"></span>", "expect": "error", "reason": "セミコロンのない数値参照", "error": {"code": "template.html_lex"}},
+    {"id": "H277", "mode": "save", "input": "<span style=\"background:url&#x28//evil)\"></span>", "expect": "error", "reason": "セミコロンのない16進参照", "error": {"code": "template.html_lex", "line": 1, "column": 28}},
+    {"id": "H278", "mode": "save", "input": "<span style=\"a:b&c\"></span>", "expect": "error", "reason": "裸の &", "error": {"code": "template.html_lex", "line": 1, "column": 17}},
+    {"id": "H279", "mode": "save", "input": "<span style=\"/* *{cam1.kbps}/ x:/{cam1.kbps}* ;background:url(//evil.example/a); /* */\"></span>", "expect": "error", "reason": "同じ変数2回、CSS コメント内", "error": {"code": "template.html_template_position", "line": 1, "column": 18}},
+    {"id": "H280", "mode": "save", "input": "<span style=\"width:calc(100%/{cam1.kbps})\"></span>", "expect": "ok", "reason": "片側の / は許可"},
+    {"id": "H281", "mode": "save", "input": "<span style=\"background:{cam1.kbps}url(//evil)\"></span>", "expect": "error", "reason": "関数名は単位でない", "error": {"code": "template.html_template_position", "line": 1, "column": 25}},
+    {"id": "H282", "mode": "save", "input": "<span style=\"width:{cam1.kbps}%\"></span>", "expect": "ok", "reason": "% 単位"},
+    {"id": "H283", "mode": "save", "input": "<span style=\"margin:-{cam1.kbps}px\"></span>", "expect": "error", "reason": "直前の - は識別子文字", "error": {"code": "template.html_template_position", "line": 1, "column": 22}},
+    {"id": "H284", "mode": "save", "input": "<span style=\"width:{cam1.kbps}e3\"></span>", "expect": "error", "reason": "英数字は単位でない", "error": {"code": "template.html_template_position", "line": 1, "column": 20}},
+    {"id": "H285", "mode": "save", "input": "<table>&Tab;</table>", "expect": "error", "reason": "名前つき参照は table の空白でない", "error": {"code": "template.html_nesting", "line": 1, "column": 8}},
+    {"id": "H286", "mode": "save", "input": "<table>&nbsp;</table>", "expect": "error", "reason": "名前つき参照は table の空白でない", "error": {"code": "template.html_nesting", "line": 1, "column": 8}},
+    {"id": "H287", "mode": "save", "input": "<span title=\"{cam1.state}\">{cam1.state}</span>", "expect": "ok", "reason": "値の ' と & をエスケープ", "values": {"cam1.state": "'&"}, "html": "<span title=\"&#39;&amp;\">&#39;&amp;</span>", "warnings": []},
+    {"id": "H288", "mode": "save", "input": "<style>.x{background:url(\"//evil\")}</style>", "expect": "error", "reason": "引用符つき URL は開始引用符", "error": {"code": "template.html_url", "line": 1, "column": 26}},
+    {"id": "H289", "mode": "save", "input": "<span style=\"background:url(//evil);x:&foo;\"></span>", "expect": "error", "reason": "文字参照をすべて先に戻す", "error": {"code": "template.html_lex", "line": 1, "column": 39}},
+    {"id": "H290", "mode": "save", "input": "<style>.x{background:url(\"#x\" x)}</style>", "expect": "error", "reason": "引用符の後の余分な文字", "error": {"code": "template.css_syntax", "line": 1, "column": 26}},
+    {"id": "H291", "mode": "save", "input": "<style>.x{width:{cam1.kbps}}</style>", "expect": "ok", "reason": "style 要素の既知の値は注意", "warnings": ["template.style_literal"]},
+    {"id": "H292", "mode": "save", "input": "<img src=\"/source/files/missing.png\">", "expect": "ok", "reason": "索引にない素材も保存可", "refs": ["/source/files/missing.png"], "warnings": ["template.asset_missing"]},
+    {"id": "H293", "mode": "save", "input": "<div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div>", "expect": "error", "reason": "深さ65は拒否", "error": {"code": "template.html_nesting", "line": 1, "column": 321}},
+    {"id": "H294", "mode": "save", "input": "<div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div>", "expect": "ok", "reason": "深さ64は許可"},
+    {"id": "H295", "mode": "save", "input": "<span style=\"x:/{cam1.kbps}*\"></span>", "expect": "error", "reason": "除去でコメント開始", "error": {"code": "template.html_template_position", "line": 1, "column": 17}},
+    {"id": "H296", "mode": "save", "input": "<span style=\"x:*{cam1.kbps}/\"></span>", "expect": "error", "reason": "除去でコメント終了", "error": {"code": "template.html_template_position", "line": 1, "column": 17}},
+    {"id": "H297", "mode": "save", "input": "<span style=\"x:/{cam1.kbps}{cam1.kbps}*\"></span>", "expect": "error", "reason": "連続差し込みを一つと見る", "error": {"code": "template.html_template_position", "line": 1, "column": 17}}
   ]
 }
 
@@ -603,11 +629,11 @@ CSP（第6章）は `default-src 'none'; script-src 'self'; style-src 'self' 'un
 - （spec と食い違い: CheckPath は `a..png` を名前の正規表現上許すが、第9章の URL 規則は `..` を含むものを拒否する。本文の URL では追加拒否し、索引の名前を勝手に変更しない。）
 - CheckPath の末尾ドット拒否・Windows 予約名・拡張子の大小無視を URL にも適用する。存在・内容・リンクの検査は素材索引の責務として保存検査から分ける。
 - この設計で選んだ細部: data/aria の接尾辞の正規表現、字句誤りの優先順位と位置、CSS の区切り、DOM 不合格時の不挿入。spec の明文ではないのでレビュー対象。
-- v2 で sol・Fable のレビューと指揮者の決めを反映した。JSON の独立ファイル化と実装は別作業。この変更では spec・task 表・コードを変更しない。
+- v3 で閉鎖確認 N1〜N8、v2 で sol・Fable のレビューと指揮者の決めを反映した。JSON の独立ファイル化と実装は別作業。この変更では spec・task 表・コードを変更しない。
 
 ## 9. S2-78 への申し送り
 
-- chromium-devtools で全 ok 行の DOMParser の木と走査器の木の一致を調べる（tbody 補完は比較前に反映）。明示した制約より広いブラウザの木構築の保証はここで確認する。
+- chromium-devtools で全 ok 行の DOMParser の木と走査器の木の一致を調べる（tbody 補完は比較前に反映）。文字列でなく木（要素・属性・テキスト・コメントの構造と値）で比較する。innerHTML はコメント外の `--!>` や本文の `"` の出し方が異なるため比較に使わない。本文の CR と CRLF は DOM では LF になるので比較用の木にも反映する。明示した制約より広いブラウザの木構築の保証はここで確認する。
 - 同じ id の重なりを含む本文で更新対象を取り違えないことを確認する。
 - 出力に残るコメントの扱いを試験で固定する。保存時はコメント内を検査/展開せず、出力は原文保持とする。
 - source.js が本文の id/class によって外枠を取り違えないよう、所有する外枠への参照を使う試験を設ける。
