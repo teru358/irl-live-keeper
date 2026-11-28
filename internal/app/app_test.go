@@ -86,7 +86,13 @@ func TestApply設定読込失敗の遷移(t *testing.T) {
 func TestApp準備でInitJobを一度だけ呼ぶ(t *testing.T) {
 	calls := 0
 	wantErr := errors.New("初期化失敗")
-	a := newApp(Options{BaseDir: t.TempDir(), Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}}, appDeps{
+	// 不正な config.yaml を置く。空のフォルダだと既定の設定が作られて起動し、既定のポート
+	// （RTMP 1935 など）がたまたま使われているときだけ失敗する（環境に頼る試験になる）。
+	base := t.TempDir()
+	if err := os.WriteFile(filepath.Join(base, "config.yaml"), []byte("admin: [\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a := newApp(Options{BaseDir: base, Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}}, appDeps{
 		initJob: func() error {
 			calls++
 			return wantErr
