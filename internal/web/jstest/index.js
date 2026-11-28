@@ -14,3 +14,4 @@ import './reconcile.test.mjs';
 import './review.test.mjs';
 
 import './body-editor.test.mjs';
+import './s2-86.test.mjs';

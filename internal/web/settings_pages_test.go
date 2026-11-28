@@ -34,7 +34,7 @@ func TestSettingsPageRequests(t *testing.T) {
 	}
 }
 
-func TestPageSavesIndependentAndRevertConflict(t *testing.T) {
+func TestPageSavesIndependent(t *testing.T) {
 	b := settingsFixture(t)
 	cfg, _ := config.Parse(b.store.Raw)
 	cameraHash := settings.PageHash(cfg, "cameras")
@@ -58,18 +58,5 @@ func TestPageSavesIndependentAndRevertConflict(t *testing.T) {
 	}
 	if code := call("PUT", "/api/settings", "cameras", cameraHash, `{"switch":{"fail_kbps":998}}`); code != 409 {
 		t.Fatalf("same page: %d", code)
-	}
-	b.store.BackupRaw = configBytes(t, cfg)
-	w := settingsCall(b, "POST", "/api/settings/preview", `{"revert":true}`, "127.0.0.1:4", true)
-	var preview struct {
-		FileHash string `json:"file_hash"`
-	}
-	_ = json.Unmarshal(w.Body.Bytes(), &preview)
-	if w.Code != 200 || preview.FileHash != settings.Hash(b.store.Raw) {
-		t.Fatalf("revert preview: %d %s", w.Code, w.Body.String())
-	}
-	w = settingsCall(b, "POST", "/api/settings/revert", `{"file_hash":"stale"}`, "127.0.0.1:4", true)
-	if w.Code != 409 {
-		t.Fatalf("revert conflict: %d", w.Code)
 	}
 }

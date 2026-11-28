@@ -26,7 +26,6 @@ type SettingsStore struct {
 	Owned      []settings.ListeningPort
 	CheckPorts func(*config.Config, *config.Config, []settings.ListeningPort) []settings.PortFailure
 	Backup     func() error // S2-29: preserve the running generation before writing.
-	BackupRaw  []byte
 	Write      func([]byte) error
 	MarkHash   func([]byte)
 	StartApply func()
@@ -38,10 +37,8 @@ type SettingsBackend interface {
 
 type settingsRequest struct {
 	Page           string         `json:"page"`
-	FileHash       string         `json:"file_hash"`
 	Values         map[string]any `json:"values"`
 	Hash           string         `json:"hash"`
-	Revert         bool           `json:"revert"`
 	UpdateOBSInput bool           `json:"update_obs_input"`
 	Camera         string         `json:"camera"`
 	Target         string         `json:"target"`
@@ -72,13 +69,12 @@ func serveSettings(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.
 			raw, _ := yaml.Marshal(cfg)
 			values := map[string]any{}
 			_ = yaml.Unmarshal(raw, &values)
-			writeJSON(w, 200, map[string]any{"values": values, "hash": settings.Hash(s.Raw), "local": local, "apply_modes": settings.ConfigFieldModes(), "field_locations": settings.ConfigFieldLocations(), "file_hash": settings.Hash(s.Raw), "page_hashes": map[string]string{"cameras": settings.PageHash(cfg, "cameras"), "settings": settings.PageHash(cfg, "settings")}})
+			writeJSON(w, 200, map[string]any{"values": values, "hash": settings.Hash(s.Raw), "local": local, "apply_modes": settings.ConfigFieldModes(), "field_locations": settings.ConfigFieldLocations(), "page_hashes": map[string]string{"cameras": settings.PageHash(cfg, "cameras"), "settings": settings.PageHash(cfg, "settings")}})
 			return
 		}
 		save := r.Method == http.MethodPut
-		revert := r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/revert")
 		regenerate := r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/regenerate")
-		if (save || revert || regenerate) && s.Applying {
+		if (save || regenerate) && s.Applying {
 			fail(409, "settings.applying")
 			return
 		}
@@ -89,7 +85,7 @@ func serveSettings(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.
 			fail(400, "settings.invalid")
 			return
 		}
-		if !regenerate && !req.Revert && !revert {
+		if !regenerate {
 			if (req.Page != "cameras" && req.Page != "settings") || (req.Values != nil && !settings.PageOwnsValues(req.Page, req.Values)) {
 				fail(400, "settings.invalid")
 				return
@@ -103,52 +99,6 @@ func serveSettings(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.
 				fail(409, "settings.hash_conflict")
 				return
 			}
-		}
-		if revert && req.FileHash != settings.Hash(s.Raw) {
-			fail(409, "settings.hash_conflict")
-			return
-		}
-
-		if req.Revert || revert {
-			if len(s.BackupRaw) == 0 {
-				fail(409, "settings.backup_missing")
-				return
-			}
-			if _, err := config.Parse(s.BackupRaw); err != nil {
-				fail(500, "api.internal")
-				return
-			}
-			if req.Revert { // preview compares the backup against the current file
-				old, err := config.Parse(s.Raw)
-				if err != nil {
-					fail(500, "api.internal")
-					return
-				}
-				next, err := config.Parse(s.BackupRaw)
-				if err != nil {
-					fail(500, "api.internal")
-					return
-				}
-				_ = next.PreserveCredentials(old, true, false)
-				summary := settings.ClassifyChanges(old, next, local)
-				if len(summary.Fields) == 0 {
-					fail(409, "settings.no_revert_difference")
-					return
-				}
-				writeJSON(w, 200, struct {
-					settings.ChangeSummary
-					FileHash string `json:"file_hash"`
-				}{summary, settings.Hash(s.Raw)})
-				return
-			}
-			backup, err := config.Parse(s.BackupRaw)
-			if err != nil {
-				fail(500, "api.internal")
-				return
-			}
-			raw, _ := yaml.Marshal(backup)
-			req.Values = map[string]any{}
-			_ = yaml.Unmarshal(raw, &req.Values)
 		}
 		old, err := config.Parse(s.Raw)
 		if err != nil {
@@ -198,14 +148,14 @@ func serveSettings(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.
 			decodeErr = decode.Decode(&next)
 		}
 		if !regenerate {
-			if err = next.PreserveCredentials(old, revert, save || revert); err != nil {
+			if err = next.PreserveCredentials(old, false, save); err != nil {
 				fail(500, "api.internal")
 				return
 			}
 		}
 		next.SortCameras()
 		summary := settings.ClassifyChanges(old, &next, local)
-		if (save || revert) && !local {
+		if save && !local {
 			for _, f := range summary.Fields {
 				if f.LocalOnly {
 					fail(403, "settings.local_only")
@@ -216,7 +166,7 @@ func serveSettings(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.
 		fields := map[string]string{}
 		validation := next
 		validation.Cameras = append([]config.Camera(nil), next.Cameras...)
-		if !save && !revert && !regenerate {
+		if !save && !regenerate {
 			for i := range validation.Cameras {
 				if validation.Cameras[i].PublishPass == "" {
 					validation.Cameras[i].PublishPass = "previewOnly"
@@ -237,15 +187,11 @@ func serveSettings(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.
 			writeJSON(w, 422, map[string]any{"error": i18n.Render(lang, settingsMessage("settings.invalid")), "fields": fields})
 			return
 		}
-		if !save && !revert && !regenerate {
+		if !save && !regenerate {
 			writeJSON(w, 200, summary)
 			return
 		}
 		if len(summary.Fields) == 0 {
-			if revert {
-				fail(409, "settings.no_revert_difference")
-				return
-			}
 			writeJSON(w, 202, map[string]any{"ok": true, "apply": "none"})
 			return
 		}
@@ -262,16 +208,7 @@ func serveSettings(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.
 			return
 		}
 		changes := settingsChanges(&next, summary)
-		rewriteBase := s.Raw
-		if revert {
-			rewriteBase = s.BackupRaw
-			changes = append(changes,
-				settings.Change{Path: "admin.password", Value: next.Admin.Password},
-				settings.Change{Path: "stream.read_user", Value: next.Stream.ReadUser},
-				settings.Change{Path: "stream.read_pass", Value: next.Stream.ReadPass},
-				settings.Change{Path: "cameras", Value: next.Cameras})
-		}
-		out, err := settings.Rewrite(rewriteBase, changes)
+		out, err := settings.Rewrite(s.Raw, changes)
 		if err != nil {
 			var verification *settings.VerificationError
 			if errors.As(err, &verification) {
@@ -303,25 +240,12 @@ func serveSettings(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.
 		for _, field := range summary.Fields {
 			paths = append(paths, field.Path)
 		}
-		if !revert {
-			requestLogger(r).Info("settings saved", "paths", paths, "apply", summary.Apply, "source", sourceKind(r))
-		}
-		if revert {
-			requestLogger(r).Info("settings reverted", "source", sourceKind(r))
-		}
+		requestLogger(r).Info("settings saved", "paths", paths, "apply", summary.Apply, "source", sourceKind(r))
 		if regenerate {
 			requestLogger(r).Info("password regenerated", "target", req.Target, "source", sourceKind(r))
 		}
 		s.ApplySaved(old, &next, summary, req.UpdateOBSInput)
-		if revert {
-			if marker, ok := b.(interface{ MarkRevert() }); ok {
-				marker.MarkRevert()
-			}
-		}
 		response := map[string]any{"ok": true, "apply": summary.Apply}
-		if revert {
-			response["kind"] = "revert"
-		}
 		if old.Admin.Port != next.Admin.Port || old.Admin.LAN != next.Admin.LAN {
 			response["admin_url"] = nil
 			if !summary.AdminLANWillClose {
@@ -357,8 +281,6 @@ func settingsMessage(key string) i18n.Msg {
 		return i18n.New("settings.invalid")
 	case "settings.not_implemented":
 		return i18n.New("settings.invalid")
-	case "settings.backup_missing", "settings.no_revert_difference":
-		return i18n.New(key)
 	default:
 		return i18n.New(key)
 	}

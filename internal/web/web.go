@@ -94,7 +94,7 @@ func apiHandler(b Backend, events *Events, defaultLang ...i18n.Lang) http.Handle
 			return
 		}
 
-		if r.URL.Path == "/api/settings" || r.URL.Path == "/api/settings/preview" || r.URL.Path == "/api/settings/revert" || r.URL.Path == "/api/settings/regenerate" {
+		if r.URL.Path == "/api/settings" || r.URL.Path == "/api/settings/preview" || r.URL.Path == "/api/settings/regenerate" {
 			serveSettings(w, r, b, lang)
 			return
 		}
@@ -189,8 +189,6 @@ func route(path string) (switcher.CommandKind, string, bool) {
 	case "/api/phone-link":
 		return 0, http.MethodPost, true
 	case "/api/settings/preview":
-		return 0, http.MethodPost, true
-	case "/api/settings/revert":
 		return 0, http.MethodPost, true
 	case "/api/settings/regenerate":
 		return 0, http.MethodPost, true

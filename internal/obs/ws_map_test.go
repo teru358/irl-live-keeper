@@ -244,7 +244,7 @@ func TestCameraMediaSourceWarning(t *testing.T) {
 		w.cfg.Cameras = []CameraConfig{{ID: "cam1", Name: "メイン"}, {ID: "cam9", Name: "予備"}}
 	})
 	h.awaitConnected(1)
-	if !hasWarning(h.w, "予備 のメディアソースが OBS に見つかりません") {
+	if !hasWarning(h.w, "予備のメディアソースが OBS に見つかりません") {
 		t.Fatalf("警告がない: %v", h.w.Warnings())
 	}
 	if hasWarning(h.w, "メイン のメディアソース") {
@@ -504,7 +504,7 @@ func TestInputSettingsChangedRematchesOnlyThatInput(t *testing.T) {
 		t.Fatal("照合が変わらないのに流した")
 	}
 	// 警告も照合に合わせて変わる（cam1 のメディアソースがなくなった）。
-	if !hasWarning(h.w, "メイン のメディアソースが OBS に見つかりません") {
+	if !hasWarning(h.w, "メインのメディアソースが OBS に見つかりません") {
 		t.Fatalf("警告: %v", h.w.Warnings())
 	}
 }

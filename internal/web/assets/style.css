@@ -327,3 +327,9 @@ body.in-standby .standby-tile { display: none; }
 
 .source-preview { position:relative; overflow:hidden; }
 .source-preview iframe { position:absolute; left:0; top:0; border:0; transform-origin:top left; }
+
+/* S2-86: 設定の入力欄は幅いっぱいに（空欄の文字が切れない）。ボタンの文字は文節で折り返す。 */
+.settings-field>span:not(.password-control){display:flex;flex:1 1 100%;min-width:0}
+.settings-field>span:not(.password-control)>input:not([type=checkbox]){flex:1;width:100%;min-width:0;box-sizing:border-box}
+.btn,.seg button,#settings-groups button{word-break:keep-all;overflow-wrap:anywhere}
+@supports (word-break:auto-phrase){.btn,.seg button,#settings-groups button{word-break:auto-phrase}}

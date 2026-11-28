@@ -76,8 +76,8 @@ test('422 focuses the camera field by ID and opens its details',()=>{
  state.focusSettingError({[path]:'bad'},doc);
  assert.equal(details.open,true);assert.deepEqual(events,['focus','scroll']);
 });
-test('revert confirmation includes the restored camera name from the ID diff',()=>{
- const lines=state.confirmationLines('revert',{},{
+test('confirmation includes the camera name from the ID diff',()=>{
+ const lines=state.confirmationLines('save',{},{
   apply:'restart',fields:[{path:'cameras[cam4]',kind:'added',camera_name:'Restored'}]
  },false,k=>k,{cameras:[]});
  assert.equal(lines[1],'settings_camera 4 (Restored) — settings_added');
