@@ -142,7 +142,7 @@ test('every confirmation has the same form: a title that asks, 「はい」 and 
  assert.equal(ui.ja.settings_discard,ui.ja.src_discard);assert.equal(ui.en.settings_discard,ui.en.src_discard);
  assert.ok(!/破棄/.test(ui.ja.settings_discard));
  // the phone window is not a confirmation window and keeps its button text
- assert.ok(ui.ja.settings_cancel&&ui.en.settings_cancel);
+ assert.ok(ui.ja.phone_close&&ui.en.phone_close&&!('settings_cancel' in ui.ja));
 });
 
 test('each window of the settings page is a confirmation window of the same form',()=>{
@@ -164,8 +164,8 @@ test('the title and the colour of a settings window come from the operation',()=
  assert.equal(confirmationTitle('restart',{},t),'confirm_restart');
  for(const target of ['admin','read','publish'])assert.equal(confirmationTitle('regenerate',{target},t),'confirm_regenerate_'+target);
  const saved={cameras:[{id:'cam1',name:''},{id:'cam2',name:'サブ'}]};
- // saving, restarting and regenerating are blue, and open on 「はい」, even while streaming (spec v0.37)
- for(const [action,preview,streaming] of [['save',{apply:'restart',fields:[{path:'admin.port'}]},false],['restart',{apply:'restart'},true],['regenerate',{apply:'restart'},true],['save',{apply:'restart',fields:[{path:'cameras[cam3]',kind:'added'}]},false]]){
+ // not streaming, saving, restarting and regenerating are blue, and open on 「はい」 (spec v0.37). While streaming, only an operation that restarts the app is red (S2-92)
+ for(const [action,preview,streaming] of [['save',{apply:'restart',fields:[{path:'admin.port'}]},false],['restart',{apply:'restart'},false],['regenerate',{apply:'restart'},false],['save',{apply:'restart',fields:[{path:'cameras[cam3]',kind:'added'}]},false],['save',{apply:'immediate',fields:[{path:'log.keep_days'}]},true],['regenerate',{apply:'immediate'},true]]){
   const spec=confirmationSpec(action,{target:'publish'},preview,streaming,t,saved);
   assert.deepEqual([spec.danger,spec.yesClass,spec.focus],[false,'btn primary','yes'],action);
  }
@@ -187,8 +187,8 @@ test('a save that adds or deletes a camera says that every camera loses its rece
  }
  assert.ok(!lines(false,[{path:'cameras[cam1].name'}]).includes('settings_cameras_reset'));
  assert.ok(!lines(false,[{path:'admin.port'}]).includes('settings_cameras_reset'));
- assert.equal(ui.ja.settings_cameras_reset,'全カメラの受信が一度切れます');
- assert.equal(ui.ja.publish_reset_warning,'MediaMTX が起動し直すので、全カメラの受信が一度切れます');
+ assert.equal(ui.ja.settings_cameras_reset,'全カメラの受信が一度切れます。');
+ assert.equal(ui.ja.publish_reset_warning,'MediaMTX が起動し直すので、全カメラの受信が一度切れます。');
 });
 
 // ---- the stream button ----
@@ -202,7 +202,7 @@ test('one button follows the stream state: 配信開始 (blue) or 配信終了 (
 });
 
 test('the stream button cannot be pressed while OBS is not connected, and says why',()=>{
- for(const [lang,t,reason] of [['ja',tja,'OBS につながっていません'],['en',ten,'Not connected to OBS']]){
+ for(const [lang,t,reason] of [['ja',tja,'OBS につながっていません。'],['en',ten,'Not connected to OBS.']]){
   for(const s of [status(false,false),status(false,true),null,{}]){
    const c=streamControl(s,t);
    assert.equal(c.disabled,true,lang);assert.equal(c.reason,reason,lang);
@@ -300,7 +300,7 @@ test('the camera card: a red 削除 that names its camera, and a pending card wi
  // other rows that are deleted (the scene fallbacks) are red too
  assert.match(settings,/<fieldset class="settings-card"><legend>[^]*?<button type="button" class="btn stop" @click=\$\{\(\)=>remove\(i\)\}>/);
  const names=(t,camera)=>[t('settings_remove_camera').replace('{camera}',camera),t('settings_remove_pending')];
- assert.deepEqual(names(tja,'カメラ 2（サブカメラ）'),['カメラ 2（サブカメラ）を削除','保存すると削除します']);
+ assert.deepEqual(names(tja,'カメラ 2（サブカメラ）'),['カメラ 2（サブカメラ）を削除する','保存すると削除します']);
  assert.equal(ui.ja.settings_remove_undo,'取り消す');
  assert.equal(ui.en.settings_remove_camera.replace('{camera}','Camera 2 (Sub)'),'Remove Camera 2 (Sub)');
 });
@@ -351,7 +351,7 @@ test('the table has the words of the login failure and of every MediaMTX state, 
  const main=read('main.js');
  assert.match(main,/<dd id="mediamtx">\$\{t\('mediamtx_'\+\(data\.mediamtx\|\|'stopped'\)\)\|\|'—'\}<\/dd>/);
  const messages=lang=>JSON.parse(readFileSync(new URL('../../i18n/locales/'+lang+'.json',import.meta.url),'utf8')).messages;
- assert.equal(messages('ja')['api.wrong_password'],'パスワードが違います');assert.equal(messages('en')['api.wrong_password'],'Wrong password.');
- assert.equal(messages('ja')['api.unauthorized'],'ログインが必要です');
- assert.equal(messages('ja')['api.too_many_attempts'],'パスワードの誤りが続きました。しばらく待ってから、もう一度試してください');
+ assert.equal(messages('ja')['api.wrong_password'],'パスワードが違います。');assert.equal(messages('en')['api.wrong_password'],'Wrong password.');
+ assert.equal(messages('ja')['api.unauthorized'],'ログインが必要です。');
+ assert.equal(messages('ja')['api.too_many_attempts'],'パスワードの誤りが続きました。しばらく待ってから、もう一度試してください。');
 });

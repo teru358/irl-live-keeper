@@ -167,10 +167,10 @@ func TestMediaWatchWarningsMerged(t *testing.T) {
 	h.waitSnap("obs の警告のみ", func(s Snapshot) bool {
 		return reflect.DeepEqual(i18n.Strings(i18n.JA, s.OBS.Warnings), []string{"obs warning"})
 	})
-	w.setWarnings("IRL が映っていない可能性があります")
+	w.setWarnings("IRL が映っていない可能性があります。")
 	h.sample(goodKbps)
 	h.waitSnap("合わせた警告", func(s Snapshot) bool {
-		return reflect.DeepEqual(i18n.Strings(i18n.JA, s.OBS.Warnings), []string{"obs warning", "IRL が映っていない可能性があります"})
+		return reflect.DeepEqual(i18n.Strings(i18n.JA, s.OBS.Warnings), []string{"obs warning", "IRL が映っていない可能性があります。"})
 	})
 }
 

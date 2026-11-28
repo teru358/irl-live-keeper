@@ -436,7 +436,7 @@ func TestWarnings(t *testing.T) {
 	if len(w) != 1 {
 		t.Fatalf("lan=true の警告 = %v", w)
 	}
-	for _, want := range []string{"LAN に公開", "平文", "盗聴", "パスワード", "設定の変更", "転送しない"} {
+	for _, want := range []string{"LAN に公開", "暗号", "見られる", "パスワード", "設定の変更", "転送しない"} {
 		if !strings.Contains(w[0], want) {
 			t.Errorf("警告文に %q がない: %s", want, w[0])
 		}

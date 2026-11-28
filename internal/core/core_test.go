@@ -204,7 +204,7 @@ func TestOffRejectedWhenPlanChanges(t *testing.T) {
 		t.Errorf("calls = %v, want %v", got, want)
 	}
 	s := h.core.Snapshot()
-	if s.LastError == nil || !strings.Contains(i18n.Render(i18n.JA, s.LastError.Message), "取りやめた") {
+	if s.LastError == nil || !strings.Contains(i18n.Render(i18n.JA, s.LastError.Message), "取りやめました") {
 		t.Errorf("手動の OFF の却下を last_error に残す: %+v", s.LastError)
 	}
 	if !standbyIs("manual", camera)(s) || s.OBS.Scene != standby {

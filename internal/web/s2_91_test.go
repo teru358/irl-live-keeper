@@ -16,7 +16,7 @@ import (
 // S2-91 C-1・D-1: パスワードが違うログインは「パスワードが違います」と言い、ログインが切れたときの文（api.unauthorized）とは別にする。
 func TestLoginWrongPasswordHasItsOwnMessage(t *testing.T) {
 	h := NewWithAuth(&fakeBackend{}, testPass, 8787, NewAuth(time.Now))
-	for i, tc := range []struct{ lang, want string }{{"ja", "パスワードが違います"}, {"en", "Wrong password."}} {
+	for i, tc := range []struct{ lang, want string }{{"ja", "パスワードが違います。"}, {"en", "Wrong password."}} {
 		w := bruteRequest(h, "POST", "/api/login?lang="+tc.lang, "bad", "1", "[::1]:"+strconv.Itoa(100+i), nil)
 		body := decodeBody(t, w)
 		if w.Code != 401 || body["code"] != "api.wrong_password" || body["error"] != tc.want {
@@ -25,13 +25,13 @@ func TestLoginWrongPasswordHasItsOwnMessage(t *testing.T) {
 	}
 	// ログインが切れた要求（資格情報なし）は、今までどおり api.unauthorized。
 	w := bruteRequest(h, "POST", "/api/status?lang=ja", "", "1", "[::1]:900", nil)
-	if body := decodeBody(t, w); w.Code != 401 || body["code"] != "api.unauthorized" || body["error"] != "ログインが必要です" {
+	if body := decodeBody(t, w); w.Code != 401 || body["code"] != "api.unauthorized" || body["error"] != "ログインが必要です。" {
 		t.Fatalf("%d %v", w.Code, body)
 	}
 }
 
 func TestTooManyAttemptsMessage(t *testing.T) {
-	if got := i18n.Render(i18n.JA, i18n.New("api.too_many_attempts")); got != "パスワードの誤りが続きました。しばらく待ってから、もう一度試してください" {
+	if got := i18n.Render(i18n.JA, i18n.New("api.too_many_attempts")); got != "パスワードの誤りが続きました。しばらく待ってから、もう一度試してください。" {
 		t.Fatal(got)
 	}
 }

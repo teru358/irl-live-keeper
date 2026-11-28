@@ -69,8 +69,8 @@ test('the confirmation of a restart only does not say that the settings are appl
  assert.deepEqual(confirmationLines('restart',{},{apply:'restart'},false,t),['T:settings_restart_only']);
  assert.deepEqual(confirmationLines('restart',{},{apply:'restart'},true,t),['T:settings_restart_only','T:settings_stream_warning']);
  assert.equal(confirmationLines('save',{},{apply:'restart',fields:[]},false,t)[0],'T:settings_restart_mode');
- assert.equal(ui.ja.settings_restart_only,'本体を再起動します（設定は変わりません）');
- assert.equal(ui.en.settings_restart_only,'The application restarts (settings do not change)');
+ assert.equal(ui.ja.settings_restart_only,'本体を再起動します。設定は変わりません。');
+ assert.equal(ui.en.settings_restart_only,'The app restarts. Settings do not change.');
 });
 
 // ---- Important 3: the event stream after the process was started again ----
@@ -165,7 +165,7 @@ test('an unreadable free JSON is the sentence of the text table, never the brows
  for(const custom of ['[1]','3','null'])assert.throws(()=>simulateOf({...state,custom},t),e=>e.message==='T:src_custom_invalid',custom);
  assert.deepEqual(simulateOf({...state,custom:'{"cam1.kbps":600}'},t),{values:{'cam1.kbps':600}});
  assert.deepEqual(simulateOf({...state,free:false,custom:'{'},t),{});
- assert.equal(ui.ja.src_custom_invalid,'自由の値を JSON のオブジェクトとして読めません。');assert.ok(ui.en.src_custom_invalid);
+ assert.equal(ui.ja.src_custom_invalid,'「値を自分で書く」の内容を JSON のオブジェクトとして読めません。');assert.ok(ui.en.src_custom_invalid);
  assert.match(read('sources.js'),/const sim=s=>simulateOf\(s,t\)/);
 });
 

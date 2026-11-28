@@ -13,7 +13,7 @@ import (
 	"github.com/teru358/irl-live-keeper/internal/switcher"
 )
 
-const slowWarnTail = "の映像を OBS が読み切れていません（MediaMTX が映像を捨てています）。つなぎ直した直後なら、しばらくで消えることがあります。続くときは、送るビットレートや解像度を下げてください。OBS のメディアソースの「ハードウェアデコードを使用」が切れていれば、入れてください"
+const slowWarnTail = "の映像を OBS が読み切れていません（MediaMTX が映像を捨てています）。つなぎ直した直後なら、しばらくで消えることがあります。続くときは、送るビットレートや解像度を下げてください。OBS のメディアソースの「ハードウェアデコードを使用」が切れていれば、入れてください。"
 
 func TestSlowReaderWarnings(t *testing.T) {
 	var mu sync.Mutex

@@ -13,6 +13,13 @@ export function cameraAddReason(saved=[],draft=[],removed=[]){
  return draft.length>=8?'settings_camera_limit':nextCameraID(saved,draft,removed)===null?'settings_camera_no_id':'';
 }
 export {cameraHeading} from './camera-name.js';
+// The label (suffix '') or the help (suffix '_help') of a setting. Most settings are named by the last part of the path (setting_<key>), but a few
+// keys mean different things in different places, so these paths have a text of their own: setting_<path> (obs.port is the port of the OBS
+// WebSocket, admin.port is the port that the admin page opens on).
+export const specificSettings=['obs.port','obs.password','admin.port','admin.password','on_stream_start.enabled'];
+export function settingText(t,path,key,suffix=''){
+ return t('setting_'+(specificSettings.includes(path)?path:key)+suffix);
+}
 import {cameraHeading} from './camera-name.js';
 import {confirmSpec} from './confirm-dialog.js';
 export function focusSettingError(errors,doc){
@@ -38,12 +45,14 @@ export function cameraUsageLines(ids,usage,t,saved={}){
  const lines=[];
  for(const id of ids){
   const titles=usage.sources.filter(s=>s.cameras.includes(id)).map(s=>s.title);
-  if(titles.length)lines.push(cameraHeading(saved.cameras?.find(c=>c.id===id)||{id},t)+' — '+t('settings_camera_used').replace('{sources}',()=>titles.join(', ')));
+  if(titles.length)lines.push(t('settings_camera_used').replace('{camera}',()=>cameraHeading(saved.cameras?.find(c=>c.id===id)||{id},t)).replace('{sources}',()=>titles.join(', ')));
  }
  return lines.length?[...lines,t('settings_camera_used_note')]:lines;
 }
 // A save that adds or removes a camera restarts everything that receives video.
 const cameraListChanged=preview=>(preview.fields||[]).some(f=>['added','removed'].includes(f.kind)&&/^cameras\[(cam[1-8])\]$/.test(f.path));
+// A save that touches a camera rewrites the cameras section of config.yaml, and its comments are lost (said here, not on the page).
+const cameraFieldChanged=preview=>(preview.fields||[]).some(f=>/^cameras\[/.test(f.path));
 // The lines under the title of the confirmation window: what happens.
 export function confirmationLines(action,payload,preview,streaming,t,saved={},usage=null){
  const lines=[];
@@ -55,9 +64,12 @@ export function confirmationLines(action,payload,preview,streaming,t,saved={},us
  for(const f of preview.fields||[]){
   const key=f.path.replace(/\[(?:\d+|cam[1-8])\]/g,'').split('.').pop(),match=f.path.match(/^cameras\[(cam[1-8])\]/);
   const camera=match&&(typeof f.camera_name==='string'?{id:match[1],name:f.camera_name}:((f.kind==='removed'?saved.cameras:payload?.values?.cameras)?.find(c=>c.id===match[1])||saved.cameras?.find(c=>c.id===match[1])||{id:match[1]}));
-  lines.push((camera?cameraHeading(camera,t)+' — ':'')+t(f.kind?'settings_'+f.kind:'setting_'+key));
+  // A camera that is added or deleted reads 「カメラ 2（サブカメラ）を削除」; a changed field of a camera reads 「カメラ 2（サブカメラ） — 名前」.
+  if(camera&&['added','removed'].includes(f.kind)&&f.path===match[0])lines.push(t('settings_'+f.kind+'_camera').replace('{camera}',()=>cameraHeading(camera,t)));
+  else lines.push((camera?cameraHeading(camera,t)+' — ':'')+(f.kind?t('settings_'+f.kind):settingText(t,f.path,key)));
  }
  lines.push(...cameraUsageLines(removedCameraIDs(preview),usage,t,saved));
+ if(action==='save'&&cameraFieldChanged(preview))lines.push(t('settings_camera_comments'));
  if(preview.admin_lan_will_close)lines.push(t('settings_lan_close'));
  return lines;
 }
@@ -67,10 +79,14 @@ export function confirmationTitle(action,payload,t){
  if(action==='regenerate')return t('confirm_regenerate_'+payload.target);
  return t('confirm_save');
 }
-// Only a save that deletes a camera is an operation that deletes (a red 「はい」, the focus on 「いいえ」). Saving, restarting and regenerating are blue (spec v0.37).
-export const confirmationDanger=preview=>removedCameraIDs(preview||{}).length>0;
+// A red 「はい」 that opens on 「いいえ」 (spec v0.37; chapter 5, \"a restart while streaming is shown strongly in red\"):
+// an operation that deletes a camera, and, while streaming, an operation that restarts the app (and so breaks the stream's reception and
+// the OBS video): restarting, a save that applies by restarting, and regenerating a password that restarts. It is the condition under which
+// the lines warn (settings_stream_warning). Not streaming, saving, restarting and regenerating are blue.
+export const restartsApp=(action,preview)=>action==='restart'||preview?.apply==='restart';
+export const confirmationDanger=(preview,action='save',streaming=false)=>removedCameraIDs(preview||{}).length>0||(!!streaming&&restartsApp(action,preview));
 export function confirmationSpec(action,payload,preview,streaming,t,saved={},usage=null,extraLines=[]){
- return confirmSpec(t,{title:confirmationTitle(action,payload,t),lines:[...confirmationLines(action,payload,preview,streaming,t,saved,usage),...extraLines],danger:confirmationDanger(preview)});
+ return confirmSpec(t,{title:confirmationTitle(action,payload,t),lines:[...confirmationLines(action,payload,preview,streaming,t,saved,usage),...extraLines],danger:confirmationDanger(preview,action,streaming)});
 }
 
 // ---- Deleting a camera leaves its card (A-9): the camera leaves the draft values (so the draft, the unsaved mark and the save work as before),

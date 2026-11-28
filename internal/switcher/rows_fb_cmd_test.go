@@ -227,7 +227,7 @@ func TestFBSQ08(t *testing.T) {
 		if h.m.st.SceneEpoch != e {
 			t.Fatalf("SceneEpoch %d→%d", e, h.m.st.SceneEpoch)
 		}
-		want := "待機 ON の前に送った戻りの切替が届いたため、" + nameOf(camera) + " に戻りました。待機にするには、もう一度 ON を押してください"
+		want := "待機 ON の前に送った戻りの切替が届いたため、" + nameOf(camera) + " に戻りました。待機にするには、もう一度 ON を押してください。"
 		if le := h.m.Snapshot().LastError; le == nil || le.Msg != want || !le.At.Equal(at(2100)) {
 			t.Fatalf("last_error = %+v, want %q", le, want)
 		}

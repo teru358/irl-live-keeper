@@ -2,7 +2,7 @@ import {setCompletionRules} from './template-lexer.js';
 import {mountEditor} from './editor.js';
 import {sourceTemplates,templateBody,fileAccept} from './source-body.js';
 import {updateRendered} from './reconcile.js';
-import {html,render} from '../vendor/lit-html-3.3.3/lit-html.js';
+import {html,render,nothing} from '../vendor/lit-html-3.3.3/lit-html.js';
 import {live} from '../vendor/lit-html-3.3.3/directives/live.js';
 import {repeat} from '../vendor/lit-html-3.3.3/directives/repeat.js';
 import {createStore} from './store.js';
@@ -131,18 +131,20 @@ export function mountSources(t,request,lang){
  mobile.addEventListener('change',e=>update(s=>{s.mobile=e.matches;}));
  const field=(s,key,type='text')=>{
   const value=s.draft[key]??'';
-  const input=html`<input name=${'source-'+key} aria-label=${t('src_'+key)} type=${type} step="any" .value=${live(String(value))} ?disabled=${s.busy} @input=${e=>{
+  const help=key==='name';
+  const input=html`<input name=${'source-'+key} aria-label=${t('src_'+key)} aria-describedby=${help?'source-name-help':nothing} type=${type} step="any" .value=${live(String(value))} ?disabled=${s.busy} @input=${e=>{
    const raw=e.target.value,v=type==='number'?(raw===''?0:Number(raw)):raw;
    change(x=>{x.draft[key]=v;});
   }}>`;
   const unit=['obs_width','obs_height'].includes(key)?'px':'';
-  return html`<label class="source-field">${t('src_'+key)}<span class="source-input">${input}${unit?html`<span class="hint">${unit}</span>`:''}</span></label>`;
+  // The URL name: the characters that can be used, and that it cannot be changed after it is made (C-2), under the field (inside its label, so that it stays under the field).
+  return html`<label class="source-field">${t('src_'+key)}<span class="source-input">${input}${unit?html`<span class="hint">${unit}</span>`:''}</span>${help?html`<small id="source-name-help" class="settings-help">${t('src_name_help')}</small>`:''}</label>`;
  };
  const segments=(label,values,current,select,name=v=>t('src_'+v))=>html`<div class="source-control"><span class="hint">${label}</span><div class="seg" role="group" aria-label=${label}>${values.map(v=>html`<button type="button" aria-pressed=${String(current===v)} @click=${()=>select(v)}>${name(v)}</button>`)}</div></div>`;
  // 軸や自由を変えたとき、OBS に反映中なら、実際だけに戻っていれば止め、そうでなければ新しい状況を送る。
  const retest=()=>{if(store.get().test)queueMicrotask(()=>obs(testActive(store.get())));};
  const choose=(axis,value)=>{change(x=>{x[axis]=value;x.testNotice='';});retest();};
- const testBar=s=>html`<div class="source-test" role="group" aria-label=${t('src_test')}>${Object.entries(testAxes).map(([axis,values])=>segments(t('src_'+axis),values,s[axis],value=>choose(axis,value),value=>t(testChoiceKey(axis,value))))}<div class="settings-field source-free"><label><input name="source-test-free" type="checkbox" role="switch" .checked=${s.free} @change=${e=>{const free=e.target.checked;change(x=>{x.free=free;x.testNotice='';});retest();}}>${t('src_custom')}</label></div>${s.free?html`<label class="source-field source-free-values">${t('src_custom_hint')}<textarea name="source-test-custom" .value=${live(s.custom)} @input=${e=>{const value=e.target.value;change(x=>{x.custom=value;});}}></textarea></label>`:''}<div class="settings-field source-obs"><label><input name="source-test-obs" type="checkbox" role="switch" .checked=${s.test} ?disabled=${s.streaming||(!s.test&&!testActive(s))} @change=${e=>obs(e.target.checked)}>${t('src_obs')}</label></div></div>`;
+ const testBar=s=>html`<div class="source-test" role="group" aria-label=${t('src_test')}><span class="hint source-test-title">${t('src_test')}</span>${Object.entries(testAxes).map(([axis,values])=>segments(t('src_'+axis),values,s[axis],value=>choose(axis,value),value=>t(testChoiceKey(axis,value))))}<div class="settings-field source-free"><label><input name="source-test-free" type="checkbox" role="switch" .checked=${s.free} @change=${e=>{const free=e.target.checked;change(x=>{x.free=free;x.testNotice='';});retest();}}>${t('src_custom')}</label></div>${s.free?html`<label class="source-field source-free-values">${t('src_custom_hint')}<textarea name="source-test-custom" .value=${live(s.custom)} @input=${e=>{const value=e.target.value;change(x=>{x.custom=value;});}}></textarea></label>`:''}<div class="settings-field source-obs"><label><input name="source-test-obs" type="checkbox" role="switch" .checked=${s.test} ?disabled=${s.streaming||(!s.test&&!testActive(s))} @change=${e=>obs(e.target.checked)}>${t('src_obs')}</label></div></div>`;
  const copy=(src,s)=>{
   const urls=sourceURL(s.settings,s.autoHost,src.name);
   const row=(url,kind)=>html`<label class="source-field">${t('src_url_'+kind)}<span class="source-url"><input name=${'source-url-'+kind+'-'+src.name} readonly .value=${url} aria-label=${t('src_url_'+kind)}><button class="btn" @click=${async()=>{if(!await copyValue(url))fail(Error(t('sender_manual')));}}>${t('sender_copy')}</button></span></label>`;

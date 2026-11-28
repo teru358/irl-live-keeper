@@ -14,8 +14,12 @@ func TestValidation(t *testing.T) {
 		change func(*Source)
 		code   string
 	}{
-		{"name", func(s *Source) { s.Name = "../bad" }, "sources.invalid"}, {"width", func(s *Source) { s.OBSWidth = 0 }, "sources.invalid"}, {"height", func(s *Source) { s.OBSHeight = 8193 }, "sources.invalid"},
-		{"title", func(s *Source) { s.Title = strings.Repeat("x", 1025) }, "sources.invalid"},
+		// S2-92 C-2・D-9: 保存の誤りは理由ごとの鍵。名前の誤りは「空」「使えない文字」「長すぎる」に分かれる。
+		{"name", func(s *Source) { s.Name = "../bad" }, "sources.name_chars"}, {"name empty", func(s *Source) { s.Name = "" }, "sources.name_empty"},
+		{"name Japanese", func(s *Source) { s.Name = "あいう" }, "sources.name_chars"}, {"name space", func(s *Source) { s.Name = "my source" }, "sources.name_chars"},
+		{"name 33 characters", func(s *Source) { s.Name = strings.Repeat("a", 33) }, "sources.name_long"},
+		{"width", func(s *Source) { s.OBSWidth = 0 }, "sources.size_range"}, {"height", func(s *Source) { s.OBSHeight = 8193 }, "sources.size_range"},
+		{"title", func(s *Source) { s.Title = strings.Repeat("x", 1025) }, "sources.title_long"},
 		{"body over 64 KiB", func(s *Source) { s.Body = strings.Repeat("x", MaxBody+1) }, "sources.body_too_large"},
 		{"body over 64 KiB in bytes", func(s *Source) { s.Body = strings.Repeat("あ", MaxBody/3+1) }, "sources.body_too_large"},
 		{"template", func(s *Source) { s.Body = "{unknown}" }, "template.unknown"},
@@ -58,5 +62,15 @@ func TestValidation(t *testing.T) {
 	s.Name = "files2"
 	if e := s.Validate(core.Snapshot{}); e != nil {
 		t.Fatal(e)
+	}
+}
+
+// S2-92: 予約された名前の文には、その名前を入れる（予約は files・assets だけではない）。
+func TestReservedNameMessageNamesTheName(t *testing.T) {
+	s := Default()
+	s.Name = "frame"
+	var ve *ValidationError
+	if err := s.Validate(core.Snapshot{}); !errors.As(err, &ve) || ve.Message.Values["name"] != "frame" {
+		t.Fatal(err)
 	}
 }
