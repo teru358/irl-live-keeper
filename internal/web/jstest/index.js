@@ -6,3 +6,4 @@ import './settings-cameras.test.mjs';
 import './settings-pages.test.mjs';
 
 import './camera-credentials.test.mjs';
+import './syntax.test.mjs';
