@@ -280,6 +280,8 @@ body.in-standby .standby-tile { display: none; }
 .source-fields { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:16px; }
 .source-file { margin-top:12px; }
 .source-file > span { flex:1; overflow-wrap:anywhere; }
+.source-file.unusable { opacity:.65; }
+.source-file.unusable > .source-file-reason { color:var(--muted); font-size:.9em; }
 .source-cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr)); gap:16px; margin-top:16px; }
 .source-cards article { display:flex; flex-direction:column; gap:16px; padding:20px; background:var(--surface); border:1px solid var(--line); border-radius:12px; min-width:0; }
 .source-cards h3 { margin:0; overflow-wrap:anywhere; }

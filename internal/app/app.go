@@ -162,6 +162,7 @@ type generation struct {
 
 type App struct {
 	sourcesStore           *sources.Store
+	filesStore             *sources.FilesStore
 	pendingSettings        *savedSettings
 	liveConfig             *config.Config
 	savedSession           string
@@ -621,6 +622,9 @@ func (a *App) createGeneration(ctx context.Context) (*generation, error) {
 		a.sourcesStore = &sources.Store{Path: filepath.Join(a.opts.BaseDir, "sources.yaml")}
 	}
 	a.sourcesStore.SetLogger(log)
+	filesStore := a.SourceFilesStore()
+	// The index of source-files/ is made at startup, in the background.
+	go func() { _ = filesStore.EnsureIndex() }()
 	backend := &pageBackend{sourceStore: a.sourcesStore, statistics: statisticsReader(obsClient), Backend: c, senderConfig: cfg, senderDefault: host, app: a, id: id, language: cfg.Language, closeAction: cfg.GUI.CloseAction, lan: cfg.Admin.LAN}
 	g.events = web.NewEvents(backend, logger, nil, lang)
 

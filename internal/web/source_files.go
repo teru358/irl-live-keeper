@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"strconv"
 	"strings"
 
 	"github.com/teru358/irl-live-keeper/internal/i18n"
@@ -59,6 +60,40 @@ func fileUsers(b Backend, name string) ([]string, error) {
 	})
 	return used, readErr
 }
+
+// sourceFileJSON is one row of the list response. Name is the relative path
+// ("/" separated). Reason is a code and ReasonText the same in the request language.
+type sourceFileJSON struct {
+	Name       string   `json:"name"`
+	Size       int64    `json:"size"`
+	Type       string   `json:"type"`
+	Usable     bool     `json:"usable"`
+	Reason     string   `json:"reason,omitempty"`
+	ReasonText string   `json:"reason_text,omitempty"`
+	UsedBy     []string `json:"used_by"`
+}
+
+type sourceFileNotice struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+func sourceFileList(list sources.FileList, lang i18n.Lang) map[string]any {
+	files := make([]sourceFileJSON, 0, len(list.Files))
+	for _, f := range list.Files {
+		row := sourceFileJSON{Name: f.Name, Size: f.Size, Type: f.Type, Usable: f.Usable, Reason: f.Reason, UsedBy: f.UsedBy}
+		if f.Reason != "" {
+			row.ReasonText = i18n.Render(lang, i18n.New("source_files.reason_"+f.Reason))
+		}
+		files = append(files, row)
+	}
+	notices := []sourceFileNotice{}
+	if list.ScanLimited {
+		notices = append(notices, sourceFileNotice{Code: "source_files.scan_limit", Message: i18n.Render(lang, i18n.New("source_files.scan_limit", "limit", strconv.Itoa(sources.MaxScanEntries)))})
+	}
+	return map[string]any{"files": files, "notices": notices}
+}
+
 func serveSourceFilesAPI(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.Lang) {
 	w.Header().Set("Cache-Control", "no-store")
 	store, ok := sourceFiles(b)
@@ -85,7 +120,7 @@ func serveSourceFilesAPI(w http.ResponseWriter, r *http.Request, b Backend, lang
 				writeError(w, 500, lang, i18n.New("source_files.io"))
 				return
 			}
-			writeJSON(w, 200, map[string]any{"files": list})
+			writeJSON(w, 200, sourceFileList(list, lang))
 		case http.MethodPost:
 			if sourceKind(r) != "local" {
 				lan, ok := b.(interface{ AdminLANEnabled() bool })
@@ -107,7 +142,7 @@ func serveSourceFilesAPI(w http.ResponseWriter, r *http.Request, b Backend, lang
 			if err = store.Save(name, data); err != nil {
 				if errors.Is(err, os.ErrExist) {
 					writeError(w, 409, lang, i18n.New("source_files.duplicate"))
-				} else if errors.Is(err, sources.ErrFileTooLarge) || errors.Is(err, sources.ErrTotalTooLarge) {
+				} else if errors.Is(err, sources.ErrFileTooLarge) || errors.Is(err, sources.ErrTotalTooLarge) || errors.Is(err, sources.ErrTooManyFiles) {
 					writeError(w, 413, lang, i18n.New("source_files.limit"))
 				} else {
 					writeError(w, 400, lang, i18n.New("source_files.invalid"))
