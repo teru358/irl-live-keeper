@@ -25,7 +25,7 @@
 | [phone-menu-open-on-phone](open/phone-menu-open-on-phone.md) | 低 | 2026-11-28 | スマホのメニューに「スマホで開く」がない（意図どおりか確かめる） |
 | [regenerate-button-placement](open/regenerate-button-placement.md) | 低 | 2026-11-28 | カメラごとの送信用パスワードの作り直しを「送り先」の外に置くか |
 | [status-warning-heading-empty](open/status-warning-heading-empty.md) | 低 | 2026-11-28 | 「状態」の「注意」が、注意がないときも見出しとボタンだけ出る |
-| [stream-history](open/stream-history.md) | 低 | 2026-11-28 | 配信の記録（配信ごとのファイル、まとめ、一覧と詳しい画面、CSV、session.*） |
+| [stream-history](open/stream-history.md) | 低 | 2026-11-28 | 配信の記録と直近10分のグラフ（区切り3 全体。後回し） |
 
 ### 保守 (3)
 
