@@ -22,7 +22,7 @@
 
 作り方は、今の switcher を広げて、シーンの切替と「隠す」を1つの状態機械で判断する（2026-11-21 のユーザーの裁定。0b は 0a の switcher に目的を足す）。待機の持ち主と戻り先、期待の照合と期限、実行の直前の承認、目的ごとの有効条件、実行役とのチャネルの決まりは今のまま使う。
 
-入れないもの: カメラごとの資格情報（資格情報は全カメラで共通）、カメラごとの「何もしない」（全体の `switch.auto_enabled: false` で足りる）、カメラごとの「使う / 使わない」の切替（下の運用で足りる。ユーザーの裁定）、悪いカメラの代わりに別のシーンへ送る形。
+入れないもの: カメラごとの読み取りの資格情報（読み取り用は全カメラで共通。送信用はカメラごと。v0.22、第2節）、カメラごとの「何もしない」（全体の `switch.auto_enabled: false` で足りる）、カメラごとの「使う / 使わない」の切替（下の運用で足りる。ユーザーの裁定）、悪いカメラの代わりに別のシーンへ送る形。
 
 **使わない日のカメラの運用**（README に書く）: 待機へ送るかの判定は、いま映っているシーンだけで行う。ほかのシーンにある、その日使わないカメラが DOWN でも何も起きない。手元カメラを別のシーンに置く運用（ユーザーの例）では、手元のシーンへ切り替えると、手元カメラが届くまで待機シーンになり、届いて OK になったら（`recover_sec` のあと）手元のシーンへ自動で戻る。待ちを短くするには、そのカメラだけ `recover_sec` を上書きする。戻るときは、先にメインのシーンへ切り替えてから手元カメラを止める。OBS で手で非表示にした項目のカメラは、そのシーンでは判定しない。
 
@@ -92,7 +92,7 @@ mediamtx:
   - `obs.studio_mode_hide` は `standby`、`ignore`、`hide` のどれか（既定 `standby`。0b で足す）
 - **反映の区分**（第2段階の spec 7章の表を直す）: Config の全 leaf をパスごとに区分する表にする。表から `obs.monitored_scenes`、`obs.media_source`、`stream.name` を消す。すぐ反映に、`cameras[].name`、`cameras[].on_bad`、`cameras[].switch.*` と `obs.studio_mode_hide`（0b）を入れる（中核ループがカメラごとの Judge の閾値を差し替える。受信状態は保ち、積み上げた秒数は捨てる）。再起動して反映に、カメラの追加・削除と `mediamtx.rtmp_enabled`・`mediamtx.srt_enabled` を入れる。`language` と `stream.app` も再起動して反映する
 - **config.yaml の書き換え**（第2段階の spec 7章）: `cameras` は対応づけのシーケンスで、文字で差し替える書き方に当たらない。`cameras` の区分は、変えたときに区分ごと Node で書き出す（区分の外のコメントと空行は残す。区分の中のコメントは残らないことを設定の画面で知らせる。ユーザーが承認した）
-- **URL**: カメラごとに作る。資格情報は全カメラで共通
+- **URL**: カメラごとに作る。送信用の資格情報はカメラごと（ユーザー名は id、パスワードは `cameras[].publish_pass`。v0.22）、読み取り用は全カメラで共通
   - path は2段 `<app>/<id>`（`<app>` は `stream.app`、既定 `live`）。`stream.app` が空なら1段の `<id>`。決めるのは `config.(*Config).CameraPath(id)` の1か所で、mediamtx.yml の `paths` と権限、送信用と OBS 用の URL、API の照合（`/v3/paths/list` の名前、`/v3/srt/conns/list` の `path`）、OBS のメディアソースの照合がすべてこれを使う。検証: `/` `?` `#` `:` と空白を含む値、英数字・`_`・`-` 以外は不正（`:` は SRT の streamid の区切り）。Larix Broadcaster と IRL Pro は RTMP の URL を「アプリ名」と「ストリームキー」の2段で求め、1段の URL を受け付けない。MediaMTX は tcUrl の path とストリームキーを `/` でつないで path にするので、2段の path にすれば合う（URL を1本で送るアプリも、つないだ結果が同じ）
   - SRT: `srt://<host>:<srt_port>?streamid=publish:<app>/<id>:<user>:<pass>`（`srt_enabled` が false なら作らない）
   - RTMP: `rtmp://<host>:<rtmp_port>/<app>/<id>?user=<user>&pass=<pass>`（`rtmp_enabled` が false なら作らない）。URL とキーが分かれたアプリには、URL に `rtmp://<host>:<rtmp_port>/<app>`、キーに `<id>?user=…&pass=…`
