@@ -165,11 +165,11 @@ test('the phone window says what it makes: the address to open on the phone, 「
 
 // ---- the name of a source (C-2) ----
 test('the URL name of a source says which characters can be used and that it cannot be changed, under the field',()=>{
- const sources=read('sources.js');
- assert.match(sources,/aria-describedby=\$\{help\?'source-name-help':nothing\}/);
- assert.match(sources,/<small id="source-name-help" class="settings-help">\$\{t\('src_name_help'\)\}<\/small>/);
+ const sources=read('sources.js'),field=read('source-field.js');
+ assert.match(field,/const ids=\[key==='name'\?'source-name-help':''/);
+ assert.match(field,/<small id="source-name-help" class="settings-help">\$\{t\('src_name_help'\)\}<\/small>/);
  // the helper is inside the label of the field, so it stays under the field
- assert.match(sources,/<\/span>\$\{help\?html`<small id="source-name-help"[^]*?<\/small>`:''\}<\/label>/);
+ assert.match(field,/<\/span>[^]*\$\{key==='name'\?html`<small id="source-name-help"[^]*?<\/small>`:''\}<\/label>/);
  assert.equal(ui.ja.src_title,'表示名');assert.equal(ui.ja.src_name,'URL 用の名前');
  assert.match(ui.ja.src_name_help,/英数字と - と _/);assert.match(ui.ja.src_name_help,/作ったあとは変えられません/);
  assert.match(ui.en.src_name_help,/cannot be changed/);

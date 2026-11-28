@@ -68,7 +68,7 @@ main h3 { font-size: 17px; line-height: 1.4; font-weight: 700; margin: 24px 0 8p
 
 /* 中心の一点: カメラの信号の帯 */
 .cam { display: grid; grid-template-columns: minmax(0,1fr) auto auto; column-gap: 12px; row-gap: 6px; align-items: center; }
-.cam-name { font-weight: 700; font-size: 18px; }
+.cam-name { font-weight: 700; font-size: 18px; word-break: keep-all; overflow-wrap: anywhere; }
 .cam-read { font-size: 15px; color: var(--muted); }
 .cam-read b { color: var(--ink); font-size: 22px; }
 .state { font-weight: 700; font-size: 14px; padding: 1px 8px; border-radius: 6px; margin-left: 8px; border: 2px solid currentColor; }

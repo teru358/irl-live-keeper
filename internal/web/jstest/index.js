@@ -29,3 +29,5 @@ import './s2-92.test.mjs';
 import './s2-93.test.mjs';
 
 import './s2-94.test.mjs';
+
+import './s2-97.test.mjs';

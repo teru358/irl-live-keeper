@@ -151,7 +151,7 @@ test('the switch of the automatic change is the first of its group',()=>{
 // ---- the destination of a camera of the status page ----
 test('the destination is a link of words only, at the right of the name of the camera, and 44px high',()=>{
  const main=read('app/main.js');
- assert.ok(main.includes('<a class="to-send" href="#cameras" @click=${e=>{e.preventDefault();goSender(c.id);}}>${t(\'sender_link\')}<span aria-hidden="true"> ›</span></a>'));
+ assert.ok(main.includes('<a class="to-send" href="#cameras" @click=${e=>{e.preventDefault();goSender(c.id);}} aria-label=${t(\'sender_link_of\').replace(\'{camera}\',()=>cameraHeading(c,t))}>${t(\'sender_link\')}<span aria-hidden="true"> ›</span></a>'));
  assert.ok(!main.includes('btn to-send'));
  // it is in the row of the name (before the strip), not in the line under the strip
  assert.ok(main.indexOf('class="to-send"')<main.indexOf('class="strip"'));

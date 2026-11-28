@@ -327,8 +327,8 @@ test('leaving the sources page with unsaved changes asks first and then goes on;
  assert.match(sources,/async function remove\(src,opener\)\{if\(!await askDelete\(src,opener\)\)return;/);
  assert.match(sources,/if\(await askDelete\(\{\.\.\.file,used_by:e\.used_by\},opener\)\)/);
  // every delete button is red
- for(const m of sources.matchAll(/<button class="([^"]*)" @click=\$\{e=>(?:removeFile\(f,e\.currentTarget\)|remove\(src,e\.currentTarget\))\}>/g))assert.equal(m[1],'btn stop');
- assert.equal([...sources.matchAll(/class="btn stop" @click=\$\{e=>(?:removeFile|remove)\(/g)].length,3);
+ for(const m of sources.matchAll(/<button class="([^"]*)" (?:aria-label=[^@]*)?@click=\$\{e=>(?:removeFile\(f,e\.currentTarget\)|remove\(src,e\.currentTarget\))\}>/g))assert.equal(m[1],'btn stop');
+ assert.equal([...sources.matchAll(/class="btn stop" (?:aria-label=[^@]*)?@click=\$\{e=>(?:removeFile|remove)\(/g)].length,3);
 });
 
 test('the shell navigates when it is told to (the sources page asks it again after 「はい」)',()=>{

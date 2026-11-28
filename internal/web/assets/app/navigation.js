@@ -11,12 +11,14 @@ export const hashOf=page=>'#'+page;
 // before(page) asks whether the page may be left (false: a page keeps a draft and asks first; it asks again by itself with keeper-navigate).
 // show(page) puts the page on the screen. current() is the page on the screen.
 // A move made by the person writes a new history entry (pushState fires no event). Back, forward and an edited hash arrive as popstate / hashchange:
-// the page is read from the hash and nothing is written. When such a move is refused, the URL is written back to the page that stays.
+// the page is read from the hash and nothing is written. When such a move is refused, the page that stays is pushed again as a new entry (S2-97): the entry
+// that was moved to is left behind us, so the next Back is again a move to another page and asks again (writing the URL over that entry made two entries of the
+// same page, and the next Back did nothing).
 export function createRouter({win,current,before,show}){
  function go(page,{fromHistory=false}={}){
   if(!pages.includes(page))return false;
   if(!before(page)){
-   if(fromHistory)win.history.replaceState(null,'',hashOf(current()));
+   if(fromHistory)win.history.pushState(null,'',hashOf(current()));
    return false;
   }
   show(page);

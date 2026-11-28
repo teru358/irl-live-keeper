@@ -156,7 +156,7 @@ func TestPreviewErrorContracts(t *testing.T) {
 		{"POST", "/api/sources/preview", `{"source":{"body":"{if "}}`, 200},
 		{"POST", "/api/sources/preview", `{"source":{"body":"{unknown}"}}`, 200},
 		{"POST", "/api/sources/preview", `{`, 400},
-		{"POST", "/api/sources/preview", `{"source":{"name":"files"}}`, 422},
+		{"POST", "/api/sources/preview", `{"source":{"obs_width":0}}`, 422},
 		{"POST", "/api/sources/preview", `{"source":{},"simulate":{"line":"bad"}}`, 422},
 		{"POST", "/api/sources/preview", `{"source":{},"simulate":{"mode":"OK"}}`, 400},
 		{"POST", "/api/sources/preview", `{"source":{},"simulate":{"standby":"standby"}}`, 422},

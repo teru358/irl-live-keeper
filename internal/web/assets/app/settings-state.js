@@ -80,10 +80,11 @@ export function confirmationLines(action,payload,preview,streaming,t,saved={},us
  return lines;
 }
 // The title of the confirmation window: 「〜しますか？」.
-export function confirmationTitle(action,payload,t){
+// The camera page says so (「カメラの設定を保存しますか？」, S2-97); page is 'cameras' or 'settings'.
+export function confirmationTitle(action,payload,t,page='settings'){
  if(action==='restart')return t('confirm_restart');
  if(action==='regenerate')return t('confirm_regenerate_'+payload.target);
- return t('confirm_save');
+ return t(page==='cameras'?'confirm_save_cameras':'confirm_save');
 }
 // A red 「はい」 that opens on 「いいえ」 (spec v0.37; chapter 5, \"a restart while streaming is shown strongly in red\"):
 // an operation that deletes a camera, and, while streaming, an operation that restarts the app (and so breaks the stream's reception and
@@ -91,8 +92,8 @@ export function confirmationTitle(action,payload,t){
 // the lines warn (settings_stream_warning). Not streaming, saving, restarting and regenerating are blue.
 export const restartsApp=(action,preview)=>action==='restart'||preview?.apply==='restart';
 export const confirmationDanger=(preview,action='save',streaming=false)=>removedCameraIDs(preview||{}).length>0||(!!streaming&&restartsApp(action,preview));
-export function confirmationSpec(action,payload,preview,streaming,t,saved={},usage=null,extraLines=[]){
- return confirmSpec(t,{title:confirmationTitle(action,payload,t),lines:[...confirmationLines(action,payload,preview,streaming,t,saved,usage),...extraLines],danger:confirmationDanger(preview,action,streaming)});
+export function confirmationSpec(action,payload,preview,streaming,t,saved={},usage=null,extraLines=[],page='settings'){
+ return confirmSpec(t,{title:confirmationTitle(action,payload,t,page),lines:[...confirmationLines(action,payload,preview,streaming,t,saved,usage),...extraLines],danger:confirmationDanger(preview,action,streaming)});
 }
 
 // ---- Deleting a camera leaves its card (A-9): the camera leaves the draft values (so the draft, the unsaved mark and the save work as before),
