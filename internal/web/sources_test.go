@@ -34,12 +34,12 @@ func TestSourcesMethods(t *testing.T) {
 		}
 		return w.Body.String()
 	}
-	body := `{"name":"demo","template":"{cam1.kbps}"}`
+	body := `{"name":"demo","body":"{cam1.kbps}"}`
 	call("POST", "/api/sources", body, false, 403)
 	call("POST", "/api/sources", body, true, 201)
 	call("POST", "/api/sources", body, true, 409)
 	for _, old := range []string{"camera.kbps", "camera.cam1.kbps", "link.state", "link.kbps", "link.online", "link.protocol", "link.state_for", "srt.rtt", "srt.loss", "srt.mbps"} {
-		got := call("POST", "/api/sources", `{"name":"removed","template":"{`+old+`}"}`, true, 422)
+		got := call("POST", "/api/sources", `{"name":"removed","body":"{`+old+`}"}`, true, 422)
 		if !strings.Contains(got, `"code":"template.unknown"`) {
 			t.Fatal(got)
 		}
@@ -49,8 +49,8 @@ func TestSourcesMethods(t *testing.T) {
 	if !strings.Contains(got, `"obs_width":800`) {
 		t.Fatal(got)
 	}
-	call("PUT", "/api/sources/demo", `{"name":"demo","css":"body {}"}`, true, 200)
-	got = call("PUT", "/api/sources/demo", `{"name":"demo","template":"{unknown}"}`, true, 422)
+	call("PUT", "/api/sources/demo", `{"name":"demo","body":"<p>x</p>"}`, true, 200)
+	got = call("PUT", "/api/sources/demo", `{"name":"demo","body":"{unknown}"}`, true, 422)
 	var e struct {
 		Line, Column int
 		Code         string

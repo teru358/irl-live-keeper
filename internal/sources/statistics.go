@@ -77,7 +77,7 @@ func (s Statistics) Values(now time.Time) map[string]template.Value {
 // UsesStatistics checks parsed references, including conditional expressions.
 func UsesStatistics(s Source) bool {
 	for _, name := range []string{"stream.elapsed", "stream.kbps", "stream.dropped", "stream.congestion", "obs.fps", "obs.render_skipped"} {
-		if template.References(s.Template, name) {
+		if template.References(s.Body, name) {
 			return true
 		}
 	}

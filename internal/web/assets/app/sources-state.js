@@ -19,11 +19,10 @@ export function editorInsertion(doc,selection,hasCursor,text,asset=false){
  const insert=asset?(hasCursor?assetText(text):(doc&&!doc.endsWith('\n')?'\n':'')+'.irl-source { background-image: '+assetText(text)+'; }'):text;
  return {from,to,insert};
 }
-export const decorationInput=value=>value===0||value==null?'':String(value);
-export const decorationNumber=value=>value===''?0:Number(value);
-export function appearanceChanged(draft,base){
- const appearance=source=>Object.fromEntries(Object.entries(source).filter(([key])=>!['name','title','template','obs_width','obs_height'].includes(key)));
- return dirty(appearance(draft),appearance(base));
+// A plain textarea: the same cursor rule as the editor, as a replace range plus the new cursor position.
+export function textareaInsertion(value,selection,hasCursor,text){
+ const {from,to,insert}=editorInsertion(value,selection,hasCursor,text);
+ return {from,to,insert,cursor:from+insert.length};
 }
 // 回線の状況のテスト: 3つの軸（回線・待機・配信。どれも実際を持つ）と、軸とは別の「自由」。
 export const testAxes={line:['actual','OK','LOW','DOWN'],standby:['actual','none','auto'],stream:['actual','streaming','offline']};
@@ -72,7 +71,7 @@ export const sourceFileDeletionPaused=()=>true;
 export function clearEditor(state){
  state.draft=null;state.base=null;state.preview=null;
  state.valueGroups=[];state.valuesOpen=false;state.valuesFilter='';state.valuesError='';
- state.previewError='';state.editorError='';state.editorNotice='';state.styleInputs={};state.diagnostics=[];
+ state.previewError='';state.editorError='';state.editorNotice='';state.diagnostics=[];
 }
 export const visibleLayout=(saved,mobile)=>({axis:mobile?'vertical':saved.axis,showAxis:saved.mode==='split'&&!mobile});
 
@@ -85,9 +84,9 @@ export function applyCollection(state,data){
  if(data.error)state.notice=data.error;
 }
 export function openEditor(state,source){
- state.draft=structuredClone(source||{...state.defaults,name:'',title:'',template:'',css:'',style:{}});
+ state.draft=structuredClone(source||{...state.defaults,name:'',title:'',body:''});
  state.base=structuredClone(state.draft);state.fresh=!source;
- state.preview=null;state.editorNotice='';state.editorError='';state.styleInputs={};
+ state.preview=null;state.editorNotice='';state.editorError='';
  const error=source?brokenError(state.broken,source.name):null;
  state.previewError=error?.error||'';state.diagnostics=templateDiagnostics(error);
 }

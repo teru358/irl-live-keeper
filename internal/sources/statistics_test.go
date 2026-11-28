@@ -95,7 +95,7 @@ func TestUsesStatistics(t *testing.T) {
 	}{
 		{"stream.kbps", false}, {"{{stream.kbps}}", false}, {"{stream.kbps}", true}, {"{if obs.fps > 30}yes{end}", true}, {"{cam1.kbps}", false},
 	} {
-		if got := UsesStatistics(Source{Template: tc.text}); got != tc.want {
+		if got := UsesStatistics(Source{Body: tc.text}); got != tc.want {
 			t.Errorf("%q: %v", tc.text, got)
 		}
 	}

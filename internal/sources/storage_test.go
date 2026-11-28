@@ -10,7 +10,7 @@ import (
 func TestStorageValidationAndRecovery(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "sources.yaml")
 	store := Store{Path: p}
-	for _, bad := range []string{"[", "- name: demo\n  extra: true\n", "- name: demo\n- name: demo\n", "- name: demo\n  obs_width: 0\n", "[]\n---\n[]\n"} {
+	for _, bad := range []string{"[", "- name: demo\n  extra: true\n", "- name: demo\n  template: x\n", "- name: demo\n  css: x\n", "- name: demo\n  style: {font_size: 12}\n", "- name: files\n", "- name: assets\n", "- name: demo\n- name: demo\n", "- name: demo\n  obs_width: 0\n", "[]\n---\n[]\n"} {
 		if e := os.WriteFile(p, []byte(bad), 0600); e != nil {
 			t.Fatal(e)
 		}
@@ -35,14 +35,14 @@ func TestStorageValidationAndRecovery(t *testing.T) {
 		if err != nil || len(list) != 1 || list[0].OBSWidth != 800 {
 			t.Fatalf("reload: %v %v", list, err)
 		}
-		list[0].CSS = "body {content: '</style>'}"
+		list[0].Body = "<style></style>\n<p>日本語 {obs.fps}</p>"
 		return list, true
 	})
 	if e != nil {
 		t.Fatal(e)
 	}
 	e = store.Transaction(core.Snapshot{}, func(list []Source, err error) ([]Source, bool) {
-		if err != nil || list[0].CSS != "body {content: '</style>'}" {
+		if err != nil || list[0].Body != "<style></style>\n<p>日本語 {obs.fps}</p>" {
 			t.Fatal("round trip failed")
 		}
 		return nil, false

@@ -13,7 +13,7 @@ import (
 	"github.com/teru358/irl-live-keeper/internal/sources"
 )
 
-const brokenSourcesYAML = "- name: broken\n  title: Old source\n  template: '{link.kbps}'\n  css: '.irl-text {color:red}'\n- name: good\n  template: hello\n"
+const brokenSourcesYAML = "- name: broken\n  title: Old source\n  body: '{link.kbps}'\n- name: good\n  body: hello\n"
 
 func TestBrokenSourcesAPI(t *testing.T) {
 	b := &sourcesBackend{store: sources.Store{Path: filepath.Join(t.TempDir(), "sources.yaml")}}
@@ -64,8 +64,8 @@ func TestBrokenSourcesAPI(t *testing.T) {
 	}
 	check(true)
 	call("POST", "/api/sources/preview", `{"names":["broken","good"]}`, 200)
-	call("POST", "/api/sources", `{"name":"new","template":"new"}`, 201)
-	call("PUT", "/api/sources/good", `{"name":"good","template":"updated"}`, 200)
+	call("POST", "/api/sources", `{"name":"new","body":"new"}`, 201)
+	call("PUT", "/api/sources/good", `{"name":"good","body":"updated"}`, 200)
 	call("DELETE", "/api/sources/new", "", 200)
 	raw, err := os.ReadFile(b.store.Path)
 	if err != nil {
@@ -76,12 +76,12 @@ func TestBrokenSourcesAPI(t *testing.T) {
 	}
 	check(true)
 	before := string(raw)
-	call("PUT", "/api/sources/broken", `{"name":"broken","template":"{link.kbps}"}`, 422)
+	call("PUT", "/api/sources/broken", `{"name":"broken","body":"{link.kbps}"}`, 422)
 	raw, _ = os.ReadFile(b.store.Path)
 	if string(raw) != before {
 		t.Fatal("failed PUT wrote file")
 	}
-	call("PUT", "/api/sources/broken", `{"name":"broken","template":"fixed"}`, 200)
+	call("PUT", "/api/sources/broken", `{"name":"broken","body":"fixed"}`, 200)
 	check(false)
 	if err := os.WriteFile(b.store.Path, []byte(brokenSourcesYAML), 0600); err != nil {
 		t.Fatal(err)
@@ -111,7 +111,7 @@ func TestBrokenSourcesPublicAndPreview(t *testing.T) {
 	for _, tc := range []struct{ path, want string }{
 		{"/source/broken", `<span class="irl-text"></span>`},
 		{"/source/good", `<span class="irl-text">hello</span>`},
-		{"/source/broken/style.css", `.irl-text {color:red}`},
+		{"/source/broken/style.css", `.irl-source{opacity:1;}`},
 	} {
 		w := httptest.NewRecorder()
 		serveSource(w, httptest.NewRequest("GET", tc.path, nil), b, e, "en")

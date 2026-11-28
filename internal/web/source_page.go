@@ -68,7 +68,7 @@ func serveSource(w http.ResponseWriter, r *http.Request, b Backend, e *Events, l
 			switch parts[1] {
 			case "style.css":
 				w.Header().Set("Content-Type", "text/css; charset=utf-8")
-				fmt.Fprint(w, sources.Stylesheet(s))
+				fmt.Fprint(w, sources.BaseStylesheet)
 				return
 			case "events":
 				if e == nil {

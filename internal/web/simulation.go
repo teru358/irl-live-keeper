@@ -177,7 +177,7 @@ func serveSimulation(w http.ResponseWriter, r *http.Request, b Backend, e *Event
 			fail(422)
 			return true
 		}
-		writeJSON(w, 200, map[string]string{"text": text, "css": sources.Stylesheet(src)})
+		writeJSON(w, 200, map[string]string{"text": text, "css": sources.BaseStylesheet})
 		return true
 	}
 	list := sourceList(b)

@@ -270,7 +270,8 @@ body.in-standby .standby-tile { display: none; }
 .source-edit { min-width:0; }
 .source-insert { margin-bottom:12px; align-items:flex-end; }
 .source-insert .source-field { flex:1 1 120px; }
-.source-editor-label { margin-bottom:6px; font-size:14px; }
+.source-editor-label { display:block; margin-bottom:6px; font-size:14px; }
+.source-body { display:block; box-sizing:border-box; width:100%; min-height:260px; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:14px; line-height:1.5; tab-size:2; resize:vertical; white-space:pre; overflow:auto; }
 #sources-panel .cm-editor { min-height:180px; border:1px solid var(--line); }
 #sources-panel .cm-scroller { overflow:auto; }
 .source-preview { min-width:0; min-height:220px; overflow:auto; border:1px solid var(--line); border-radius:8px; background:repeating-conic-gradient(#8882 0% 25%,transparent 0% 50%) 0/20px 20px; }

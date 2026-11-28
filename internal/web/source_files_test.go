@@ -162,8 +162,7 @@ func TestDeletingSourceFileIsPaused(t *testing.T) {
 	if err := b.sourceStore.Transaction(b.Snapshot(), func(list []sources.Source, err error) ([]sources.Source, bool) {
 		source := sources.Default()
 		source.Name = "overlay"
-		source.Template = "{link.kbps}"
-		source.CSS = "body { background-image: url('/source/files/photo.png'); }"
+		source.Body = "<img src=\"/source/files/photo.png\">"
 		return append(list, source), true
 	}); err != nil {
 		t.Fatal(err)

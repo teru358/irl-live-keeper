@@ -55,7 +55,7 @@ func fileUsers(b Backend, name string) ([]string, error) {
 		}
 		needle := "/source/files/" + name
 		for _, src := range list {
-			if strings.Contains(src.CSS, needle) {
+			if strings.Contains(src.Body, needle) {
 				used = append(used, src.Name)
 			}
 		}
