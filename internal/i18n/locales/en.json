@@ -195,6 +195,7 @@
     "source_files.io": "Cannot read or write source files.",
     "template.asset_missing": "Asset not found: {assets}",
     "template.style_literal": "Value names inside <style> are not substituted. Put them in a style attribute to use values.",
+    "source_files.reason_name_collision": "Items have colliding names. Rename the file or its parent folder.",
     "source_files.reason_bad_name": "The name cannot be used (letters, digits, _ , - and a middle . only, up to 128 characters)",
     "source_files.reason_reserved_name": "Reserved Windows name",
     "source_files.reason_bad_extension": "Not an image extension (png, jpg, jpeg, gif, webp, avif, bmp, svg)",

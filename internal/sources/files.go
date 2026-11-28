@@ -54,28 +54,28 @@ func SafeFileName(upload string) (string, error) {
 	if base != upload {
 		return "", errors.New("invalid file name")
 	}
-	ext := strings.ToLower(filepath.Ext(base))
+	ext := asciiLower(filepath.Ext(base))
 	if ext != ".png" && ext != ".jpg" && ext != ".jpeg" && ext != ".gif" && ext != ".webp" && ext != ".avif" && ext != ".bmp" && ext != ".svg" {
 		return "", errors.New("invalid file extension")
 	}
 	stem := strings.TrimSuffix(base, filepath.Ext(base))
 	var b strings.Builder
 	for _, c := range stem {
-		if c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '_' || c == '-' {
+		if allowedAssetRune(c) {
 			b.WriteRune(c)
 		} else {
 			b.WriteByte('_')
 		}
 	}
 	name := b.String() + ext
-	if !fileNamePattern.MatchString(name) || CheckPath(name) != "" {
+	if CheckPath(name) != "" {
 		return "", errors.New("invalid file name")
 	}
 	return name, nil
 }
 
 func DetectImage(name string, data []byte) (string, error) {
-	ext := strings.ToLower(filepath.Ext(name))
+	ext := asciiLower(filepath.Ext(name))
 	var typ string
 	switch {
 	case bytes.HasPrefix(data, []byte("\x89PNG\r\n\x1a\n")):
@@ -298,6 +298,20 @@ func (s *FilesStore) Save(name string, data []byte) error {
 		return err
 	}
 	defer root.Close()
+	dir, err := root.Open(".")
+	if err != nil {
+		return err
+	}
+	des, err := dir.ReadDir(-1)
+	dir.Close()
+	if err != nil {
+		return err
+	}
+	for _, de := range des {
+		if foldName(de.Name()) == foldName(name) {
+			return os.ErrExist
+		}
+	}
 	f, err := root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 	if err != nil {
 		return err
@@ -319,20 +333,26 @@ func (s *FilesStore) Save(name string, data []byte) error {
 func (s *FilesStore) Delete(name string) error {
 	filesMu.Lock()
 	defer filesMu.Unlock()
-	segs := strings.Split(name, "/")
-	if name == "" || strings.ContainsRune(name, '\\') || len(segs) > MaxFolderDepth+1 || len(name) > MaxPathLength {
-		return os.ErrNotExist
-	}
-	for _, seg := range segs {
-		if !fileNamePattern.MatchString(seg) || seg == "." || seg == ".." {
-			return os.ErrNotExist
+	if !s.indexed() {
+		if _, err := s.rebuildLocked(); err != nil {
+			return err
 		}
+	}
+	idxMu.Lock()
+	_, known := s.idx.byPath[name]
+	idxMu.Unlock()
+	if !known || CheckPath(name) != "" {
+		return os.ErrNotExist
 	}
 	root, err := os.OpenRoot(s.Dir)
 	if err != nil {
 		return err
 	}
 	defer root.Close()
+	s.refreshNames(root, []string{name})
+	if !s.exactKnown(name) {
+		return os.ErrNotExist
+	}
 	info, err := lstatPath(root, name)
 	if err != nil {
 		if errors.Is(err, errSymlink) {

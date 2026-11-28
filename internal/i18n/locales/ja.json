@@ -195,6 +195,7 @@
     "source_files.io": "素材を読み書きできません。",
     "template.asset_missing": "素材が見つかりません: {assets}",
     "template.style_literal": "<style> の中の値の名前は差し込まれません。値を使うときは style 属性に書いてください。",
+    "source_files.reason_name_collision": "同じ名前とみなされる項目があります。ファイルまたは親フォルダの名前を変更してください",
     "source_files.reason_bad_name": "名前が使えません（半角英数字・_ ・- ・途中の . で128文字まで）",
     "source_files.reason_reserved_name": "Windows の予約名のため使えません",
     "source_files.reason_bad_extension": "画像の拡張子（png・jpg・jpeg・gif・webp・avif・bmp・svg）ではありません",

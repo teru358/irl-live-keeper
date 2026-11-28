@@ -3,21 +3,40 @@ const issue = code => ({code: 'template.' + code});
 const ws = c => c !== undefined && /[ \t\n\r\f]/.test(c);
 const ident = c => c !== undefined && /[A-Za-z0-9_-]/.test(c);
 const matches = (patterns, value) => patterns.some(p => new RegExp(p).test(value));
+const asciiLower = s => s.replace(/[A-Z]/g, c => String.fromCharCode(c.charCodeAt(0)+32));
+const encoder = new TextEncoder();
+const policies = new WeakMap();
+function policy(rules) {
+ if (!policies.has(rules)) policies.set(rules, {query:new RegExp(rules.asset.renderedQueryPattern), fragment:new RegExp(rules.css.fragmentPattern), reserved:new Set(rules.asset.reservedNames)});
+ return policies.get(rules);
+}
+export function checkAssetPath(rel, rules) {
+ const a=rules.asset, p=policy(rules), parts=rel.split('/');
+ if (encoder.encode(rel).length>a.maxPathLength || parts.length>a.maxSegments) return false;
+ for(const part of parts) {
+  if(!part || encoder.encode(part).length>a.maxSegmentLength || part.startsWith('.') || part.endsWith('.') || part.includes('..')) return false;
+  for(const c of part) {
+   const cp=c.codePointAt(0), rs=a.allowedRanges;
+   let lo=0, hi=rs.length;
+   while(lo<hi) {const mid=(lo+hi)>>>1; if(rs[mid][1]<cp) lo=mid+1; else hi=mid;}
+   if(lo===rs.length || rs[lo][0]>cp) return false;
+  }
+  if(p.reserved.has(asciiLower(part.split('.')[0]))) return false;
+ }
+ return parts.at(-1).includes('.') && a.extensions.includes(asciiLower(parts.at(-1).split('.').at(-1)));
+}
 export function checkURL(value, rules, css = false) {
-  const low = value.toLowerCase(), a = rules.asset;
+  const low = asciiLower(value), a = rules.asset;
   if (low.startsWith('data:image/') || css && low.startsWith('data:font/')) return value.includes(',');
-  if (css && new RegExp(rules.css.fragmentPattern).test(value)) return true;
+  if (css && policy(rules).fragment.test(value)) return true;
   if (!value.startsWith(a.prefix)) return false;
   let path = value;
   if (path.includes('?')) {
     const i = path.indexOf('?');
-    if (!new RegExp(a.renderedQueryPattern).test(path.slice(i + 1))) return false;
+    if (!policy(rules).query.test(path.slice(i + 1))) return false;
     path = path.slice(0, i);
   }
-  if (path.length > a.maxPathLength || path.includes('..') || path.includes('//') || /[?#%]/.test(path)) return false;
-  const parts = path.slice(a.prefix.length).split('/');
-  if (parts.length > a.maxSegments || parts.some(p => !new RegExp(a.segmentPattern).test(p) || p.endsWith('.') || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(p))) return false;
-  return parts.at(-1).includes('.') && a.extensions.includes(parts.at(-1).split('.').at(-1).toLowerCase());
+  return checkAssetPath(path.slice(a.prefix.length), rules);
 }
 export function checkCSS(s, rules) {
   for (let i = 0; i < s.length;) {

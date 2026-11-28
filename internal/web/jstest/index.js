@@ -15,3 +15,4 @@ import './review.test.mjs';
 
 import './body-editor.test.mjs';
 import './s2-86.test.mjs';
+import './asset-names.test.mjs';
