@@ -49,6 +49,7 @@ export function deletePrompt(item,list,t){
  const used=item.used_by?.map(name=>label(list.find(src=>src.name===name)||{name}));
  return prompt+(used?.length?'\n'+t('src_used').replace('{sources}',()=>used.join(', ')):'');
 }
+export const sourceFileDeletionPaused=()=>true;
 export function clearEditor(state){
  state.draft=null;state.base=null;state.preview=null;
  state.valueGroups=[];state.valuesOpen=false;state.valuesFilter='';state.valuesError='';

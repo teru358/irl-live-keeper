@@ -1,6 +1,8 @@
 package sources
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"io"
 	"io/fs"
@@ -51,6 +53,7 @@ type fileEntry struct {
 	Path    string
 	Size    int64
 	ModTime time.Time
+	Hash    string
 	Type    string
 	Usable  bool
 	Reason  Reason
@@ -136,6 +139,8 @@ func (e *fileEntry) checkContent(data []byte) {
 		return
 	}
 	e.Type, e.Usable, e.Reason = typ, true, ""
+	sum := sha256.Sum256(data)
+	e.Hash = hex.EncodeToString(sum[:])
 }
 
 var errSymlink = errors.New("symbolic link")
@@ -399,31 +404,41 @@ func (s *FilesStore) update(name string, e fileEntry) {
 // Open returns the bytes and type of a usable file. name must equal an index
 // path exactly. Only that file is opened.
 func (s *FilesStore) Open(name string) ([]byte, string, error) {
+	data, typ, _, err := s.OpenWithHash(name)
+	return data, typ, err
+}
+
+// OpenWithHash returns the bytes, MIME type, and lowercase SHA-256 digest of
+// a usable indexed file. It checks the bytes on every open so same-size edits
+// with preserved timestamps are detected as well.
+func (s *FilesStore) OpenWithHash(name string) ([]byte, string, string, error) {
 	e, ok, err := s.lookup(name)
 	if err != nil {
-		return nil, "", err
+		return nil, "", "", err
 	}
 	if !ok || !e.Usable {
-		return nil, "", os.ErrNotExist
+		return nil, "", "", os.ErrNotExist
 	}
 	root, err := os.OpenRoot(s.Dir)
 	if err != nil {
-		return nil, "", os.ErrNotExist
+		return nil, "", "", os.ErrNotExist
 	}
 	defer root.Close()
 	lst, err := lstatPath(root, name)
 	if err != nil {
-		return nil, "", os.ErrNotExist
+		return nil, "", "", os.ErrNotExist
 	}
 	data, info, err := readRegular(root, name, lst)
 	if err != nil {
-		return nil, "", os.ErrNotExist
+		return nil, "", "", os.ErrNotExist
 	}
-	if info.Size() == e.Size && info.ModTime().Equal(e.ModTime) && int64(len(data)) == e.Size {
-		return data, e.Type, nil
+	sum := sha256.Sum256(data)
+	hash := hex.EncodeToString(sum[:])
+	if hash == e.Hash && info.Size() == e.Size && info.ModTime().Equal(e.ModTime) && int64(len(data)) == e.Size {
+		return data, e.Type, hash, nil
 	}
 	// The file changed after the index was made: re-validate only this file.
-	ne := fileEntry{Path: name, Size: info.Size(), ModTime: info.ModTime()}
+	ne := fileEntry{Path: name, Size: info.Size(), ModTime: info.ModTime(), Hash: hash}
 	if data == nil || len(data) > MaxFileSize {
 		ne.Reason = ReasonTooLarge
 	} else {
@@ -432,7 +447,7 @@ func (s *FilesStore) Open(name string) ([]byte, string, error) {
 	}
 	s.update(name, ne)
 	if !ne.Usable {
-		return nil, "", os.ErrNotExist
+		return nil, "", "", os.ErrNotExist
 	}
-	return data, ne.Type, nil
+	return data, ne.Type, ne.Hash, nil
 }

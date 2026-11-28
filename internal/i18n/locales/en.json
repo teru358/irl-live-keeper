@@ -175,6 +175,7 @@
     "source_files.duplicate": "A file with that name already exists.",
     "source_files.limit": "The limits are 5 MiB per file and 100 MiB total.",
     "source_files.in_use": "This file is used by a source.",
+    "source_files.deletion_paused": "Cannot delete until source body references can be checked.",
     "source_files.io": "Cannot read or write source files.",
     "source_files.reason_bad_name": "The name cannot be used (letters, digits, _ , - and a middle . only, up to 128 characters)",
     "source_files.reason_reserved_name": "Reserved Windows name",

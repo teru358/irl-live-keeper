@@ -1,6 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {layout,remember,dirty,assetText,valueText,conditionText,previewRequest,sourceURL} from '../assets/app/sources-state.js';
+import {layout,remember,dirty,assetText,valueText,conditionText,previewRequest,sourceURL,sourceFileDeletionPaused} from '../assets/app/sources-state.js';
+test('source file deletion is paused',()=>{assert.equal(sourceFileDeletionPaused(),true);});
 test('layout survives storage failure and rejects invalid values',()=>{assert.deepEqual(layout({getItem(){throw Error();}}),{mode:'split',axis:'horizontal'});assert.deepEqual(layout({getItem:()=>'{"mode":"bad","axis":"vertical"}'}),{mode:'split',axis:'vertical'});remember({setItem(){throw Error();}},{});let saved;remember({setItem(k,v){saved=v;}},{mode:'previewonly',axis:'vertical'});assert.equal(layout({getItem:()=>saved}).mode,'previewonly');});
 test('insertions and unsaved changes',()=>{assert.equal(assetText('a.png'),'url("/source/files/a.png")');assert.equal(valueText('cam1.kbps'),'{cam1.kbps}');assert.equal(conditionText('cam1.online','x'),'{if cam1.online}x{end}');assert.equal(dirty({css:'a'},{css:'a'}),false);assert.equal(dirty({css:'b'},{css:'a'}),true);});
 test('preview payload distinguishes draft and names',()=>{assert.deepEqual(previewRequest(null,['a'],{mode:'actual'}),{names:['a'],simulate:{mode:'actual'}});assert.deepEqual(previewRequest({template:'x'},[],{mode:'LOW'}),{source:{template:'x'},simulate:{mode:'LOW'}});});

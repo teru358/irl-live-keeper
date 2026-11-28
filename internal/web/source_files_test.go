@@ -2,6 +2,8 @@ package web
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -10,8 +12,10 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/teru358/irl-live-keeper/internal/sources"
 )
@@ -83,8 +87,55 @@ func TestSourceFileIsPublicAndHasSafeType(t *testing.T) {
 	if w.Code != 200 || w.Header().Get("Content-Type") != "image/png" || w.Header().Get("X-Content-Type-Options") != "nosniff" {
 		t.Fatalf("%d %#v", w.Code, w.Header())
 	}
+	if w.Header().Get("Cache-Control") != "no-cache" || !regexp.MustCompile(`^"[0-9a-f]{64}"$`).MatchString(w.Header().Get("ETag")) {
+		t.Fatalf("cache headers: %#v", w.Header())
+	}
 	if _, err := os.Stat(filepath.Join(dir, "photo.png")); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestSourceFileETagConditionalAndReplacedContents(t *testing.T) {
+	dir := t.TempDir()
+	b := &fileBackend{files: sources.FilesStore{Dir: dir}}
+	first := pngBytes(t)
+	if err := b.files.Save("photo.png", first); err != nil {
+		t.Fatal(err)
+	}
+	h := New(b, testPass)
+	initial := getPublic(h, "/source/files/photo.png")
+	if initial.Code != 200 {
+		t.Fatal(initial.Code)
+	}
+	etag := initial.Header().Get("ETag")
+	r := httptest.NewRequest("GET", "/source/files/photo.png", nil)
+	r.Header.Set("If-None-Match", etag)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusNotModified || w.Body.Len() != 0 || w.Header().Get("ETag") != etag {
+		t.Fatalf("conditional response: %d %q %#v", w.Code, w.Body.String(), w.Header())
+	}
+
+	second := pngVariant(t, color.RGBA{R: 255, A: 255})
+	if bytes.Equal(first, second) {
+		t.Fatal("test PNGs are identical")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "photo.png"), second, 0600); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Date(2001, 1, 1, 0, 0, 0, 0, time.UTC)
+	if err := os.Chtimes(filepath.Join(dir, "photo.png"), old, old); err != nil {
+		t.Fatal(err)
+	}
+	r = httptest.NewRequest("GET", "/source/files/photo.png", nil)
+	r.Header.Set("If-None-Match", etag)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != 200 || w.Header().Get("ETag") == etag || !bytes.Equal(w.Body.Bytes(), second) {
+		t.Fatalf("replacement response: %d ETag=%q body matches=%v", w.Code, w.Header().Get("ETag"), bytes.Equal(w.Body.Bytes(), second))
+	}
+	if w.Header().Get("ETag") != fmt.Sprintf("%q", fmt.Sprintf("%x", sha256.Sum256(second))) {
+		t.Fatalf("ETag is not content SHA-256: %q", w.Header().Get("ETag"))
 	}
 }
 
@@ -102,7 +153,7 @@ func TestSVGSourceFileHasSandboxHeaders(t *testing.T) {
 	}
 }
 
-func TestDeletingUsedFileReturnsSourceNames(t *testing.T) {
+func TestDeletingSourceFileIsPaused(t *testing.T) {
 	dir := t.TempDir()
 	b := &fileBackend{files: sources.FilesStore{Dir: filepath.Join(dir, "source-files")}, sourceStore: sources.Store{Path: filepath.Join(dir, "sources.yaml")}}
 	if err := b.files.Save("photo.png", pngBytes(t)); err != nil {
@@ -122,18 +173,36 @@ func TestDeletingUsedFileReturnsSourceNames(t *testing.T) {
 	if wList.Code != 200 || !strings.Contains(wList.Body.String(), `"used_by":["overlay"]`) {
 		t.Fatal(wList.Code, wList.Body.String())
 	}
-	r := httptest.NewRequest("DELETE", "/api/source-files/photo.png", nil)
+	r := httptest.NewRequest("DELETE", "/api/source-files/photo.png?lang=ja", nil)
 	r.Header.Set(headerName, "1")
 	w := httptest.NewRecorder()
 	apiHandler(b, nil).ServeHTTP(w, r)
-	if w.Code != 409 || !strings.Contains(w.Body.String(), `"used_by":["overlay"]`) {
+	if w.Code != 409 || !strings.Contains(w.Body.String(), "本文の参照を調べられるようになるまで削除できません") {
 		t.Fatalf("%d %s", w.Code, w.Body.String())
 	}
-	r = httptest.NewRequest("DELETE", "/api/source-files/photo.png?confirm=true", nil)
+	r = httptest.NewRequest("DELETE", "/api/source-files/photo.png?lang=en&confirm=true", nil)
 	r.Header.Set(headerName, "1")
 	w = httptest.NewRecorder()
 	apiHandler(b, nil).ServeHTTP(w, r)
-	if w.Code != 200 {
-		t.Fatalf("confirmed delete: %d %s", w.Code, w.Body.String())
+	if w.Code != 409 || !strings.Contains(w.Body.String(), "Cannot delete until source body references can be checked") {
+		t.Fatalf("paused delete: %d %s", w.Code, w.Body.String())
 	}
+	r = httptest.NewRequest("DELETE", "/api/source-files/a/b.png?lang=en", nil)
+	r.Header.Set(headerName, "1")
+	w = httptest.NewRecorder()
+	apiHandler(b, nil).ServeHTTP(w, r)
+	if w.Code != 409 || !strings.Contains(w.Body.String(), "Cannot delete until source body references can be checked") {
+		t.Fatalf("nested paused delete: %d %s", w.Code, w.Body.String())
+	}
+}
+
+func pngVariant(t *testing.T, c color.RGBA) []byte {
+	t.Helper()
+	im := image.NewRGBA(image.Rect(0, 0, 1, 1))
+	im.SetRGBA(0, 0, c)
+	var b bytes.Buffer
+	if err := png.Encode(&b, im); err != nil {
+		t.Fatal(err)
+	}
+	return b.Bytes()
 }
