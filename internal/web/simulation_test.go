@@ -112,12 +112,12 @@ func TestPublicSimulationOptIn(t *testing.T) {
 	api.ServeHTTP(httptest.NewRecorder(), r)
 	e := NewEvents(b, nil, nil)
 	defer e.Close()
+	// The public page starts empty and receives the body over SSE (S2-78), so
+	// check the text published for public pages instead of the initial HTML.
 	page := func(want string) {
 		t.Helper()
-		w := httptest.NewRecorder()
-		serveSource(w, httptest.NewRequest("GET", "/source/a", nil), b, e, "ja")
-		if !strings.Contains(w.Body.String(), `<span class="irl-text">`+want+`</span>`) {
-			t.Fatal(w.Body.String())
+		if got := e.texts()["a"]; got != want {
+			t.Fatalf("public text = %q, want %q", got, want)
 		}
 	}
 	page("false")

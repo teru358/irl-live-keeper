@@ -16,6 +16,9 @@ func isSourcesPath(p string) bool {
 	return p == "/api/source-values" || p == "/api/sources/test-obs/alive" || p == "/api/sources" || strings.HasPrefix(p, "/api/sources/") && sources.NamePattern.MatchString(strings.TrimPrefix(p, "/api/sources/"))
 }
 func sourcesMethod(p, m string) bool {
+	if p == "/api/sources/frame" {
+		return m == "GET"
+	}
 	if p == "/api/sources/preview" || p == "/api/sources/test-obs/alive" {
 		return m == "POST"
 	}
@@ -29,6 +32,10 @@ func sourcesMethod(p, m string) bool {
 }
 func serveSources(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.Lang) {
 	w.Header().Set("Cache-Control", "no-store")
+	if r.URL.Path == "/api/sources/frame" {
+		writeSourceFrame(w, "preview", false)
+		return
+	}
 	provider, ok := b.(interface{ SourcesStore() *sources.Store })
 	if !ok {
 		writeError(w, 503, lang, i18n.New("api.stopped"))

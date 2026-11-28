@@ -31,7 +31,7 @@ line/column は1始まり、column は Unicode 文字単位。エラーは現在
 
 ソースの編集は previewError / editorError / editorNotice を持ち、一覧の notice と分ける。
 sources の SSE によるテスト解除の案内は testNotice に置き、操作の知らせは上書きしない。
-プレビューの Shadow DOM は部品の境界で保持し、文字・CSS・保存の版が変わった部分だけ更新する。
+プレビューは sandbox="allow-same-origin" の iframe に保持する。reconcile.js の updateRendered で文字列・DOMParser の木を再検査し、検査を通った本文を共通の reconcile で更新する。
 
 settings.js は cameras / settings のページごとに独立した store と確認窓を持つ。
 GET の field_locations が項目の所属を決め、settings-pages.js の projectPage で送る値を絞る。

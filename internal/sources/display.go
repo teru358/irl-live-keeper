@@ -23,4 +23,4 @@ func Render(s Source, snapshot core.Snapshot, now time.Time, stats ...map[string
 }
 
 // BaseStylesheet is the page skeleton CSS until the body carries its own styles.
-const BaseStylesheet = "html,body{margin:0;background:transparent;}\n.irl-text{white-space:pre-wrap;}\n.irl-source{opacity:1;}\n.irl-empty{opacity:0;}\n"
+const BaseStylesheet = "html,body{margin:0;background:transparent;}\n.irl-source{opacity:1;}\n"

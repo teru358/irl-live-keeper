@@ -546,6 +546,7 @@
     "src_obs": "OBS にも反映",
     "src_discard": "未保存の変更を破棄しますか？",
     "src_confirmdelete": "「{name}」を削除しますか？",
+    "src_font_hint": "フォントは見ている機器のものを使うため、OBS と違って見えることがあります。",
     "src_steps": "OBS の「ソース」で「＋」→「ブラウザ」を選び、URL とおすすめの幅・高さを入力してください。",
     "src_stopped": "配信が始まったため、OBS へのテスト反映を解除しました。",
     "src_saved": "保存しました",
