@@ -243,6 +243,8 @@ func (p *parser) lex() error {
 			b.Reset()
 		}
 	}
+	// lineStart は読み終えた本文で最後の改行の次。制御タグのたびに頭から探し直さない。
+	lineStart := 0
 	for i := 0; i < len(s); {
 		if i+1 < len(s) && (s[i:i+2] == "{{" || s[i:i+2] == "}}") {
 			b.WriteByte(s[i])
@@ -255,6 +257,9 @@ func (p *parser) lex() error {
 		if s[i] != '{' {
 			b.WriteByte(s[i])
 			i++
+			if s[i-1] == '\n' {
+				lineStart = i
+			}
 			continue
 		}
 		flush()
@@ -366,7 +371,7 @@ func (p *parser) lex() error {
 		// 制御タグだけの行を元の位置情報を保ったまま除く。
 		k := ts[0].kind
 		if k == "if" || k == "elif" || k == "else" || k == "end" {
-			ls := strings.LastIndex(s[:start], "\n") + 1
+			ls := lineStart
 			end := i
 			for end < len(s) && (s[end] == ' ' || s[end] == '\t' || s[end] == '\r') {
 				end++
@@ -381,6 +386,7 @@ func (p *parser) lex() error {
 				i = end
 				if i < len(s) {
 					i++
+					lineStart = i
 				}
 			}
 		}

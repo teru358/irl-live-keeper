@@ -2,6 +2,7 @@ package template
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 )
@@ -190,5 +191,50 @@ func TestNumericOperators(t *testing.T) {
 		{"not not true", "Y"}} {
 		run(t,
 			"{if "+c.expr+"}Y{end}", c.w, nil)
+	}
+}
+
+// 64 KiB の入力。制御タグのたびに本文の頭から行の頭を探し直さず、長さに比例する時間で読む。
+func largeBodies() map[string]string {
+	unit := "{if cam1.kbps > 0}a{end}"
+	lines := "{if cam1.kbps > 0}\na\n{end}\n"
+	return map[string]string{
+		"one line":   strings.Repeat(unit, 65536/len(unit)),
+		"with lines": strings.Repeat(unit+"\n", 65536/(len(unit)+1)),
+		"control":    strings.Repeat(lines, 65536/len(lines)),
+	}
+}
+
+func TestCompileLargeBodyIsFast(t *testing.T) {
+	for name, s := range largeBodies() {
+		t.Run(name, func(t *testing.T) {
+			best := time.Hour
+			for n := 0; n < 5; n++ {
+				start := time.Now()
+				if _, e := Compile(s, defs); e != nil {
+					t.Fatal(e)
+				}
+				if d := time.Since(start); d < best {
+					best = d
+				}
+			}
+			t.Logf("%s: %d bytes, best of 5 %v", name, len(s), best)
+			if best > 20*time.Millisecond {
+				t.Fatalf("Compile of %d bytes took %v; want 20ms or less", len(s), best)
+			}
+		})
+	}
+}
+
+func BenchmarkCompile64KiB(b *testing.B) {
+	for name, s := range largeBodies() {
+		b.Run(name, func(b *testing.B) {
+			b.SetBytes(int64(len(s)))
+			for i := 0; i < b.N; i++ {
+				if _, e := Compile(s, defs); e != nil {
+					b.Fatal(e)
+				}
+			}
+		})
 	}
 }
