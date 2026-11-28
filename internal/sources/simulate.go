@@ -244,7 +244,10 @@ func scenesFor(s core.Snapshot) (monitored, standby string) {
 	}
 	return monitored, standby
 }
-func RenderSimulation(src Source, s core.Snapshot, now time.Time, stats map[string]template.Value, sim Simulation) (string, error) {
+
+// RenderSimulation assembles the source. versions (nil for none) adds ?v=<version>
+// to every asset path it knows.
+func RenderSimulation(src Source, s core.Snapshot, now time.Time, stats map[string]template.Value, sim Simulation, versions AssetVersions) (string, error) {
 	if src.Broken != nil {
 		return "", nil
 	}
@@ -256,9 +259,5 @@ func RenderSimulation(src Source, s core.Snapshot, now time.Time, stats map[stri
 	if err != nil {
 		return "", err
 	}
-	out := p.Render(v)
-	if err := ValidateHTML(out, "rendered"); err != nil {
-		return "", err
-	}
-	return out, nil
+	return versionedHTML(p.Render(v), versions)
 }

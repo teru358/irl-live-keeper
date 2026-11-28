@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"github.com/teru358/irl-live-keeper/internal/core"
 	"github.com/teru358/irl-live-keeper/internal/i18n"
 	"github.com/teru358/irl-live-keeper/internal/sources"
 	"github.com/teru358/irl-live-keeper/internal/sources/template"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -140,8 +142,12 @@ func serveSimulation(w http.ResponseWriter, r *http.Request, b Backend, e *Event
 		fail(422)
 		return true
 	}
+	if store, ok := sourceFiles(b); ok {
+		_ = store.EnsureIndex() // the ?v= versions come from the index
+	}
+	versions := assetVersions(b)
 	render := func(src sources.Source) (string, bool) {
-		text, err := sources.RenderSimulation(src, snapshot, now, stats, req.Simulate)
+		text, err := sources.RenderSimulation(src, snapshot, now, stats, req.Simulate, versions)
 		if err != nil {
 			var te *template.Error
 			if errors.As(err, &te) {
@@ -177,7 +183,7 @@ func serveSimulation(w http.ResponseWriter, r *http.Request, b Backend, e *Event
 			fail(422)
 			return true
 		}
-		writeJSON(w, 200, map[string]string{"text": text, "css": sources.BaseStylesheet})
+		writeJSON(w, 200, map[string]any{"text": text, "css": sources.BaseStylesheet, "warnings": sourceWarnings(b, src, snapshot, lang)})
 		return true
 	}
 	list := sourceList(b)
@@ -231,4 +237,40 @@ func (e *Events) stopSimulationEvent(v interface{ Kind() string }) {
 		}
 		e.updateSources(time.Now())
 	}
+}
+
+// previewWarning is a notice about a body that can still be saved. Assets lists
+// the missing assets (relative paths) of an asset_missing notice.
+type previewWarning struct {
+	Code    string   `json:"code"`
+	Message string   `json:"message"`
+	Assets  []string `json:"assets,omitempty"`
+}
+
+// sourceWarnings checks a body that compiles: literal template-like CSS and the
+// assets it uses that are not in the assets folder. The editor shows them; they
+// do not stop a save.
+func sourceWarnings(b Backend, src sources.Source, snapshot core.Snapshot, lang i18n.Lang) []previewWarning {
+	out := []previewWarning{}
+	p, err := sources.CompileHTML(src.Body, sources.Definitions(snapshot))
+	if err != nil {
+		return out
+	}
+	var available map[string]bool
+	if store, ok := sourceFiles(b); ok {
+		available = store.Available()
+	}
+	for _, code := range p.Warnings(available) {
+		w := previewWarning{Code: code}
+		if code == "template.asset_missing" {
+			for _, path := range p.MissingAssets(available) {
+				w.Assets = append(w.Assets, strings.TrimPrefix(path, sources.AssetPrefix))
+			}
+			w.Message = i18n.Render(lang, i18n.New(code, "assets", strings.Join(w.Assets, ", ")))
+		} else {
+			w.Message = i18n.Render(lang, i18n.New(code))
+		}
+		out = append(out, w)
+	}
+	return out
 }

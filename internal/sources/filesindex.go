@@ -438,16 +438,161 @@ func (s *FilesStore) OpenWithHash(name string) ([]byte, string, string, error) {
 		return data, e.Type, hash, nil
 	}
 	// The file changed after the index was made: re-validate only this file.
-	ne := fileEntry{Path: name, Size: info.Size(), ModTime: info.ModTime(), Hash: hash}
-	if data == nil || len(data) > MaxFileSize {
-		ne.Reason = ReasonTooLarge
-	} else {
-		ne.Size = int64(len(data))
-		ne.checkContent(data)
-	}
+	ne := revalidatedEntry(name, data, info)
 	s.update(name, ne)
 	if !ne.Usable {
 		return nil, "", "", os.ErrNotExist
 	}
 	return data, ne.Type, ne.Hash, nil
+}
+
+// revalidatedEntry makes the index row of a file again from the bytes read
+// through an opened handle (data is nil when the file is too large).
+func revalidatedEntry(name string, data []byte, info fs.FileInfo) fileEntry {
+	ne := fileEntry{Path: name, Size: info.Size(), ModTime: info.ModTime()}
+	if data == nil || len(data) > MaxFileSize {
+		ne.Reason = ReasonTooLarge
+		return ne
+	}
+	ne.Size = int64(len(data))
+	ne.checkContent(data)
+	return ne
+}
+
+// put stores a row in the index, adding it when the file was not known.
+func (s *FilesStore) put(name string, e fileEntry) {
+	idxMu.Lock()
+	defer idxMu.Unlock()
+	if s.idx == nil {
+		return
+	}
+	if cur, ok := s.idx.byPath[name]; ok {
+		*cur = e
+		return
+	}
+	ne := e
+	s.idx.entries = append(s.idx.entries, &ne)
+	s.idx.byPath[name] = &ne
+}
+
+// peek returns a copy of the index row of a file, without building the index.
+func (s *FilesStore) peek(name string) (fileEntry, bool, bool) {
+	idxMu.Lock()
+	defer idxMu.Unlock()
+	if s.idx == nil {
+		return fileEntry{}, false, false
+	}
+	e, ok := s.idx.byPath[name]
+	if !ok {
+		return fileEntry{}, false, true
+	}
+	return *e, true, true
+}
+
+// AssetPrefix is the URL path in front of the relative path of an asset.
+const AssetPrefix = "/source/files/"
+
+// Versions gives the ?v= version (the first 12 hex digits of the content
+// SHA-256) of the usable assets among paths ("/source/files/<path>"). It only
+// reads the remembered index: it never scans the folder, and returns nil while
+// the index has not been built.
+func (s *FilesStore) Versions(paths []string) map[string]string {
+	idxMu.Lock()
+	defer idxMu.Unlock()
+	if s.idx == nil {
+		return nil
+	}
+	out := map[string]string{}
+	for _, p := range paths {
+		if e, ok := s.idx.byPath[strings.TrimPrefix(p, AssetPrefix)]; ok && strings.HasPrefix(p, AssetPrefix) && e.Usable && len(e.Hash) >= 12 {
+			out[p] = e.Hash[:12]
+		}
+	}
+	return out
+}
+
+// Available lists the usable assets as "/source/files/<path>". It builds the
+// index when that has not been done. A nil set means the folder cannot be read.
+func (s *FilesStore) Available() map[string]bool {
+	if err := s.EnsureIndex(); err != nil {
+		return nil
+	}
+	idxMu.Lock()
+	defer idxMu.Unlock()
+	out := map[string]bool{}
+	for _, e := range s.idx.entries {
+		if e.Usable {
+			out[AssetPrefix+e.Path] = true
+		}
+	}
+	return out
+}
+
+// Refresh looks at the assets among paths ("/source/files/<path>") with a stat.
+// A file whose size or modification time differs from the index (or that is
+// not in the index yet, or is gone) is read again and its row replaced. It
+// returns true when a usable asset appeared, changed its content or type, or
+// stopped being usable. It does not scan the folder and holds no lock while it
+// reads files.
+func (s *FilesStore) Refresh(paths []string) bool {
+	rels := make([]string, 0, len(paths))
+	for _, p := range paths {
+		if rel := strings.TrimPrefix(p, AssetPrefix); rel != p && CheckPath(rel) == "" {
+			rels = append(rels, rel)
+		}
+	}
+	if len(rels) == 0 {
+		return false
+	}
+	if _, _, built := s.peek(rels[0]); !built {
+		return false
+	}
+	root, err := os.OpenRoot(s.Dir)
+	if err != nil {
+		return false
+	}
+	defer root.Close()
+	changed := false
+	for _, rel := range rels {
+		old, known, _ := s.peek(rel)
+		lst, err := lstatPath(root, rel)
+		if err != nil {
+			if known && old.Usable {
+				s.put(rel, fileEntry{Path: rel, Reason: ReasonUnreadable})
+				changed = true
+			}
+			continue
+		}
+		// A row over the limit stays so until the next rebuild counts the files again.
+		if known && (old.Reason == ReasonOverLimit || lst.Size() == old.Size && lst.ModTime().Equal(old.ModTime)) {
+			continue
+		}
+		data, info, err := readRegular(root, rel, lst)
+		var ne fileEntry
+		switch {
+		case errors.Is(err, errNotRegular):
+			ne = fileEntry{Path: rel, Reason: ReasonNotRegular}
+		case err != nil:
+			ne = fileEntry{Path: rel, Reason: ReasonUnreadable}
+		default:
+			ne = revalidatedEntry(rel, data, info)
+		}
+		s.put(rel, ne)
+		if (known && old.Usable || ne.Usable) && (old.Usable != ne.Usable || old.Hash != ne.Hash || old.Type != ne.Type) {
+			changed = true
+		}
+	}
+	return changed
+}
+
+// rows copies the rows of an index. Refresh can replace a row while the index
+// is in use, so rows are read under idxMu.
+func (s *FilesStore) rows(idx *fileIndex) []fileEntry {
+	idxMu.Lock()
+	defer idxMu.Unlock()
+	out := make([]fileEntry, 0, len(idx.entries))
+	for _, e := range idx.entries {
+		out = append(out, *e)
+	}
+	return out
 }

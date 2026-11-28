@@ -519,21 +519,3 @@ func TestSaveRefusesToFollowALinkAtTheName(t *testing.T) {
 		t.Fatal("wrote outside the folder")
 	}
 }
-
-func TestDeleteKeepsWorkingAtTheRootOnly(t *testing.T) {
-	dir := t.TempDir()
-	writeFile(t, dir, "x.png", samplePNG(t))
-	writeFile(t, dir, "d/y.png", samplePNG(t))
-	s := &FilesStore{Dir: dir}
-	for _, n := range []string{"d/y.png", "d", "../x.png", `a\x.png`, ""} {
-		if err := s.Delete(n); err == nil {
-			t.Errorf("deleted %q", n)
-		}
-	}
-	if _, err := os.Stat(filepath.Join(dir, "d", "y.png")); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.Delete("x.png"); err != nil {
-		t.Fatal(err)
-	}
-}

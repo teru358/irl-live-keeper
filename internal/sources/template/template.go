@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html"
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -624,6 +625,29 @@ func References(text, name string) bool {
 		}
 	}
 	return false
+}
+
+// Names lists, sorted and without repeats, the identifiers used in the template
+// tags of text. A lexical error stops the scan and the names read so far are kept.
+func Names(text string) []string {
+	p := &parser{source: text}
+	_ = p.lex()
+	seen := map[string]bool{}
+	names := []string{}
+	for _, part := range p.parts {
+		for i, t := range part.ts {
+			// The word after a colon is a format (now:hm), not a value.
+			if i > 0 && part.ts[i-1].kind == ":" {
+				continue
+			}
+			if t.kind == "name" && !seen[t.text] {
+				seen[t.text] = true
+				names = append(names, t.text)
+			}
+		}
+	}
+	sort.Strings(names)
+	return names
 }
 
 // RenderHTML escapes substitutions while preserving literal template text.

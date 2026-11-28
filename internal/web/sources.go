@@ -60,7 +60,12 @@ func serveSources(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.L
 						broken[src.Name] = map[string]any{"code": e.Message.Code, "error": i18n.Render(lang, e.Message), "line": e.Line, "column": e.Column}
 					}
 				}
-				writeJSON(w, 200, map[string]any{"sources": list, "broken": broken, "names": sourceNames(b), "default": sources.Default()})
+				defs := sources.Definitions(b.Snapshot())
+				rows := make([]sourceRow, 0, len(list))
+				for _, src := range list {
+					rows = append(rows, sourceRow{src, sources.ReferencesOf(src.Body, defs).Cameras})
+				}
+				writeJSON(w, 200, map[string]any{"sources": rows, "broken": broken, "names": sourceNames(b), "default": sources.Default()})
 			} else if index >= 0 {
 				writeJSON(w, 200, list[index])
 			} else {
@@ -129,6 +134,14 @@ func serveSources(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.L
 		}
 		writeJSON(w, status, map[string]bool{"ok": true})
 	}
+}
+
+// sourceRow is a source in the list, with the camera ids its body uses in any
+// branch (cam<n>.* names outside <style> text). The editor does not send
+// cameras back; it is not part of a saved source.
+type sourceRow struct {
+	sources.Source
+	Cameras []string `json:"cameras"`
 }
 
 func sourceNames(b Backend) []string {

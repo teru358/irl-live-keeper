@@ -4,16 +4,13 @@ import (
 	"errors"
 	"net/http"
 	"os"
-	"path"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/teru358/irl-live-keeper/internal/i18n"
 	"github.com/teru358/irl-live-keeper/internal/sources"
 )
-
-// Keep file deletion paused until saved source body references can be checked.
-const sourceFilesDeletionPaused = true
 
 func isSourceFilesAPI(p string) bool {
 	return p == "/api/source-files" || strings.HasPrefix(p, "/api/source-files/")
@@ -25,7 +22,7 @@ func sourceFilesMethod(p, m string) string {
 		}
 		return ""
 	}
-	if rest := strings.TrimPrefix(p, "/api/source-files/"); rest != "" && (sourceFilesDeletionPaused || !strings.Contains(rest, "/")) && m == http.MethodDelete {
+	if rest := strings.TrimPrefix(p, "/api/source-files/"); rest != "" && m == http.MethodDelete {
 		return m
 	}
 	if m == http.MethodGet {
@@ -40,28 +37,6 @@ func sourceFiles(b Backend) (*sources.FilesStore, bool) {
 		return nil, false
 	}
 	return v.SourceFilesStore(), true
-}
-func fileUsers(b Backend, name string) ([]string, error) {
-	v, ok := b.(interface{ SourcesStore() *sources.Store })
-	if !ok {
-		return []string{}, nil
-	}
-	used := []string{}
-	var readErr error
-	_ = v.SourcesStore().Transaction(b.Snapshot(), func(list []sources.Source, err error) ([]sources.Source, bool) {
-		if err != nil {
-			readErr = err
-			return nil, false
-		}
-		needle := "/source/files/" + name
-		for _, src := range list {
-			if strings.Contains(src.Body, needle) {
-				used = append(used, src.Name)
-			}
-		}
-		return nil, false
-	})
-	return used, readErr
 }
 
 // sourceFileJSON is one row of the list response. Name is the relative path
@@ -97,7 +72,7 @@ func sourceFileList(list sources.FileList, lang i18n.Lang) map[string]any {
 	return map[string]any{"files": files, "notices": notices}
 }
 
-func serveSourceFilesAPI(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.Lang) {
+func serveSourceFilesAPI(w http.ResponseWriter, r *http.Request, b Backend, e *Events, lang i18n.Lang) {
 	w.Header().Set("Cache-Control", "no-store")
 	store, ok := sourceFiles(b)
 	if !ok {
@@ -107,23 +82,23 @@ func serveSourceFilesAPI(w http.ResponseWriter, r *http.Request, b Backend, lang
 	if r.URL.Path == "/api/source-files" {
 		switch r.Method {
 		case http.MethodGet:
-			var sourceErr error
-			list, err := store.List(func(n string) []string {
-				refs, e := fileUsers(b, n)
-				if e != nil {
-					sourceErr = e
-				}
-				return refs
-			})
-			if sourceErr != nil {
-				writeError(w, 409, lang, i18n.New("sources.unreadable"))
-				return
-			}
+			// The saved sources are read before the folder, so that no store
+			// lock is held while the other one is.
+			usage, sourceErr := assetUsage(b)
+			list, err := store.List(func(n string) []string { return useNames(usage[sources.AssetPrefix+n]) })
 			if err != nil {
 				writeError(w, 500, lang, i18n.New("source_files.io"))
 				return
 			}
-			writeJSON(w, 200, sourceFileList(list, lang))
+			body := sourceFileList(list, lang)
+			if sourceErr != nil {
+				// Unused is not assumed: say that the uses are unknown.
+				body["notices"] = append(body["notices"].([]sourceFileNotice), sourceFileNotice{Code: "sources.unreadable", Message: i18n.Render(lang, i18n.New("sources.unreadable"))})
+			}
+			// The rebuild read every file again, so a replacement with the same
+			// size and time shows up in the pages that are open.
+			refreshSources(e)
+			writeJSON(w, 200, body)
 		case http.MethodPost:
 			if sourceKind(r) != "local" {
 				lan, ok := b.(interface{ AdminLANEnabled() bool })
@@ -153,6 +128,7 @@ func serveSourceFilesAPI(w http.ResponseWriter, r *http.Request, b Backend, lang
 				return
 			}
 			requestLogger(r).Info("source file uploaded", "name", name, "size", len(data))
+			refreshSources(e)
 			writeJSON(w, 201, map[string]any{"ok": true, "name": name, "size": len(data)})
 		}
 		return
@@ -162,21 +138,17 @@ func serveSourceFilesAPI(w http.ResponseWriter, r *http.Request, b Backend, lang
 		writeError(w, 405, lang, i18n.New("api.method"))
 		return
 	}
-	if sourceFilesDeletionPaused {
-		writeError(w, http.StatusConflict, lang, i18n.New("source_files.deletion_paused"))
-		return
-	}
-	if path.Base(name) != name || strings.ContainsAny(name, `/\\`) {
+	if name == "" || strings.ContainsRune(name, '\\') {
 		writeError(w, 400, lang, i18n.New("source_files.invalid"))
 		return
 	}
-	used, readErr := fileUsers(b, name)
+	usage, readErr := assetUsage(b)
 	if readErr != nil {
 		writeError(w, 409, lang, i18n.New("sources.unreadable"))
 		return
 	}
-	if len(used) > 0 && r.URL.Query().Get("confirm") != "true" {
-		writeJSON(w, 409, map[string]any{"error": i18n.Render(lang, i18n.New("source_files.in_use")), "code": "source_files.in_use", "used_by": used})
+	if used := usage[sources.AssetPrefix+name]; len(used) > 0 && r.URL.Query().Get("confirm") != "true" {
+		writeJSON(w, 409, map[string]any{"error": i18n.Render(lang, i18n.New("source_files.in_use")), "code": "source_files.in_use", "used_by": useNames(used), "used_titles": useTitles(used)})
 		return
 	}
 	if err := store.Delete(name); err != nil {
@@ -188,7 +160,15 @@ func serveSourceFilesAPI(w http.ResponseWriter, r *http.Request, b Backend, lang
 		return
 	}
 	requestLogger(r).Info("source file deleted", "name", name)
+	refreshSources(e)
 	writeJSON(w, 200, map[string]bool{"ok": true})
+}
+
+// refreshSources renders the sources again and sends what changed.
+func refreshSources(e *Events) {
+	if e != nil {
+		e.updateSources(time.Now())
+	}
 }
 func serveSourceFile(w http.ResponseWriter, r *http.Request, b Backend) {
 	if r.Method != http.MethodGet {
