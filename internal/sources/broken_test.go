@@ -47,11 +47,11 @@ func TestReadBrokenTemplateTable(t *testing.T) {
 
 func TestReadAfterCameraIDChange(t *testing.T) {
 	s := Store{Path: filepath.Join(t.TempDir(), "sources.yaml")}
-	raw := "- name: camera\n  template: '{camera.sub.kbps}'\n- name: good\n  template: '{camera.kbps}'\n"
+	raw := "- name: camera\n  template: '{camera.cam2.kbps}'\n- name: good\n  template: '{camera.kbps}'\n"
 	if err := os.WriteFile(s.Path, []byte(raw), 0600); err != nil {
 		t.Fatal(err)
 	}
-	for _, id := range []string{"sub", "renamed", "", "sub"} {
+	for _, id := range []string{"cam2", "cam3", "", "cam2"} {
 		snapshot := core.Snapshot{}
 		if id != "" {
 			snapshot.Cameras = []core.CameraStatus{{ID: id}}
@@ -60,10 +60,10 @@ func TestReadAfterCameraIDChange(t *testing.T) {
 			if err != nil || len(list) != 2 {
 				t.Fatalf("id=%s list=%v err=%v", id, list, err)
 			}
-			if (list[0].Broken == nil) != (id == "sub") || list[1].Broken != nil {
+			if (list[0].Broken == nil) != (id == "cam2") || list[1].Broken != nil {
 				t.Fatal("incorrect read-derived broken marker", id, list)
 			}
-			if (list[0].Validate(snapshot) == nil) != (id == "sub") {
+			if (list[0].Validate(snapshot) == nil) != (id == "cam2") {
 				t.Fatal("wrong camera validation")
 			}
 			return nil, false

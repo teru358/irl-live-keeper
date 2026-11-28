@@ -1236,15 +1236,15 @@ func TestIntegrationFallbackSpecExample(t *testing.T) {
 			seq = append(seq, strings.Join(g[1:], " "))
 		}
 	}
-	// 起動直後（全カメラ DOWN から回復するまで）の切替は列の頭に付く。例の列は、最後の「Camera → SubOnly low main」から。
+	// 起動直後（全カメラ DOWN から回復するまで）の切替は列の頭に付く。例の列は、最後の「Camera → SubOnly low cam1」から。
 	want := []string{
-		"Camera SubOnly low main 0",
-		"SubOnly Standby low sub 0",
-		"Standby SubOnly ok sub 3000",
-		"SubOnly Camera ok main 3000",
-		"Camera SubOnly low main 0",
-		"SubOnly Standby low sub 0",
-		"Standby Camera ok sub 3000", // 同時に OK になったときは、あとに処理したカメラ（設定順で後）
+		"Camera SubOnly low cam1 0",
+		"SubOnly Standby low cam2 0",
+		"Standby SubOnly ok cam2 3000",
+		"SubOnly Camera ok cam1 3000",
+		"Camera SubOnly low cam1 0",
+		"SubOnly Standby low cam2 0",
+		"Standby Camera ok cam2 3000", // 同時に OK になったときは、あとに処理したカメラ（設定順で後）
 		"Camera Standby command  ",
 		"Standby Camera command  ",
 	}

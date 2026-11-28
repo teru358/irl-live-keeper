@@ -16,7 +16,7 @@ func valid() *Config {
 	c.Admin.Password = "adminpass"
 	c.Stream.PublishPass = "publishpass"
 	c.Stream.ReadPass = "readpass1"
-	c.Cameras = []Camera{{ID: "main", Name: "メインカメラ", OnBad: "standby"}}
+	c.Cameras = []Camera{{ID: "cam1", Name: "メインカメラ", OnBad: "standby"}}
 	return c
 }
 
@@ -232,7 +232,7 @@ func TestByFieldは同じ項目の理由を句点でつなぐ(t *testing.T) {
 
 func TestLoadの検証のエラーはValidationError(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "c.yaml")
-	if err := os.WriteFile(p, []byte("admin:\n  port: 0\n  password: adminpass\nstream:\n  publish_pass: publishpass\n  read_pass: readpass1\ncameras:\n  - id: main\n    name: メイン\n    on_bad: standby\n"), 0o600); err != nil {
+	if err := os.WriteFile(p, []byte("admin:\n  port: 0\n  password: adminpass\nstream:\n  publish_pass: publishpass\n  read_pass: readpass1\ncameras:\n  - id: cam1\n    name: メイン\n    on_bad: standby\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	_, err := Load(p)
@@ -354,7 +354,7 @@ func TestLoad(t *testing.T) {
 		}
 		return p
 	}
-	const minimal = "admin:\n  password: adminpass\nstream:\n  publish_pass: publishpass\n  read_pass: readpass1\ncameras:\n  - id: main\n    name: メイン\n    on_bad: standby\n"
+	const minimal = "admin:\n  password: adminpass\nstream:\n  publish_pass: publishpass\n  read_pass: readpass1\ncameras:\n  - id: cam1\n    name: メイン\n    on_bad: standby\n"
 
 	t.Run("省略した項目は既定値", func(t *testing.T) {
 		cfg, err := Load(write(t, minimal))
@@ -451,7 +451,7 @@ func TestWarnings(t *testing.T) {
 
 func TestLoadの古いadmin_listen(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "c.yaml")
-	if err := os.WriteFile(p, []byte("admin:\n  listen: \"127.0.0.1:8787\"\n  password: adminpass\nstream:\n  publish_pass: publishpass\n  read_pass: readpass1\ncameras:\n  - id: main\n    name: メイン\n    on_bad: standby\n"), 0o600); err != nil {
+	if err := os.WriteFile(p, []byte("admin:\n  listen: \"127.0.0.1:8787\"\n  password: adminpass\nstream:\n  publish_pass: publishpass\n  read_pass: readpass1\ncameras:\n  - id: cam1\n    name: メイン\n    on_bad: standby\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	_, err := Load(p)
@@ -473,7 +473,7 @@ func TestLoadの古いadmin_listen(t *testing.T) {
 }
 
 func TestStudioModeHideの既定とエラー文(t *testing.T) {
-	const minimal = "admin:\n  password: adminpass\nstream:\n  publish_pass: publishpass\n  read_pass: readpass1\ncameras:\n  - id: main\n    name: メイン\n    on_bad: standby\n"
+	const minimal = "admin:\n  password: adminpass\nstream:\n  publish_pass: publishpass\n  read_pass: readpass1\ncameras:\n  - id: cam1\n    name: メイン\n    on_bad: standby\n"
 	cfg, err := parse([]byte(minimal))
 	if err != nil {
 		t.Fatal(err)
@@ -564,15 +564,15 @@ func TestStreamApp(t *testing.T) {
 
 func TestCameraPath(t *testing.T) {
 	c := valid()
-	if got := c.CameraPath("main"); got != "live/main" {
+	if got := c.CameraPath("cam1"); got != "live/cam1" {
 		t.Errorf("既定: %q", got)
 	}
 	c.Stream.App = "x"
-	if got := c.CameraPath("main"); got != "x/main" {
+	if got := c.CameraPath("cam1"); got != "x/cam1" {
 		t.Errorf("app=x: %q", got)
 	}
 	c.Stream.App = ""
-	if got := c.CameraPath("main"); got != "main" {
+	if got := c.CameraPath("cam1"); got != "cam1" {
 		t.Errorf("app が空: %q", got)
 	}
 }
@@ -580,7 +580,7 @@ func TestCameraPath(t *testing.T) {
 func TestLoadのstream_app(t *testing.T) {
 	load := func(streamApp string) (*Config, error) {
 		p := filepath.Join(t.TempDir(), "config.yaml")
-		body := "admin:\n  password: adminPASS123\nstream:\n" + streamApp + "  publish_pass: pubPASS123\n  read_pass: readPASS123\ncameras:\n  - id: main\n    name: m\n    on_bad: standby\n"
+		body := "admin:\n  password: adminPASS123\nstream:\n" + streamApp + "  publish_pass: pubPASS123\n  read_pass: readPASS123\ncameras:\n  - id: cam1\n    name: m\n    on_bad: standby\n"
 		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -589,7 +589,7 @@ func TestLoadのstream_app(t *testing.T) {
 	if c, err := load(""); err != nil || c.Stream.App != "live" {
 		t.Errorf("省略は live: %v %+v", err, c)
 	}
-	if c, err := load("  app: \"\"\n"); err != nil || c.Stream.App != "" || c.CameraPath("main") != "main" {
+	if c, err := load("  app: \"\"\n"); err != nil || c.Stream.App != "" || c.CameraPath("cam1") != "cam1" {
 		t.Errorf("app: \"\" は1段: %v %+v", err, c)
 	}
 	if _, err := load("  app: a/b\n"); err == nil {

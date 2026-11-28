@@ -10,7 +10,7 @@ import (
 )
 
 func TestValueGroupsOrder(t *testing.T) {
-	for _, cameras := range [][]core.CameraStatus{nil, {{ID: "z", Name: "正面"}, {ID: "a", Name: "後方"}}} {
+	for _, cameras := range [][]core.CameraStatus{nil, {{ID: "cam1", Name: "正面"}, {ID: "cam2", Name: "後方"}}} {
 		s := core.Snapshot{Cameras: cameras}
 		groups, err := ValueGroups(s, Values(s, time.Now()))
 		if err != nil {
@@ -79,7 +79,7 @@ func TestValueGroupsOrder(t *testing.T) {
 
 func TestValueGroupsDefaultText(t *testing.T) {
 	now := time.Date(2026, 11, 27, 12, 34, 0, 0, time.Local)
-	s := core.Snapshot{Cameras: []core.CameraStatus{{ID: "main", Name: "", State: "LOW", Kbps: 600.4, Online: true, Protocol: "srt", StateSince: now.Add(-5025 * time.Second), SRT: &core.SRTStatus{RTTMs: 80.6, LossRate: 0.05, RecvMbps: 4.23}}}, OBS: core.OBSStatus{Connected: true, SceneCameras: []string{"main"}}}
+	s := core.Snapshot{Cameras: []core.CameraStatus{{ID: "cam1", Name: "", State: "LOW", Kbps: 600.4, Online: true, Protocol: "srt", StateSince: now.Add(-5025 * time.Second), SRT: &core.SRTStatus{RTTMs: 80.6, LossRate: 0.05, RecvMbps: 4.23}}}, OBS: core.OBSStatus{Connected: true, SceneCameras: []string{"cam1"}}}
 	values := Values(s, now)
 	values["password"] = template.Value{Defined: true, Type: template.String, String: "secret"}
 	groups, err := ValueGroups(s, values)
@@ -92,7 +92,7 @@ func TestValueGroupsDefaultText(t *testing.T) {
 			flat[v.Name] = v
 		}
 	}
-	for name, want := range map[string]string{"camera.state": "LOW", "camera.kbps": "600", "camera.online": "true", "camera.state_for": "1:23:45", "camera.srt.rtt": "81", "camera.srt.loss": "0.05", "camera.srt.mbps": "4.2", "camera.id": "main", "camera.name": "", "now": "12:34"} {
+	for name, want := range map[string]string{"camera.state": "LOW", "camera.kbps": "600", "camera.online": "true", "camera.state_for": "1:23:45", "camera.srt.rtt": "81", "camera.srt.loss": "0.05", "camera.srt.mbps": "4.2", "camera.id": "cam1", "camera.name": "", "now": "12:34"} {
 		v := flat[name]
 		if v.Text == nil || *v.Text != want {
 			t.Errorf("%s=%+v want %q", name, v, want)

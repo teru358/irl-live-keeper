@@ -4,7 +4,7 @@ stream:
   publish_pass: abcdefgh
   read_pass: abcdefgh
 cameras:
-  - id: main
+  - id: cam1
     name: メイン
     on_bad: standby
 # 前

@@ -40,12 +40,12 @@ const (
 
 // カメラの id（表の m、s、d）と入力の UUID（im、is、id）。
 const (
-	camMain = "main"
-	camSub  = "sub"
-	camDesk = "desk"
-	inMain  = "in-main"
+	camMain = "cam1"
+	camSub  = "cam2"
+	camDesk = "cam3"
+	inMain  = "in-cam1"
 	inMain2 = "in-main2"
-	inSub   = "in-sub"
+	inSub   = "in-cam2"
 	inDesk  = "in-desk"
 )
 
@@ -64,13 +64,13 @@ func nameOf(uuid string) string {
 	return uuid
 }
 
-// 単独のカメラ（main）の既定の地図。S、S2、A、B、T、O、D を登録し、visible のシーンにだけ main の入力の項目を置く。
+// 単独のカメラ（cam1）の既定の地図。S、S2、A、B、T、O、D を登録し、visible のシーンにだけ cam1 の入力の項目を置く。
 func testMap(visible ...string) *scenemap.Map {
 	m := &scenemap.Map{
 		Collection: collectionX,
 		Scenes:     map[string]scenemap.Container{},
 		Groups:     map[string]scenemap.Container{},
-		Inputs:     map[string]scenemap.Input{inMain: {Name: "main-src", CameraID: camMain}},
+		Inputs:     map[string]scenemap.Input{inMain: {Name: "cam1-src", CameraID: camMain}},
 	}
 	for uuid, name := range sceneNames {
 		m.Scenes[uuid] = scenemap.Container{Name: name}
@@ -87,8 +87,8 @@ func testMap(visible ...string) *scenemap.Map {
 func multiMap() *scenemap.Map {
 	m := testMap()
 	m.Inputs = map[string]scenemap.Input{
-		inMain: {Name: "main-src", CameraID: camMain},
-		inSub:  {Name: "sub-src", CameraID: camSub},
+		inMain: {Name: "cam1-src", CameraID: camMain},
+		inSub:  {Name: "cam2-src", CameraID: camSub},
 		inDesk: {Name: "desk-src", CameraID: camDesk},
 	}
 	item := func(id int, in string) scenemap.Item {
@@ -190,7 +190,7 @@ func newMachine() *Machine { return New(Config{RestartWait: W}) }
 func ip(v int) *int       { return &v }
 func sp(v string) *string { return &v }
 
-// actsFor は Purpose と切替先ごとの Action の列（期待値）。再起動の対象は main の入力だけ。
+// actsFor は Purpose と切替先ごとの Action の列（期待値）。再起動の対象は cam1 の入力だけ。
 func actsFor(p Purpose, to string) []Action { return actsForIn(p, to, []string{inMain}) }
 
 // actsForIn は再起動の対象を指定する actsFor。
@@ -220,7 +220,7 @@ func restartOf(inputs ...string) Action { return RestartMedia{Inputs: inputs, Wa
 
 // ---- Event の短い書き方 ----
 
-// lc は単独のカメラ main の状態の組（全カメラの組）。
+// lc は単独のカメラ cam1 の状態の組（全カメラの組）。
 func lc(ms int, s scenemap.CameraState) Event {
 	return CamerasChanged{At: at(ms), States: map[string]scenemap.CameraState{camMain: s}}
 }
@@ -247,7 +247,7 @@ func connM(ms int, streaming bool, scene string, m *scenemap.Map) Event {
 	return OBSConnected{At: at(ms), Streaming: streaming, Scene: nameOf(scene), SceneUUID: scene, TransitionMs: ip(300), Map: m}
 }
 
-// smc は地図の差し替え。visible のシーンにだけ main の項目を置いた単独のカメラの地図にする。
+// smc は地図の差し替え。visible のシーンにだけ cam1 の項目を置いた単独のカメラの地図にする。
 func smc(ms int, visible ...string) Event {
 	return SceneMapChanged{At: at(ms), Map: testMap(visible...)}
 }
@@ -272,7 +272,7 @@ func withStart(uuid string) cfgMod {
 func withStandby(uuid string) cfgMod { return func(c *ScenesConfigured) { c.Standby = nameOf(uuid) } }
 
 // withNoop は挙動に影響しない設定の変更（どのシーンにも映らないカメラを足す）。設定の変更の行で使う。
-// 0a までは main の on_bad を hide にする設定変更を使っていたが、0b では hide が挙動を持つため、この中立な変更に置き換えた（意図は同じ）。
+// 0a までは cam1 の on_bad を hide にする設定変更を使っていたが、0b では hide が挙動を持つため、この中立な変更に置き換えた（意図は同じ）。
 func withNoop() cfgMod {
 	return func(c *ScenesConfigured) { c.Cameras = append(append([]CameraConfig(nil), c.Cameras...), cam("extra")) }
 }
@@ -465,8 +465,8 @@ func showExp(e Expectation) string {
 
 // ---- 状態を直接作る仕組み ----
 
-// baseState は既定の前提の状態: 設定 CFG（カメラ main 1台）、接続、配信中、地図 testMap(A, B)、現在 A（Monitored）、
-// main=OK、持ち主 none、未完了なし、期待なし。Epoch と通し番号は 0 / 1 以外にしておき、動いたかがわかるようにする。
+// baseState は既定の前提の状態: 設定 CFG（カメラ cam1 1台）、接続、配信中、地図 testMap(A, B)、現在 A（Monitored）、
+// cam1=OK、持ち主 none、未完了なし、期待なし。Epoch と通し番号は 0 / 1 以外にしておき、動いたかがわかるようにする。
 func baseState(s *state) {
 	s.Standby = "Standby"
 	s.Cameras = []CameraConfig{cam(camMain)}
@@ -593,7 +593,7 @@ func releasedAll(s *state) {
 }
 
 // wantB はバッチを出したときの共通の変化を期待の状態に当てはめ、返るべきバッチを返す。
-// inputs は再起動の対象（nil なら main の入力）、bad は AutoFail の悪い代表（空なら main）。
+// inputs は再起動の対象（nil なら cam1 の入力）、bad は AutoFail の悪い代表（空なら cam1）。
 func wantB(s *state, p Purpose, to, ret string, atT time.Time, inputs []string, bad string) *Batch {
 	id := s.NextBatchID
 	s.NextBatchID++
@@ -656,8 +656,8 @@ type evRow struct {
 	out    Purpose  // 0 ならバッチなし
 	to     string   // バッチの SetScene の切替先（空なら既定値）
 	ret    string   // バッチの戻り先（空なら既定値）
-	in     []string // バッチの RestartMedia の対象（nil なら main の入力）
-	bad    string   // AutoFail の悪い代表（空なら main）
+	in     []string // バッチの RestartMedia の対象（nil なら cam1 の入力）
+	bad    string   // AutoFail の悪い代表（空なら cam1）
 	change func(s *state)
 	recErr bool                           // LastError を記録する
 	check  func(t *testing.T, m *Machine) // Event のあとの Machine を追加で確かめる

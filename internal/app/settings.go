@@ -129,8 +129,7 @@ func (a *App) dropOBSInputMarker(id string) {
 	}
 }
 
-// captureOBSInputUUIDs preserves the save-time camera-to-input association when
-// a camera ID changes and the next generation's map can no longer match the old URL.
+// captureOBSInputUUIDs preserves save-time inputs for IDs present before and after saving.
 func (a *App) captureOBSInputUUIDs(g *generation, saved *savedSettings) {
 	if saved.Old == nil || saved.Next == nil {
 		return
@@ -143,14 +142,18 @@ func (a *App) captureOBSInputUUIDs(g *generation, saved *savedSettings) {
 	if !connected || m == nil {
 		return
 	}
-	if len(saved.Old.Cameras) != len(saved.Next.Cameras) {
-		return
+	nextIDs := make(map[string]bool)
+	for _, cam := range saved.Next.Cameras {
+		nextIDs[cam.ID] = true
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.obsInputUUIDs = make(map[string][]string)
-	for i, oldCam := range saved.Old.Cameras {
-		newID := saved.Next.Cameras[i].ID
+	for _, oldCam := range saved.Old.Cameras {
+		if !nextIDs[oldCam.ID] {
+			continue
+		}
+		newID := oldCam.ID
 		for uuid, in := range m.Inputs {
 			if in.CameraID == oldCam.ID {
 				a.obsInputUUIDs[newID] = append(a.obsInputUUIDs[newID], uuid)
@@ -209,15 +212,25 @@ func (b *pageBackend) ApplySaved(old, next *config.Config, summary settings.Chan
 		urls := buildCameraURLs(next, host)
 		b.app.obsInputURLs = make(map[string]string, len(urls))
 		b.app.obsInputOldURLs = make(map[string]string)
-		for _, u := range urls {
-			b.app.obsInputURLs[u.ID] = u.OBSRead
-		}
-		if old != nil && len(old.Cameras) == len(next.Cameras) {
-			oldURLs := buildCameraURLs(old, "")
-			for i, u := range urls {
-				b.app.obsInputOldURLs[u.ID] = oldURLs[i].OBSRead
+		b.app.obsInputUUIDs = nil
+		oldURLs := make(map[string]string)
+		if old != nil {
+			for _, u := range buildCameraURLs(old, "") {
+				oldURLs[u.ID] = u.OBSRead
 			}
 		}
+		for _, u := range urls {
+			if oldURL, ok := oldURLs[u.ID]; ok {
+				b.app.obsInputURLs[u.ID] = u.OBSRead
+				b.app.obsInputOldURLs[u.ID] = oldURL
+			}
+		}
+		b.app.updateOBSInput = len(b.app.obsInputURLs) > 0
+		if !b.app.updateOBSInput {
+			b.app.obsInputWarning.Store(i18n.Msg{})
+			return
+		}
+
 		b.app.obsInputWarning.Store(i18n.New("app.obs_url_pending"))
 	}
 }

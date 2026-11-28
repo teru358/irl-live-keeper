@@ -101,16 +101,16 @@ func TestMediaWatchRequestedOnOBSConnectedForOnlineCameras(t *testing.T) {
 	w := newFakeWatcher()
 	h := newHarness(t, withMediaWatch(w), twoCameras)
 	h.start()
-	h.sampleSet(goodKbps, 0) // main だけ Online。OBS は未接続なので頼まない
+	h.sampleSet(goodKbps, 0) // cam1 だけ Online。OBS は未接続なので頼まない
 	h.settle()
 	w.expectNone(t, "未接続")
 
 	h.connect(false, standby)
 	got := w.expectWatch(t)
 	if got.Camera != mainCam {
-		t.Fatalf("Online の main だけ頼むはずが %+v", got)
+		t.Fatalf("Online の cam1 だけ頼むはずが %+v", got)
 	}
-	w.expectNone(t, "sub は Online でない")
+	w.expectNone(t, "cam2 は Online でない")
 }
 
 func TestMediaWatchCancelledOnOBSDisconnected(t *testing.T) {

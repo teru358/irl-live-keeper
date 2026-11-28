@@ -12,6 +12,7 @@ import (
 	"net"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -230,6 +231,7 @@ func parse(data []byte) (*Config, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
+	cfg.SortCameras()
 	return cfg, nil
 }
 
@@ -269,8 +271,8 @@ mediamtx:
   rtmp_enabled: true         # RTMP の受付。使わないなら false にできる（RTMP と SRT のどちらかは true にする）
   srt_enabled: true          # SRT の受付。使わないなら false にできる。RTSP は OBS の読み出しに使うので止めない
 
-cameras:                     # 1〜8台。上から順に表示する
-  - id: main                 # URL の path。英小文字・数字・- _ の 1〜32 文字（先頭は英小文字か数字）。重複不可
+cameras:                     # 1〜8台。番号の順に表示する
+  - id: cam1                 # cam1〜cam8。重複不可。画面が空いている最小番号を付ける。作ったあとは変更不可
     name: メインカメラ        # 表示名（日本語可）。1〜32 文字
     on_bad: standby          # 回線が悪いとき: standby（待機シーンへ送る）/ hide（このカメラのソースを OBS で隠す）
     # switch:                # 省略可。書いた項目だけ共通の switch を上書きする（fail_kbps、low_sec、recover_kbps、recover_sec、down_sec）
@@ -556,7 +558,7 @@ func (c *Config) WarningMessages() []i18n.Msg {
 	return []i18n.Msg{i18n.New("config.lan")}
 }
 
-// checkThresholds は閾値の規則を確かめる。prefix は項目名の前につける（"switch" や "cameras[0].switch"）。
+// checkThresholds は閾値の規則を確かめる。prefix は項目名の前につける（"switch" や "cameras[cam1].switch"）。
 func checkThresholds(sw Switch, prefix string, add func(field string, reason i18n.Msg)) {
 	if sw.RecoverKbps <= sw.FailKbps {
 		add(prefix+".recover_kbps", i18n.New("config.validation_18", "a", fmt.Sprintf("%s", prefix), "b", fmt.Sprintf("%d", sw.FailKbps), "c", fmt.Sprintf("%d", sw.RecoverKbps)))
@@ -578,7 +580,7 @@ func checkThresholds(sw Switch, prefix string, add func(field string, reason i18
 	}
 }
 
-var cameraIDRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
+var cameraIDRe = regexp.MustCompile(`^cam[1-8]$`)
 
 const (
 	minCameras = 1
@@ -590,22 +592,17 @@ func (c *Config) validateCameras(add func(field string, reason i18n.Msg)) {
 	if n := len(c.Cameras); n < minCameras || n > maxCameras {
 		add("cameras", i18n.New("config.validation_21", "a", fmt.Sprintf("%d", minCameras), "b", fmt.Sprintf("%d", maxCameras), "c", fmt.Sprintf("%d", n)))
 	}
-	seen := map[string]int{}
+	seen := map[string]bool{}
 	for i, cam := range c.Cameras {
-		p := fmt.Sprintf("cameras[%d]", i)
+		p := fmt.Sprintf("cameras[%s]", cam.ID)
 		switch {
-		case cam.ID == "all" || cam.ID == "all_others":
-			add(p+".id", i18n.New("config.validation_22", "a", fmt.Sprintf("%s", cam.ID)))
-		case cam.ID == "state" || cam.ID == "kbps" || cam.ID == "online" || cam.ID == "protocol" ||
-			cam.ID == "state_for" || cam.ID == "srt" || cam.ID == "id" || cam.ID == "name" || cam.ID == "hidden":
-			add(p+".id", i18n.New("config.validation_35", "a", cam.ID))
 		case !cameraIDRe.MatchString(cam.ID):
 			add(p+".id", i18n.New("config.validation_23", "a", fmt.Sprintf("%q", cam.ID)))
 		default:
-			if j, dup := seen[cam.ID]; dup {
-				add(p+".id", i18n.New("config.validation_24", "a", fmt.Sprintf("%d", j), "b", fmt.Sprintf("%q", cam.ID)))
+			if seen[cam.ID] {
+				add(p+".id", i18n.New("config.validation_24", "a", cam.ID, "b", fmt.Sprintf("%q", cam.ID)))
 			} else {
-				seen[cam.ID] = i
+				seen[cam.ID] = true
 			}
 		}
 		if n := utf8.RuneCountInString(cam.Name); n < 1 || n > maxNameLen {
@@ -637,4 +634,9 @@ func (e *ValidationError) RenderFields(lang i18n.Lang) map[string]string {
 		out[f.Field] = reason
 	}
 	return out
+}
+
+// SortCameras は読み込みと保存でカメラを番号順にする（id は cam1〜cam8）。
+func (c *Config) SortCameras() {
+	sort.SliceStable(c.Cameras, func(i, j int) bool { return c.Cameras[i].ID < c.Cameras[j].ID })
 }

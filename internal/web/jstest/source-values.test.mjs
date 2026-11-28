@@ -10,14 +10,14 @@ const translations={
 const t=key=>translations[key]||key;
 const groups=[
  {kind:'current_camera',values:[{name:'camera.kbps',text:'4200'},{name:'camera.state',text:null}]},
- {kind:'camera',camera:{id:'rear-cam',name:'後方'},values:[{name:'camera.rear-cam.kbps',text:'600'}]},
+ {kind:'camera',camera:{id:'cam2',name:'後方'},values:[{name:'camera.cam2.kbps',text:'600'}]},
  {kind:'obs',values:[{name:'obs.connected',text:'false'}]},
  {kind:'other',values:[{name:'now',text:''}]},
 ];
 test('value groups localize camera meanings and headings, preserve order and distinguish null from empty',()=>{
  const rows=state.sourceValueGroups(groups,'',t);
- assert.deepEqual(rows.map(g=>g.key),['current_camera','camera:rear-cam','obs','other']);
- assert.equal(rows[1].title,'カメラ: rear-cam（後方）');
+ assert.deepEqual(rows.map(g=>g.key),['current_camera','camera:cam2','obs','other']);
+ assert.equal(rows[1].title,'カメラ: cam2（後方）');
  assert.equal(rows[0].title,'今のシーンのカメラ');
  assert.equal(rows[1].values[0].meaning,'受信のビットレート（kbps）');
  assert.equal(rows[0].values[1].text,'—');
@@ -28,7 +28,7 @@ test('value groups localize camera meanings and headings, preserve order and dis
  assert.equal(groups[0].values[1].text,null);
 });
 test('filter matches name or localized meaning ignoring case, hides empty groups and ignores current text',()=>{
- for(const [query,want] of [['CAMERA.KBPS',['camera.kbps']],['ビットレート',['camera.kbps','camera.rear-cam.kbps']],['CONNECTION',['obs.connected']],['4200',[]],['nothing',[]]]) {
+ for(const [query,want] of [['CAMERA.KBPS',['camera.kbps']],['ビットレート',['camera.kbps','camera.cam2.kbps']],['CONNECTION',['obs.connected']],['4200',[]],['nothing',[]]]) {
   assert.deepEqual(state.sourceValueGroups(groups,query,t).flatMap(g=>g.values.map(v=>v.name)),want);
  }
  assert.deepEqual(state.sourceValueGroups([],'',t),[]);
@@ -38,7 +38,7 @@ test('camera heading substitution preserves placeholder-like names and dollar ch
  assert.equal(state.sourceValueGroups([g],'',t)[0].title,'カメラ: front（{id} $&）');
 });
 test('value rows insert the exact template token and retain the existing cursor rules',()=>{
- for(const name of ['camera.kbps','camera.rear-cam.srt.loss','now']) {
+ for(const name of ['camera.kbps','camera.cam2.srt.loss','now']) {
   const text=state.valueText(name);assert.equal(text,'{'+name+'}');
   assert.deepEqual(state.editorInsertion('abc',{from:0,to:0},false,text),{from:3,to:3,insert:text});
   assert.deepEqual(state.editorInsertion('abc',{from:1,to:2},true,text),{from:1,to:2,insert:text});

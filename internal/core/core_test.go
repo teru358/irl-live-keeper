@@ -40,7 +40,7 @@ func TestEndToEndAutoFail(t *testing.T) {
 		t.Errorf("scene_class = %q, want standby", s.OBS.SceneClass)
 	}
 
-	want := `msg="scene switch" from=Camera to=Standby reason=low camera=main kbps=0`
+	want := `msg="scene switch" from=Camera to=Standby reason=low camera=cam1 kbps=0`
 	if out := h.log.String(); !strings.Contains(out, want) {
 		t.Errorf("ログに %q がない:\n%s", want, out)
 	}
@@ -71,7 +71,7 @@ func TestRecoveryRestartsMediaThenReturnScene(t *testing.T) {
 	if reqDone < 0 || reqDone >= len(seen)-1 {
 		t.Errorf("SceneRequestDone{OK} が BatchDone より前にない: %#v", seen)
 	}
-	if !strings.Contains(h.log.String(), `msg="scene switch" from=Standby to=Camera reason=ok camera=main kbps=3000`) {
+	if !strings.Contains(h.log.String(), `msg="scene switch" from=Standby to=Camera reason=ok camera=cam1 kbps=3000`) {
 		t.Errorf("復帰の切替のログがない:\n%s", h.log.String())
 	}
 }
@@ -600,21 +600,21 @@ func waitInflightZero(t *testing.T, f *fakeOBS) {
 // status の JSON の形（カメラの spec 第9節の 0a の分）。sources、hidden、user_shown、unusable、studio_mode を含む（0b）。
 const specStatusJSON = `{
   "cameras": [
-    {"id": "main", "name": "メイン", "fail_kbps":1000, "recover_kbps":2000, "on_bad": "standby", "state": "LOW", "kbps": 4200.5, "online": true, "protocol": "srt",
+    {"id": "cam1", "name": "メイン", "fail_kbps":1000, "recover_kbps":2000, "on_bad": "standby", "state": "LOW", "kbps": 4200.5, "online": true, "protocol": "srt",
      "srt": {"rtt_ms": 85.2, "loss_rate": 0.01, "recv_mbps": 4.2},
      "sources": ["IRL"], "hidden": 0, "user_shown": false, "unusable": false},
-    {"id": "sub", "name": "サブ", "fail_kbps":1000, "recover_kbps":2000, "on_bad": "hide", "state": "DOWN", "kbps": 0, "online": false, "protocol": "", "srt": null,
+    {"id": "cam2", "name": "サブ", "fail_kbps":1000, "recover_kbps":2000, "on_bad": "hide", "state": "DOWN", "kbps": 0, "online": false, "protocol": "", "srt": null,
      "sources": [], "hidden": 0, "user_shown": false, "unusable": false}
   ],
   "obs":     {"connected": true, "streaming": false, "scene": "Camera", "scene_uuid": "Camera", "scene_class": "monitored",
-              "scene_cameras": ["main"], "scene_health": "LOW", "studio_mode": false,
+              "scene_cameras": ["cam1"], "scene_health": "LOW", "studio_mode": false,
               "standby": {"owner": "none", "return_scene": null, "stack": []},
               "auto_enabled": true,
               "warnings": []},
   "mediamtx": "running",
   "urls":    [
-    {"id": "main", "name": "メイン", "publish_srt": "srt://x/main", "publish_rtmp": "rtmp://x/main", "obs_read": "rtsp://x/main"},
-    {"id": "sub", "name": "サブ", "publish_srt": "srt://x/sub", "publish_rtmp": "rtmp://x/sub", "obs_read": "rtsp://x/sub"}
+    {"id": "cam1", "name": "メイン", "publish_srt": "srt://x/cam1", "publish_rtmp": "rtmp://x/cam1", "obs_read": "rtsp://x/cam1"},
+    {"id": "cam2", "name": "サブ", "publish_srt": "srt://x/cam2", "publish_rtmp": "rtmp://x/cam2", "obs_read": "rtsp://x/cam2"}
   ],
   "last_error": null
 }`
@@ -661,9 +661,9 @@ func TestSnapshotJSONShape(t *testing.T) {
 		t.Fatalf("cameras = %#v", initial["cameras"])
 	}
 	wantInit := []any{
-		map[string]any{"id": "main", "name": "メイン", "on_bad": "standby", "state": "DOWN", "fail_kbps": 1000.0, "recover_kbps": 2000.0, "kbps": 0.0, "online": false, "protocol": "", "srt": nil,
+		map[string]any{"id": "cam1", "name": "メイン", "on_bad": "standby", "state": "DOWN", "fail_kbps": 1000.0, "recover_kbps": 2000.0, "kbps": 0.0, "online": false, "protocol": "", "srt": nil,
 			"sources": []any{}, "hidden": 0.0, "user_shown": false, "unusable": false},
-		map[string]any{"id": "sub", "name": "サブ", "on_bad": "hide", "state": "DOWN", "fail_kbps": 1000.0, "recover_kbps": 2000.0, "kbps": 0.0, "online": false, "protocol": "", "srt": nil,
+		map[string]any{"id": "cam2", "name": "サブ", "on_bad": "hide", "state": "DOWN", "fail_kbps": 1000.0, "recover_kbps": 2000.0, "kbps": 0.0, "online": false, "protocol": "", "srt": nil,
 			"sources": []any{}, "hidden": 0.0, "user_shown": false, "unusable": false},
 	}
 	if !reflect.DeepEqual(cams, wantInit) {
@@ -673,7 +673,7 @@ func TestSnapshotJSONShape(t *testing.T) {
 		t.Errorf("初期値 = %#v", initial)
 	}
 
-	// SRT の Sample のあと: 1組の中のカメラごとの値。sub は送っていない（0 kbps）。
+	// SRT の Sample のあと: 1組の中のカメラごとの値。cam2 は送っていない（0 kbps）。
 	h.start()
 	h.connect(false, camera)
 	at := h.clk.Advance(time.Second)
@@ -692,7 +692,7 @@ func TestSnapshotJSONShape(t *testing.T) {
 		t.Errorf("cameras = %#v, want %#v", full["cameras"], spec["cameras"])
 	}
 	fo := full["obs"].(map[string]any)
-	if !reflect.DeepEqual(fo["scene_cameras"], []any{"main"}) || fo["scene_health"] != "LOW" || fo["scene"] != "Camera" || fo["scene_class"] != "monitored" {
+	if !reflect.DeepEqual(fo["scene_cameras"], []any{"cam1"}) || fo["scene_health"] != "LOW" || fo["scene"] != "Camera" || fo["scene_class"] != "monitored" {
 		t.Errorf("obs = %#v", fo)
 	}
 

@@ -95,7 +95,7 @@ func (l *mwLog) String() string { l.mu.Lock(); defer l.mu.Unlock(); return l.b.S
 func newMWHarness(t *testing.T) *mwHarness {
 	t.Helper()
 	h := &mwHarness{t: t, clk: newFakeClock(), aux: newFakeMediaAux(), log: &mwLog{}}
-	h.aux.settings["u1"] = map[string]any{"input": "rtsp://127.0.0.1:8554/main", "other": 1.0}
+	h.aux.settings["u1"] = map[string]any{"input": "rtsp://127.0.0.1:8554/cam1", "other": 1.0}
 	h.mw = NewMediaWatch(h.aux, slog.New(slog.NewTextHandler(h.log, nil)), h.clk)
 	t.Cleanup(h.mw.Close)
 	return h
@@ -123,7 +123,7 @@ var src1 = []MediaSource{{UUID: "u1", Name: "IRL"}}
 func TestMediaWatchMovingDoesNothing(t *testing.T) {
 	h := newMWHarness(t)
 	h.aux.statusFn = moving
-	h.mw.Watch("main", src1)
+	h.mw.Watch("cam1", src1)
 	h.step(5 * time.Second)
 	waitFor(t, "1回目の読み", func() bool { return h.aux.readCount("u1") == 1 })
 	h.step(time.Second)
@@ -140,16 +140,16 @@ func TestMediaWatchMovingDoesNothing(t *testing.T) {
 func TestMediaWatchStuckAtZeroRefreshes(t *testing.T) {
 	h := newMWHarness(t)
 	h.aux.statusFn = stuck
-	h.mw.Watch("main", src1)
+	h.mw.Watch("cam1", src1)
 	h.step(5 * time.Second)
 	h.step(time.Second)
 	waitFor(t, "入れ直し", func() bool { return len(h.aux.setCalls()) == 1 })
 	c := h.aux.setCalls()[0]
-	if c.UUID != "u1" || c.Settings["input"] != "rtsp://127.0.0.1:8554/main" || !c.Overlay {
+	if c.UUID != "u1" || c.Settings["input"] != "rtsp://127.0.0.1:8554/cam1" || !c.Overlay {
 		t.Fatalf("入れ直しの内容が違う: %+v", c)
 	}
 	waitFor(t, "ログ", func() bool { return strings.Contains(h.log.String(), "media source refreshed") })
-	if l := h.log.String(); !strings.Contains(l, "camera=main") || !strings.Contains(l, "source=IRL") {
+	if l := h.log.String(); !strings.Contains(l, "camera=cam1") || !strings.Contains(l, "source=IRL") {
 		t.Fatalf("ログに camera と source がない: %s", l)
 	}
 }
@@ -157,7 +157,7 @@ func TestMediaWatchStuckAtZeroRefreshes(t *testing.T) {
 func TestMediaWatchEndedRefreshes(t *testing.T) {
 	h := newMWHarness(t)
 	h.aux.statusFn = func(string, int) (MediaStatus, error) { return MediaStatus{State: stateEnded}, nil }
-	h.mw.Watch("main", src1)
+	h.mw.Watch("cam1", src1)
 	h.step(5 * time.Second)
 	h.step(time.Second)
 	waitFor(t, "入れ直し", func() bool { return len(h.aux.setCalls()) == 1 })
@@ -172,7 +172,7 @@ func TestMediaWatchRefreshThenRecovers(t *testing.T) {
 		}
 		return moving(uuid, n)
 	}
-	h.mw.Watch("main", src1)
+	h.mw.Watch("cam1", src1)
 	h.step(5 * time.Second)
 	h.step(time.Second)
 	waitFor(t, "入れ直し", func() bool { return len(h.aux.setCalls()) == 1 })
@@ -190,7 +190,7 @@ func TestMediaWatchRefreshThenRecovers(t *testing.T) {
 func TestMediaWatchRefreshesTwiceThenWarnsUntilNextWatch(t *testing.T) {
 	h := newMWHarness(t)
 	h.aux.statusFn = stuck
-	h.mw.Watch("main", src1)
+	h.mw.Watch("cam1", src1)
 	h.step(5 * time.Second)
 	h.step(time.Second)
 	waitFor(t, "1回目の入れ直し", func() bool { return len(h.aux.setCalls()) == 1 })
@@ -224,7 +224,7 @@ func TestMediaWatchRefreshesTwiceThenWarnsUntilNextWatch(t *testing.T) {
 	}
 	// 次の Online（同じカメラの Watch）で消える。
 	h.aux.statusFn = moving
-	h.mw.Watch("main", src1)
+	h.mw.Watch("cam1", src1)
 	if w := h.mw.Warnings(); len(w) != 0 {
 		t.Fatalf("次の Watch で警告が消えない: %v", w)
 	}
@@ -233,9 +233,9 @@ func TestMediaWatchRefreshesTwiceThenWarnsUntilNextWatch(t *testing.T) {
 func TestMediaWatchOverlapKeepsOnlyNewest(t *testing.T) {
 	h := newMWHarness(t)
 	h.aux.statusFn = stuck
-	h.mw.Watch("main", src1)
+	h.mw.Watch("cam1", src1)
 	waitFor(t, "1本目の待ち", func() bool { return h.clk.pending() == 1 })
-	h.mw.Watch("main", src1)
+	h.mw.Watch("cam1", src1)
 	waitFor(t, "2本目の待ち", func() bool { return h.clk.pending() == 2 })
 	h.clk.Advance(5 * time.Second) // 古い方も起きるが、取り消されている
 	waitFor(t, "新しい方の1回目の読み", func() bool { return h.aux.readCount("u1") >= 1 })
@@ -255,7 +255,7 @@ func TestMediaWatchAuxUnavailableDoesNothing(t *testing.T) {
 	h.aux.statusFn = func(string, int) (MediaStatus, error) {
 		return MediaStatus{}, fmt.Errorf("GetMediaInputStatus: %w", ErrAuxUnavailable)
 	}
-	h.mw.Watch("main", src1)
+	h.mw.Watch("cam1", src1)
 	h.step(5 * time.Second)
 	waitFor(t, "読み", func() bool { return h.aux.readCount("u1") == 1 })
 	h.mw.Close() // 見張りは終わっている（時計を進めなくても Close が戻る）
@@ -271,7 +271,7 @@ func TestMediaWatchSettingsReadFailureDoesNothing(t *testing.T) {
 	h := newMWHarness(t)
 	h.aux.statusFn = stuck
 	h.aux.getErr = errors.New("boom")
-	h.mw.Watch("main", src1)
+	h.mw.Watch("cam1", src1)
 	h.step(5 * time.Second)
 	h.step(time.Second)
 	h.mw.Close()
@@ -283,7 +283,7 @@ func TestMediaWatchSettingsReadFailureDoesNothing(t *testing.T) {
 func TestMediaWatchCancelAllAndClose(t *testing.T) {
 	h := newMWHarness(t)
 	h.aux.statusFn = stuck
-	h.mw.Watch("main", src1)
+	h.mw.Watch("cam1", src1)
 	waitFor(t, "待ち", func() bool { return h.clk.pending() == 1 })
 	h.mw.CancelAll()
 	h.clk.Advance(time.Hour)
@@ -292,7 +292,7 @@ func TestMediaWatchCancelAllAndClose(t *testing.T) {
 		t.Fatal("CancelAll のあとに動いた")
 	}
 	// Close のあとの Watch は何もしない（goroutine を作らない）。
-	h.mw.Watch("main", src1)
+	h.mw.Watch("cam1", src1)
 	h.clk.Advance(time.Hour)
 	if h.clk.pending() != 0 {
 		t.Fatal("Close のあとに見張りが始まった")
@@ -308,7 +308,7 @@ func TestMediaWatchSeveralSourcesIndependent(t *testing.T) {
 		}
 		return stuck(uuid, n)
 	}
-	h.mw.Watch("main", []MediaSource{{UUID: "u1", Name: "A"}, {UUID: "u2", Name: "B"}})
+	h.mw.Watch("cam1", []MediaSource{{UUID: "u1", Name: "A"}, {UUID: "u2", Name: "B"}})
 	waitFor(t, "待ち2本", func() bool { return h.clk.pending() == 2 })
 	h.clk.Advance(5 * time.Second)
 	waitFor(t, "待ち2本", func() bool { return h.clk.pending() == 2 })

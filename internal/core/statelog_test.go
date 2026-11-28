@@ -7,7 +7,7 @@ import (
 	"github.com/teru358/irl-live-keeper/internal/switcher"
 )
 
-func logCount(h *harness, sub string) int { return strings.Count(h.log.String(), sub) }
+func logCount(h *harness, cam2 string) int { return strings.Count(h.log.String(), cam2) }
 
 // 起動直後の最初の Snapshot では状態の変化を書かない。
 func TestStateLogFirstSnapshotIsSilent(t *testing.T) {

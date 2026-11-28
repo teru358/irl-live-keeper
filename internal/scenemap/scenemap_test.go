@@ -10,26 +10,26 @@ func TestMatchCamera(t *testing.T) {
 		port  int
 		want  string
 	}{
-		{"normal", "rtsp://127.0.0.1:8554/main", boolPtr(false), 8554, "main"},
-		{"lan host credentials", "rtsp://u:p@192.168.1.8:8554/main/", boolPtr(false), 8554, "main"},
-		{"hostname", "rtsp://camera.local:8554//main//", boolPtr(false), 8554, "main"},
-		{"default port", "rtsp://camera/main", boolPtr(false), 554, "main"},
-		{"port omitted uses default", "rtsp://camera/main", boolPtr(false), 8554, ""},
-		{"wrong port", "rtsp://camera:554/main", boolPtr(false), 8554, ""},
-		{"rtmp", "rtmp://camera/main", boolPtr(false), 554, ""},
-		{"srt", "srt://camera/main", boolPtr(false), 554, ""},
-		{"no scheme", "//camera/main", boolPtr(false), 554, ""},
+		{"normal", "rtsp://127.0.0.1:8554/cam1", boolPtr(false), 8554, "cam1"},
+		{"lan host credentials", "rtsp://u:p@192.168.1.8:8554/cam1/", boolPtr(false), 8554, "cam1"},
+		{"hostname", "rtsp://camera.local:8554//cam1//", boolPtr(false), 8554, "cam1"},
+		{"default port", "rtsp://camera/cam1", boolPtr(false), 554, "cam1"},
+		{"port omitted uses default", "rtsp://camera/cam1", boolPtr(false), 8554, ""},
+		{"wrong port", "rtsp://camera:554/cam1", boolPtr(false), 8554, ""},
+		{"rtmp", "rtmp://camera/cam1", boolPtr(false), 554, ""},
+		{"srt", "srt://camera/cam1", boolPtr(false), 554, ""},
+		{"no scheme", "//camera/cam1", boolPtr(false), 554, ""},
 		{"similar path", "rtsp://camera/main2", boolPtr(false), 554, ""},
-		{"nested path", "rtsp://camera/a/main", boolPtr(false), 554, ""},
+		{"nested path", "rtsp://camera/a/cam1", boolPtr(false), 554, ""},
 		{"empty path", "rtsp://camera", boolPtr(false), 554, ""},
-		{"nil local", "rtsp://camera/main", nil, 554, ""},
-		{"local", "rtsp://camera/main", boolPtr(true), 554, ""},
+		{"nil local", "rtsp://camera/cam1", nil, 554, ""},
+		{"local", "rtsp://camera/cam1", boolPtr(true), 554, ""},
 		{"malformed", "http://[::1", boolPtr(false), 554, ""},
 		{"case sensitive", "rtsp://camera/Main", boolPtr(false), 554, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, ok := MatchCamera(tt.raw, tt.local, tt.port, []CameraPath{{ID: "main", Path: "main"}})
+			got, ok := MatchCamera(tt.raw, tt.local, tt.port, []CameraPath{{ID: "cam1", Path: "cam1"}})
 			if ok != (tt.want != "") || got != tt.want {
 				t.Fatalf("MatchCamera() = (%q, %v), want (%q, %v)", got, ok, tt.want, tt.want != "")
 			}
@@ -203,7 +203,7 @@ func TestCamerasInWith(t *testing.T) {
 }
 
 func TestMatchCameraTwoLevel(t *testing.T) {
-	cams := []CameraPath{{ID: "main", Path: "live/main"}, {ID: "sub", Path: "live/sub"}}
+	cams := []CameraPath{{ID: "cam1", Path: "live/cam1"}, {ID: "cam2", Path: "live/cam2"}}
 	f := boolPtr(false)
 	tests := []struct {
 		name       string
@@ -211,12 +211,12 @@ func TestMatchCameraTwoLevel(t *testing.T) {
 		wantID     string
 		wantLegacy string
 	}{
-		{"2段を見分ける", "rtsp://127.0.0.1:8554/live/main", "main", ""},
-		{"2段（資格情報、末尾の /）", "rtsp://u:p@10.0.0.2:8554/live/sub/", "sub", ""},
-		{"1段は見分けない（古い形）", "rtsp://127.0.0.1:8554/main", "", "main"},
+		{"2段を見分ける", "rtsp://127.0.0.1:8554/live/cam1", "cam1", ""},
+		{"2段（資格情報、末尾の /）", "rtsp://u:p@10.0.0.2:8554/live/cam2/", "cam2", ""},
+		{"1段は見分けない（古い形）", "rtsp://127.0.0.1:8554/cam1", "", "cam1"},
 		{"app だけは見分けない", "rtsp://127.0.0.1:8554/live", "", ""},
-		{"別の app は見分けない", "rtsp://127.0.0.1:8554/other/main", "", ""},
-		{"3段は見分けない", "rtsp://127.0.0.1:8554/live/main/x", "", ""},
+		{"別の app は見分けない", "rtsp://127.0.0.1:8554/other/cam1", "", ""},
+		{"3段は見分けない", "rtsp://127.0.0.1:8554/live/cam1/x", "", ""},
 		{"知らない1段は古い形でもない", "rtsp://127.0.0.1:8554/zzz", "", ""},
 	}
 	for _, tt := range tests {
@@ -232,14 +232,14 @@ func TestMatchCameraTwoLevel(t *testing.T) {
 		})
 	}
 	// app が空（path = id）: 1段を見分け、古い形はない
-	plain := []CameraPath{{ID: "main", Path: "main"}}
-	if id, ok := MatchCamera("rtsp://h:8554/main", f, 8554, plain); !ok || id != "main" {
+	plain := []CameraPath{{ID: "cam1", Path: "cam1"}}
+	if id, ok := MatchCamera("rtsp://h:8554/cam1", f, 8554, plain); !ok || id != "cam1" {
 		t.Errorf("app が空で1段を見分けない: %q %v", id, ok)
 	}
-	if _, ok := MatchLegacy("rtsp://h:8554/main", f, 8554, plain); ok {
+	if _, ok := MatchLegacy("rtsp://h:8554/cam1", f, 8554, plain); ok {
 		t.Error("app が空なのに古い形と判定した")
 	}
-	if _, ok := MatchCamera("rtsp://h:8554/live/main", f, 8554, plain); ok {
+	if _, ok := MatchCamera("rtsp://h:8554/live/cam1", f, 8554, plain); ok {
 		t.Error("app が空なのに2段を見分けた")
 	}
 }

@@ -62,7 +62,7 @@ func fakeMediaMTX(mode string) {
 		time.Sleep(time.Minute)
 		os.Exit(0)
 	case "readers": // 実物と同じ形の、読み手が追いつかない行を出して、生きたままにする
-		fmt.Println("INF [RTSP] [session 2610e2a2] is reading from path 'live/main', with TCP, 2 tracks (H264, MPEG-4 Audio)")
+		fmt.Println("INF [RTSP] [session 2610e2a2] is reading from path 'live/cam1', with TCP, 2 tracks (H264, MPEG-4 Audio)")
 		for i := 0; i < 3; i++ {
 			fmt.Println("WAR [RTSP] [session 2610e2a2] reader is too slow, discarding 81 frames")
 		}

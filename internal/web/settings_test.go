@@ -388,7 +388,7 @@ func TestSettingsFullValuesPreserveFile(t *testing.T) {
 			b := settingsFixture(t)
 			c := b.store.Current
 			second := c.Cameras[0]
-			second.ID, second.Name = "second", "Second"
+			second.ID, second.Name = "cam2", "Second"
 			c.Cameras = append(c.Cameras, second)
 			original := "# user config\n" + string(configBytes(t, c)) + "# end\n"
 			original = strings.Replace(original, "name: Second", "name: Second # camera comment", 1)
@@ -409,7 +409,8 @@ func TestSettingsFullValuesPreserveFile(t *testing.T) {
 				want = strings.Replace(original, "keep_days: "+strconv.Itoa(c.Log.KeepDays), "keep_days: 3", 1)
 			case "cameras[1].name":
 				req.Values["cameras"].([]any)[1].(map[string]any)["name"] = "Renamed"
-				want = strings.Replace(original, "Second # camera comment", "Renamed # camera comment", 1)
+				start, end := strings.Index(original, "cameras:\n"), strings.Index(original, "obs:\n")
+				want = original[:start] + "cameras:\n  - id: cam1\n    name: メインカメラ\n    on_bad: standby\n  - id: cam2\n    name: Renamed\n    on_bad: standby\n" + original[end:]
 			case "none":
 				b.store.CheckPorts = func(*config.Config, *config.Config, []settings.ListeningPort) []settings.PortFailure {
 					t.Fatal("no-op checked ports")
@@ -435,7 +436,7 @@ func TestSettingsChangesListLength(t *testing.T) {
 	old := *b.store.Current
 	next := old
 	second := old.Cameras[0]
-	second.ID = "second"
+	second.ID = "cam2"
 	next.Cameras = []config.Camera{second, old.Cameras[0]}
 	changes := settingsChanges(&next, settings.ClassifyChanges(&old, &next, true))
 	if len(changes) != 1 || changes[0].Path != "cameras" {
@@ -460,5 +461,35 @@ func TestRevertAuditOnly(t *testing.T) {
 	}
 	if !strings.Contains(output.String(), "settings reverted") || strings.Contains(output.String(), "settings saved") {
 		t.Fatal(output.String())
+	}
+}
+
+func TestSettingsCameraIDPathsAndOrder(t *testing.T) {
+	b := settingsFixture(t)
+	// The third camera is first in the draft. A 422 must address its ID.
+	body := `{"values":{"cameras":[{"id":"cam3","name":"","on_bad":"hide"},{"id":"cam1","name":"One","on_bad":"standby"}]}}`
+	w := settingsCall(b, "POST", "/api/settings/preview", body, "127.0.0.1:4", true)
+	if w.Code != 422 || !strings.Contains(w.Body.String(), `"cameras[cam3].name"`) || strings.Contains(w.Body.String(), "cameras[0]") {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	body = strings.Replace(body, `"name":""`, `"name":"Three"`, 1)
+	w = settingsCall(b, "POST", "/api/settings/preview", body, "127.0.0.1:4", true)
+	var preview settings.ChangeSummary
+	if json.Unmarshal(w.Body.Bytes(), &preview) != nil || w.Code != 200 || preview.Apply != settings.ApplyRestart || preview.OBSURLChanges {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	body = strings.Replace(body, `{"values":`, `{"hash":"`+settings.Hash(b.store.Raw)+`","values":`, 1)
+	w = settingsCall(b, "PUT", "/api/settings", body, "127.0.0.1:4", true)
+	if w.Code != 202 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	if strings.Index(string(b.store.Raw), "cam1") > strings.Index(string(b.store.Raw), "cam3") {
+		t.Fatal("saved out of order")
+	}
+	// Removing cam1 leaves cam3's URL unchanged and requires only a restart.
+	body = `{"values":{"cameras":[{"id":"cam3","name":"Three","on_bad":"hide"}]}}`
+	w = settingsCall(b, "POST", "/api/settings/preview", body, "127.0.0.1:4", true)
+	if json.Unmarshal(w.Body.Bytes(), &preview) != nil || w.Code != 200 || preview.OBSURLChanges {
+		t.Fatal(w.Code, w.Body.String())
 	}
 }

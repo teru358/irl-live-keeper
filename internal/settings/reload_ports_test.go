@@ -61,7 +61,6 @@ func TestClassifyLocalOnlyAndOBSURLFields(t *testing.T) {
 		{"stream.obs_read_host", func(c *config.Config) { c.Stream.ObsReadHost = "localhost" }},
 		{"mediamtx.rtsp_port", func(c *config.Config) { c.MediaMTX.RTSPPort++ }},
 		{"stream.app", func(c *config.Config) { c.Stream.App += "x" }},
-		{"cameras[0].id", func(c *config.Config) { c.Cameras[0].ID += "x" }},
 	} {
 		old, next := testConfig(t), testConfig(t)
 		tc.set(next)
@@ -107,7 +106,7 @@ func TestCameraNameAppliesImmediately(t *testing.T) {
 	old, next := testConfig(t), testConfig(t)
 	next.Cameras[0].Name = "Outside"
 	got := ClassifyChanges(old, next, true)
-	if got.Apply != ApplyImmediate || len(got.Fields) != 1 || got.Fields[0].Path != "cameras[0].name" {
+	if got.Apply != ApplyImmediate || len(got.Fields) != 1 || got.Fields[0].Path != "cameras[cam1].name" {
 		t.Fatalf("camera name should apply immediately: %+v", got)
 	}
 }
@@ -223,7 +222,7 @@ func ownedForBaseline() []ListeningPort {
 
 func testConfig(t *testing.T) *config.Config {
 	t.Helper()
-	c, err := config.Parse([]byte("admin:\n  password: abcdefgh\nstream:\n  publish_pass: abcdefgh\n  read_pass: abcdefgh\ncameras:\n  - id: main\n    name: Main\n    on_bad: standby\n"))
+	c, err := config.Parse([]byte("admin:\n  password: abcdefgh\nstream:\n  publish_pass: abcdefgh\n  read_pass: abcdefgh\ncameras:\n  - id: cam1\n    name: Main\n    on_bad: standby\n"))
 	if err != nil {
 		t.Fatal(err)
 	}

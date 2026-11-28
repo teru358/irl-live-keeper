@@ -209,7 +209,7 @@ func (h *hb) onSpecial() Batch {
 
 func TestFBSQ08(t *testing.T) {
 	// ON 特例の受付と遅着。
-	t.Run("main", func(t *testing.T) {
+	t.Run("cam1", func(t *testing.T) {
 		h := newHB(t, fbAD)
 		h.onSpecial()
 		bs, err := h.cmdOn(2000)

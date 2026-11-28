@@ -12,6 +12,7 @@ import (
 	"github.com/teru358/irl-live-keeper/internal/ingest"
 	"github.com/teru358/irl-live-keeper/internal/obs"
 	"github.com/teru358/irl-live-keeper/internal/scenemap"
+	"github.com/teru358/irl-live-keeper/internal/sources"
 	"github.com/teru358/irl-live-keeper/internal/switcher"
 )
 
@@ -31,7 +32,7 @@ func TestObsConfig(t *testing.T) {
 	cfg.OBS.Host, cfg.OBS.Port, cfg.OBS.Password = "10.0.0.2", 4456, "obspw"
 	cfg.OBS.StandbyScene = "Wait"
 	cfg.MediaMTX.RTSPPort = 18554
-	cfg.Cameras = []config.Camera{{ID: "main", Name: "メイン", OnBad: "standby"}, {ID: "sub", Name: "サブ", OnBad: "hide"}}
+	cfg.Cameras = []config.Camera{{ID: "cam1", Name: "メイン", OnBad: "standby"}, {ID: "cam2", Name: "サブ", OnBad: "hide"}}
 
 	got := obsConfig(cfg)
 	if got.Host != "10.0.0.2" || got.Port != 4456 || got.Password != "obspw" {
@@ -40,7 +41,7 @@ func TestObsConfig(t *testing.T) {
 	if want := []string{"Wait"}; !reflect.DeepEqual(got.Scenes, want) {
 		t.Errorf("Scenes = %v, want %v", got.Scenes, want)
 	}
-	if want := []obs.CameraConfig{{ID: "main", Name: "メイン", Path: "live/main"}, {ID: "sub", Name: "サブ", Path: "live/sub"}}; !reflect.DeepEqual(got.Cameras, want) {
+	if want := []obs.CameraConfig{{ID: "cam1", Name: "メイン", Path: "live/cam1"}, {ID: "cam2", Name: "サブ", Path: "live/cam2"}}; !reflect.DeepEqual(got.Cameras, want) {
 		t.Errorf("Cameras = %v, want %v（設定の順）", got.Cameras, want)
 	}
 	if got.RTSPPort != 18554 {
@@ -124,12 +125,12 @@ func TestCoreDeps(t *testing.T) {
 	cfg.Switch.LowSec, cfg.Switch.RecoverSec, cfg.Switch.DownSec = 6, 12, 3
 	fail := 300
 	cfg.Cameras = []config.Camera{
-		{ID: "main", Name: "メイン", OnBad: "standby"},
-		{ID: "sub", Name: "サブ", OnBad: "hide", Switch: &config.SwitchOverride{FailKbps: &fail}},
+		{ID: "cam1", Name: "メイン", OnBad: "standby"},
+		{ID: "cam2", Name: "サブ", OnBad: "hide", Switch: &config.SwitchOverride{FailKbps: &fail}},
 	}
 	urls := []camURLs{
-		{ID: "main", Name: "メイン", PublishSRT: "s1", PublishRTMP: "r1", OBSRead: "o1"},
-		{ID: "sub", Name: "サブ", PublishSRT: "s2", PublishRTMP: "r2", OBSRead: "o2"},
+		{ID: "cam1", Name: "メイン", PublishSRT: "s1", PublishRTMP: "r1", OBSRead: "o1"},
+		{ID: "cam2", Name: "サブ", PublishSRT: "s2", PublishRTMP: "r2", OBSRead: "o2"},
 	}
 
 	cfg.OBS.SceneFallbacks = []config.SceneFallback{{Scene: " A ", Fallback: "B"}, {Scene: "C", Fallback: "Wait"}}
@@ -149,17 +150,17 @@ func TestCoreDeps(t *testing.T) {
 	override := common
 	override.FailKbps = 300
 	want := []core.Camera{
-		{ID: "main", Name: "メイン", Path: "live/main", OnBad: scenemap.MotionStandby, Thresholds: common,
+		{ID: "cam1", Name: "メイン", Path: "live/cam1", OnBad: scenemap.MotionStandby, Thresholds: common,
 			URLs: core.CameraURLs{PublishSRT: "s1", PublishRTMP: "r1", OBSRead: "o1"}},
-		{ID: "sub", Name: "サブ", Path: "live/sub", OnBad: scenemap.MotionHide, Thresholds: override,
+		{ID: "cam2", Name: "サブ", Path: "live/cam2", OnBad: scenemap.MotionHide, Thresholds: override,
 			URLs: core.CameraURLs{PublishSRT: "s2", PublishRTMP: "r2", OBSRead: "o2"}},
 	}
 	if !reflect.DeepEqual(d.Cameras, want) {
 		t.Errorf("Cameras\n got: %+v\nwant: %+v", d.Cameras, want)
 	}
 	cfg.Stream.App = "" // app が空なら1段の path
-	if p := coreDeps(cfg, urls).Cameras[1].Path; p != "sub" {
-		t.Errorf("app が空のときの Path = %q, want sub", p)
+	if p := coreDeps(cfg, urls).Cameras[1].Path; p != "cam2" {
+		t.Errorf("app が空のときの Path = %q, want cam2", p)
 	}
 	cfg.Stream.App = "live"
 	if d.StartScene != nil {
@@ -208,18 +209,18 @@ func TestMediaMTXBinary(t *testing.T) {
 
 func TestBuildCameraURLsOne(t *testing.T) {
 	cfg := testConfig(t)
-	cfg.Cameras = []config.Camera{{ID: "live", Name: "live", OnBad: "standby"}}
+	cfg.Cameras = []config.Camera{{ID: "cam1", Name: "live", OnBad: "standby"}}
 	cfg.Stream.PublishUser, cfg.Stream.PublishPass = "irl", "PUBPASS12"
 	cfg.Stream.ReadUser, cfg.Stream.ReadPass = "obs", "READPASS1"
 	u := buildCameraURLs(cfg, "192.168.1.10")[0]
-	if want := "srt://192.168.1.10:8890?streamid=publish:live/live:irl:PUBPASS12"; u.PublishSRT != want {
+	if want := "srt://192.168.1.10:8890?streamid=publish:live/cam1:irl:PUBPASS12"; u.PublishSRT != want {
 		t.Errorf("SRT = %q, want %q", u.PublishSRT, want)
 	}
-	if want := "rtmp://192.168.1.10:1935/live/live?user=irl&pass=PUBPASS12"; u.PublishRTMP != want {
+	if want := "rtmp://192.168.1.10:1935/live/cam1?user=irl&pass=PUBPASS12"; u.PublishRTMP != want {
 		t.Errorf("RTMP = %q, want %q", u.PublishRTMP, want)
 	}
 	// OBS 用は host によらず 127.0.0.1
-	if want := "rtsp://obs:READPASS1@127.0.0.1:8554/live/live"; u.OBSRead != want {
+	if want := "rtsp://obs:READPASS1@127.0.0.1:8554/live/cam1"; u.OBSRead != want {
 		t.Errorf("OBS = %q, want %q", u.OBSRead, want)
 	}
 }
@@ -232,23 +233,23 @@ func TestBuildCameraURLsOverrides(t *testing.T) {
 		wantSRT, wantRTMP, wantOBSRead string
 	}{
 		{"既定", func(c *config.Config) {}, "192.168.1.10",
-			"srt://192.168.1.10:8890?streamid=publish:live/live:irl:PUBPASS12", "rtmp://192.168.1.10:1935/live/live?user=irl&pass=PUBPASS12", "rtsp://obs:READPASS1@127.0.0.1:8554/live/live"},
+			"srt://192.168.1.10:8890?streamid=publish:live/cam1:irl:PUBPASS12", "rtmp://192.168.1.10:1935/live/cam1?user=irl&pass=PUBPASS12", "rtsp://obs:READPASS1@127.0.0.1:8554/live/cam1"},
 		{"obs_read_host 指定", func(c *config.Config) { c.Stream.ObsReadHost = "192.168.1.20" }, "192.168.1.10",
-			"srt://192.168.1.10:8890?streamid=publish:live/live:irl:PUBPASS12", "rtmp://192.168.1.10:1935/live/live?user=irl&pass=PUBPASS12", "rtsp://obs:READPASS1@192.168.1.20:8554/live/live"},
+			"srt://192.168.1.10:8890?streamid=publish:live/cam1:irl:PUBPASS12", "rtmp://192.168.1.10:1935/live/cam1?user=irl&pass=PUBPASS12", "rtsp://obs:READPASS1@192.168.1.20:8554/live/cam1"},
 		{"ポート上書き", func(c *config.Config) { c.Stream.PublishRTMPPort, c.Stream.PublishSRTPort = 21935, 28890 }, "example.com",
-			"srt://example.com:28890?streamid=publish:live/live:irl:PUBPASS12", "rtmp://example.com:21935/live/live?user=irl&pass=PUBPASS12", "rtsp://obs:READPASS1@127.0.0.1:8554/live/live"},
+			"srt://example.com:28890?streamid=publish:live/cam1:irl:PUBPASS12", "rtmp://example.com:21935/live/cam1?user=irl&pass=PUBPASS12", "rtsp://obs:READPASS1@127.0.0.1:8554/live/cam1"},
 		{"ポート 0 は受信のポート", func(c *config.Config) { c.MediaMTX.RTMPPort, c.MediaMTX.SRTPort = 11935, 18890 }, "example.com",
-			"srt://example.com:18890?streamid=publish:live/live:irl:PUBPASS12", "rtmp://example.com:11935/live/live?user=irl&pass=PUBPASS12", "rtsp://obs:READPASS1@127.0.0.1:8554/live/live"},
+			"srt://example.com:18890?streamid=publish:live/cam1:irl:PUBPASS12", "rtmp://example.com:11935/live/cam1?user=irl&pass=PUBPASS12", "rtsp://obs:READPASS1@127.0.0.1:8554/live/cam1"},
 		{"IPv6", func(c *config.Config) {
 			c.Stream.ObsReadHost = "fd00::20"
 			c.Stream.PublishRTMPPort = 21935
 		}, "fd00::10",
-			"srt://[fd00::10]:8890?streamid=publish:live/live:irl:PUBPASS12", "rtmp://[fd00::10]:21935/live/live?user=irl&pass=PUBPASS12", "rtsp://obs:READPASS1@[fd00::20]:8554/live/live"},
+			"srt://[fd00::10]:8890?streamid=publish:live/cam1:irl:PUBPASS12", "rtmp://[fd00::10]:21935/live/cam1?user=irl&pass=PUBPASS12", "rtsp://obs:READPASS1@[fd00::20]:8554/live/cam1"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := testConfig(t)
-			cfg.Cameras = []config.Camera{{ID: "live", Name: "live", OnBad: "standby"}}
+			cfg.Cameras = []config.Camera{{ID: "cam1", Name: "live", OnBad: "standby"}}
 			cfg.Stream.PublishUser, cfg.Stream.PublishPass = "irl", "PUBPASS12"
 			cfg.Stream.ReadUser, cfg.Stream.ReadPass = "obs", "READPASS1"
 			tt.mod(cfg)
@@ -269,8 +270,8 @@ func TestBuildCameraURLsOverrides(t *testing.T) {
 func TestBuildCameraURLs(t *testing.T) {
 	cfg := testConfig(t)
 	cfg.Cameras = []config.Camera{
-		{ID: "main", Name: "メインカメラ", OnBad: "standby"},
-		{ID: "sub", Name: "サブカメラ", OnBad: "hide"},
+		{ID: "cam1", Name: "メインカメラ", OnBad: "standby"},
+		{ID: "cam2", Name: "サブカメラ", OnBad: "hide"},
 	}
 	cfg.Stream.PublishUser, cfg.Stream.PublishPass = "irl", "PUBPASS12"
 	cfg.Stream.ReadUser, cfg.Stream.ReadPass = "obs", "READPASS1"
@@ -279,16 +280,16 @@ func TestBuildCameraURLs(t *testing.T) {
 	got := buildCameraURLs(cfg, "192.168.1.10")
 	want := []camURLs{
 		{
-			Name: "メインカメラ", ID: "main",
-			PublishSRT:  "srt://192.168.1.10:8890?streamid=publish:live/main:irl:PUBPASS12",
-			PublishRTMP: "rtmp://192.168.1.10:1935/live/main?user=irl&pass=PUBPASS12",
-			OBSRead:     "rtsp://obs:READPASS1@127.0.0.1:8554/live/main",
+			Name: "メインカメラ", ID: "cam1",
+			PublishSRT:  "srt://192.168.1.10:8890?streamid=publish:live/cam1:irl:PUBPASS12",
+			PublishRTMP: "rtmp://192.168.1.10:1935/live/cam1?user=irl&pass=PUBPASS12",
+			OBSRead:     "rtsp://obs:READPASS1@127.0.0.1:8554/live/cam1",
 		},
 		{
-			Name: "サブカメラ", ID: "sub",
-			PublishSRT:  "srt://192.168.1.10:8890?streamid=publish:live/sub:irl:PUBPASS12",
-			PublishRTMP: "rtmp://192.168.1.10:1935/live/sub?user=irl&pass=PUBPASS12",
-			OBSRead:     "rtsp://obs:READPASS1@127.0.0.1:8554/live/sub",
+			Name: "サブカメラ", ID: "cam2",
+			PublishSRT:  "srt://192.168.1.10:8890?streamid=publish:live/cam2:irl:PUBPASS12",
+			PublishRTMP: "rtmp://192.168.1.10:1935/live/cam2?user=irl&pass=PUBPASS12",
+			OBSRead:     "rtsp://obs:READPASS1@127.0.0.1:8554/live/cam2",
 		},
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -307,7 +308,7 @@ func TestBuildCameraURLs(t *testing.T) {
 // 止めたプロトコルの送信用は空文字。OBS 用の RTSP は止めていても作る。
 func TestBuildCameraURLsStopped(t *testing.T) {
 	cfg := testConfig(t)
-	cfg.Cameras = []config.Camera{{ID: "main", Name: "メイン", OnBad: "standby"}, {ID: "sub", Name: "サブ", OnBad: "standby"}}
+	cfg.Cameras = []config.Camera{{ID: "cam1", Name: "メイン", OnBad: "standby"}, {ID: "cam2", Name: "サブ", OnBad: "standby"}}
 	cfg.MediaMTX.RTMPEnabled = false
 	for i, c := range buildCameraURLs(cfg, "192.168.1.10") {
 		if c.PublishRTMP != "" || c.PublishSRT == "" || c.OBSRead == "" {
@@ -318,6 +319,41 @@ func TestBuildCameraURLsStopped(t *testing.T) {
 	for i, c := range buildCameraURLs(cfg, "192.168.1.10") {
 		if c.PublishSRT != "" || c.PublishRTMP == "" || c.OBSRead == "" {
 			t.Errorf("SRT を止めたときのカメラ %d: %+v", i, c)
+		}
+	}
+}
+
+// All downstream lists inherit the normalized order from a manually edited file.
+func TestLoadedCameraOrderThroughSnapshotAndValues(t *testing.T) {
+	cfg, err := config.Parse([]byte("stream:\n  publish_pass: publishpass\n  read_pass: readpass1\ncameras:\n  - id: cam3\n    name: Three\n    on_bad: hide\n  - id: cam1\n    name: One\n    on_bad: standby\n  - id: cam2\n    name: Two\n    on_bad: standby\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	urls := buildCameraURLs(cfg, "")
+	deps := coreDeps(cfg, urls)
+	deps.Machine = switcher.New(switcher.Config{})
+	snapshot := core.New(deps).Snapshot()
+	groups, err := sources.ValueGroups(snapshot, sources.Values(snapshot, time.Now()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var valueIDs []string
+	for _, g := range groups {
+		if g.Camera != nil {
+			valueIDs = append(valueIDs, g.Camera.ID)
+		}
+	}
+	want := []string{"cam1", "cam2", "cam3"}
+	var snapshotIDs, urlIDs []string
+	for _, cam := range snapshot.Cameras {
+		snapshotIDs = append(snapshotIDs, cam.ID)
+	}
+	for _, cam := range urls {
+		urlIDs = append(urlIDs, cam.ID)
+	}
+	for _, ids := range [][]string{snapshotIDs, urlIDs, valueIDs, cameraIDs(cfg)} {
+		if !reflect.DeepEqual(ids, want) {
+			t.Fatalf("order=%v", ids)
 		}
 	}
 }

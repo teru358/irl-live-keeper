@@ -27,8 +27,8 @@ const testCollection = "col"
 
 var testEndpoint = switcher.Endpoint{Host: "127.0.0.1", Port: 4455}
 
-// hideMap は sub（on_bad: hide）のメディアソース SUB を、Camera の項目 2 に置いた地図（main の IRL は項目 1）。
-// Camera2 は main だけ。hideMap2 は Camera2 にも SUB を置く。
+// hideMap は cam2（on_bad: hide）のメディアソース SUB を、Camera の項目 2 に置いた地図（cam1 の IRL は項目 1）。
+// Camera2 は cam1 だけ。hideMap2 は Camera2 にも SUB を置く。
 func hideMap() *scenemap.Map {
 	return hideMapWith(false)
 }
@@ -82,7 +82,7 @@ func withRestored(es ...switcher.HiddenEntry) option {
 	return func(_ *switcher.Config, d *Deps) { d.HiddenRestored = es }
 }
 
-// hideHarness は main（standby）と sub（hide）の2台で、hidden.json を一時のフォルダに置く。
+// hideHarness は cam1（standby）と cam2（hide）の2台で、hidden.json を一時のフォルダに置く。
 func hideHarness(t *testing.T, opts ...option) (*harness, string) {
 	t.Helper()
 	path, hw := trackedHiddenPath(t)
@@ -105,16 +105,16 @@ func (h *harness) itemWorld() {
 	}
 }
 
-// mainOKSubDown は main を OK、sub を DOWN にする。
+// mainOKSubDown は cam1 を OK、cam2 を DOWN にする。
 func (h *harness) mainOKSubDown() {
 	h.t.Helper()
 	for range 5 {
 		h.sampleSet(goodKbps, 0)
 	}
-	h.waitSnap("main OK", linkIs("OK"))
+	h.waitSnap("cam1 OK", linkIs("OK"))
 }
 
-// hideSub は配信中の Camera へつなぎ、sub の項目が隠れて hidden.json の記録が「隠した」になるまで進める。
+// hideSub は配信中の Camera へつなぎ、cam2 の項目が隠れて hidden.json の記録が「隠した」になるまで進める。
 func (h *harness) hideSub(path string) {
 	h.t.Helper()
 	h.itemWorld()
@@ -122,7 +122,7 @@ func (h *harness) hideSub(path string) {
 	h.mainOKSubDown()
 	h.connectMap(true, camera, hideMap())
 	h.waitCall("item:Camera:2:false")
-	h.waitSnap("sub が隠れた", func(s Snapshot) bool { return s.Cameras[1].Hidden == 1 })
+	h.waitSnap("cam2 が隠れた", func(s Snapshot) bool { return s.Cameras[1].Hidden == 1 })
 	waitFile(h.t, path, func(es []fileEntry) bool { return len(es) == 1 && es[0].State == "hidden" })
 }
 
@@ -186,12 +186,12 @@ func waitFile(t *testing.T, path string, pred func([]fileEntry) bool) []fileEntr
 	}
 }
 
-func (h *harness) waitLog(sub string) {
+func (h *harness) waitLog(cam2 string) {
 	h.t.Helper()
 	deadline := time.Now().Add(wait)
-	for !strings.Contains(h.log.String(), sub) {
+	for !strings.Contains(h.log.String(), cam2) {
 		if time.Now().After(deadline) {
-			h.t.Fatalf("ログに %q が出ない:\n%s", sub, h.log.String())
+			h.t.Fatalf("ログに %q が出ない:\n%s", cam2, h.log.String())
 		}
 		time.Sleep(time.Millisecond)
 	}
@@ -231,10 +231,10 @@ func TestHideWritesRecordBeforeFalse(t *testing.T) {
 	if len(got) != 1 || got[0].State != "pending" || got[0].Camera != subCam || got[0].Container != camera ||
 		got[0].Item != 2 || got[0].Source != "SUB" || got[0].Collection != testCollection ||
 		got[0].Host != testEndpoint.Host || got[0].Port != testEndpoint.Port {
-		t.Fatalf("false を送った時点の hidden.json = %+v, want sub の項目 (Camera,2) の pending", got)
+		t.Fatalf("false を送った時点の hidden.json = %+v, want cam2 の項目 (Camera,2) の pending", got)
 	}
 	if calls := h.obs.Calls(); hasItemCall(calls, "scene:") && countPrefix(calls, "scene:") > 0 {
-		t.Errorf("sub を隠す動きで、シーンの切替も出た: %v", calls)
+		t.Errorf("cam2 を隠す動きで、シーンの切替も出た: %v", calls)
 	}
 }
 
@@ -466,11 +466,11 @@ func TestLoadHidden(t *testing.T) {
 
 	settled := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
 	want := []switcher.HiddenEntry{
-		{CameraID: "sub", Host: "h", Port: 4455, Collection: "c", ContainerUUID: "S1", ItemID: 2, SourceUUID: "U1",
+		{CameraID: "cam2", Host: "h", Port: 4455, Collection: "c", ContainerUUID: "S1", ItemID: 2, SourceUUID: "U1",
 			State: switcher.HiddenH, WrittenAt: settled},
 		{CameraID: "old", Host: "h", Port: 4455, Collection: "c", ContainerUUID: "S2", ItemID: 7, SourceUUID: "U2",
 			State: switcher.HiddenU, SettledAt: &settled, WrittenAt: settled},
-		{CameraID: "sub", Host: "h", Port: 4455, Collection: "c", ContainerUUID: "S3", ItemID: 1, SourceUUID: "U3",
+		{CameraID: "cam2", Host: "h", Port: 4455, Collection: "c", ContainerUUID: "S3", ItemID: 1, SourceUUID: "U3",
 			State: switcher.HiddenP, WrittenAt: settled},
 	}
 	if err := atomicWrite(path, encodeHidden(want, settled)); err != nil {
@@ -521,7 +521,7 @@ func TestLoadHiddenUnknownVersion(t *testing.T) {
 }
 
 // 起動で読んだ記録は HiddenRestored として渡り、最初の地図で照合される。
-// sub が OK なら「戻してよい」ので、非表示のままの項目は表示に戻る。
+// cam2 が OK なら「戻してよい」ので、非表示のままの項目は表示に戻る。
 func TestRestoredEntryIsShownBack(t *testing.T) {
 	entry := switcher.HiddenEntry{CameraID: subCam, Host: testEndpoint.Host, Port: testEndpoint.Port, Collection: testCollection,
 		ContainerUUID: camera, ItemID: 2, SourceUUID: "SUB", State: switcher.HiddenH, WrittenAt: time.Now()}
@@ -538,7 +538,7 @@ func TestRestoredEntryIsShownBack(t *testing.T) {
 	for range 5 {
 		h.sampleSet(goodKbps, goodKbps)
 	}
-	h.waitSnap("sub OK", func(s Snapshot) bool { return s.Cameras[1].State == "OK" })
+	h.waitSnap("cam2 OK", func(s Snapshot) bool { return s.Cameras[1].State == "OK" })
 	m := hideMap()
 	sc := m.Scenes[camera]
 	sc.Items[1].Enabled = false // 落ちる前に隠した状態のまま
@@ -685,12 +685,12 @@ func TestStatusHiddenFields(t *testing.T) {
 	h, path := hideHarness(t)
 	h.hideSub(path)
 	s := h.core.Snapshot()
-	sub := s.Cameras[1]
-	if sub.Hidden != 1 || sub.UserShown || sub.Unusable || !slices.Equal(sub.Sources, []string{"SUB"}) {
-		t.Errorf("sub = %+v", sub)
+	cam2 := s.Cameras[1]
+	if cam2.Hidden != 1 || cam2.UserShown || cam2.Unusable || !slices.Equal(cam2.Sources, []string{"SUB"}) {
+		t.Errorf("cam2 = %+v", cam2)
 	}
-	if main := s.Cameras[0]; main.Hidden != 0 || !slices.Equal(main.Sources, []string{"IRL"}) {
-		t.Errorf("main = %+v", main)
+	if cam1 := s.Cameras[0]; cam1.Hidden != 0 || !slices.Equal(cam1.Sources, []string{"IRL"}) {
+		t.Errorf("cam1 = %+v", cam1)
 	}
 	b, _ := json.Marshal(s)
 	var m map[string]any
@@ -767,12 +767,12 @@ func TestHideShowLogs(t *testing.T) {
 	h, path := hideHarness(t)
 	h.hideSub(path)
 	// camera hidden は要求の応答が戻ってから出る（hideSub は要求が送られた時点で戻る）。出るまで待ち、隠す処理が終わってから次へ
-	h.waitLog(`msg="camera hidden" camera=sub items=1 reason=down`)
+	h.waitLog(`msg="camera hidden" camera=cam2 items=1 reason=down`)
 	// 配信の停止で戻る（reason=stream_stop）。Hide と Show は前回の送出から5秒あける。
 	h.clk.Advance(6 * time.Second)
 	h.obsEvent(switcher.StreamStateChanged{At: h.clk.Now(), Streaming: false})
 	h.waitCall("item:Camera:2:true")
-	h.waitLog(`msg="camera shown" camera=sub items=1 reason=stream_stop`)
+	h.waitLog(`msg="camera shown" camera=cam2 items=1 reason=stream_stop`)
 }
 
 func TestShowLogReasonOK(t *testing.T) {
@@ -782,7 +782,7 @@ func TestShowLogReasonOK(t *testing.T) {
 		h.sampleSet(goodKbps, goodKbps)
 	}
 	h.waitCall("item:Camera:2:true")
-	h.waitLog(`msg="camera shown" camera=sub items=1 reason=ok`)
+	h.waitLog(`msg="camera shown" camera=cam2 items=1 reason=ok`)
 }
 
 // SetItemEnabled の失敗でも、中核ループは止まらず、goroutine は残らない（Run が戻る）。

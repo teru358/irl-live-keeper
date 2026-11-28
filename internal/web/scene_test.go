@@ -79,10 +79,10 @@ func TestSceneListClassificationResponse(t *testing.T) {
 		cameras, parents []string
 	}{
 		{"共通の待機", "standby", []string{}, []string{"Camera"}},
-		{"個別のカメラあり", "camera", []string{"main"}, []string{"Camera"}},
+		{"個別のカメラあり", "camera", []string{"cam1"}, []string{"Camera"}},
 		{"個別のカメラなし", "standby", []string{}, []string{"Camera"}},
 		{"ただのカメラなし", "none", []string{}, []string{}},
-		{"個別の設定なし", "camera", []string{"main"}, []string{}},
+		{"個別の設定なし", "camera", []string{"cam1"}, []string{}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			b := &classifiedSceneBackend{list: []obs.Scene{{UUID: "u", Name: tc.name, Kind: tc.kind, Cameras: tc.cameras, FallbackOf: tc.parents}}}

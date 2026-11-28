@@ -35,11 +35,11 @@ func (f *fakeMediaURLWriter) SetMediaInputURLByOldURL(oldURL, newURL string) (bo
 }
 
 func TestOBSInputURLRewriteUsesCameraMapAndClearsMarkerAfterSuccess(t *testing.T) {
-	const secretURL = "rtsp://user:secret@host/live/a"
-	a := &App{obsInputURLs: map[string]string{"a": secretURL}}
+	const secretURL = "rtsp://user:secret@host/live/cam1"
+	a := &App{obsInputURLs: map[string]string{"cam1": secretURL}}
 	f := &fakeMediaURLWriter{}
 	a.updateOBSInputs(f, switcher.OBSConnected{Map: &scenemap.Map{Inputs: map[string]scenemap.Input{
-		"uuid-a": {CameraID: "a"}, "uuid-b": {CameraID: "b"}, "uuid-a2": {CameraID: "a"},
+		"uuid-a": {CameraID: "cam1"}, "uuid-b": {CameraID: "cam2"}, "uuid-a2": {CameraID: "cam1"},
 	}}})
 	if len(f.calls) != 2 || f.calls[0] != [2]string{"uuid-a", secretURL} || f.calls[1] != [2]string{"uuid-a2", secretURL} {
 		t.Fatalf("writes = %v", f.calls)
@@ -50,11 +50,11 @@ func TestOBSInputURLRewriteUsesCameraMapAndClearsMarkerAfterSuccess(t *testing.T
 }
 
 func TestOBSInputURLRewriteRetainsMarkerOnAuxFailure(t *testing.T) {
-	const secretURL = "rtsp://user:secret@host/live/a"
-	a := &App{obsInputURLs: map[string]string{"a": secretURL}}
+	const secretURL = "rtsp://user:secret@host/live/cam1"
+	a := &App{obsInputURLs: map[string]string{"cam1": secretURL}}
 	f := &fakeMediaURLWriter{err: errors.New("deadline")}
-	a.updateOBSInputs(f, switcher.OBSConnected{Map: &scenemap.Map{Inputs: map[string]scenemap.Input{"uuid-a": {CameraID: "a"}}}})
-	if a.obsInputURLs["a"] != secretURL || a.obsInputWarning.Load().Code != "app.obs_url_pending" {
+	a.updateOBSInputs(f, switcher.OBSConnected{Map: &scenemap.Map{Inputs: map[string]scenemap.Input{"uuid-a": {CameraID: "cam1"}}}})
+	if a.obsInputURLs["cam1"] != secretURL || a.obsInputWarning.Load().Code != "app.obs_url_pending" {
 		t.Fatalf("failure state: %#v %#v", a.obsInputURLs, a.obsInputWarning.Load())
 	}
 	if strings.Contains(fmt.Sprint(a.obsInputWarning.Load()), "secret") {
@@ -63,7 +63,7 @@ func TestOBSInputURLRewriteRetainsMarkerOnAuxFailure(t *testing.T) {
 }
 
 func TestOBSInputURLRewriteDropsMissingInputAndWarns(t *testing.T) {
-	a := &App{obsInputURLs: map[string]string{"a": "rtsp://host/live/a"}, updateOBSInput: true}
+	a := &App{obsInputURLs: map[string]string{"cam1": "rtsp://host/live/cam1"}, updateOBSInput: true}
 	f := &fakeMediaURLWriter{}
 	a.updateOBSInputs(f, switcher.OBSConnected{Map: &scenemap.Map{Inputs: map[string]scenemap.Input{}}})
 	if a.updateOBSInput || a.obsInputWarning.Load().Code != "app.obs_url_missing" || len(f.calls) != 0 {
@@ -96,17 +96,17 @@ func TestOBSInputURLRewriteRejectsNonMediaSourceAndHonorsUncheckedSave(t *testin
 
 func TestOBSInputURLMarkerTracksLatestSavedURLInProcess(t *testing.T) {
 	a := &App{}
-	old := &config.Config{Cameras: []config.Camera{{ID: "before"}}}
-	next := &config.Config{Cameras: []config.Camera{{ID: "after"}}}
+	old := &config.Config{Cameras: []config.Camera{{ID: "cam1"}}}
+	next := &config.Config{Cameras: []config.Camera{{ID: "cam1"}}}
 	b := &pageBackend{app: a}
 	b.ApplySaved(old, next, settings.ChangeSummary{}, true)
-	if a.obsInputURLs["after"] == "" || len(a.obsInputURLs) != 1 {
+	if a.obsInputURLs["cam1"] == "" || len(a.obsInputURLs) != 1 {
 		t.Fatalf("marker not set for new camera id: %#v", a.obsInputURLs)
 	}
-	first := a.obsInputURLs["after"]
+	first := a.obsInputURLs["cam1"]
 	next.Stream.ObsReadHost = "obs.example"
 	b.ApplySaved(next, next, settings.ChangeSummary{}, true)
-	if a.obsInputURLs["after"] == "" || a.obsInputURLs["after"] == first {
+	if a.obsInputURLs["cam1"] == "" || a.obsInputURLs["cam1"] == first {
 		t.Fatalf("marker did not follow changed URL: %#v", a.obsInputURLs)
 	}
 }
@@ -308,5 +308,71 @@ func TestSavedSettingsRoutesAndBusy(t *testing.T) {
 				t.Fatal("202 より前に実行を開始した")
 			}
 		})
+	}
+}
+
+func TestOBSURLRewriteOnlySharedIDs(t *testing.T) {
+	for _, connected := range []bool{false, true} {
+		t.Run(fmt.Sprint(connected), func(t *testing.T) {
+			old := &config.Config{Cameras: []config.Camera{{ID: "cam1"}, {ID: "cam2"}, {ID: "cam3"}}}
+			old.Stream.App = "before"
+			old.MediaMTX.RTSPPort = 8554
+			next := *old
+			next.Stream.App = "after"
+			next.Cameras = []config.Camera{{ID: "cam3"}, {ID: "cam4"}, {ID: "cam1"}}
+			a := &App{}
+			(&pageBackend{app: a}).ApplySaved(old, &next, settings.ClassifyChanges(old, &next, true), true)
+			if len(a.obsInputURLs) != 2 || a.obsInputURLs["cam2"] != "" || a.obsInputURLs["cam4"] != "" {
+				t.Fatalf("targets: %v", a.obsInputURLs)
+			}
+			for _, id := range []string{"cam1", "cam3"} {
+				if !strings.HasSuffix(a.obsInputOldURLs[id], "/before/"+id) {
+					t.Fatalf("old URLs: %v", a.obsInputOldURLs)
+				}
+			}
+			m := &scenemap.Map{Inputs: map[string]scenemap.Input{"removed": {CameraID: "cam2"}, "one": {CameraID: "cam1"}, "three": {CameraID: "cam3"}, "new": {CameraID: "cam4"}}}
+			f := &fakeMediaURLWriter{found: true, media: true}
+			if connected {
+				a.captureOBSInputUUIDs(&generation{obs: &cameraMapOBS{m: m}}, &savedSettings{Old: old, Next: &next})
+			} else {
+				m = &scenemap.Map{Inputs: map[string]scenemap.Input{}}
+			}
+			a.updateOBSInputs(f, switcher.OBSConnected{Map: m})
+			if len(f.calls) != 2 {
+				t.Fatalf("calls=%v", f.calls)
+			}
+			for _, call := range f.calls {
+				if call[0] == "removed" || call[0] == "new" || strings.HasSuffix(call[1], "/cam2") || strings.HasSuffix(call[1], "/cam4") {
+					t.Fatalf("calls=%v", f.calls)
+				}
+			}
+		})
+	}
+}
+
+type cameraMapOBS struct {
+	obsRunner
+	m *scenemap.Map
+}
+
+func (f *cameraMapOBS) ConnectedMap() (*scenemap.Map, bool) { return f.m, true }
+
+func TestOBSURLRewriteWhenCameraCountChanges(t *testing.T) {
+	old := &config.Config{Cameras: []config.Camera{{ID: "cam1"}, {ID: "cam2"}, {ID: "cam3"}}}
+	old.Stream.App = "before"
+	next := *old
+	next.Stream.App = "after"
+	next.Cameras = []config.Camera{{ID: "cam3"}}
+	a := &App{}
+	(&pageBackend{app: a}).ApplySaved(old, &next, settings.ClassifyChanges(old, &next, true), true)
+	m := &scenemap.Map{Inputs: map[string]scenemap.Input{"deleted": {CameraID: "cam1"}, "retained": {CameraID: "cam3"}}}
+	a.captureOBSInputUUIDs(&generation{obs: &cameraMapOBS{m: m}}, &savedSettings{Old: old, Next: &next})
+	if len(a.obsInputUUIDs) != 1 || len(a.obsInputUUIDs["cam3"]) != 1 || a.obsInputUUIDs["cam3"][0] != "retained" {
+		t.Fatalf("pinned=%v", a.obsInputUUIDs)
+	}
+	f := &fakeMediaURLWriter{}
+	a.updateOBSInputs(f, switcher.OBSConnected{Map: m})
+	if len(f.calls) != 1 || f.calls[0][0] != "retained" || !strings.HasSuffix(f.calls[0][1], "/after/cam3") {
+		t.Fatalf("calls=%v", f.calls)
 	}
 }

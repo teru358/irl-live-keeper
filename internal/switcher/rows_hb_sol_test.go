@@ -61,7 +61,7 @@ func TestHBMAの確認待ちのPは掃除しない(t *testing.T) {
 func TestHBShowのRestartは固定入力の全部が一致するときだけ(t *testing.T) {
 	const in2 = "in-sub2"
 	opt := hbMapEdit(func(m *scenemap.Map) {
-		m.Inputs[in2] = scenemap.Input{Name: "sub-src2", CameraID: camSub}
+		m.Inputs[in2] = scenemap.Input{Name: "cam2-src2", CameraID: camSub}
 		c := m.Scenes[camera2]
 		c.Items = append(c.Items, scenemapItem(2, in2, true))
 		m.Scenes[camera2] = c
@@ -80,7 +80,7 @@ func TestHBShowのRestartは固定入力の全部が一致するときだけ(t *
 	bs := h.tick(1000)
 	h.out(bs, "Sc(s)[R(is+in-sub2),x,z]")
 	// in-sub2 だけが m の入力に変わる
-	m := editMap(h.mp, func(m *scenemap.Map) { m.Inputs[in2] = scenemap.Input{Name: "sub-src2", CameraID: camMain} })
+	m := editMap(h.mp, func(m *scenemap.Map) { m.Inputs[in2] = scenemap.Input{Name: "cam2-src2", CameraID: camMain} })
 	h.smc(1050, m)
 	if r := h.m.Approve(bs[0].BatchID, bs[0].Actions[0], OverrideNone{}, at(1100)); r != (Skip{}) {
 		t.Fatalf("一部だけ別カメラの Restart: %#v, want Skip", r)
@@ -136,12 +136,12 @@ func TestHB使えないカメラの隠した項目はAutoRecoverを止めない(
 
 // sol 6: 0a では「hide も standby と同じ」だった入力が、0b でどう変わるか（withNoop に置き換えた行の元の入力）。
 func TestMC元のhide入力の0bでの変化(t *testing.T) {
-	t.Run("SQ-14e/SCF-13 の元: main を hide にする設定変更。戻り先 A への R は Restart を付けない", func(t *testing.T) {
+	t.Run("SQ-14e/SCF-13 の元: cam1 を hide にする設定変更。戻り先 A への R は Restart を付けない", func(t *testing.T) {
 		q := newSeq(t).PA(camera)
-		// 0a ではこの設定変更は何も出さない。0b では main が不良の hide なので Hc(main) が出る。
+		// 0a ではこの設定変更は何も出さない。0b では cam1 が不良の hide なので Hc(cam1) が出る。
 		bs, err := q.m.Handle(cfg(1000, withCameras(CameraConfig{ID: camMain, OnBad: scenemap.MotionHide})))
 		if err != nil || len(bs) != 1 || bs[0].Purpose != PurposeHideCamera {
-			t.Fatalf("Hc(main) がない: %v %v", descs2(bs), err)
+			t.Fatalf("Hc(cam1) がない: %v %v", descs2(bs), err)
 		}
 		q.owner(OwnerAuto, camera)
 		bs, err = q.m.Handle(lc(2000, OK))
@@ -163,7 +163,7 @@ func TestMC元のhide入力の0bでの変化(t *testing.T) {
 			withCameras(cam(camMain), CameraConfig{ID: camSub, OnBad: scenemap.MotionHide}, cam(camDesk)))
 		bs, err := q.m.Handle(cc(1000, OK, LOW, DOWN))
 		if err != nil || len(bs) != 1 || bs[0].Purpose != PurposeHideCamera || bs[0].CameraID != camSub {
-			t.Fatalf("0a は AutoFail(sub)。0b は Hc(sub) だけ: %v %v", descs2(bs), err)
+			t.Fatalf("0a は AutoFail(cam2)。0b は Hc(cam2) だけ: %v %v", descs2(bs), err)
 		}
 	})
 }

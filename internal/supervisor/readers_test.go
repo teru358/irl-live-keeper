@@ -51,17 +51,17 @@ func TestReaderTrackerLineForms(t *testing.T) {
 		slow  []string
 	}{
 		{"RTSP の session", []string{
-			"[RTSP] [session 2610e2a2] is reading from path 'live/main', with TCP, 2 tracks (H264, MPEG-4 Audio)",
-		}, []string{"live/main"}},
+			"[RTSP] [session 2610e2a2] is reading from path 'live/cam1', with TCP, 2 tracks (H264, MPEG-4 Audio)",
+		}, []string{"live/cam1"}},
 		{"RTMP の conn", []string{
-			"[RTMP] [conn 192.168.1.11:41388] is reading from path 'live/sub', 2 tracks (H264, MPEG-4 Audio)",
-		}, []string{"live/sub"}},
+			"[RTMP] [conn 192.168.1.11:41388] is reading from path 'live/cam2', 2 tracks (H264, MPEG-4 Audio)",
+		}, []string{"live/cam2"}},
 		{"SRT の conn", []string{
 			"[SRT] [conn 127.0.0.1:5555] is reading from path 'live/cam', 1 track (H264)",
 		}, []string{"live/cam"}},
 		{"1段の path", []string{
-			"[RTSP] [session abc] is reading from path 'main', with TCP, 1 track (H264)",
-		}, []string{"main"}},
+			"[RTSP] [session abc] is reading from path 'cam1', with TCP, 1 track (H264)",
+		}, []string{"cam1"}},
 		{"覚えていない id は数えない", nil, nil},
 	}
 	for _, c := range tests {
@@ -89,7 +89,7 @@ func TestReaderTrackerDestroyedForgets(t *testing.T) {
 		"[RTSP] [session s1] destroyed",
 	} {
 		tr, _ := newTestTracker()
-		tr.Observe("[RTSP] [session s1] is reading from path 'live/main', with TCP, 1 track (H264)")
+		tr.Observe("[RTSP] [session s1] is reading from path 'live/cam1', with TCP, 1 track (H264)")
 		tr.Observe(end)
 		slowN(tr, "[RTSP] [session s1]", 5)
 		if got := slowPaths(tr); got != nil {
@@ -97,7 +97,7 @@ func TestReaderTrackerDestroyedForgets(t *testing.T) {
 		}
 	}
 	tr, _ := newTestTracker()
-	tr.Observe("[RTMP] [conn 1.2.3.4:5] is reading from path 'live/main', 1 track (H264)")
+	tr.Observe("[RTMP] [conn 1.2.3.4:5] is reading from path 'live/cam1', 1 track (H264)")
 	tr.Observe("[RTMP] [conn 1.2.3.4:5] closed: EOF")
 	slowN(tr, "[RTMP] [conn 1.2.3.4:5]", 5)
 	if got := slowPaths(tr); got != nil {
@@ -118,12 +118,12 @@ func TestReaderTrackerIDReuse(t *testing.T) {
 
 func TestReaderTrackerPathsSeparate(t *testing.T) {
 	tr, _ := newTestTracker()
-	tr.Observe("[RTSP] [session a] is reading from path 'live/main', with TCP, 1 track (H264)")
-	tr.Observe("[RTSP] [session b] is reading from path 'live/sub', with TCP, 1 track (H264)")
+	tr.Observe("[RTSP] [session a] is reading from path 'live/cam1', with TCP, 1 track (H264)")
+	tr.Observe("[RTSP] [session b] is reading from path 'live/cam2', with TCP, 1 track (H264)")
 	slowN(tr, "[RTSP] [session a]", 2)
 	slowN(tr, "[RTSP] [session b]", 3)
-	if got := slowPaths(tr); !reflect.DeepEqual(got, []string{"live/sub"}) {
-		t.Errorf("slow = %v, want [live/sub]", got)
+	if got := slowPaths(tr); !reflect.DeepEqual(got, []string{"live/cam2"}) {
+		t.Errorf("slow = %v, want [live/cam2]", got)
 	}
 }
 
@@ -131,7 +131,7 @@ func TestReaderTrackerWindow(t *testing.T) {
 	const who = "[RTSP] [session a]"
 	setup := func() (*readerTracker, *fakeClock) {
 		tr, clk := newTestTracker()
-		tr.Observe(who + " is reading from path 'live/main', with TCP, 1 track (H264)")
+		tr.Observe(who + " is reading from path 'live/cam1', with TCP, 1 track (H264)")
 		return tr, clk
 	}
 	t.Run("2回では出ない", func(t *testing.T) {
@@ -146,7 +146,7 @@ func TestReaderTrackerWindow(t *testing.T) {
 		slowN(tr, who, 2)
 		clk.Add(5 * time.Second)
 		slowN(tr, who, 1)
-		if got := tr.Slow(); !reflect.DeepEqual(got, []SlowReader{{Path: "live/main", Count: 3, Last: clk.Now()}}) {
+		if got := tr.Slow(); !reflect.DeepEqual(got, []SlowReader{{Path: "live/cam1", Count: 3, Last: clk.Now()}}) {
 			t.Errorf("slow = %v", got)
 		}
 	})
@@ -211,7 +211,7 @@ func TestReaderTrackerWindow(t *testing.T) {
 
 func TestReaderTrackerResetForgetsAll(t *testing.T) {
 	tr, _ := newTestTracker()
-	tr.Observe("[RTSP] [session a] is reading from path 'live/main', with TCP, 1 track (H264)")
+	tr.Observe("[RTSP] [session a] is reading from path 'live/cam1', with TCP, 1 track (H264)")
 	slowN(tr, "[RTSP] [session a]", 3)
 	tr.Reset()
 	if got := tr.Slow(); got != nil {
@@ -236,11 +236,11 @@ func TestLineWriterFeedsReaders(t *testing.T) {
 	lw, buf, _ := newTestLW("SECRET")
 	tr, _ := newTestTracker()
 	lw.readers = tr
-	_, _ = lw.Write([]byte("2026/11/22 23:24:50 INF [RTSP] [session 2610e2a2] is reading from path 'live/main', with TCP, 2 tracks (H264, MPEG-4 Audio)\n"))
+	_, _ = lw.Write([]byte("2026/11/22 23:24:50 INF [RTSP] [session 2610e2a2] is reading from path 'live/cam1', with TCP, 2 tracks (H264, MPEG-4 Audio)\n"))
 	for i := 0; i < 3; i++ {
 		_, _ = lw.Write([]byte("2026/11/22 23:24:53 WAR [RTSP] [session 2610e2a2] reader is too slow, discarding 81 frames\n"))
 	}
-	if got := slowPaths(tr); !reflect.DeepEqual(got, []string{"live/main"}) {
+	if got := slowPaths(tr); !reflect.DeepEqual(got, []string{"live/cam1"}) {
 		t.Errorf("slow = %v", got)
 	}
 	// MediaMTX の WAR の行は今までどおりそのまま流す
@@ -260,7 +260,7 @@ func TestSupervisorSlowReadersEndToEnd(t *testing.T) {
 	go func() { s.Run(ctx); close(done) }()
 	deadline := time.Now().Add(10 * time.Second)
 	for {
-		if got := s.SlowReaders(); len(got) == 1 && got[0].Path == "live/main" {
+		if got := s.SlowReaders(); len(got) == 1 && got[0].Path == "live/cam1" {
 			break
 		}
 		if time.Now().After(deadline) {
@@ -320,17 +320,17 @@ func TestReaderTrackerSameKeyReplaces(t *testing.T) {
 
 // パスワードが path の一部と同じでも、追跡は伏せる前の行を読むので path が合う。ログには出ない。
 func TestLineWriterReadersSeeUnmaskedPath(t *testing.T) {
-	lw, buf, _ := newTestLW("main")
+	lw, buf, _ := newTestLW("cam1")
 	tr, _ := newTestTracker()
 	lw.readers = tr
-	_, _ = lw.Write([]byte("INF [RTSP] [session s1] is reading from path 'live/main', with TCP, 1 track (H264)\n"))
+	_, _ = lw.Write([]byte("INF [RTSP] [session s1] is reading from path 'live/cam1', with TCP, 1 track (H264)\n"))
 	for i := 0; i < 3; i++ {
 		_, _ = lw.Write([]byte("WAR [RTSP] [session s1] reader is too slow, discarding 81 frames\n"))
 	}
-	if got := slowPaths(tr); !reflect.DeepEqual(got, []string{"live/main"}) {
+	if got := slowPaths(tr); !reflect.DeepEqual(got, []string{"live/cam1"}) {
 		t.Errorf("slow = %v", got)
 	}
-	if strings.Contains(buf.String(), "live/main") || !strings.Contains(buf.String(), "live/***") {
+	if strings.Contains(buf.String(), "live/cam1") || !strings.Contains(buf.String(), "live/***") {
 		t.Errorf("ログのパスワードが伏せられていない:\n%s", buf.String())
 	}
 }

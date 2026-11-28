@@ -119,7 +119,7 @@ func TestGeneration生成停止とHidden(t *testing.T) {
 				if err := os.MkdirAll(filepath.Dir(hiddenPath(base)), 0700); err != nil {
 					t.Fatal(err)
 				}
-				data := `{"version":1,"entries":[{"camera":"main","host":"localhost","port":4455,"collection":"配信","container":"scene-id","item":1,"source":"source-id","state":"hidden"}]}`
+				data := `{"version":1,"entries":[{"camera":"cam1","host":"localhost","port":4455,"collection":"配信","container":"scene-id","item":1,"source":"source-id","state":"hidden"}]}`
 				if mode == "破損" {
 					data = "{"
 				}

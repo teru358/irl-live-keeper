@@ -71,7 +71,7 @@ func assertNoValue[T any](t *testing.T, ch <-chan T) {
 
 func TestEventSubscriptionSampleAndOverflow(t *testing.T) {
 	h := newHarness(t)
-	sub := h.core.SubscribeEvents(2)
+	cam2 := h.core.SubscribeEvents(2)
 	h.start()
 	base := h.clk.Now()
 	for i := 1; i <= 4; i++ {
@@ -79,33 +79,33 @@ func TestEventSubscriptionSampleAndOverflow(t *testing.T) {
 		h.sendSet(ingest.SampleSet{At: at, Cameras: []ingest.Sample{{Camera: mainCam, At: at, Interval: time.Second, Online: true, Protocol: "rtmp", Kbps: float64(i * 1000)}}})
 	}
 	h.command(switcher.CmdStandbyOff) // 4件目まで中核ループが処理したことを同期する。
-	if got := waitValue(t, sub.C).(SampleEvent).Cameras[0].Kbps; got != 1000 {
+	if got := waitValue(t, cam2.C).(SampleEvent).Cameras[0].Kbps; got != 1000 {
 		t.Fatalf("first kbps=%v", got)
 	}
 	at := base.Add(5 * time.Second)
 	h.sendSet(ingest.SampleSet{At: at, Cameras: []ingest.Sample{{Camera: mainCam, At: at, Interval: time.Second, Online: true, Protocol: "rtmp", Kbps: 5000}}})
 	h.command(switcher.CmdStandbyOff)
-	if got := waitValue(t, sub.C).(SampleEvent).Cameras[0].Kbps; got != 2000 {
+	if got := waitValue(t, cam2.C).(SampleEvent).Cameras[0].Kbps; got != 2000 {
 		t.Fatalf("second kbps=%v", got)
 	}
-	drain := waitValue(t, sub.C)
+	drain := waitValue(t, cam2.C)
 	if d, ok := drain.(DroppedEvent); !ok || d.N != 2 {
 		t.Fatalf("dropped=%#v", drain)
 	}
 	at = base.Add(6 * time.Second)
 	h.sendSet(ingest.SampleSet{At: at, Cameras: []ingest.Sample{{Camera: mainCam, At: at, Interval: time.Second, Online: true, Protocol: "rtmp", Kbps: 6000}}})
 	h.command(switcher.CmdStandbyOff)
-	if d := waitValue(t, sub.C).(DroppedEvent); d.N != 1 {
+	if d := waitValue(t, cam2.C).(DroppedEvent); d.N != 1 {
 		t.Fatalf("third dropped=%+v", d)
 	}
-	if got := waitValue(t, sub.C).(SampleEvent).Cameras[0].Kbps; got != 6000 {
+	if got := waitValue(t, cam2.C).(SampleEvent).Cameras[0].Kbps; got != 6000 {
 		t.Fatalf("last kbps=%v", got)
 	}
 }
 
 func TestEventSubscriptionClosesWithRun(t *testing.T) {
 	h := newHarness(t)
-	sub := h.core.SubscribeEvents(1)
+	cam2 := h.core.SubscribeEvents(1)
 	snap := h.core.SubscribeSnapshots()
 	h.start()
 	for i := 0; i < 4; i++ {
@@ -114,34 +114,34 @@ func TestEventSubscriptionClosesWithRun(t *testing.T) {
 	h.command(switcher.CmdStandbyOff) // 最後の Sample まで処理してから停止する。
 	h.cancel()
 	waitDone(t, h.runDone)
-	waitClosed(t, sub.C)
+	waitClosed(t, cam2.C)
 	waitClosed(t, snap)
-	if got := sub.Dropped(); got != 3 {
+	if got := cam2.Dropped(); got != 3 {
 		t.Fatalf("dropped=%d", got)
 	}
 }
 
 func TestSnapshotSubscriptionCoalesces(t *testing.T) {
 	h := newHarness(t)
-	sub := h.core.SubscribeSnapshots()
-	if cap(sub) != 1 {
-		t.Fatalf("snapshot capacity=%d, want 1", cap(sub))
+	cam2 := h.core.SubscribeSnapshots()
+	if cap(cam2) != 1 {
+		t.Fatalf("snapshot capacity=%d, want 1", cap(cam2))
 	}
 	select {
-	case <-sub:
+	case <-cam2:
 		t.Fatal("New 前の publish の知らせが届いた")
 	default:
 	}
 	h.start()
 	h.sample(1000)
 	h.command(switcher.CmdStandbyOff)
-	waitSnap(t, sub)
+	waitSnap(t, cam2)
 	h.sample(1000)
 	h.sample(1000)
 	h.command(switcher.CmdStandbyOff)
-	waitSnap(t, sub)
+	waitSnap(t, cam2)
 	select {
-	case <-sub:
+	case <-cam2:
 		t.Fatal("容量1のチャネルに余分な知らせが残っている")
 	default:
 	}
@@ -149,16 +149,16 @@ func TestSnapshotSubscriptionCoalesces(t *testing.T) {
 
 func TestSubscriptionsWithoutRunStayOpen(t *testing.T) {
 	h := newHarness(t)
-	sub := h.core.SubscribeSnapshots()
+	cam2 := h.core.SubscribeSnapshots()
 	events := h.core.SubscribeEvents(1)
-	assertNoValue(t, sub)
+	assertNoValue(t, cam2)
 	assertNoValue(t, events.C)
 }
 
 func TestSubscribeAfterRunPanicsAndZeroCapacityPanics(t *testing.T) {
 	h := newHarness(t)
-	sub := h.core.SubscribeEvents(1)
-	if sub == nil {
+	cam2 := h.core.SubscribeEvents(1)
+	if cam2 == nil {
 		t.Fatal("nil subscription")
 	}
 	func() {
@@ -190,17 +190,17 @@ func TestSubscribeAfterRunPanicsAndZeroCapacityPanics(t *testing.T) {
 
 func TestSampleEventValues(t *testing.T) {
 	h := newHarness(t)
-	sub := h.core.SubscribeEvents(2)
+	cam2 := h.core.SubscribeEvents(2)
 	h.start()
 	at := h.clk.Advance(time.Second)
 	h.sendSet(ingest.SampleSet{At: at, Cameras: []ingest.Sample{{Camera: mainCam, At: at, Interval: 1500 * time.Millisecond, Online: true, Protocol: "srt", Kbps: 1234.5, SRT: &ingest.SRTStats{RTTMs: 9, LossRate: 2, RecvMbps: 3}, Err: context.Canceled}}})
-	ev := waitValue(t, sub.C).(SampleEvent)
+	ev := waitValue(t, cam2.C).(SampleEvent)
 	if ev.At != at || len(ev.Cameras) != 1 || ev.Cameras[0].ID != mainCam || ev.Cameras[0].IVMs != 1500 || ev.Cameras[0].State != "DOWN" || !ev.Cameras[0].Err || ev.Cameras[0].RTTMs == nil || *ev.Cameras[0].RTTMs != 9 || ev.Cameras[0].Loss == nil || *ev.Cameras[0].Loss != 2 || ev.Cameras[0].Mbps == nil || *ev.Cameras[0].Mbps != 3 {
 		t.Fatalf("sample event=%+v", ev)
 	}
 	at = at.Add(time.Second)
 	h.sendSet(ingest.SampleSet{At: at, Cameras: []ingest.Sample{{Camera: mainCam, At: at, Interval: time.Second, Online: true, Protocol: "rtmp", SRT: &ingest.SRTStats{RTTMs: 9, LossRate: 2, RecvMbps: 3}}}})
-	rtmp := waitValue(t, sub.C).(SampleEvent)
+	rtmp := waitValue(t, cam2.C).(SampleEvent)
 	if len(rtmp.Cameras) != 1 || rtmp.Cameras[0].RTTMs != nil || rtmp.Cameras[0].Loss != nil || rtmp.Cameras[0].Mbps != nil {
 		t.Fatalf("RTMP event has SRT values: %+v", rtmp.Cameras)
 	}
@@ -221,7 +221,7 @@ func TestSampleEventTwoCamerasAndJudgeStates(t *testing.T) {
 	h := newHarness(t, func(_ *switcher.Config, d *Deps) {
 		d.Cameras = []Camera{testCamera(mainCam, "SRT", scenemap.MotionStandby), testCamera(subCam, "RTMP", scenemap.MotionStandby)}
 	})
-	sub := h.core.SubscribeEvents(16)
+	cam2 := h.core.SubscribeEvents(16)
 	h.start()
 	base := h.clk.Now()
 	send := func(i int, kbps float64, online, failed bool) SampleEvent {
@@ -235,7 +235,7 @@ func TestSampleEventTwoCamerasAndJudgeStates(t *testing.T) {
 				return nil
 			}()},
 		}})
-		return waitValue(t, sub.C).(SampleEvent)
+		return waitValue(t, cam2.C).(SampleEvent)
 	}
 	for i := 1; i <= 2; i++ {
 		kbps, online, failed, want := 0.0, false, true, "DOWN"

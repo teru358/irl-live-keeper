@@ -166,7 +166,7 @@ func TestFBSQ05(t *testing.T) {
 
 func TestFBSQ06(t *testing.T) {
 	// 履歴と新しい列の重なり。C は m が映る別の監視シーン。
-	t.Run("main", func(t *testing.T) {
+	t.Run("cam1", func(t *testing.T) {
 		h := newHB(t, hbMapEdit(addSceneC), hbAt(sceneC))
 		h.m.st.CameraStates[camMain] = DOWN
 		h.setAuto(sceneC, camera, camera2) // 前提: auto/[A,B]、現在 C 不良、A/B 不可、D 可（s OK）。判断はまだ走らせない
@@ -217,7 +217,7 @@ func TestFBSQ07(t *testing.T) {
 		h.setAuto(camera2, camera)
 		return h
 	}
-	t.Run("main", func(t *testing.T) {
+	t.Run("cam1", func(t *testing.T) {
 		h := mk(t)
 		ce := h.m.st.ConfigEpoch
 		f := h.tick(1000)

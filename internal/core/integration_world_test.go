@@ -65,7 +65,7 @@ type lateApply struct {
 
 // camera の id と、世界のカメラの入力。
 const (
-	wMain, wSub, wHand = "main", "sub", "hand"
+	wMain, wSub, wHand = "cam1", "cam2", "cam3"
 )
 
 var wCameraIDs = []string{wMain, wSub, wHand}
@@ -444,7 +444,7 @@ func (w *world) canRestoreOracleLocked(cam string) bool {
 	if !w.streaming || !w.autoOn || w.judges[cam].State() == ingest.LinkOK {
 		return true
 	}
-	if w.isStandbyCam(cam) { // main（と alt）は on_bad: standby
+	if w.isStandbyCam(cam) { // cam1（と alt）は on_bad: standby
 		return true
 	}
 	return w.studio && w.studioHid != switcher.StudioHideHide
