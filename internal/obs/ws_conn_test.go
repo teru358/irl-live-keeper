@@ -190,7 +190,7 @@ func TestCollectionChangeClosesGateAndReconnects(t *testing.T) {
 	if n := countOf[switcher.OBSConnected](h.events()); n != 1 {
 		t.Fatalf("Changed の前に OBSConnected が流れた: %d", n)
 	}
-	if !slices.ContainsFunc(h.w.Warnings(), func(s string) bool { return strings.Contains(s, "切り替え中") }) {
+	if !slices.ContainsFunc(h.w.Warnings(), func(s string) bool { return strings.Contains(s, "切替中") }) {
 		t.Fatalf("切替中の警告がない: %v", h.w.Warnings())
 	}
 
@@ -210,7 +210,7 @@ func TestCollectionChangeClosesGateAndReconnects(t *testing.T) {
 	if err := h.w.SetSceneUUID("Second"); err != nil {
 		t.Fatalf("門が開いたあとの SetScene: %v", err)
 	}
-	if slices.ContainsFunc(h.w.Warnings(), func(s string) bool { return strings.Contains(s, "切り替え中") }) {
+	if slices.ContainsFunc(h.w.Warnings(), func(s string) bool { return strings.Contains(s, "切替中") }) {
 		t.Fatalf("つなぎ直したのに切替中の警告が残っている: %v", h.w.Warnings())
 	}
 	if n := countOf[switcher.OBSDisconnected](h.events()); n != 1 {

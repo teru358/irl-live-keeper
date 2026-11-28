@@ -228,7 +228,7 @@ func TestCameraWarnings(t *testing.T) {
 	cams := []CameraConfig{{ID: "cam1", Name: "メイン"}, {ID: "cam2", Name: "サブ"}, {ID: "cam3"}}
 	m := &scenemap.Map{Inputs: map[string]scenemap.Input{"i": {Name: "x", CameraID: "cam1"}, "j": {Name: "y"}}}
 	got := i18n.Strings(i18n.JA, cameraWarnings(cams, m))
-	want := []string{"サブのメディアソースが OBS に見つかりません", "cam3のメディアソースが OBS に見つかりません"}
+	want := []string{"サブのメディアソースが OBS に見つかりません。", "cam3のメディアソースが OBS に見つかりません。"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("警告: %v", got)
 	}
@@ -263,8 +263,8 @@ func TestCameraWarningsLegacyURL(t *testing.T) {
 	m := &scenemap.Map{Inputs: map[string]scenemap.Input{"i": {Name: "旧メイン", LegacyCameraID: "cam1"}}}
 	got := i18n.Strings(i18n.JA, cameraWarnings(cams, m))
 	want := []string{
-		"メインのメディアソースが OBS に見つかりません",
-		"メディアソース 旧メイン の URL が古い形（…/cam1）です。…/live/cam1 に直してください",
+		"メインのメディアソースが OBS に見つかりません。",
+		"メディアソース 旧メイン の URL が古い形（…/cam1）です。…/live/cam1 に直してください。",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("警告: %q", got)

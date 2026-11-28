@@ -12,7 +12,7 @@ func TestRender(t *testing.T) {
 		msg  Msg
 		want string
 	}{
-		{JA, New("obs.media", "name", "IRL"), "IRL が映っていない可能性があります"},
+		{JA, New("obs.media", "name", "IRL"), "IRL が映っていない可能性があります。"},
 		{EN, New("obs.media", "name", "IRL"), "IRL may not be visible."},
 		{"fr", New("obs.media", "name", "{name}"), "{name} may not be visible."},
 		{JA, New("unknown"), "unknown"},
@@ -123,7 +123,7 @@ func TestNestedReason(t *testing.T) {
 	if got := Render(EN, m); got != "Cannot read hidden.json (Unknown version 99). Using an empty record. The old file was saved as hidden.json.broken." {
 		t.Fatal(got)
 	}
-	if got := Render(JA, m); got != "hidden.json を読めなかったため（知らない版 99）、空として扱います。元のファイルは hidden.json.broken に残しました" {
+	if got := Render(JA, m); got != "hidden.json を読めなかったため（知らない版 99）、空として扱います。元のファイルは hidden.json.broken に残しました。" {
 		t.Fatal(got)
 	}
 }

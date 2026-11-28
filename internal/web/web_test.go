@@ -138,8 +138,8 @@ func TestCommandErrors(t *testing.T) {
 	}{
 		{"invalid state", switcher.ErrInvalidState{Reason: "配信中ではない"}, http.StatusConflict, "配信中ではない"},
 		{"invalid state wrapped", fmt.Errorf("x: %w", switcher.ErrInvalidState{Reason: "期待が残っている"}), http.StatusConflict, "期待が残っている"},
-		{"not connected", switcher.ErrNotConnected{}, http.StatusServiceUnavailable, "OBS に未接続"},
-		{"not connected wrapped", fmt.Errorf("x: %w", switcher.ErrNotConnected{}), http.StatusServiceUnavailable, "OBS に未接続"},
+		{"not connected", switcher.ErrNotConnected{}, http.StatusServiceUnavailable, "OBS につながっていません"},
+		{"not connected wrapped", fmt.Errorf("x: %w", switcher.ErrNotConnected{}), http.StatusServiceUnavailable, "OBS につながっていません"},
 		{"stopped", core.ErrStopped, http.StatusServiceUnavailable, ""},
 		{"deadline", context.DeadlineExceeded, http.StatusServiceUnavailable, ""},
 		{"unexpected", errors.New("boom"), http.StatusInternalServerError, ""},

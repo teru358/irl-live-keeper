@@ -206,7 +206,7 @@ func TestMediaWatchRefreshesTwiceThenWarnsUntilNextWatch(t *testing.T) {
 	h.step(10 * time.Second)
 	h.step(time.Second)
 	waitFor(t, "警告", func() bool { return len(h.mw.Warnings()) == 1 })
-	if w := h.mw.Warnings(); w[0] != "IRL が映っていない可能性があります" {
+	if w := h.mw.Warnings(); w[0] != "IRL が映っていない可能性があります。" {
 		t.Fatalf("警告の文が違う: %v", w)
 	}
 	if n := len(h.aux.setCalls()); n != 2 {

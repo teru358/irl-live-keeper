@@ -49,3 +49,8 @@ func init() {
 
 // ログインの失敗（パスワードが違う）の文。ログインが切れたときの api.unauthorized とは別にする。
 func init() { Codes = append(Codes, "api.wrong_password") }
+
+// S2-92: ソースの保存の誤りを理由ごとに分けた。
+func init() {
+	Codes = append(Codes, "sources.name_empty", "sources.name_chars", "sources.name_long", "sources.title_long", "sources.size_range")
+}

@@ -19,7 +19,14 @@ import (
 // MaxBody is the largest body in bytes, including any data: URLs in it.
 const MaxBody = 64 << 10
 
+// MaxNameLength is the longest URL name in characters (the name is ASCII only), MaxTitle the longest display name in bytes.
+const (
+	MaxNameLength = 32
+	MaxTitle      = 1024
+)
+
 var NamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,32}$`)
+var nameChars = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 // ReservedNames are URL path segments under /source/ and /api/sources/ that a source cannot take.
 var ReservedNames = map[string]bool{"files": true, "assets": true, "frame": true, "preview": true, "test-obs": true}
@@ -38,15 +45,25 @@ type Source struct {
 
 func Default() Source { return Source{OBSWidth: 800, OBSHeight: 200} }
 func (s Source) Validate(snapshot core.Snapshot) error {
-	invalid := func() error { return &ValidationError{Message: i18n.New("sources.invalid")} }
-	if !NamePattern.MatchString(s.Name) || len(s.Title) > 1024 || s.OBSWidth < 1 || s.OBSWidth > 8192 || s.OBSHeight < 1 || s.OBSHeight > 8192 {
-		return invalid()
+	reason := func(code string, pairs ...string) error {
+		return &ValidationError{Message: i18n.New(code, pairs...)}
 	}
-	if ReservedNames[s.Name] {
-		return &ValidationError{Message: i18n.New("sources.reserved_name")}
-	}
-	if len(s.Body) > MaxBody {
-		return &ValidationError{Message: i18n.New("sources.body_too_large")}
+	// 保存の誤りは理由ごとの鍵で返す（S2-92）。
+	switch {
+	case s.Name == "":
+		return reason("sources.name_empty")
+	case !nameChars.MatchString(s.Name):
+		return reason("sources.name_chars")
+	case len(s.Name) > MaxNameLength:
+		return reason("sources.name_long")
+	case len(s.Title) > MaxTitle:
+		return reason("sources.title_long")
+	case s.OBSWidth < 1 || s.OBSWidth > 8192 || s.OBSHeight < 1 || s.OBSHeight > 8192:
+		return reason("sources.size_range")
+	case ReservedNames[s.Name]:
+		return reason("sources.reserved_name", "name", s.Name)
+	case len(s.Body) > MaxBody:
+		return reason("sources.body_too_large")
 	}
 	_, err := CompileHTML(s.Body, Definitions(snapshot))
 	return err

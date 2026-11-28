@@ -79,3 +79,12 @@ Escape は「いいえ」と同じ。ブラウザの `confirm()` は使わない
 ソースのページを離れるときの確認は答えが遅れて来るので、keeper-before-page を先に止め、「はい」のあとで keeper-navigate をもう一度出す。
 配信のボタンは stream-control.js（状態の画面の「配信開始」「配信終了」の1つ。OBS 未接続は押せず理由を出す。配信開始の窓に on_stream_start のシーンを出すため、押したときに settings を読む）。
 カメラの「削除」はカードを残す。削除する下書きから外し（dirty、保存はそのまま動く）、保存済みのカメラは settings-state.js の removeCamera / undoCameraRemoval / cameraCards で「保存すると削除します」と「取り消す」のカードにする。
+
+## 文言（S2-92）
+
+文の表（`internal/i18n/locales`）の言葉は、本体・確認・捨てる・切替・アドレス・OBS の読み取りにそろえる。ボタンは動詞（保存する・削除する・編集する・コピーする）。追加と、確認の窓の「はい」「いいえ」は変えない。
+`confirmationDanger`（settings-state.js）は、カメラを消す保存と、配信中に本体を再起動する操作（再起動、再起動して反映の保存、再起動を伴う作り直し）を赤にし、開いたときのフォーカスを「いいえ」に置く。配信していなければ青。警告の行（`settings_stream_warning`）と同じ条件。
+項目の名前と説明は `settingText(t, path, key, suffix)`。ふつうは `setting_<最後の名前>` だが、同じ名前で意味が違う `specificSettings`（obs.port、admin.port、obs.password、admin.password、on_stream_start.enabled）だけは `setting_<パス>` を使う。
+「＊ 保存すると本体が再起動します」は、1ページに1回だけ、項目の並びの下に出す（印は `settings_restart_mark`）。カメラの保存で config.yaml のコメントが消えることは、保存の確認の窓の行で言う。
+ソースの保存の誤りは、理由ごとの鍵（`sources.name_empty`・`name_chars`・`name_long`・`title_long`・`size_range`・`reserved_name`・`duplicate`）で返る。「URL 用の名前」の欄の下に、使える文字と「作ったあとは変えられません」を出す。
+OBS につながっていないとき、状態の画面のシーンの欄は「OBS の設定を開く」を出し、`keeper-settings-group`（設定の区分）と `keeper-navigate` で設定の「OBS」へ移る。

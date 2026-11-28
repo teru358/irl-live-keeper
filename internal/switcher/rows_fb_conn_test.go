@@ -274,7 +274,7 @@ func TestFBAPT4(t *testing.T) {
 			h.wantOwner(OwnerManual, camera)
 			h.wantStack("")
 			h.bdone(2200, bs[0].BatchID, BatchRejected, nil)
-			h.wantErrContains("取りやめた")
+			h.wantErrContains("取りやめました")
 			// 押し直し: 切替なしで auto/[A,D]。
 			bs2, err := h.cmdOff(3000)
 			if err != nil || len(bs2) != 0 {
@@ -295,7 +295,7 @@ func TestFBAPT4(t *testing.T) {
 			h.wantOwner(OwnerAuto, camera2)
 			h.wantNoErr()
 			h.bdone(2200, bs[0].BatchID, BatchRejected, nil)
-			h.wantErrContains("取りやめた")
+			h.wantErrContains("取りやめました")
 			// 待機 UUID の変化
 			h2 := newHB(t, fbAD)
 			h2.toDAuto(1000)

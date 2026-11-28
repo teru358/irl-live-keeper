@@ -6,9 +6,15 @@ import (
 	"testing"
 )
 
+// S2-92 C-12: 接続の誤りは次の操作を言う。
+const (
+	notConnectedEN = "Not connected to OBS. Start OBS, then check the address, port and password in Settings > OBS."
+	notConnectedJA = "OBS につながっていません。OBS を起動し、「設定」の「OBS」のアドレス・ポート・パスワードを確認してください。"
+)
+
 func TestErrorLanguages(t *testing.T) {
 	for _, tc := range []struct{ query, accept, want string }{
-		{"", "", "Not connected to OBS"}, {"?lang=en", "ja", "Not connected to OBS"}, {"?lang=ja", "en", "OBS に未接続"}, {"", "ja-JP", "OBS に未接続"},
+		{"", "", notConnectedEN}, {"?lang=en", "ja", notConnectedEN}, {"?lang=ja", "en", notConnectedJA}, {"", "ja-JP", notConnectedJA},
 	} {
 		r := httptest.NewRequest("POST", "/api/standby/on"+tc.query, nil)
 		r.SetBasicAuth("admin", testPass)
@@ -25,7 +31,7 @@ func TestErrorLanguages(t *testing.T) {
 
 func TestInvalidStateLanguages(t *testing.T) {
 	for _, tc := range []struct{ lang, want string }{
-		{"ja", "受け付けられない: 配信中"}, {"en", "Cannot accept: Streaming"}, {"", "Cannot accept: Streaming"},
+		{"ja", "受け付けられません: 配信中"}, {"en", "Cannot accept: Streaming"}, {"", "Cannot accept: Streaming"},
 	} {
 		r := httptest.NewRequest("POST", "/api/standby/on?lang="+tc.lang, nil)
 		r.SetBasicAuth("admin", testPass)

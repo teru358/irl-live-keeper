@@ -57,7 +57,7 @@ func TestBrokenSourcesAPI(t *testing.T) {
 		}
 		if wantBroken {
 			d := data.Broken["broken"]
-			if d.Code != "template.unknown" || d.Error != "1 行 2 文字目: 知らない値の名前です" || d.Line != 1 || d.Column != 2 {
+			if d.Code != "template.unknown" || d.Error != "1 行 2 文字目: 知らない値の名前です。" || d.Line != 1 || d.Column != 2 {
 				t.Fatal(body)
 			}
 		}

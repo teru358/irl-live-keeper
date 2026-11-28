@@ -244,7 +244,7 @@ test('"Send to" button on the status page names the destination and goes to the 
 
 test('the Japanese warning of a missing media source has no space between the name and "の"',()=>{
  const ja=locale('ja').messages,en=locale('en').messages;
- assert.equal(ja['obs.source_missing'],'{name}のメディアソースが OBS に見つかりません');
+ assert.equal(ja['obs.source_missing'],'{name}のメディアソースが OBS に見つかりません。');
  assert.equal(en['obs.source_missing'],'The media source for {name} is missing in OBS.');
 });
 
