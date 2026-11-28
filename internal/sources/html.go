@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -128,7 +129,14 @@ type htmlIssue struct {
 	code string
 }
 
-func cssCheck(s, mode string, refs map[string]bool) *htmlIssue {
+// refMark is the end of one asset path in the scanned text, where a rendered
+// page gets its ?v= version. Offsets are bytes of the text the scan read.
+type refMark struct {
+	end  int
+	path string
+}
+
+func cssCheck(s, mode string, refs map[string]bool, marks *[]refMark) *htmlIssue {
 	fail := func(p int, c string) *htmlIssue { return &htmlIssue{p, c} }
 	for i := 0; i < len(s); {
 		a := i
@@ -203,6 +211,7 @@ func cssCheck(s, mode string, refs map[string]bool) *htmlIssue {
 		}
 		vpos := i
 		var value string
+		vend := 0
 		if i < len(s) && (s[i] == '"' || s[i] == '\'') {
 			q := s[i]
 			i++
@@ -220,6 +229,7 @@ func cssCheck(s, mode string, refs map[string]bool) *htmlIssue {
 				return fail(vpos, "css_syntax")
 			}
 			value = s[vstart:i]
+			vend = i
 			i++
 			for i < len(s) {
 				if space(s[i]) {
@@ -256,12 +266,16 @@ func cssCheck(s, mode string, refs map[string]bool) *htmlIssue {
 			raw := s[st:i]
 			value = strings.Trim(raw, " \t\r\n\f")
 			vpos = st + len(raw) - len(strings.TrimLeft(raw, " \t\r\n\f"))
+			vend = vpos + len(value)
 		}
 		if !CheckHTMLURL(value, mode, true) {
 			return fail(vpos, "html_url")
 		}
 		if strings.HasPrefix(value, htmlRules.Asset.Prefix) && refs != nil {
 			refs[value] = true
+			if marks != nil {
+				*marks = append(*marks, refMark{vend, value})
+			}
 		}
 		i++
 	}
@@ -270,7 +284,7 @@ func cssCheck(s, mode string, refs map[string]bool) *htmlIssue {
 
 // CheckHTMLCSS checks decoded CSS. Positions are byte offsets into this input.
 func CheckHTMLCSS(s, mode string) error {
-	if e := cssCheck(s, mode, nil); e != nil {
+	if e := cssCheck(s, mode, nil, nil); e != nil {
 		return htmlError(s, e.pos, e.code)
 	}
 	return nil
@@ -329,6 +343,12 @@ type htmlScanner struct {
 	s, mode  string
 	stack    []htmlOpen
 	refs     map[string]bool
+	// marks keeps every asset path occurrence of a rendered scan, in the order
+	// read, for the ?v= versions.
+	marks []refMark
+	// lenient lets a saved body that no longer compiles (a removed camera, for
+	// instance) still give the references that can be read.
+	lenient bool
 }
 
 func (p *htmlScanner) fail(pos int, code string) error { return htmlError(p.s, pos, code) }
@@ -344,8 +364,16 @@ func (p *htmlScanner) css(s string, base int, decode bool) error {
 			return p.fail(e.pos, e.code)
 		}
 	}
-	if e := cssCheck(s, p.mode, p.refs); e != nil {
+	var marks []refMark
+	var out *[]refMark
+	if p.mode == "rendered" {
+		out = &marks
+	}
+	if e := cssCheck(s, p.mode, p.refs, out); e != nil {
 		return p.fail(positions[e.pos], e.code)
+	}
+	for _, m := range marks {
+		p.marks = append(p.marks, refMark{positions[m.end], m.path})
 	}
 	return nil
 }
@@ -539,6 +567,9 @@ func (p *htmlScanner) run() error {
 				}
 				if strings.HasPrefix(v, htmlRules.Asset.Prefix) {
 					p.refs[v] = true
+					if p.mode == "rendered" {
+						p.marks = append(p.marks, refMark{vp + len(value), v})
+					}
 				}
 			} else if attr == "style" {
 				if p.mode == "save" {
@@ -624,4 +655,46 @@ func (p *htmlScanner) run() error {
 func ValidateHTML(s, mode string) error {
 	p := htmlScanner{s: s, mode: mode, refs: map[string]bool{}}
 	return p.run()
+}
+
+// AssetVersions gives, for the asset paths it is asked about, the version that
+// is added to the URL (?v=, the first 12 hex digits of the content SHA-256).
+// A path that is not usable is left out.
+type AssetVersions func(paths []string) map[string]string
+
+// versionedHTML checks rendered HTML and adds ?v=<version> after every asset
+// path that has one. A path that already has a query is left as it is.
+func versionedHTML(out string, versions AssetVersions) (string, error) {
+	p := htmlScanner{s: out, mode: "rendered", refs: map[string]bool{}}
+	if err := p.run(); err != nil {
+		return "", err
+	}
+	if versions == nil || len(p.marks) == 0 {
+		return out, nil
+	}
+	paths := make([]string, 0, len(p.refs))
+	for r := range p.refs {
+		if !strings.Contains(r, "?") {
+			paths = append(paths, r)
+		}
+	}
+	sort.Strings(paths)
+	v := versions(paths)
+	if len(v) == 0 {
+		return out, nil
+	}
+	marks := append([]refMark(nil), p.marks...)
+	sort.SliceStable(marks, func(i, j int) bool { return marks[i].end < marks[j].end })
+	var b strings.Builder
+	cursor := 0
+	for _, m := range marks {
+		if version := v[m.path]; version != "" && m.end >= cursor {
+			b.WriteString(out[cursor:m.end])
+			b.WriteString("?v=")
+			b.WriteString(version)
+			cursor = m.end
+		}
+	}
+	b.WriteString(out[cursor:])
+	return b.String(), nil
 }

@@ -45,6 +45,7 @@ export const testSignature=state=>JSON.stringify([state.line,state.standby,state
 export function testReset(state){state.line='actual';state.standby='actual';state.stream='actual';state.free=false;}
 export function applyPreview(state,data){
  state.previewError=data.template_error?.error||'';
+ state.warnings=data.template_error?[]:(data.warnings||[]);
  state.diagnostics=templateDiagnostics(data.template_error);
  if(state.draft){if(!data.template_error)state.preview=data;}
  else if(!data.template_error)state.texts=data.sources;
@@ -61,15 +62,17 @@ export function previewChanges(previous,next){
  return {text:!previous||previous.text!==next.text||previous.name!==next.name,
   style:!previous||previous.name!==next.name||previous.css!==next.css||previous.version!==next.version};
 }
+// Deleting an asset that sources use: the titles, and that they will need repair.
 export function deletePrompt(item,list,t){
  const label=source=>source.title||source.name;
  const prompt=t('src_confirmdelete').replace('{name}',()=>label(item));
  const used=item.used_by?.map(name=>label(list.find(src=>src.name===name)||{name}));
- return prompt+(used?.length?'\n'+t('src_used').replace('{sources}',()=>used.join(', ')):'');
+ return prompt+(used?.length?'\n'+t('src_used').replace('{sources}',()=>used.join(', '))+'\n'+t('src_file_used_note'):'');
 }
-export const sourceFileDeletionPaused=()=>true;
+// The list rows carry the camera ids of the body; a saved source does not, so the draft drops them.
+export const sourceDraft=source=>{const {cameras,...draft}=source;return structuredClone(draft);};
 export function clearEditor(state){
- state.draft=null;state.base=null;state.preview=null;
+ state.draft=null;state.base=null;state.preview=null;state.warnings=[];
  state.valueGroups=[];state.valuesOpen=false;state.valuesFilter='';state.valuesError='';
  state.previewError='';state.editorError='';state.editorNotice='';state.diagnostics=[];
 }
@@ -84,7 +87,8 @@ export function applyCollection(state,data){
  if(data.error)state.notice=data.error;
 }
 export function openEditor(state,source){
- state.draft=structuredClone(source||{...state.defaults,name:'',title:'',body:''});
+ state.draft=source?sourceDraft(source):structuredClone({...state.defaults,name:'',title:'',body:''});
+ state.warnings=[];
  state.base=structuredClone(state.draft);state.fresh=!source;
  state.preview=null;state.editorNotice='';state.editorError='';
  const error=source?brokenError(state.broken,source.name):null;

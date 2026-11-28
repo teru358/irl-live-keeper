@@ -23,7 +23,25 @@ export function focusSettingError(errors,doc){
  input?.focus();
  input?.scrollIntoView({block:'center'});
 }
-export function confirmationLines(action,payload,preview,streaming,t,saved={}){
+// The camera ids that a save would remove (an added or edited camera is not one).
+export const removedCameraIDs=preview=>(preview.fields||[]).filter(f=>f.kind==='removed').map(f=>f.path.match(/^cameras\[(cam[1-8])\]$/)?.[1]).filter(Boolean);
+// What GET /api/sources says about the sources and the cameras they use; null (or an unreadable list) is an unknown.
+export function cameraUsage(data){
+ if(!data||data.code==='sources.unreadable'||!Array.isArray(data.sources))return {error:true,sources:[]};
+ return {error:false,sources:data.sources.map(s=>({name:s.name,title:s.title||s.name,cameras:s.cameras||[]}))};
+}
+// Lines for the removed cameras: the titles of the sources that use their values, and what happens to those.
+export function cameraUsageLines(ids,usage,t,saved={}){
+ if(!ids.length||!usage)return [];
+ if(usage.error)return [t('settings_camera_sources_unreadable')];
+ const lines=[];
+ for(const id of ids){
+  const titles=usage.sources.filter(s=>s.cameras.includes(id)).map(s=>s.title);
+  if(titles.length)lines.push(cameraHeading(saved.cameras?.find(c=>c.id===id)||{id},t)+' — '+t('settings_camera_used').replace('{sources}',()=>titles.join(', ')));
+ }
+ return lines.length?[...lines,t('settings_camera_used_note')]:lines;
+}
+export function confirmationLines(action,payload,preview,streaming,t,saved={},usage=null){
  const lines=[];
  if(action==='regenerate')lines.push(t('settings_regenerate_'+payload.target));
  if(action==='regenerate'&&payload.target==='publish'){if(payload.camera)lines.push(cameraHeading({id:payload.camera},t));lines.push(t('publish_reset_warning'));}
@@ -34,6 +52,7 @@ export function confirmationLines(action,payload,preview,streaming,t,saved={}){
   const camera=match&&(typeof f.camera_name==='string'?{id:match[1],name:f.camera_name}:((f.kind==='removed'?saved.cameras:payload?.values?.cameras)?.find(c=>c.id===match[1])||saved.cameras?.find(c=>c.id===match[1])||{id:match[1]}));
   lines.push((camera?cameraHeading(camera,t)+' — ':'')+t(f.kind?'settings_'+f.kind:'setting_'+key));
  }
+ lines.push(...cameraUsageLines(removedCameraIDs(preview),usage,t,saved));
  if(action==='revert')lines.push(t('revert_credentials'));
  if(preview.admin_lan_will_close)lines.push(t('settings_lan_close'));
  return lines;

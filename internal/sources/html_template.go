@@ -2,6 +2,7 @@ package sources
 
 import (
 	"github.com/teru358/irl-live-keeper/internal/sources/template"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -83,7 +84,7 @@ func (p *htmlScanner) tag(i int, attr string) (int, error) {
 		snippet = strings.Replace(text, "elif", "if  ", 1) + "{end}"
 	}
 	if text != "{{" && text != "}}" && (kind != "else" && kind != "end" || len(p.branches) == 0) {
-		if _, err := template.Compile(snippet, p.defs); err != nil {
+		if _, err := template.Compile(snippet, p.defs); err != nil && !p.lenient {
 			if te, ok := err.(*template.Error); ok {
 				line, col := 1, 1
 				offset := len(text)
@@ -214,7 +215,7 @@ func (p *htmlScanner) styleValue(s string, base int) (string, error) {
 		}
 		kind, name := template.TagToken(tag)
 		d, ok := p.defs[name]
-		if kind != "name" || !ok || d.Type != template.Number {
+		if (kind != "name" || !ok || d.Type != template.Number) && !p.lenient {
 			return "", p.fail(positions[a], "html_style_type")
 		}
 		b.WriteString(strings.Repeat(" ", end-i))
@@ -227,7 +228,66 @@ func (p *htmlScanner) styleValue(s string, base int) (string, error) {
 type HTMLProgram struct {
 	p            *template.Program
 	refs         []string
+	cameras      []string
 	styleLiteral bool
+}
+
+// escapedLiterals doubles the braces of literal CSS and comments, which the
+// template parser must not read.
+func escapedLiterals(s string, literal [][2]int) string {
+	var b strings.Builder
+	cursor := 0
+	for _, r := range literal {
+		b.WriteString(s[cursor:r[0]])
+		b.WriteString(escapeBraces(s[r[0]:r[1]]))
+		cursor = r[1]
+	}
+	b.WriteString(s[cursor:])
+	return b.String()
+}
+
+var cameraName = regexp.MustCompile(`^(cam[0-9]+)\.`)
+
+// cameraIDs lists the camera ids whose values (cam<n>.*) the template tags of
+// escaped text use.
+func cameraIDs(escaped string) []string {
+	seen := map[string]bool{}
+	ids := []string{}
+	for _, name := range template.Names(escaped) {
+		if m := cameraName.FindStringSubmatch(name); m != nil && !seen[m[1]] {
+			seen[m[1]] = true
+			ids = append(ids, m[1])
+		}
+	}
+	sort.Strings(ids)
+	return ids
+}
+func sortedKeys(m map[string]bool) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// BodyReferences is what a saved body points at: asset paths (with the
+// /source/files/ prefix, without a query) and camera ids, over every branch.
+type BodyReferences struct {
+	Assets  []string
+	Cameras []string
+}
+
+// ReferencesOf reads the references of a saved body. A body that no longer
+// compiles (a removed camera, for instance) still gives what can be read, so
+// that an asset or camera it needs is not taken as unused.
+func ReferencesOf(body string, defs map[string]template.Definition) BodyReferences {
+	if p, err := CompileHTML(body, defs); err == nil {
+		return BodyReferences{p.AssetReferences(), p.CameraIDs()}
+	}
+	p := htmlScanner{s: body, mode: "save", defs: defs, refs: map[string]bool{}, lenient: true}
+	_ = p.run()
+	return BodyReferences{sortedKeys(p.refs), cameraIDs(escapedLiterals(body, p.literal))}
 }
 
 func CompileHTML(s string, defs map[string]template.Definition) (*HTMLProgram, error) {
@@ -236,14 +296,7 @@ func CompileHTML(s string, defs map[string]template.Definition) (*HTMLProgram, e
 		return nil, e
 	}
 	// Literal CSS and comments are opaque to the template parser.
-	var b strings.Builder
-	cursor := 0
-	for _, r := range p.literal {
-		b.WriteString(s[cursor:r[0]])
-		b.WriteString(escapeBraces(s[r[0]:r[1]]))
-		cursor = r[1]
-	}
-	b.WriteString(s[cursor:])
+	escaped := escapedLiterals(s, p.literal)
 	masked := []byte(s)
 	for _, r := range p.literal {
 		for i := r[0]; i < r[1]; i++ {
@@ -255,15 +308,11 @@ func CompileHTML(s string, defs map[string]template.Definition) (*HTMLProgram, e
 	if _, e := template.Compile(string(masked), defs); e != nil {
 		return nil, e
 	}
-	program, e := template.Compile(b.String(), defs)
+	program, e := template.Compile(escaped, defs)
 	if e != nil {
 		return nil, e
 	}
-	refs := make([]string, 0, len(p.refs))
-	for r := range p.refs {
-		refs = append(refs, r)
-	}
-	sort.Strings(refs)
+	refs := sortedKeys(p.refs)
 	literal := false
 	for _, r := range p.literal {
 		text := s[r[0]:r[1]]
@@ -276,12 +325,30 @@ func CompileHTML(s string, defs map[string]template.Definition) (*HTMLProgram, e
 			}
 		}
 	}
-	return &HTMLProgram{program, refs, literal}, nil
+	return &HTMLProgram{program, refs, cameraIDs(escaped), literal}, nil
 }
 func (p *HTMLProgram) Render(v map[string]template.Value) string { return p.p.RenderHTML(v) }
 
 // AssetReferences returns saved asset paths from every branch.
 func (p *HTMLProgram) AssetReferences() []string { return append([]string(nil), p.refs...) }
+
+// CameraIDs returns the camera ids used by the template tags of every branch.
+// Text inside <style> and comments is not template text and does not count.
+func (p *HTMLProgram) CameraIDs() []string { return append([]string{}, p.cameras...) }
+
+// MissingAssets lists the referenced asset paths that are not in available. A
+// nil set means that no index is available, so nothing is reported.
+func (p *HTMLProgram) MissingAssets(available map[string]bool) []string {
+	missing := []string{}
+	if available != nil {
+		for _, r := range p.refs {
+			if !available[r] {
+				missing = append(missing, r)
+			}
+		}
+	}
+	return missing
+}
 
 // Warnings reports literal template-like CSS and missing assets. A nil asset
 // set means that no index is available, so existence is not checked.
@@ -290,13 +357,8 @@ func (p *HTMLProgram) Warnings(available map[string]bool) []string {
 	if p.styleLiteral {
 		result = append(result, "template.style_literal")
 	}
-	if available != nil {
-		for _, r := range p.refs {
-			if !available[r] {
-				result = append(result, "template.asset_missing")
-				break
-			}
-		}
+	if len(p.MissingAssets(available)) > 0 {
+		result = append(result, "template.asset_missing")
 	}
 	return result
 }
@@ -329,7 +391,7 @@ func (p *htmlScanner) styleCSS(raw string, base int) error {
 		if e != nil {
 			return p.fail(original[e.pos], e.code)
 		}
-		if e := cssCheck(decoded, p.mode, p.refs); e != nil {
+		if e := cssCheck(decoded, p.mode, p.refs, nil); e != nil {
 			return p.fail(original[positions[e.pos]], e.code)
 		}
 	}

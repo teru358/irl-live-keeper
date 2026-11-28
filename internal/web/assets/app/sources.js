@@ -2,12 +2,12 @@ import {html,render} from '../vendor/lit-html-3.3.3/lit-html.js';
 import {live} from '../vendor/lit-html-3.3.3/directives/live.js';
 import {repeat} from '../vendor/lit-html-3.3.3/directives/repeat.js';
 import {createStore} from './store.js';
-import {layout,remember,dirty,previewRequest,sourceURL,valueText,conditionText,textareaInsertion,applyPreview,applySourceEvent,previewChanges,deletePrompt,clearEditor,visibleLayout,templateDiagnostics,applyCollection,openEditor,testAxes,testInitial,testChoiceKey,simulateOf,testActive,testSignature,brokenError,sourceValueGroups,sourceFileDeletionPaused} from './sources-state.js';
+import {layout,remember,dirty,previewRequest,sourceURL,valueText,conditionText,textareaInsertion,applyPreview,applySourceEvent,previewChanges,deletePrompt,clearEditor,visibleLayout,templateDiagnostics,applyCollection,openEditor,testAxes,testInitial,testChoiceKey,simulateOf,testActive,testSignature,brokenError,sourceValueGroups} from './sources-state.js';
 export function mountSources(t,request,lang){
  const root=document.querySelector('#sources-panel');
  const mobile=window.matchMedia('(max-width:700px)');
  let storage;try{storage=window.localStorage;}catch(_){}
- const store=createStore({list:[],broken:{},diagnostics:[],names:[],defaults:null,draft:null,base:null,fresh:false,mobile:mobile.matches,layout:layout(storage),...testInitial(),texts:{},preview:null,files:[],fileNotices:[],notice:'',editorNotice:'',editorError:'',previewError:'',testNotice:'',testReason:'',styleVersions:{},busy:false,streaming:false,test:false,active:false,valueGroups:[],valuesOpen:false,valuesFilter:'',valuesError:'',settings:null,autoHost:''});
+ const store=createStore({list:[],broken:{},diagnostics:[],names:[],defaults:null,draft:null,base:null,fresh:false,mobile:mobile.matches,layout:layout(storage),...testInitial(),texts:{},preview:null,files:[],fileNotices:[],notice:'',editorNotice:'',editorError:'',previewError:'',warnings:[],testNotice:'',testReason:'',styleVersions:{},busy:false,streaming:false,test:false,active:false,valueGroups:[],valuesOpen:false,valuesFilter:'',valuesError:'',settings:null,autoHost:''});
  const update=f=>store.update(f);let bodyFocused=false,generation=0,previewVersion=0,timer,events,polling=false,valuesPolling=false,valuesVersion=0;
  const fail=e=>update(s=>{if(s.draft)s.editorError=e.message;else s.notice=e.message;});
  const sim=simulateOf;
@@ -74,7 +74,19 @@ export function mountSources(t,request,lang){
   let reset=false;update(s=>{reset=applySourceEvent(s,d,t('src_stopped'));});
   if(reset){++valuesVersion;refreshValues();++previewVersion;clearTimeout(timer);timer=null;if(store.get().draft)preview();}
  }
- async function removeFile(file){if(!confirm(deletePrompt(file,store.get().list,t)))return;try{await request('source-files/'+encodeURIComponent(file.name)+(file.used_by?.length?'?confirm=true':''),undefined,'DELETE');await load();}catch(e){fail(e);}}
+ async function removeFile(file){
+  if(!confirm(deletePrompt(file,store.get().list,t)))return;
+  const url=file.name.split('/').map(encodeURIComponent).join('/');
+  try{await request('source-files/'+url+(file.used_by?.length?'?confirm=true':''),undefined,'DELETE');await load();}
+  catch(e){
+   // Sources started to use it after the list was read: ask again with the sources now using it.
+   if(e.code==='source_files.in_use'&&!file.used_by?.length){
+    if(confirm(deletePrompt({...file,used_by:e.used_by},store.get().list,t))){try{await request('source-files/'+url+'?confirm=true',undefined,'DELETE');await load();}catch(e2){fail(e2);}}
+    return;
+   }
+   fail(e);
+  }
+ }
  // Inserts at the cursor, or at the end when the body has never been focused.
  function insertBody(text){
   const el=root.querySelector('#source-body');if(!el)return;
@@ -115,10 +127,10 @@ export function mountSources(t,request,lang){
  };
  function view(s){const {axis,showAxis}=visibleLayout(s.layout,s.mobile);return html`<h2>${t('sources')}</h2>${s.draft?html`
  <div class="source-header">${field(s,'title')}${s.fresh?field(s,'name'):''}<div class="source-actions"><button class="btn primary" ?disabled=${s.busy} @click=${save}>${t('src_save')}</button><button class="btn" ?disabled=${s.busy} @click=${close}>${t('src_close')}</button>${dirty(s.draft,s.base)?html`<span class="source-dirty">${t('src_unsaved')}</span>`:''}</div></div>
- <p class="source-editor-notice" role="status">${s.editorNotice}</p><p role="alert">${s.editorError||s.previewError}</p>
+ <p class="source-editor-notice" role="status">${s.editorNotice}</p><p role="alert">${s.editorError||s.previewError}</p>${s.warnings.map(w=>html`<p class="source-warning" role="status">${w.message}</p>`)}
  <div class="source-toolbar">${testBar(s)}${segments(t('src_view'),['editonly','previewonly','split'],s.layout.mode,mode=>setLayout({mode}))}${showAxis?segments(t('src_split_axis'),['horizontal','vertical'],axis,axis=>setLayout({axis})):''}</div>
  <div class=${'source-workspace '+s.layout.mode+' '+axis}><div class="source-edit"><div class="source-insert"><button class="btn" @click=${()=>insertBody(conditionText('cam1.kbps < 800'))}>${t('src_condition')}</button><label class="source-field">${t('src_files')}<select name="source-insert-file" @change=${e=>{if(e.target.value)insertBody('/source/files/'+e.target.value.split('/').map(encodeURIComponent).join('/'));e.target.value='';}}><option value="">${t('src_insert')}</option>${s.files.filter(f=>f.usable).map(f=>html`<option value=${f.name}>${f.name}</option>`)}</select></label></div>${valuesList(s)}<label class="source-editor-label" for="source-body">${t('src_body')}</label><textarea id="source-body" name="source-body" class="source-body" spellcheck="false" autocomplete="off" rows="14" .value=${live(s.draft.body)} @focus=${()=>{bodyFocused=true;}} @input=${e=>{const value=e.target.value;change(x=>{x.draft.body=value;});}}></textarea></div><div class="source-preview" data-preview="editor" aria-label=${t('src_previewonly')}></div></div>
- <details class="source-section"><summary>${t('src_files')}</summary><label class="source-field">${t('src_upload')}<input name="source-upload" type="file" accept="image/png,image/jpeg,image/gif,image/webp" @change=${upload}></label>${s.fileNotices.map(n=>html`<p role="status">${n.message}</p>`)}${s.files.map(f=>f.usable?html`<div class="source-file"><span>${f.name}</span>${f.name.includes('/')?'':html`<button class="btn" ?disabled=${sourceFileDeletionPaused()} title=${sourceFileDeletionPaused()?t('source_files.deletion_paused'):''} @click=${()=>removeFile(f)}>${t('src_delete')}</button>${sourceFileDeletionPaused()?html`<span role="note">${t('source_files.deletion_paused')}</span>`:''}`}</div>`:html`<div class="source-file unusable"><span>${f.name}</span><span class="source-file-reason">${f.reason_text}</span></div>`)}</details>
+ <details class="source-section"><summary>${t('src_files')}</summary><label class="source-field">${t('src_upload')}<input name="source-upload" type="file" accept="image/png,image/jpeg,image/gif,image/webp" @change=${upload}></label>${s.fileNotices.map(n=>html`<p role="status">${n.message}</p>`)}${s.files.map(f=>f.usable?html`<div class="source-file"><span>${f.name}</span><button class="btn" @click=${()=>removeFile(f)}>${t('src_delete')}</button></div>`:html`<div class="source-file unusable"><span>${f.name}</span><span class="source-file-reason">${f.reason_text}</span></div>`)}</details>
  <details class="source-section"><summary>${t('src_obs_import')}</summary><div class="source-fields">${field(s,'obs_width','number')}${field(s,'obs_height','number')}</div>${s.fresh?html`<p class="hint">${t('src_save_url')}</p>`:copy(s.draft,s)}<p>${t('src_steps')}</p>${sourceURL(s.settings,s.autoHost,s.draft.name).hint?html`<p class="hint">${t('src_lan_hint')}</p>`:''}</details>`:html`
  <div class="source-toolbar">${testBar(s)}<button class="btn primary" @click=${()=>open()}>${t('src_new')}</button></div><div class="source-cards">${repeat(s.list,src=>src.name,src=>html`<article><h3>${src.title||src.name}</h3>${brokenError(s.broken,src.name)?html`<div class="source-repair"><span class="source-repair-badge">${t('src_needs_repair')}</span><p>${brokenError(s.broken,src.name).error}</p></div>`:''}${copy(src,s)}<div class="source-preview" data-preview=${src.name}></div><div class="source-actions"><button class="btn" @click=${()=>open(src)}>${t('src_edit')}</button><button class="btn" @click=${()=>remove(src)}>${t('src_delete')}</button></div><details><summary>${t('src_obs_import')}</summary><p>${t('src_steps')}</p>${sourceURL(s.settings,s.autoHost,src.name).hint?html`<p>${t('src_lan_hint')}</p>`:''}<p>${t('src_width')}: ${src.obs_width} × ${t('src_height')}: ${src.obs_height}</p></details></article>`)}</div>`}<p role="status">${s.testNotice}</p>${s.draft?'':html`<p role="status">${s.notice}</p>`}`;}
  function setLayout(v){if(v.axis==='horizontal'&&store.get().mobile)return;const next={...store.get().layout,...v};remember(storage,next);update(s=>{s.layout=next;});}

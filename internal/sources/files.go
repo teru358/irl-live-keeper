@@ -244,7 +244,7 @@ func (s *FilesStore) List(used func(string) []string) (FileList, error) {
 		return FileList{}, err
 	}
 	out := FileList{Files: []FileInfo{}, ScanLimited: idx.limited}
-	for _, e := range idx.entries {
+	for _, e := range s.rows(idx) {
 		info := FileInfo{Name: e.Path, Size: e.Size, Type: e.Type, Usable: e.Usable, Reason: string(e.Reason), UsedBy: []string{}}
 		if e.Usable && used != nil {
 			if refs := used(e.Path); refs != nil {
@@ -278,7 +278,7 @@ func (s *FilesStore) Save(name string, data []byte) error {
 	}
 	var count int
 	var total int64
-	for _, e := range idx.entries {
+	for _, e := range s.rows(idx) {
 		if e.Reason == ReasonOverLimit {
 			return ErrTotalTooLarge
 		}
@@ -314,21 +314,30 @@ func (s *FilesStore) Save(name string, data []byte) error {
 	return nil
 }
 
-// Delete removes a file directly under the folder. Nested deletion is not
-// supported yet.
+// Delete removes a file under the folder; name is the relative path with "/"
+// (up to three folders). Folders themselves are never removed.
 func (s *FilesStore) Delete(name string) error {
 	filesMu.Lock()
 	defer filesMu.Unlock()
-	if !fileNamePattern.MatchString(name) || strings.ContainsAny(name, `/\\`) || name == "." || name == ".." {
+	segs := strings.Split(name, "/")
+	if name == "" || strings.ContainsRune(name, '\\') || len(segs) > MaxFolderDepth+1 || len(name) > MaxPathLength {
 		return os.ErrNotExist
+	}
+	for _, seg := range segs {
+		if !fileNamePattern.MatchString(seg) || seg == "." || seg == ".." {
+			return os.ErrNotExist
+		}
 	}
 	root, err := os.OpenRoot(s.Dir)
 	if err != nil {
 		return err
 	}
 	defer root.Close()
-	info, err := root.Lstat(name)
+	info, err := lstatPath(root, name)
 	if err != nil {
+		if errors.Is(err, errSymlink) {
+			return os.ErrNotExist
+		}
 		return err
 	}
 	if info.IsDir() {

@@ -157,10 +157,10 @@ func TestUploadReindexesAndServes(t *testing.T) {
 	r.Header.Set(headerName, "1")
 	w := httptest.NewRecorder()
 	apiHandler(b, nil).ServeHTTP(w, r)
-	if w.Code != 409 || !strings.Contains(w.Body.String(), "本文の参照を調べられるようになるまで削除できません") {
+	if w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
 	}
-	if w := getPublic(h, "/source/files/photo.png"); w.Code != 200 {
+	if w := getPublic(h, "/source/files/photo.png"); w.Code != 404 {
 		t.Fatal(w.Code)
 	}
 }

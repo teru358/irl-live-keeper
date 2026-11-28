@@ -13,7 +13,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strings"
 	"testing"
 	"time"
 
@@ -150,48 +149,6 @@ func TestSVGSourceFileHasSandboxHeaders(t *testing.T) {
 	New(b, testPass).ServeHTTP(w, r)
 	if w.Code != 200 || w.Header().Get("Content-Type") != "image/svg+xml" || w.Header().Get("X-Content-Type-Options") != "nosniff" || w.Header().Get("Content-Security-Policy") != "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox" {
 		t.Fatalf("%d %#v", w.Code, w.Header())
-	}
-}
-
-func TestDeletingSourceFileIsPaused(t *testing.T) {
-	dir := t.TempDir()
-	b := &fileBackend{files: sources.FilesStore{Dir: filepath.Join(dir, "source-files")}, sourceStore: sources.Store{Path: filepath.Join(dir, "sources.yaml")}}
-	if err := b.files.Save("photo.png", pngBytes(t)); err != nil {
-		t.Fatal(err)
-	}
-	if err := b.sourceStore.Transaction(b.Snapshot(), func(list []sources.Source, err error) ([]sources.Source, bool) {
-		source := sources.Default()
-		source.Name = "overlay"
-		source.Body = "<img src=\"/source/files/photo.png\">"
-		return append(list, source), true
-	}); err != nil {
-		t.Fatal(err)
-	}
-	wList := httptest.NewRecorder()
-	apiHandler(b, nil).ServeHTTP(wList, httptest.NewRequest("GET", "/api/source-files", nil))
-	if wList.Code != 200 || !strings.Contains(wList.Body.String(), `"used_by":["overlay"]`) {
-		t.Fatal(wList.Code, wList.Body.String())
-	}
-	r := httptest.NewRequest("DELETE", "/api/source-files/photo.png?lang=ja", nil)
-	r.Header.Set(headerName, "1")
-	w := httptest.NewRecorder()
-	apiHandler(b, nil).ServeHTTP(w, r)
-	if w.Code != 409 || !strings.Contains(w.Body.String(), "本文の参照を調べられるようになるまで削除できません") {
-		t.Fatalf("%d %s", w.Code, w.Body.String())
-	}
-	r = httptest.NewRequest("DELETE", "/api/source-files/photo.png?lang=en&confirm=true", nil)
-	r.Header.Set(headerName, "1")
-	w = httptest.NewRecorder()
-	apiHandler(b, nil).ServeHTTP(w, r)
-	if w.Code != 409 || !strings.Contains(w.Body.String(), "Cannot delete until source body references can be checked") {
-		t.Fatalf("paused delete: %d %s", w.Code, w.Body.String())
-	}
-	r = httptest.NewRequest("DELETE", "/api/source-files/a/b.png?lang=en", nil)
-	r.Header.Set(headerName, "1")
-	w = httptest.NewRecorder()
-	apiHandler(b, nil).ServeHTTP(w, r)
-	if w.Code != 409 || !strings.Contains(w.Body.String(), "Cannot delete until source body references can be checked") {
-		t.Fatalf("nested paused delete: %d %s", w.Code, w.Body.String())
 	}
 }
 

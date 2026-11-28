@@ -357,6 +357,9 @@
     {"id": "H353", "mode": "save", "input": "<table><tr><td style=\"width:{cam1.kbps}px\">x</td></tr></table>", "expect": "ok", "reason": "table の中の要素の style の数値（本文の文字の決まりは属性に掛けない）"},
     {"id": "H354", "mode": "save", "input": "<table><tr style=\"height:{cam1.kbps}px\"><td>x</td></tr></table>", "expect": "ok", "reason": "tr の style の数値"},
     {"id": "H355", "mode": "save", "input": "<table><tbody style=\"height:{cam1.kbps}px\"><tr><th style=\"width:{cam1.kbps}px\">x</th></tr></tbody></table>", "expect": "ok", "reason": "tbody と th の style の数値"},
-    {"id": "H356", "mode": "save", "input": "<table><tr style=\"{cam1.name}\"><td>x</td></tr></table>", "expect": "error", "reason": "table の中でも style は数値だけ", "error": {"code": "template.html_style_type", "line": 1, "column": 19}}
+    {"id": "H356", "mode": "save", "input": "<table><tr style=\"{cam1.name}\"><td>x</td></tr></table>", "expect": "error", "reason": "table の中でも style は数値だけ", "error": {"code": "template.html_style_type", "line": 1, "column": 19}},
+    {"id": "H357", "mode": "rendered", "input": "<span style=\"background:url(&quot;/source/files/a.png?v=0123456789ab&quot;)\"></span>", "expect": "ok", "reason": "本体が足す ?v= は style 属性の url() にも"},
+    {"id": "H358", "mode": "rendered", "input": "<img src=\"&#47;source&#47;files&#47;d/a.png?v=0123456789ab\">", "expect": "ok", "reason": "文字参照のあとに足した ?v="},
+    {"id": "H359", "mode": "rendered", "input": "<style>.a{background:url( /source/files/a.png?v=0123456789ab )}</style><span></span>", "expect": "ok", "reason": "引用符なしの url() の ?v="}
   ]
 }

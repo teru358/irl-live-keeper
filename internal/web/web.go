@@ -90,7 +90,7 @@ func apiHandler(b Backend, events *Events, defaultLang ...i18n.Lang) http.Handle
 			return
 		}
 		if isSourceFilesAPI(r.URL.Path) {
-			serveSourceFilesAPI(w, r, b, lang)
+			serveSourceFilesAPI(w, r, b, events, lang)
 			return
 		}
 
