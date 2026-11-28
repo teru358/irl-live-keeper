@@ -1,5 +1,6 @@
 {
   "messages": {
+    "source_files.name_too_long": "名前が長すぎます。拡張子を含め128バイト以内にしてください（日本語41字＋.pngが目安です）",
     "sources.render_failed": "ソースの組み立てに失敗しました",
     "template.html_lex": "{line} 行 {column} 文字目: HTML の書き方が正しくありません",
     "template.html_comment": "{line} 行 {column} 文字目: コメントを正しく閉じてください",
@@ -195,10 +196,11 @@
     "source_files.io": "素材を読み書きできません。",
     "template.asset_missing": "素材が見つかりません: {assets}",
     "template.style_literal": "<style> の中の値の名前は差し込まれません。値を使うときは style 属性に書いてください。",
-    "source_files.reason_bad_name": "名前が使えません（半角英数字・_ ・- ・途中の . で128文字まで）",
+    "source_files.reason_name_collision": "同じ名前とみなされる項目があります。ファイルまたは親フォルダの名前を変更してください",
+    "source_files.reason_bad_name": "名前に使えない文字があります。管理ページから入れ直すか、名前を変更してください",
     "source_files.reason_reserved_name": "Windows の予約名のため使えません",
     "source_files.reason_bad_extension": "画像の拡張子（png・jpg・jpeg・gif・webp・avif・bmp・svg）ではありません",
-    "source_files.reason_path_too_long": "パス全体が512文字を超えています",
+    "source_files.reason_path_too_long": "パス全体が512バイトを超えています",
     "source_files.reason_too_deep": "フォルダが3段より深いため使えません",
     "source_files.reason_too_large": "1ファイルの上限5 MiBを超えています",
     "source_files.reason_not_image": "画像として読めません",
@@ -210,6 +212,7 @@
     "source_files.scan_limit": "素材のフォルダの項目が多すぎるため、最初の {limit} 項目だけを調べました。"
   },
   "ui": {
+    "src_upload_names": "名前に日本語を使えます。使えない記号や空白は _ に替わります。",
     "editor_completions": "補完候補",
     "editor_diagnostics": "誤りの一覧",
     "editor_no_diagnostics": "誤りはありません",

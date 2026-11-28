@@ -1,3 +1,4 @@
+import {setCompletionRules} from './template-lexer.js';
 import {mountEditor} from './editor.js';
 import {sourceTemplates,templateBody,fileAccept} from './source-body.js';
 import {updateRendered} from './reconcile.js';
@@ -17,7 +18,7 @@ export function mountSources(t,request,lang){
  const sim=simulateOf;
  const frames=new WeakMap(), activeFrames=new Set();
  function cleanupFrames(){for(const c of activeFrames)if(!c.host.isConnected){c.observer.disconnect();activeFrames.delete(c);}}
- const rulesPromise=fetch('/source/assets/html_rules.json').then(r=>r.json());
+ const rulesPromise=fetch('/source/assets/html_rules.json').then(r=>r.json()).then(r=>{setCompletionRules(r);return r;});
  function previewFrame(host,text='',name,width=1920,height=1080){
   let c=frames.get(host);
   if(!c){
@@ -94,7 +95,7 @@ export function mountSources(t,request,lang){
  async function uploadFiles(files){
   const version=generation;
   for(const file of files)try{
-   const body=new FormData();body.append('file',file);
+   const body=new FormData();body.append('file',file,file.name.normalize('NFC'));
    let r;try{r=await fetch('/api/source-files?lang='+lang,{method:'POST',headers:{'X-IRL-Live-Keeper':'1'},body});}catch(e){throw e instanceof TypeError?networkError(t):e;}
    const d=await r.json();if(!r.ok)throw Error(d.error||t('failed'));
    await load();
@@ -153,7 +154,7 @@ export function mountSources(t,request,lang){
  <p class="source-editor-notice" role="status">${s.editorNotice}</p><p role="alert">${s.editorError||s.previewError}</p>${s.warnings.map(w=>html`<p class="source-warning" role="status">${w.message}</p>`)}
  <div class="source-toolbar">${testBar(s)}${segments(t('src_view'),['editonly','previewonly','split'],s.layout.mode,mode=>setLayout({mode}))}${showAxis?segments(t('src_split_axis'),['horizontal','vertical'],axis,axis=>setLayout({axis})):''}</div>
  <div class=${'source-workspace '+s.layout.mode+' '+axis}><div class="source-edit" @dragover=${dragover} @drop=${drop}><div class="source-insert"><button class="btn" @click=${()=>insertBody(conditionText('cam1.kbps < 800'))}>${t('src_condition')}</button><label class="source-field">${t('src_files')}<select name="source-insert-file" @change=${e=>{if(e.target.value)editor?.insertAsset(e.target.value);e.target.value='';}}><option value="">${t('src_insert')}</option>${s.files.filter(f=>f.usable).map(f=>html`<option value=${f.name}>${f.name}</option>`)}</select></label></div>${valuesList(s)}<span class="source-editor-label" id="source-body-label">${t('src_body')}</span><div id="source-body" class="source-body" role="group" aria-labelledby="source-body-label"></div></div><div class="source-preview" data-preview="editor" aria-label=${t('src_preview_frame')}></div></div>
- <details class="source-section" @dragover=${dragover} @drop=${drop}><summary>${t('src_files')}</summary><label class="source-field">${t('src_upload')}<input name="source-upload" type="file" accept=${fileAccept} @change=${upload}></label>${s.fileNotices.map(n=>html`<p role="status">${n.message}</p>`)}${s.files.map(f=>f.usable?html`<div class="source-file"><span>${f.name}</span><button class="btn" @click=${()=>editor?.insertAsset(f.name)}>${t('src_insert')}</button><button class="btn" @click=${()=>removeFile(f)}>${t('src_delete')}</button></div>`:html`<div class="source-file unusable"><span>${f.name}</span><span class="source-file-reason">${f.reason_text}</span></div>`)}</details>
+ <details class="source-section" @dragover=${dragover} @drop=${drop}><summary>${t('src_files')}</summary><label class="source-field">${t('src_upload')}<input name="source-upload" type="file" accept=${fileAccept} @change=${upload}></label><p>${t('src_upload_names')}</p>${s.fileNotices.map(n=>html`<p role="status">${n.message}</p>`)}${s.files.map(f=>f.usable?html`<div class="source-file"><bdi>${f.name}</bdi><button class="btn" @click=${()=>editor?.insertAsset(f.name)}>${t('src_insert')}</button><button class="btn" @click=${()=>removeFile(f)}>${t('src_delete')}</button></div>`:html`<div class="source-file unusable"><bdi>${f.name}</bdi><span class="source-file-reason">${f.reason_text}</span>${f.reason==='name_collision'?html`<button class="btn" @click=${()=>removeFile(f)}>${t('src_delete')}</button>`:''}</div>`)}</details>
  <details class="source-section"><summary>${t('src_obs_import')}</summary><div class="source-fields">${field(s,'obs_width','number')}${field(s,'obs_height','number')}</div>${s.fresh?html`<p class="hint">${t('src_save_url')}</p>`:copy(s.draft,s)}<p>${t('src_steps')}</p>${sourceURL(s.settings,s.autoHost,s.draft.name).hint?html`<p class="hint">${t('src_lan_hint')}</p>`:''}</details>`:html`
  <div class="source-toolbar">${testBar(s)}<button class="btn primary" @click=${()=>open()}>${t('src_new')}</button></div><div class="source-cards">${repeat(s.list,src=>src.name,src=>html`<article><h3>${src.title||src.name}</h3>${brokenError(s.broken,src.name)?html`<div class="source-repair"><span class="source-repair-badge">${t('src_needs_repair')}</span><p>${brokenError(s.broken,src.name).error}</p></div>`:''}${copy(src,s)}<div class="source-preview" data-preview=${src.name}></div><div class="source-actions"><button class="btn" @click=${()=>open(src)}>${t('src_edit')}</button><button class="btn" @click=${()=>remove(src)}>${t('src_delete')}</button></div><details><summary>${t('src_obs_import')}</summary><p>${t('src_steps')}</p>${sourceURL(s.settings,s.autoHost,src.name).hint?html`<p>${t('src_lan_hint')}</p>`:''}<p>${t('src_width')}: ${src.obs_width} × ${t('src_height')}: ${src.obs_height}</p></details></article>`)}</div>`}<p class="hint">${t('src_font_hint')}</p><p role="status">${testNoticeFor(s)}</p>${s.draft?'':html`<p role="status">${s.notice}</p>`}`;}
  function setLayout(v){if(v.axis==='horizontal'&&store.get().mobile)return;const next={...store.get().layout,...v};remember(storage,next);update(s=>{s.layout=next;});}

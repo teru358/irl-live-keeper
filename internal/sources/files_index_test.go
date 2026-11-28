@@ -92,7 +92,7 @@ func TestCheckPath(t *testing.T) {
 		{`C:\x.png`, ReasonBadName},
 		{"x.png/", ReasonBadName},
 		{"my logo.png", ReasonBadName},
-		{"日本.png", ReasonBadName},
+		{"日本.png", ""},
 		{"CON.png", ReasonReservedName},
 		{"con.png", ReasonReservedName},
 		{"a/NUL.png", ReasonReservedName},

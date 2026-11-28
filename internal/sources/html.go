@@ -23,9 +23,10 @@ type htmlPolicy struct {
 	Elements, GlobalAttributes, AttributeNamePatterns, VoidElements, AttributeFreeElements []string
 	ElementAttributes                                                                      map[string][]string
 	Asset                                                                                  struct {
-		Prefix, SegmentPattern, RenderedQueryPattern string
-		MaxSegments, MaxPathLength                   int
-		Extensions                                   []string
+		Prefix, RenderedQueryPattern string
+		MaxSegments, MaxPathLength   int
+		Extensions, ReservedNames    []string
+		AllowedRanges                [][2]rune
 	}
 	CSS struct {
 		RejectFunctions, StripVendorPrefixes, RejectAtRules []string
@@ -57,7 +58,7 @@ func has(xs []string, s string) bool {
 
 var htmlPatterns = func() map[string]*regexp.Regexp {
 	m := map[string]*regexp.Regexp{}
-	for _, xs := range [][]string{htmlRules.TemplateAttributePatterns, htmlRules.AttributeNamePatterns, {htmlRules.CSS.FragmentPattern, htmlRules.Asset.RenderedQueryPattern, htmlRules.Asset.SegmentPattern, "^&#(0+|[xX]0+);", "&#(0+|[xX]0+);", "(?i)</style[\t\n\r\f />]"}} {
+	for _, xs := range [][]string{htmlRules.TemplateAttributePatterns, htmlRules.AttributeNamePatterns, {htmlRules.CSS.FragmentPattern, htmlRules.Asset.RenderedQueryPattern, "^&#(0+|[xX]0+);", "&#(0+|[xX]0+);", "(?i)</style[\t\n\r\f />]"}} {
 		for _, x := range xs {
 			m[x] = regexp.MustCompile(x)
 		}
@@ -89,7 +90,7 @@ func attrChar(c byte) bool { return ident(c) || c == '.' || c == ':' }
 
 // CheckHTMLURL validates a decoded URL without resolving or normalizing it.
 func CheckHTMLURL(value, mode string, css bool) bool {
-	low := strings.ToLower(value)
+	low := asciiLower(value)
 	if strings.HasPrefix(low, "data:image/") || css && strings.HasPrefix(low, "data:font/") {
 		return strings.Contains(value, ",")
 	}
@@ -107,7 +108,7 @@ func CheckHTMLURL(value, mode string, css bool) bool {
 		}
 		path = path[:i]
 	}
-	if len(path) > a.MaxPathLength || strings.Contains(path, "..") || strings.Contains(path, "//") || strings.ContainsAny(path, "?#%") {
+	if len(strings.TrimPrefix(path, a.Prefix)) > a.MaxPathLength || strings.Contains(path, "..") || strings.Contains(path, "//") || strings.ContainsAny(path, "?#%") {
 		return false
 	}
 	rel := strings.TrimPrefix(path, a.Prefix)
@@ -115,13 +116,7 @@ func CheckHTMLURL(value, mode string, css bool) bool {
 	if len(parts) > a.MaxSegments || CheckPath(rel) != "" {
 		return false
 	}
-	for _, p := range parts {
-		if !htmlPatterns[a.SegmentPattern].MatchString(p) {
-			return false
-		}
-	}
-	i := strings.LastIndexByte(rel, '.')
-	return i >= 0 && has(a.Extensions, strings.ToLower(rel[i+1:]))
+	return true
 }
 
 type htmlIssue struct {

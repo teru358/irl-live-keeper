@@ -112,6 +112,10 @@ func serveSourceFilesAPI(w http.ResponseWriter, r *http.Request, b Backend, e *E
 				var maxErr *http.MaxBytesError
 				if errors.As(err, &maxErr) || errors.Is(err, sources.ErrFileTooLarge) {
 					writeError(w, 413, lang, i18n.New("source_files.limit"))
+				} else if errors.Is(err, sources.ErrNameTooLong) {
+					writeError(w, 400, lang, i18n.New("source_files.name_too_long"))
+				} else if errors.Is(err, sources.ErrReservedName) {
+					writeError(w, 400, lang, i18n.New("source_files.reason_reserved_name"))
 				} else {
 					writeError(w, 400, lang, i18n.New("source_files.invalid"))
 				}

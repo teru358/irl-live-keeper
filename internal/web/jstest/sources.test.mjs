@@ -19,7 +19,7 @@ test('source URL host table always includes local and optional non-loopback remo
 test('insertions append until cursor was placed, with a complete CSS rule for assets',()=>{
  assert.deepEqual(state.editorInsertion('abc',{from:0,to:0},false,'X'),{from:3,to:3,insert:'X'});
  assert.deepEqual(state.editorInsertion('abc',{from:1,to:2},true,'X'),{from:1,to:2,insert:'X'});
- assert.deepEqual(state.editorInsertion('.irl-source {}',{from:0,to:0},false,'a b.png',true),{from:14,to:14,insert:'\n.irl-source { background-image: url("/source/files/a%20b.png"); }'});
+ assert.deepEqual(state.editorInsertion('.irl-source {}',{from:0,to:0},false,'a b.png',true),{from:14,to:14,insert:'\n.irl-source { background-image: url("/source/files/a b.png"); }'});
  assert.equal(state.editorInsertion('',{from:0,to:0},false,'a.png',true).insert,'.irl-source { background-image: url("/source/files/a.png"); }');
  assert.equal(state.editorInsertion('a\n',{from:0,to:0},false,'a.png',true).insert,'.irl-source { background-image: url("/source/files/a.png"); }');
  assert.equal(state.editorInsertion('abc',{from:1,to:1},true,'a.png',true).insert,assetText('a.png'));

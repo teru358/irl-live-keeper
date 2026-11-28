@@ -46,7 +46,7 @@ export function assetInsertText(path,context){
 }
 export function bodyAssetInsertion(doc,selection,hasCursor,name){
  const from=hasCursor?selection.from:doc.length,to=hasCursor?selection.to:doc.length;
- const path='/source/files/'+name.split('/').map(encodeURIComponent).join('/');
+ const path='/source/files/'+name;
  const prefix=doc.slice(0,from),start=styleStart(prefix);
  return {from,to,insert:start<0?'<img src="'+path+'">':assetInsertText(path,cssContext(prefix.slice(start)))};
 }

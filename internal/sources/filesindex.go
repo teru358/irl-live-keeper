@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 const (
@@ -31,32 +33,34 @@ var ErrExtensionMismatch = errors.New("extension does not match image")
 type Reason string
 
 const (
-	ReasonBadName      Reason = "bad_name"
-	ReasonReservedName Reason = "reserved_name"
-	ReasonBadExtension Reason = "bad_extension"
-	ReasonPathTooLong  Reason = "path_too_long"
-	ReasonTooDeep      Reason = "too_deep"
-	ReasonTooLarge     Reason = "too_large"
-	ReasonNotImage     Reason = "not_image"
-	ReasonExtMismatch  Reason = "ext_mismatch"
-	ReasonSymlink      Reason = "symlink"
-	ReasonNotRegular   Reason = "not_regular"
-	ReasonUnreadable   Reason = "unreadable"
-	ReasonOverLimit    Reason = "over_limit"
+	ReasonNameCollision Reason = "name_collision"
+	ReasonBadName       Reason = "bad_name"
+	ReasonReservedName  Reason = "reserved_name"
+	ReasonBadExtension  Reason = "bad_extension"
+	ReasonPathTooLong   Reason = "path_too_long"
+	ReasonTooDeep       Reason = "too_deep"
+	ReasonTooLarge      Reason = "too_large"
+	ReasonNotImage      Reason = "not_image"
+	ReasonExtMismatch   Reason = "ext_mismatch"
+	ReasonSymlink       Reason = "symlink"
+	ReasonNotRegular    Reason = "not_regular"
+	ReasonUnreadable    Reason = "unreadable"
+	ReasonOverLimit     Reason = "over_limit"
 )
 
 // Reasons lists every reason code.
-var Reasons = []Reason{ReasonBadName, ReasonReservedName, ReasonBadExtension, ReasonPathTooLong, ReasonTooDeep, ReasonTooLarge, ReasonNotImage, ReasonExtMismatch, ReasonSymlink, ReasonNotRegular, ReasonUnreadable, ReasonOverLimit}
+var Reasons = []Reason{ReasonNameCollision, ReasonBadName, ReasonReservedName, ReasonBadExtension, ReasonPathTooLong, ReasonTooDeep, ReasonTooLarge, ReasonNotImage, ReasonExtMismatch, ReasonSymlink, ReasonNotRegular, ReasonUnreadable, ReasonOverLimit}
 
 // fileEntry is one row of the index. Path uses "/" only.
 type fileEntry struct {
-	Path    string
-	Size    int64
-	ModTime time.Time
-	Hash    string
-	Type    string
-	Usable  bool
-	Reason  Reason
+	Path          string
+	Size          int64
+	ModTime       time.Time
+	Hash          string
+	Type          string
+	Usable        bool
+	Reason        Reason
+	ContentReason Reason
 }
 
 // fileIndex is the remembered list of the folder. Its entries are guarded by idxMu.
@@ -64,6 +68,7 @@ type fileIndex struct {
 	entries []*fileEntry
 	byPath  map[string]*fileEntry
 	limited bool
+	parents map[string]*parentNames
 }
 
 var idxMu sync.Mutex
@@ -75,17 +80,17 @@ func isReservedName(seg string) bool {
 	if i := strings.IndexByte(stem, '.'); i >= 0 {
 		stem = stem[:i]
 	}
-	stem = strings.ToUpper(stem)
-	switch stem {
-	case "CON", "PRN", "AUX", "NUL":
-		return true
-	}
-	return len(stem) == 4 && (strings.HasPrefix(stem, "COM") || strings.HasPrefix(stem, "LPT")) && stem[3] >= '1' && stem[3] <= '9'
+	return has(htmlRules.Asset.ReservedNames, asciiLower(stem))
 }
 
 func checkSegment(seg string) Reason {
-	if !fileNamePattern.MatchString(seg) || strings.HasSuffix(seg, ".") {
+	if !utf8.ValidString(seg) || len(seg) == 0 || len(seg) > 128 || strings.HasPrefix(seg, ".") || strings.HasSuffix(seg, ".") || strings.Contains(seg, "..") {
 		return ReasonBadName
+	}
+	for _, c := range seg {
+		if !allowedAssetRune(c) {
+			return ReasonBadName
+		}
 	}
 	if isReservedName(seg) {
 		return ReasonReservedName
@@ -107,11 +112,16 @@ func CheckPath(rel string) Reason {
 		return ReasonPathTooLong
 	}
 	for _, s := range segs {
-		if r := checkSegment(s); r != "" {
+		if r := checkSegment(s); r != "" && r != ReasonReservedName {
 			return r
 		}
 	}
-	if !imageExtensions[strings.ToLower(extOf(segs[len(segs)-1]))] {
+	for _, s := range segs {
+		if isReservedName(s) {
+			return ReasonReservedName
+		}
+	}
+	if !imageExtensions[asciiLower(extOf(segs[len(segs)-1]))] {
 		return ReasonBadExtension
 	}
 	return ""
@@ -190,11 +200,16 @@ func readRegular(root *os.Root, rel string, want fs.FileInfo) ([]byte, fs.FileIn
 	return data, info, err
 }
 
+// Test seams run under filesMu; tests install them only with no operations active.
+var filesOperationHook func(string)
+var readIndexDir = func(f *os.File, n int) ([]fs.DirEntry, error) { return f.ReadDir(n) }
+
 type scanner struct {
 	root    *os.Root
 	entries []*fileEntry
 	visited int
 	limited bool
+	parents map[string]*parentNames
 }
 
 func (sc *scanner) add(e *fileEntry) { sc.entries = append(sc.entries, e) }
@@ -212,14 +227,21 @@ func (sc *scanner) walk(dir string, folders int) {
 		return
 	}
 	remaining := MaxScanEntries - sc.visited
-	des, _ := f.ReadDir(remaining + 1)
+	des, readErr := readIndexDir(f, remaining+1)
+	complete := readErr == nil || readErr == io.EOF
 	_ = f.Close()
 	if len(des) > remaining {
 		des = des[:remaining]
 		sc.limited = true
+		complete = false
 	}
+	sc.parents[dir] = makeParentNames(des, complete)
 	sort.Slice(des, func(i, j int) bool { return des[i].Name() < des[j].Name() })
 	for _, de := range des {
+		if sc.visited >= MaxScanEntries {
+			sc.limited = true
+			break
+		}
 		sc.visited++
 		rel := de.Name()
 		if dir != "" {
@@ -294,7 +316,7 @@ func (s *FilesStore) scan() (*fileIndex, error) {
 	idxMu.Lock()
 	s.scans++
 	idxMu.Unlock()
-	idx := &fileIndex{byPath: map[string]*fileEntry{}}
+	idx := &fileIndex{byPath: map[string]*fileEntry{}, parents: map[string]*parentNames{}}
 	root, err := os.OpenRoot(s.Dir)
 	if errors.Is(err, os.ErrNotExist) {
 		return idx, nil
@@ -303,9 +325,14 @@ func (s *FilesStore) scan() (*fileIndex, error) {
 		return nil, err
 	}
 	defer root.Close()
-	sc := &scanner{root: root}
+	sc := &scanner{root: root, parents: map[string]*parentNames{}}
 	sc.walk("", 0)
 	sort.Slice(sc.entries, func(i, j int) bool { return sc.entries[i].Path < sc.entries[j].Path })
+	idx.parents = sc.parents
+	for _, e := range sc.entries {
+		e.ContentReason = e.Reason
+		applyNames(idx, e)
+	}
 	var count int
 	var total int64
 	exceeded := false
@@ -318,6 +345,7 @@ func (s *FilesStore) scan() (*fileIndex, error) {
 		}
 		if exceeded {
 			e.Type, e.Usable, e.Reason = "", false, ReasonOverLimit
+			e.ContentReason = ReasonOverLimit
 			continue
 		}
 		count++
@@ -334,6 +362,7 @@ func (s *FilesStore) scan() (*fileIndex, error) {
 func (s *FilesStore) rebuildLocked() (*fileIndex, error) {
 	idx, err := s.scan()
 	if err != nil {
+		s.invalidateNames()
 		return nil, err
 	}
 	idxMu.Lock()
@@ -346,6 +375,9 @@ func (s *FilesStore) rebuildLocked() (*fileIndex, error) {
 func (s *FilesStore) Rebuild() error {
 	filesMu.Lock()
 	defer filesMu.Unlock()
+	if filesOperationHook != nil {
+		filesOperationHook("Rebuild")
+	}
 	_, err := s.rebuildLocked()
 	return err
 }
@@ -395,6 +427,8 @@ func (s *FilesStore) update(name string, e fileEntry) {
 	idxMu.Lock()
 	defer idxMu.Unlock()
 	if s.idx != nil {
+		e.ContentReason = e.Reason
+		applyNames(s.idx, &e)
 		if cur, ok := s.idx.byPath[name]; ok {
 			*cur = e
 		}
@@ -412,10 +446,15 @@ func (s *FilesStore) Open(name string) ([]byte, string, error) {
 // a usable indexed file. It checks the bytes on every open so same-size edits
 // with preserved timestamps are detected as well.
 func (s *FilesStore) OpenWithHash(name string) ([]byte, string, string, error) {
-	e, ok, err := s.lookup(name)
-	if err != nil {
+	if err := s.EnsureIndex(); err != nil {
 		return nil, "", "", err
 	}
+	filesMu.Lock()
+	defer filesMu.Unlock()
+	if filesOperationHook != nil {
+		filesOperationHook("OpenWithHash")
+	}
+	e, ok, _ := s.peek(name)
 	if !ok || !e.Usable {
 		return nil, "", "", os.ErrNotExist
 	}
@@ -466,6 +505,8 @@ func (s *FilesStore) put(name string, e fileEntry) {
 	if s.idx == nil {
 		return
 	}
+	e.ContentReason = e.Reason
+	applyNames(s.idx, &e)
 	if cur, ok := s.idx.byPath[name]; ok {
 		*cur = e
 		return
@@ -532,9 +573,14 @@ func (s *FilesStore) Available() map[string]bool {
 // A file whose size or modification time differs from the index (or that is
 // not in the index yet, or is gone) is read again and its row replaced. It
 // returns true when a usable asset appeared, changed its content or type, or
-// stopped being usable. It does not scan the folder and holds no lock while it
-// reads files.
+// stopped being usable. It refreshes the target parents and ancestors under
+// filesMu; idxMu is held only when publishing the resulting state.
 func (s *FilesStore) Refresh(paths []string) bool {
+	filesMu.Lock()
+	defer filesMu.Unlock()
+	if filesOperationHook != nil {
+		filesOperationHook("Refresh")
+	}
 	rels := make([]string, 0, len(paths))
 	for _, p := range paths {
 		if rel := strings.TrimPrefix(p, AssetPrefix); rel != p && CheckPath(rel) == "" {
@@ -549,11 +595,15 @@ func (s *FilesStore) Refresh(paths []string) bool {
 	}
 	root, err := os.OpenRoot(s.Dir)
 	if err != nil {
-		return false
+		s.invalidateNames()
+		return true
 	}
 	defer root.Close()
-	changed := false
+	changed := s.refreshNames(root, rels)
 	for _, rel := range rels {
+		if !s.exactKnown(rel) {
+			continue
+		}
 		old, known, _ := s.peek(rel)
 		lst, err := lstatPath(root, rel)
 		if err != nil {
@@ -564,7 +614,7 @@ func (s *FilesStore) Refresh(paths []string) bool {
 			continue
 		}
 		// A row over the limit stays so until the next rebuild counts the files again.
-		if known && (old.Reason == ReasonOverLimit || lst.Size() == old.Size && lst.ModTime().Equal(old.ModTime)) {
+		if known && (old.ContentReason == ReasonOverLimit || lst.Size() == old.Size && lst.ModTime().Equal(old.ModTime)) {
 			continue
 		}
 		data, info, err := readRegular(root, rel, lst)
@@ -595,4 +645,157 @@ func (s *FilesStore) rows(idx *fileIndex) []fileEntry {
 		out = append(out, *e)
 	}
 	return out
+}
+
+// parentNames describes a complete sibling set, independently of file content.
+type parentNames struct {
+	complete   bool
+	names      map[string]bool
+	collisions map[string]bool
+}
+
+func foldName(s string) string {
+	return strings.Map(func(c rune) rune {
+		min := c
+		for n := unicode.SimpleFold(c); n != c; n = unicode.SimpleFold(n) {
+			if n < min {
+				min = n
+			}
+		}
+		return min
+	}, s)
+}
+func makeParentNames(des []fs.DirEntry, complete bool) *parentNames {
+	p := &parentNames{complete: complete, names: map[string]bool{}, collisions: map[string]bool{}}
+	groups := map[string][]string{}
+	for _, de := range des {
+		n := de.Name()
+		p.names[n] = true
+		if checkSegment(n) == "" {
+			k := foldName(n)
+			groups[k] = append(groups[k], n)
+		}
+	}
+	for _, ns := range groups {
+		if len(ns) > 1 {
+			for _, n := range ns {
+				p.collisions[n] = true
+			}
+		}
+	}
+	return p
+}
+func nameReason(idx *fileIndex, path string) Reason {
+	r := CheckPath(path)
+	if r != "" && r != ReasonBadExtension {
+		return r
+	}
+	parts := strings.Split(path, "/")
+	dir := ""
+	for _, n := range parts {
+		p := idx.parents[dir]
+		if p == nil || !p.complete {
+			return ReasonUnreadable
+		}
+		if !p.names[n] {
+			return ReasonUnreadable
+		}
+		if p.collisions[n] {
+			return ReasonNameCollision
+		}
+		if dir != "" {
+			dir += "/"
+		}
+		dir += n
+	}
+	return r
+}
+func applyNames(idx *fileIndex, e *fileEntry) {
+	e.Reason = e.ContentReason
+	if e.ContentReason == ReasonSymlink || e.ContentReason == ReasonNotRegular || e.ContentReason == ReasonTooDeep {
+		e.Usable = false
+		return
+	}
+	if r := nameReason(idx, e.Path); r != "" {
+		e.Reason = r
+	}
+	e.Usable = e.Reason == ""
+}
+func (s *FilesStore) invalidateNames() {
+	idxMu.Lock()
+	defer idxMu.Unlock()
+	if s.idx == nil {
+		return
+	}
+	s.idx.parents = map[string]*parentNames{}
+	for _, e := range s.idx.entries {
+		applyNames(s.idx, e)
+	}
+}
+func (s *FilesStore) exactKnown(rel string) bool {
+	idxMu.Lock()
+	defer idxMu.Unlock()
+	dir := ""
+	for _, n := range strings.Split(rel, "/") {
+		p := s.idx.parents[dir]
+		if p == nil || !p.complete || !p.names[n] {
+			return false
+		}
+		if dir != "" {
+			dir += "/"
+		}
+		dir += n
+	}
+	return true
+}
+
+// Read parents without idxMu; filesMu serializes the read and publication.
+func (s *FilesStore) refreshNames(root *os.Root, rels []string) bool {
+	updates := map[string]*parentNames{}
+	for _, rel := range rels {
+		dir := ""
+		for _, n := range strings.Split(rel, "/") {
+			p, ok := updates[dir]
+			if !ok {
+				path := dir
+				if path == "" {
+					path = "."
+				}
+				var des []fs.DirEntry
+				complete := false
+				if _, err := lstatPath(root, path); err == nil {
+					if f, err := root.Open(path); err == nil {
+						var re error
+						des, re = readIndexDir(f, MaxScanEntries+1)
+						f.Close()
+						complete = (re == nil || re == io.EOF) && len(des) <= MaxScanEntries
+					}
+				}
+				p = makeParentNames(des, complete)
+				updates[dir] = p
+			}
+			if !p.complete || !p.names[n] {
+				break
+			}
+			if dir != "" {
+				dir += "/"
+			}
+			dir += n
+		}
+	}
+	idxMu.Lock()
+	defer idxMu.Unlock()
+	changed := false
+	if s.idx.parents == nil {
+		s.idx.parents = map[string]*parentNames{}
+	}
+	for dir, p := range updates {
+		s.idx.parents[dir] = p
+	}
+	for _, e := range s.idx.entries {
+		old := e.Usable
+		applyNames(s.idx, e)
+		changed = changed || old != e.Usable
+	}
+	return changed
 }

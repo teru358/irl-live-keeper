@@ -52,3 +52,11 @@ test('diagnostics use Unicode columns and style warnings follow preview',()=>{
  assert.deepEqual(state.diagnostics,[{line:2,column:3,message:'bad'}]);
  assert.deepEqual(state.warnings,[]);
 });
+test('Japanese raw insertion and completion',()=>{
+ const name='画像/夕焼け.png';
+ assert.equal(bodyAssetInsertion('',{from:0,to:0},true,name).insert,`<img src="/source/files/${name}">`);
+ assert.ok(bodyAssetInsertion('<style>',{from:7,to:7},true,name).insert.includes(name));
+ const result=bodyCompletion('<img src="/source/files/画像/夕',[],[{name,usable:true}]);
+ assert.equal(result.options[0].label,name);
+ assert.ok(result.validFor('画像/夕'));
+});

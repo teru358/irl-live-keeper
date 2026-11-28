@@ -93,7 +93,7 @@ func TestHTMLCases(t *testing.T) {
 			if c.Warnings != nil {
 				available := map[string]bool{}
 				for _, r := range c.Refs {
-					if r != "/source/files/missing.png" {
+					if r != "/source/files/missing.png" && r != "/source/files/欠損.png" {
 						available[r] = true
 					}
 				}

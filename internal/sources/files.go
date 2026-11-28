@@ -8,10 +8,10 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"io"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"sync"
 	"unicode/utf8"
@@ -25,7 +25,8 @@ const (
 var ErrFileTooLarge = errors.New("source file exceeds size limit")
 var ErrTotalTooLarge = errors.New("source files exceed total size limit")
 
-var fileNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-][A-Za-z0-9_.-]{0,127}$`)
+var ErrNameTooLong = errors.New("asset name too long")
+var ErrReservedName = errors.New("reserved asset name")
 var filesMu sync.Mutex
 
 // FileInfo is one listed file. Name is the relative path with "/" only.
@@ -47,35 +48,44 @@ type FilesStore struct {
 }
 
 func SafeFileName(upload string) (string, error) {
-	if upload == "" || strings.ContainsAny(upload, `/\\`) || upload == "." || upload == ".." || strings.Contains(upload, "..") {
+	if !utf8.ValidString(upload) || upload == "" || strings.ContainsAny(upload, `/\\／＼`) || upload == "." || upload == ".." || strings.Contains(upload, "..") {
 		return "", errors.New("invalid file name")
 	}
 	base := filepath.Base(upload)
 	if base != upload {
 		return "", errors.New("invalid file name")
 	}
-	ext := strings.ToLower(filepath.Ext(base))
+	ext := asciiLower(filepath.Ext(base))
 	if ext != ".png" && ext != ".jpg" && ext != ".jpeg" && ext != ".gif" && ext != ".webp" && ext != ".avif" && ext != ".bmp" && ext != ".svg" {
 		return "", errors.New("invalid file extension")
 	}
 	stem := strings.TrimSuffix(base, filepath.Ext(base))
 	var b strings.Builder
 	for _, c := range stem {
-		if c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '_' || c == '-' {
+		if allowedAssetRune(c) {
 			b.WriteRune(c)
 		} else {
 			b.WriteByte('_')
 		}
 	}
 	name := b.String() + ext
-	if !fileNamePattern.MatchString(name) || CheckPath(name) != "" {
+	if strings.HasPrefix(name, ".") {
+		name = "_" + name[1:]
+	}
+	if len(name) > 128 {
+		return "", ErrNameTooLong
+	}
+	if CheckPath(name) == ReasonReservedName {
+		return "", ErrReservedName
+	}
+	if CheckPath(name) != "" {
 		return "", errors.New("invalid file name")
 	}
 	return name, nil
 }
 
 func DetectImage(name string, data []byte) (string, error) {
-	ext := strings.ToLower(filepath.Ext(name))
+	ext := asciiLower(filepath.Ext(name))
 	var typ string
 	switch {
 	case bytes.HasPrefix(data, []byte("\x89PNG\r\n\x1a\n")):
@@ -260,6 +270,9 @@ func (s *FilesStore) List(used func(string) []string) (FileList, error) {
 func (s *FilesStore) Save(name string, data []byte) error {
 	filesMu.Lock()
 	defer filesMu.Unlock()
+	if filesOperationHook != nil {
+		filesOperationHook("Save")
+	}
 	if len(data) > MaxFileSize {
 		return ErrFileTooLarge
 	}
@@ -298,6 +311,20 @@ func (s *FilesStore) Save(name string, data []byte) error {
 		return err
 	}
 	defer root.Close()
+	dir, err := root.Open(".")
+	if err != nil {
+		return err
+	}
+	des, err := dir.ReadDir(-1)
+	dir.Close()
+	if err != nil {
+		return err
+	}
+	for _, de := range des {
+		if foldName(de.Name()) == foldName(name) {
+			return os.ErrExist
+		}
+	}
 	f, err := root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 	if err != nil {
 		return err
@@ -319,20 +346,29 @@ func (s *FilesStore) Save(name string, data []byte) error {
 func (s *FilesStore) Delete(name string) error {
 	filesMu.Lock()
 	defer filesMu.Unlock()
-	segs := strings.Split(name, "/")
-	if name == "" || strings.ContainsRune(name, '\\') || len(segs) > MaxFolderDepth+1 || len(name) > MaxPathLength {
-		return os.ErrNotExist
+	if filesOperationHook != nil {
+		filesOperationHook("Delete")
 	}
-	for _, seg := range segs {
-		if !fileNamePattern.MatchString(seg) || seg == "." || seg == ".." {
-			return os.ErrNotExist
+	if !s.indexed() {
+		if _, err := s.rebuildLocked(); err != nil {
+			return err
 		}
+	}
+	idxMu.Lock()
+	_, known := s.idx.byPath[name]
+	idxMu.Unlock()
+	if reason := CheckPath(name); !known || (reason != "" && reason != ReasonBadExtension) {
+		return os.ErrNotExist
 	}
 	root, err := os.OpenRoot(s.Dir)
 	if err != nil {
 		return err
 	}
 	defer root.Close()
+	s.refreshNames(root, []string{name})
+	if !s.exactKnown(name) {
+		return os.ErrNotExist
+	}
 	info, err := lstatPath(root, name)
 	if err != nil {
 		if errors.Is(err, errSymlink) {
@@ -353,26 +389,61 @@ func (s *FilesStore) Delete(name string) error {
 // ReadUpload accepts one bounded multipart file field named "file".
 func ReadUpload(w http.ResponseWriter, r *http.Request) (string, []byte, error) {
 	r.Body = http.MaxBytesReader(w, r.Body, MaxFileSize+(1<<20))
-	if err := r.ParseMultipartForm(MaxFileSize); err != nil {
+	mr, err := r.MultipartReader()
+	if err != nil {
 		return "", nil, err
 	}
-	defer func() {
-		if r.MultipartForm != nil {
-			_ = r.MultipartForm.RemoveAll()
+	var name string
+	var data []byte
+	var selected bool
+	var selectionErr error
+	headers := 0
+	for count := 0; ; count++ {
+		part, err := mr.NextPart()
+		if err == io.EOF {
+			break
 		}
-	}()
-	f, h, err := r.FormFile("file")
-	if err != nil {
+		if err != nil {
+			return "", nil, err
+		}
+		if count >= 1000 {
+			return "", nil, errors.New("too many parts")
+		}
+		typ, params, parseErr := mime.ParseMediaType(part.Header.Get("Content-Disposition"))
+		if parseErr == nil && typ == "form-data" && params["filename"] != "" {
+			for _, values := range part.Header {
+				headers += len(values)
+			}
+			if headers > 10000 {
+				return "", nil, errors.New("too many headers")
+			}
+			if !selected && params["name"] == "file" {
+				selected = true
+				name, selectionErr = SafeFileName(params["filename"])
+				data, err = io.ReadAll(io.LimitReader(part, MaxFileSize+1))
+				if err != nil {
+					return "", nil, err
+				}
+				if len(data) > MaxFileSize {
+					selectionErr = errors.New("too large")
+				}
+			}
+		}
+		if _, err = io.Copy(io.Discard, part); err != nil {
+			return "", nil, err
+		}
+		if err = part.Close(); err != nil {
+			return "", nil, err
+		}
+	}
+	if _, err = io.Copy(io.Discard, r.Body); err != nil {
 		return "", nil, err
 	}
-	defer f.Close()
-	name, err := SafeFileName(h.Filename)
-	if err != nil {
-		return "", nil, err
+	if !selected {
+		return "", nil, errors.New("missing file")
 	}
-	data, err := io.ReadAll(io.LimitReader(f, MaxFileSize+1))
-	if err != nil || len(data) > MaxFileSize {
-		return "", nil, errors.New("too large")
+	if selectionErr != nil {
+		return "", nil, selectionErr
 	}
 	return name, data, nil
 }

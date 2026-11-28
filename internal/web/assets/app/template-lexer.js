@@ -1,3 +1,6 @@
+import {checkAssetPath} from './html.js';
+let assetRules;
+export function setCompletionRules(rules){assetRules=rules;}
 // DOM-free, shared by StreamLanguage and Node tests. Offsets are UTF-16.
 export const templateState = () => ({tag:false,format:false,html:false,element:'',closing:false,quote:null,raw:false,comment:false,cssComment:false,cssQuote:null});
 export function nextTemplateToken(text, pos, state) {
@@ -96,8 +99,15 @@ export function styleStart(prefix){
 }
 export function insideStyle(prefix){return styleStart(prefix)>=0;}
 export function bodyCompletion(prefix,names,files,explicit=false){
- const match=/\/source\/files\/([A-Za-z0-9_./-]*)$/.exec(prefix);
- if(match)return {from:prefix.length-match[1].length,options:files.filter(f=>f.usable).map(f=>({label:f.name,type:'text'})),validFor:/^[A-Za-z0-9_./-]*$/};
+ const match=/\/source\/files\/([^\s"\'<>():;{}]*)$/.exec(prefix);
+ if(match)return {from:prefix.length-match[1].length,options:files.filter(f=>f.usable&&(!assetRules||checkAssetPath(f.name,assetRules))).map(f=>({label:f.name,type:'text'})),validFor:assetPrefix};
  const range=templateCompletion(prefix,explicit);
  return range?{...range,options:names.map(label=>({label,type:'variable'})),validFor:/^[A-Za-z0-9_.]*$/}:null;
+}
+
+function assetPrefix(text){
+ if(!assetRules)return /^[^\s"'<>():;{}%?#\\]*$/.test(text);
+ return text.split('/').every(part=>[...part].every(c=>{
+ const n=c.codePointAt(0);return c==='_'||c==='-'||c==='.'||assetRules.asset.allowedRanges.some(([a,b])=>a<=n&&n<=b);
+ }));
 }

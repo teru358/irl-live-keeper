@@ -2,7 +2,7 @@ import {cameraHeading} from './camera-name.js';
 export function layout(storage){try{const v=JSON.parse(storage.getItem('source-layout'));return {mode:['editonly','previewonly','split'].includes(v?.mode)?v.mode:'split',axis:v?.axis==='vertical'?'vertical':'horizontal'};}catch(_){return {mode:'split',axis:'horizontal'};}}
 export function remember(storage,value){try{storage.setItem('source-layout',JSON.stringify(value));}catch(_){}}
 export const dirty=(draft,base)=>JSON.stringify(draft)!==JSON.stringify(base);
-export const assetText=name=>'url("/source/files/'+encodeURIComponent(name)+'")';
+export const assetText=name=>'url("/source/files/'+name+'")';
 export const previewRequest=(draft,names,simulate)=>({...draft?{source:draft}:{names},simulate});
 export const valueText=name=>'{'+name+'}';
 export const conditionText=(condition,body='')=>'{if '+condition+'}'+body+'{end}';
