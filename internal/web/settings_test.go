@@ -466,13 +466,13 @@ func TestRevertAuditOnly(t *testing.T) {
 
 func TestSettingsCameraIDPathsAndOrder(t *testing.T) {
 	b := settingsFixture(t)
-	// The third camera is first in the draft. A 422 must address its ID.
-	body := `{"values":{"cameras":[{"id":"cam3","name":"","on_bad":"hide"},{"id":"cam1","name":"One","on_bad":"standby"}]}}`
+	// The third camera is first in the draft. A 422 (name over 32 chars) must address its ID.
+	body := `{"values":{"cameras":[{"id":"cam3","name":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","on_bad":"hide"},{"id":"cam1","name":"One","on_bad":"standby"}]}}`
 	w := settingsCall(b, "POST", "/api/settings/preview", body, "127.0.0.1:4", true)
 	if w.Code != 422 || !strings.Contains(w.Body.String(), `"cameras[cam3].name"`) || strings.Contains(w.Body.String(), "cameras[0]") {
 		t.Fatal(w.Code, w.Body.String())
 	}
-	body = strings.Replace(body, `"name":""`, `"name":"Three"`, 1)
+	body = strings.Replace(body, `"name":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"`, `"name":"Three"`, 1)
 	w = settingsCall(b, "POST", "/api/settings/preview", body, "127.0.0.1:4", true)
 	var preview settings.ChangeSummary
 	if json.Unmarshal(w.Body.Bytes(), &preview) != nil || w.Code != 200 || preview.Apply != settings.ApplyRestart || preview.OBSURLChanges {

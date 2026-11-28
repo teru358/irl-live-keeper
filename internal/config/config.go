@@ -605,7 +605,7 @@ func (c *Config) validateCameras(add func(field string, reason i18n.Msg)) {
 				seen[cam.ID] = true
 			}
 		}
-		if n := utf8.RuneCountInString(cam.Name); n < 1 || n > maxNameLen {
+		if n := utf8.RuneCountInString(cam.Name); n > maxNameLen {
 			add(p+".name", i18n.New("config.validation_25", "a", fmt.Sprintf("%d", maxNameLen), "b", fmt.Sprintf("%d", n)))
 		} else if strings.ContainsFunc(cam.Name, unicode.IsControl) {
 			add(p+".name", i18n.New("config.validation_26"))

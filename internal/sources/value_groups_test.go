@@ -17,17 +17,14 @@ func TestValueGroupsOrder(t *testing.T) {
 			t.Fatal(err)
 		}
 		cameraFields := []string{"state", "kbps", "online", "protocol", "state_for", "srt.rtt", "srt.loss", "srt.mbps", "id", "name", "hidden"}
-		wantKinds := []string{"current_camera"}
-		wantNames := [][]string{{}}
-		for _, field := range cameraFields {
-			wantNames[0] = append(wantNames[0], "camera."+field)
-		}
+		wantKinds := []string{}
+		wantNames := [][]string{}
 		for _, c := range cameras {
 			wantKinds = append(wantKinds, "camera")
 			ns := []string{}
 			for _, field := range cameraFields {
 				if field != "id" {
-					ns = append(ns, "camera."+c.ID+"."+field)
+					ns = append(ns, c.ID+"."+field)
 				}
 			}
 			wantNames = append(wantNames, ns)
@@ -47,7 +44,7 @@ func TestValueGroupsOrder(t *testing.T) {
 				t.Errorf("group %d=%s", i, g.Kind)
 			}
 			if g.Kind == "camera" {
-				if g.Camera == nil || g.Camera.ID != cameras[i-1].ID || g.Camera.Name != cameras[i-1].Name {
+				if g.Camera == nil || g.Camera.ID != cameras[i].ID || g.Camera.Name != cameras[i].Name {
 					t.Errorf("camera=%+v", g.Camera)
 				}
 			} else if g.Camera != nil {
@@ -92,7 +89,7 @@ func TestValueGroupsDefaultText(t *testing.T) {
 			flat[v.Name] = v
 		}
 	}
-	for name, want := range map[string]string{"camera.state": "LOW", "camera.kbps": "600", "camera.online": "true", "camera.state_for": "1:23:45", "camera.srt.rtt": "81", "camera.srt.loss": "0.05", "camera.srt.mbps": "4.2", "camera.id": "cam1", "camera.name": "", "now": "12:34"} {
+	for name, want := range map[string]string{"cam1.state": "LOW", "cam1.kbps": "600", "cam1.online": "true", "cam1.state_for": "1:23:45", "cam1.srt.rtt": "81", "cam1.srt.loss": "0.05", "cam1.srt.mbps": "4.2", "cam1.name": "", "now": "12:34"} {
 		v := flat[name]
 		if v.Text == nil || *v.Text != want {
 			t.Errorf("%s=%+v want %q", name, v, want)
@@ -113,7 +110,7 @@ func TestValueGroupsDefaultText(t *testing.T) {
 	if _, ok := flat["password"]; ok {
 		t.Error("leaked undefined name")
 	}
-	for name, want := range map[string]struct{ typ, format string }{"camera.kbps": {"number", "0"}, "camera.state": {"string", ""}, "camera.online": {"bool", ""}, "camera.state_for": {"seconds", "hms"}, "now": {"clock", "hm"}} {
+	for name, want := range map[string]struct{ typ, format string }{"cam1.kbps": {"number", "0"}, "cam1.state": {"string", ""}, "cam1.online": {"bool", ""}, "cam1.state_for": {"seconds", "hms"}, "now": {"clock", "hm"}} {
 		v := flat[name]
 		if v.Type != want.typ || v.Format != want.format {
 			t.Errorf("%s=%+v", name, v)

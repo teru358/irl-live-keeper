@@ -25,9 +25,9 @@ test('confirmation camera headings use IDs and names for edits, adds and deletes
  ]},false,k=>k,saved);
  assert.deepEqual(lines,[
   'settings_restart_mode',
-  'settings_camera 1（cam1 name） — settings_removed',
-  'settings_camera 3（cam3 name） — settings_added',
-  'settings_camera 2（cam2 name） — setting_name'
+  'settings_camera 1 (cam1 name) — settings_removed',
+  'settings_camera 3 (cam3 name) — settings_added',
+  'settings_camera 2 (cam2 name) — setting_name'
  ]);
 });
 test('422 focuses the camera field by ID and opens its details',()=>{
@@ -43,11 +43,19 @@ test('revert confirmation includes the restored camera name from the ID diff',()
  const lines=state.confirmationLines('revert',{},{
   apply:'restart',fields:[{path:'cameras[cam4]',kind:'added',camera_name:'Restored'}]
  },false,k=>k,{cameras:[]});
- assert.equal(lines[1],'settings_camera 4（Restored） — settings_added');
+ assert.equal(lines[1],'settings_camera 4 (Restored) — settings_added');
 });
 test('add button reasons distinguish camera limit from exhausted draft IDs',()=>{
  const all=cams(...Array.from({length:8},(_,i)=>'cam'+(i+1)));
  assert.equal(state.cameraAddReason(all,all,[]),'settings_camera_limit');
  assert.equal(state.cameraAddReason(all,cams('cam1'),[]),'settings_camera_no_id');
  assert.equal(state.cameraAddReason([],[],[]),'');
+});
+
+test('camera headings support empty and named cameras in both languages',()=>{
+ for(const [word,empty,named] of [['カメラ','カメラ 8','カメラ 8（後方）'],['Camera','Camera 8','Camera 8 (後方)']]) {
+ const t=()=>word;
+ assert.equal(state.cameraHeading({id:'cam8',name:''},t),empty);
+ assert.equal(state.cameraHeading({id:'cam8',name:'後方'},t),named);
+ }
 });

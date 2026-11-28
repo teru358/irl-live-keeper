@@ -32,7 +32,7 @@ func TestValidateCameras(t *testing.T) {
 
 		{"id 重複", func(c *Config) { c.Cameras = cams(3); c.Cameras[2].ID = "cam1" }, "cameras[cam1].id"},
 
-		{"name 0文字 落ちる", func(c *Config) { c.Cameras[0].Name = "" }, "cameras[cam1].name"},
+		{"name 0文字 通る", func(c *Config) { c.Cameras[0].Name = "" }, ""},
 		{"name 1文字 通る", func(c *Config) { c.Cameras[0].Name = "あ" }, ""},
 		{"name 日本語32文字 通る", func(c *Config) { c.Cameras[0].Name = strings.Repeat("あ", 32) }, ""},
 		{"name 日本語33文字 落ちる", func(c *Config) { c.Cameras[0].Name = strings.Repeat("あ", 33) }, "cameras[cam1].name"},

@@ -5,7 +5,7 @@ const compact=text=>tokenizeTemplate(text).filter(t=>t.style).map(t=>[t.text,t.s
 for(const [text,want] of [
  ['{a}}}',[['{','bracket'],['a','variableName'],['}','bracket']]],
  ['{{a}}',[]],
- ['{if not camera.kbps < 800}',[['{','bracket'],['if','keyword'],['not','keyword'],['camera.kbps','variableName'],['<','operator'],['800','number'],['}','bracket']]],
+ ['{if not cam1.kbps < 800}',[['{','bracket'],['if','keyword'],['not','keyword'],['cam1.kbps','variableName'],['<','operator'],['800','number'],['}','bracket']]],
  ['{stream.elapsed:hms}',[['{','bracket'],['stream.elapsed','variableName'],[':','punctuation'],['hms','atom'],['}','bracket']]],
  ['{if nota}',[['{','bracket'],['if','keyword'],['nota','variableName'],['}','bracket']]],
 ])test('template '+text,()=>assert.deepEqual(compact(text),want));
@@ -19,7 +19,7 @@ test('invalid escapes, newline and unmatched braces',()=>{
 });
 test('stream state survives line boundaries and format validates',()=>{
  const state=templateState();
- for(const line of ['{if',' not camera.kbps < 800}']){
+ for(const line of ['{if',' not cam1.kbps < 800}']){
   for(let p=0;p<line.length;){const t=nextTemplateToken(line,p,state);assert.ok(t.end>p);p=t.end;}
  }
  assert.equal(state.tag,false);
@@ -32,7 +32,7 @@ test('editor entry does not import CodeMirror until mount',async()=>{
 
 import * as lexer from '../assets/app/template-lexer.js';
 test('completion opens at bare brace and excludes escaped braces, strings and formats',()=>{
- for(const [text,from] of [['{',1],['{{',null],['{cam',1],['{camera.',1],['{if ',4],['{if camera.state == "',null],['{x:',null],['{x:hm',null],['abc {',5],['{{{',3],['{if camera.state == "a\\"b',null],['{x}',null]]){
+ for(const [text,from] of [['{',1],['{{',null],['{cam',1],['{cam1.',1],['{if ',4],['{if cam1.state == "',null],['{x:',null],['{x:hm',null],['abc {',5],['{{{',3],['{if cam1.state == "a\\"b',null],['{x}',null]]){
   assert.deepEqual(lexer.templateCompletion(text),from===null?null:{from},text);
  }
 });

@@ -97,7 +97,7 @@ func (sim Simulation) Apply(s core.Snapshot, now time.Time, stats map[string]tem
 		if state == "DOWN" {
 			p = ""
 		}
-		prefix := "camera." + c.ID + "."
+		prefix := c.ID + "."
 		put(prefix+"state", state)
 		put(prefix+"kbps", kbps)
 		put(prefix+"online", state != "DOWN")
@@ -133,16 +133,13 @@ func (sim Simulation) Apply(s core.Snapshot, now time.Time, stats map[string]tem
 		return a.Name < b.Name
 	})
 	scene, standby := "", ""
-	var sceneCameras, standbyCameras []string
 	for _, k := range keys {
 		sc := s.SceneDetails[k]
 		if scene == "" && (sc.Kind == "camera" || sc.Kind == "monitored") {
 			scene = sc.Name
-			sceneCameras = sc.Cameras
 		}
 		if standby == "" && sc.Kind == "standby" {
 			standby = sc.Name
-			standbyCameras = sc.Cameras
 		}
 	}
 	if scene == "" && s.OBS.SceneClass == "monitored" {
@@ -159,9 +156,7 @@ func (sim Simulation) Apply(s core.Snapshot, now time.Time, stats map[string]tem
 		put("standby.for", float64(12))
 		put("obs.scene", standby)
 		put("obs.scene_class", "standby")
-		sceneCameras = standbyCameras
 	}
-	currentCameraValues(v, sceneCameras)
 	put("stream.elapsed", float64(5025))
 	put("stream.kbps", float64(6000))
 	put("stream.dropped", float64(0))

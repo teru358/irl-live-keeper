@@ -15,7 +15,7 @@ func TestStatisticsDemand(t *testing.T) {
 	}{
 		{"a", "{stream.kbps}", false, true, true},
 		{"b", "{stream.kbps}", false, true, false},
-		{"a", "{camera.kbps}", true, true, false},
+		{"a", "{cam1.kbps}", true, true, false},
 		{"b", "{obs.fps}", true, true, true},
 		{"a", "{stream.elapsed}", false, false, false},
 	} {

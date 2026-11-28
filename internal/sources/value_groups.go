@@ -1,6 +1,8 @@
 package sources
 
 import (
+	"sort"
+
 	"github.com/teru358/irl-live-keeper/internal/core"
 	"github.com/teru358/irl-live-keeper/internal/sources/template"
 )
@@ -26,7 +28,7 @@ type ValueGroup struct {
 }
 
 // ValueGroups orders only Definitions, independently of map iteration and values
-// supplied by statistics or simulation. Cameras retain their configuration order.
+// supplied by statistics or simulation. Cameras are sorted by their numbered ID.
 // It reads no state or clock and does not modify its inputs.
 func ValueGroups(s core.Snapshot, values map[string]template.Value) ([]ValueGroup, error) {
 	defs := Definitions(s)
@@ -55,10 +57,9 @@ func ValueGroups(s core.Snapshot, values map[string]template.Value) ([]ValueGrou
 		groups = append(groups, g)
 		return nil
 	}
-	if err := add("current_camera", nil, "camera.", cameraFields); err != nil {
-		return nil, err
-	}
-	for _, c := range s.Cameras {
+	cameras := append([]core.CameraStatus(nil), s.Cameras...)
+	sort.Slice(cameras, func(i, j int) bool { return cameras[i].ID < cameras[j].ID })
+	for _, c := range cameras {
 		// Per-camera definitions have no id field; the group carries that id.
 		fields := []string{}
 		for _, field := range cameraFields {
@@ -66,7 +67,7 @@ func ValueGroups(s core.Snapshot, values map[string]template.Value) ([]ValueGrou
 				fields = append(fields, field)
 			}
 		}
-		if err := add("camera", &ValueCamera{ID: c.ID, Name: c.Name}, "camera."+c.ID+".", fields); err != nil {
+		if err := add("camera", &ValueCamera{ID: c.ID, Name: c.Name}, c.ID+".", fields); err != nil {
 			return nil, err
 		}
 	}
