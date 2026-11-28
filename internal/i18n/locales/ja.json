@@ -212,7 +212,7 @@
     "source_files.scan_limit": "素材のフォルダの項目が多すぎるため、最初の {limit} 項目だけを調べました。"
   },
   "ui": {
-    "src_upload_names": "送信前に文字を整えます。一部の互換漢字は標準の字に変わり、結合できない濁点やアクセント等は _ になります。",
+    "src_upload_names": "名前に日本語を使えます。使えない記号や空白は _ に替わります。",
     "editor_completions": "補完候補",
     "editor_diagnostics": "誤りの一覧",
     "editor_no_diagnostics": "誤りはありません",

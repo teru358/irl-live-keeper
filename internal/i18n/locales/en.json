@@ -212,7 +212,7 @@
     "source_files.scan_limit": "The assets folder has too many entries; only the first {limit} were checked."
   },
   "ui": {
-    "src_upload_names": "Names are normalized before upload. Some compatibility ideographs become standard characters; remaining combining marks become underscores.",
+    "src_upload_names": "Names can use Japanese and other letters. Symbols and spaces that cannot be used become _.",
     "editor_completions": "Completions",
     "editor_diagnostics": "Diagnostics",
     "editor_no_diagnostics": "No diagnostics",
