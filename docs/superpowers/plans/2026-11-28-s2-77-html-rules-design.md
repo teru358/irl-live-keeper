@@ -1,4 +1,6 @@
-# S2-77 HTML 本文検査の設計案 v3
+# S2-77 HTML 本文検査の設計案 v3.1
+
+改訂 v3.1: レビュー回帰入力 H298 以降を共通入力表に追加。HTML の Number は NaN・±Inf を未定義と同じ空文字で描画する。
 
 改訂 v3: Fable の閉鎖確認 N1〜N8 と指揮者の決めを反映。文字参照・差し込み・木の再検査・共通入力表を補強。
 
@@ -616,7 +618,62 @@ CSP（第6章）は `default-src 'none'; script-src 'self'; style-src 'self' 'un
     {"id": "H294", "mode": "save", "input": "<div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div>", "expect": "ok", "reason": "深さ64は許可"},
     {"id": "H295", "mode": "save", "input": "<span style=\"x:/{cam1.kbps}*\"></span>", "expect": "error", "reason": "除去でコメント開始", "error": {"code": "template.html_template_position", "line": 1, "column": 17}},
     {"id": "H296", "mode": "save", "input": "<span style=\"x:*{cam1.kbps}/\"></span>", "expect": "error", "reason": "除去でコメント終了", "error": {"code": "template.html_template_position", "line": 1, "column": 17}},
-    {"id": "H297", "mode": "save", "input": "<span style=\"x:/{cam1.kbps}{cam1.kbps}*\"></span>", "expect": "error", "reason": "連続差し込みを一つと見る", "error": {"code": "template.html_template_position", "line": 1, "column": 17}}
+    {"id": "H297", "mode": "save", "input": "<span style=\"x:/{cam1.kbps}{cam1.kbps}*\"></span>", "expect": "error", "reason": "連続差し込みを一つと見る", "error": {"code": "template.html_template_position", "line": 1, "column": 17}},
+    {"id": "H298", "mode": "save", "input": "<!--><b>x</b>-->", "expect": "error", "reason": "S2-77 レビュー回帰", "error": {"code": "template.html_comment", "line": 1, "column": 1}},
+    {"id": "H299", "mode": "rendered", "input": "<!--><b>x</b>-->", "expect": "error", "reason": "S2-77 レビュー回帰", "error": {"code": "template.html_comment", "line": 1, "column": 1}},
+    {"id": "H300", "mode": "save", "input": "<!---><b>x</b>-->", "expect": "error", "reason": "S2-77 レビュー回帰", "error": {"code": "template.html_comment", "line": 1, "column": 1}},
+    {"id": "H301", "mode": "rendered", "input": "<!---><b>x</b>-->", "expect": "error", "reason": "S2-77 レビュー回帰", "error": {"code": "template.html_comment", "line": 1, "column": 1}},
+    {"id": "H302", "mode": "save", "input": "<!--><img src=\"https://evil.example/x\" onerror=\"alert(1)\">-->", "expect": "error", "reason": "S2-77 レビュー回帰", "error": {"code": "template.html_comment", "line": 1, "column": 1}},
+    {"id": "H303", "mode": "rendered", "input": "<!--><img src=\"https://evil.example/x\" onerror=\"alert(1)\">-->", "expect": "error", "reason": "S2-77 レビュー回帰", "error": {"code": "template.html_comment", "line": 1, "column": 1}},
+    {"id": "H304", "mode": "save", "input": "<!---><img src=\"/api/status\">-->", "expect": "error", "reason": "S2-77 レビュー回帰", "error": {"code": "template.html_comment", "line": 1, "column": 1}},
+    {"id": "H305", "mode": "rendered", "input": "<!---><img src=\"/api/status\">-->", "expect": "error", "reason": "S2-77 レビュー回帰", "error": {"code": "template.html_comment", "line": 1, "column": 1}},
+    {"id": "H306", "mode": "save", "input": "<div style=\"{if(cam1.online)}color:red\">x{end}</div>", "expect": "error", "reason": "S2-77 レビュー回帰", "error": {"code": "template.html_branch", "line": 1, "column": 13}},
+    {"id": "H307", "mode": "save", "input": "<div style=\"{if(cam1.online)}\">x{end}{cam1.name}\" title=\"x\">y</div>", "expect": "error", "reason": "S2-77 レビュー回帰", "error": {"code": "template.html_branch", "line": 1, "column": 13}},
+    {"id": "H308", "mode": "save", "input": "{if(cam1.online)}a{end}", "expect": "ok", "reason": "S2-77 レビュー回帰"},
+    {"id": "H309", "mode": "save", "input": "{if cam1.online}a{elif(obs.streaming)}b{end}", "expect": "ok", "reason": "S2-77 レビュー回帰"},
+    {"id": "H310", "mode": "save", "input": "{if\"a\"==cam1.name}a{end}", "expect": "ok", "reason": "S2-77 レビュー回帰"},
+    {"id": "H311", "mode": "save", "input": "<table>&#4294967328;</table>", "expect": "error", "reason": "S2-77 レビュー回帰", "error": {"code": "template.html_nesting", "line": 1, "column": 8}},
+    {"id": "H312", "mode": "rendered", "input": "<table>&#4294967328;</table>", "expect": "error", "reason": "S2-77 レビュー回帰", "error": {"code": "template.html_nesting", "line": 1, "column": 8}},
+    {"id": "H313", "mode": "save", "input": "<table>&#x100000020;</table>", "expect": "error", "reason": "S2-77 レビュー回帰", "error": {"code": "template.html_nesting", "line": 1, "column": 8}},
+    {"id": "H314", "mode": "rendered", "input": "<table>&#x100000020;</table>", "expect": "error", "reason": "S2-77 レビュー回帰", "error": {"code": "template.html_nesting", "line": 1, "column": 8}},
+    {"id": "H315", "mode": "save", "input": "<span style=\"x:/&#42;{cam1.kbps}*/\"></span>", "expect": "error", "reason": "S2-77 レビュー回帰", "error": {"code": "template.html_template_position", "line": 1, "column": 22}},
+    {"id": "H316", "mode": "save", "input": "<span style=\"content:&quot;{cam1.kbps}&quot;\"></span>", "expect": "error", "reason": "S2-77 レビュー回帰", "error": {"code": "template.html_template_position", "line": 1, "column": 28}},
+    {"id": "H317", "mode": "save", "input": "<span style=\"x:&#117;{cam1.kbps}\"></span>", "expect": "error", "reason": "S2-77 レビュー回帰", "error": {"code": "template.html_template_position", "line": 1, "column": 22}},
+    {"id": "H318", "mode": "save", "input": "<span style=\"x:{cam1.kbps}&#40;1)\"></span>", "expect": "error", "reason": "S2-77 レビュー回帰", "error": {"code": "template.html_template_position", "line": 1, "column": 16}},
+    {"id": "H319", "mode": "save", "input": "<span style=\"x:{cam1.kbps}&#101;3\"></span>", "expect": "error", "reason": "S2-77 レビュー回帰", "error": {"code": "template.html_template_position", "line": 1, "column": 16}},
+    {"id": "H320", "mode": "save", "input": "<span style=\"x:&#64;{cam1.kbps}\"></span>", "expect": "error", "reason": "S2-77 レビュー回帰", "error": {"code": "template.html_template_position", "line": 1, "column": 21}},
+    {"id": "H321", "mode": "save", "input": "<span style=\"x:&#35;{cam1.kbps}\"></span>", "expect": "error", "reason": "S2-77 レビュー回帰", "error": {"code": "template.html_template_position", "line": 1, "column": 21}},
+    {"id": "H322", "mode": "save", "input": "<span style=\"content:&apos;{cam1.kbps}&apos;\"></span>", "expect": "error", "reason": "S2-77 レビュー回帰", "error": {"code": "template.html_template_position", "line": 1, "column": 28}},
+    {"id": "H323", "mode": "save", "input": "<span style=\"&#47;&#42;{cam1.kbps}&#42;&#47;color:red\"></span>", "expect": "error", "reason": "S2-77 レビュー回帰", "error": {"code": "template.html_template_position", "line": 1, "column": 24}},
+    {"id": "H324", "mode": "save", "input": "<img src=\"/source/files/png\">", "expect": "error", "reason": "S2-77 レビュー回帰", "error": {"code": "template.html_url", "line": 1, "column": 11}},
+    {"id": "H325", "mode": "rendered", "input": "<img src=\"/source/files/png\">", "expect": "error", "reason": "S2-77 レビュー回帰", "error": {"code": "template.html_url", "line": 1, "column": 11}},
+    {"id": "H326", "mode": "save", "input": "<img src=\"/source/files/a/svg\">", "expect": "error", "reason": "S2-77 レビュー回帰", "error": {"code": "template.html_url", "line": 1, "column": 11}},
+    {"id": "H327", "mode": "rendered", "input": "<img src=\"/source/files/a/svg\">", "expect": "error", "reason": "S2-77 レビュー回帰", "error": {"code": "template.html_url", "line": 1, "column": 11}},
+    {"id": "H328", "mode": "save", "input": "<span style=\"x:url(/source/files/x.y/png)\"></span>", "expect": "error", "reason": "S2-77 レビュー回帰", "error": {"code": "template.html_url", "line": 1, "column": 20}},
+    {"id": "H329", "mode": "rendered", "input": "<span style=\"x:url(/source/files/x.y/png)\"></span>", "expect": "error", "reason": "S2-77 レビュー回帰", "error": {"code": "template.html_url", "line": 1, "column": 20}},
+    {"id": "H330", "mode": "save", "input": "<{cam1.name}>", "expect": "error", "reason": "S2-77 レビュー回帰", "error": {"code": "template.html_template_position", "line": 1, "column": 2}},
+    {"id": "H331", "mode": "rendered", "input": "<{cam1.name}>", "expect": "error", "reason": "S2-77 レビュー回帰", "error": {"code": "template.html_template_position", "line": 1, "column": 2}},
+    {"id": "H332", "mode": "save", "input": "<div {cam1.name}=\"x\"></div>", "expect": "error", "reason": "S2-77 レビュー回帰", "error": {"code": "template.html_template_position", "line": 1, "column": 6}},
+    {"id": "H333", "mode": "rendered", "input": "<div {cam1.name}=\"x\"></div>", "expect": "error", "reason": "S2-77 レビュー回帰", "error": {"code": "template.html_template_position", "line": 1, "column": 6}},
+    {"id": "H334", "mode": "save", "input": "<div title={cam1.name}></div>", "expect": "error", "reason": "S2-77 レビュー回帰", "error": {"code": "template.html_template_position", "line": 1, "column": 12}},
+    {"id": "H335", "mode": "rendered", "input": "<div title={cam1.name}></div>", "expect": "error", "reason": "S2-77 レビュー回帰", "error": {"code": "template.html_template_position", "line": 1, "column": 12}},
+    {"id": "H336", "mode": "save", "input": "<span style=\"x:url(\\\"></span>", "expect": "error", "reason": "S2-77 レビュー回帰", "error": {"code": "template.css_escape", "line": 1, "column": 20}},
+    {"id": "H337", "mode": "rendered", "input": "<span style=\"x:url(\\\"></span>", "expect": "error", "reason": "S2-77 レビュー回帰", "error": {"code": "template.css_escape", "line": 1, "column": 20}},
+    {"id": "H338", "mode": "rendered", "input": "<div style=\"{if(cam1.online)}color:red\">x{end}</div>", "expect": "ok", "reason": "描画後の波括弧はリテラル"},
+    {"id": "H339", "mode": "rendered", "input": "<div style=\"{if(cam1.online)}\">x{end}{cam1.name}\" title=\"x\">y</div>", "expect": "ok", "reason": "描画後の波括弧はリテラル"},
+    {"id": "H340", "mode": "rendered", "input": "{if(cam1.online)}a{end}", "expect": "ok", "reason": "描画後の波括弧はリテラル"},
+    {"id": "H341", "mode": "rendered", "input": "{if cam1.online}a{elif(obs.streaming)}b{end}", "expect": "ok", "reason": "描画後の波括弧はリテラル"},
+    {"id": "H342", "mode": "rendered", "input": "{if\"a\"==cam1.name}a{end}", "expect": "ok", "reason": "描画後の波括弧はリテラル"},
+    {"id": "H343", "mode": "rendered", "input": "<span style=\"x:/&#42;{cam1.kbps}*/\"></span>", "expect": "ok", "reason": "描画後の波括弧はリテラル"},
+    {"id": "H344", "mode": "rendered", "input": "<span style=\"content:&quot;{cam1.kbps}&quot;\"></span>", "expect": "ok", "reason": "描画後の波括弧はリテラル"},
+    {"id": "H345", "mode": "rendered", "input": "<span style=\"x:&#117;{cam1.kbps}\"></span>", "expect": "ok", "reason": "描画後の波括弧はリテラル"},
+    {"id": "H346", "mode": "rendered", "input": "<span style=\"x:{cam1.kbps}&#40;1)\"></span>", "expect": "ok", "reason": "描画後の波括弧はリテラル"},
+    {"id": "H347", "mode": "rendered", "input": "<span style=\"x:{cam1.kbps}&#101;3\"></span>", "expect": "ok", "reason": "描画後の波括弧はリテラル"},
+    {"id": "H348", "mode": "rendered", "input": "<span style=\"x:&#64;{cam1.kbps}\"></span>", "expect": "ok", "reason": "描画後の波括弧はリテラル"},
+    {"id": "H349", "mode": "rendered", "input": "<span style=\"x:&#35;{cam1.kbps}\"></span>", "expect": "ok", "reason": "描画後の波括弧はリテラル"},
+    {"id": "H350", "mode": "rendered", "input": "<span style=\"content:&apos;{cam1.kbps}&apos;\"></span>", "expect": "ok", "reason": "描画後の波括弧はリテラル"},
+    {"id": "H351", "mode": "rendered", "input": "<span style=\"&#47;&#42;{cam1.kbps}&#42;&#47;color:red\"></span>", "expect": "ok", "reason": "描画後の波括弧はリテラル"},
+    {"id": "H352", "mode": "save", "input": "<span style=\"{if(cam1.online)}\">x{ end }</span>", "expect": "error", "reason": "字句による枝の検査", "error": {"code": "template.html_branch", "line": 1, "column": 14}}
   ]
 }
 

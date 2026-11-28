@@ -3,9 +3,11 @@ package sources
 import (
 	"encoding/json"
 	"errors"
+	"math"
 	"os"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/teru358/irl-live-keeper/internal/sources/template"
@@ -55,7 +57,7 @@ func TestHTMLCases(t *testing.T) {
 				if te.Message.Code != c.Error.Code {
 					t.Fatalf("code %s want %s", te.Message.Code, c.Error.Code)
 				}
-				if c.Mode == "save" && (te.Line != c.Error.Line || te.Column != c.Error.Column) {
+				if (c.Mode == "save" || c.ID >= "H298") && (te.Line != c.Error.Line || te.Column != c.Error.Column) {
 					t.Fatalf("position %d:%d want %d:%d", te.Line, te.Column, c.Error.Line, c.Error.Column)
 				}
 				return
@@ -168,5 +170,35 @@ func TestHTMLTemplatePositionAndConditionPriority(t *testing.T) {
 		if !errors.As(err, &te) || te.Message.Code != c.code {
 			t.Fatalf("%q: %v", c.input, err)
 		}
+	}
+}
+
+func TestHTMLNonFiniteNumber(t *testing.T) {
+	p, err := CompileHTML("<span style=\"width:{n}px\">{n}</span>", map[string]template.Definition{"n": {Type: template.Number}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
+		got := p.Render(map[string]template.Value{"n": {Defined: true, Type: template.Number, Number: n}})
+		if got != "<span style=\"width:px\"></span>" {
+			t.Errorf("nonfinite: %q", got)
+		}
+	}
+}
+
+func BenchmarkHTMLSave64KiB(b *testing.B) {
+	for name, unit := range map[string]string{"substitutions": "{n}", "ampersands": "&", "references": "&amp;", "urls": "url(/source/files/a.png);"} {
+		b.Run(name, func(b *testing.B) {
+			input := "<span style=\"" + strings.Repeat(unit, (65536-22)/len(unit)) + "\"></span>"
+			defs := map[string]template.Definition{"n": {Type: template.Number}}
+			b.SetBytes(int64(len(input)))
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				_, err := CompileHTML(input, defs)
+				if name != "ampersands" && err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
 	}
 }

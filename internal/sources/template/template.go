@@ -639,7 +639,11 @@ func (p *Program) RenderHTML(values map[string]Value) string {
 					walk(n.no)
 				}
 			} else if n.name != "" {
-				b.WriteString(html.EscapeString(strings.ReplaceAll(format(values[n.name], n.format), "\x00", "")))
+				v := values[n.name]
+				if v.Type == Number && (math.IsNaN(v.Number) || math.IsInf(v.Number, 0)) {
+					v.Defined = false
+				}
+				b.WriteString(html.EscapeString(strings.ReplaceAll(format(v, n.format), "\x00", "")))
 			} else {
 				b.WriteString(n.text)
 			}
@@ -647,4 +651,15 @@ func (p *Program) RenderHTML(values map[string]Value) string {
 	}
 	walk(p.nodes)
 	return b.String()
+}
+
+// TagToken returns the first lexical token of a template tag.
+func TagToken(s string) (kind, name string) {
+	p := parser{source: s}
+	_ = p.lex()
+	if len(p.parts) > 0 && len(p.parts[0].ts) > 0 {
+		t := p.parts[0].ts[0]
+		return t.kind, t.text
+	}
+	return "", ""
 }

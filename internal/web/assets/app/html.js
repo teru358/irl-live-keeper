@@ -17,7 +17,7 @@ export function checkURL(value, rules, css = false) {
   if (path.length > a.maxPathLength || path.includes('..') || path.includes('//') || /[?#%]/.test(path)) return false;
   const parts = path.slice(a.prefix.length).split('/');
   if (parts.length > a.maxSegments || parts.some(p => !new RegExp(a.segmentPattern).test(p) || p.endsWith('.') || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(p))) return false;
-  return a.extensions.includes(parts.at(-1).split('.').at(-1).toLowerCase());
+  return parts.at(-1).includes('.') && a.extensions.includes(parts.at(-1).split('.').at(-1).toLowerCase());
 }
 export function checkCSS(s, rules) {
   for (let i = 0; i < s.length;) {
@@ -73,7 +73,7 @@ export function checkCSS(s, rules) {
       if (s[i] !== ')') return issue('css_syntax');
     } else {
       const end = s.indexOf(')', i);
-      if (end < 0) return issue('css_syntax');
+      if (end < 0) return issue(s.slice(i).includes('\\') ? 'css_escape' : 'css_syntax');
       value = s.slice(i, end).replace(/^[ \t\r\n\f]+|[ \t\r\n\f]+$/g, '');
       if (value.includes('\\')) return issue('css_escape');
       i = end;
@@ -119,7 +119,7 @@ export function validateRendered(s, rules) {
     if (s.startsWith('<!--', i)) {
       const end = s.indexOf('-->', i + 4);
       if (end < 0 && s.slice(i).includes('\0')) return issue('html_nul');
-      if (end < 0 || s.slice(i + 4, end).includes('--!>')) return issue('html_comment');
+      if (s.startsWith('>', i + 4) || s.startsWith('->', i + 4) || end < 0 || s.slice(i + 4, end).includes('--!>')) return issue('html_comment');
       if (s.slice(i, end).includes('\0')) return issue('html_nul');
       i = end + 3; continue;
     }
@@ -134,8 +134,9 @@ export function validateRendered(s, rules) {
     }
     i++; const closing = s[i] === '/'; if (closing) i++;
     const m = /^[A-Za-z][A-Za-z0-9-]*/.exec(s.slice(i));
-    if (!m) return issue('html_lex');
+    if (!m) return issue(s[i] === '{' ? 'html_template_position' : 'html_lex');
     const name = m[0].toLowerCase(); i += m[0].length;
+    if (s[i] === '{') return issue('html_template_position');
     if (!rules.elements.includes(name)) return issue('html_element');
     const attrs = new Set(); let self = false;
     for (;;) {
@@ -143,14 +144,17 @@ export function validateRendered(s, rules) {
       if (i === s.length) return issue('html_lex');
       if (s[i] === '>') {i++; break;}
       if (!closing && s.startsWith('/>', i)) {self = true; i += 2; break;}
+      if (s[i] === '{') return issue('html_template_position');
       if (closing || before === i) return issue('html_lex');
       const am = /^[A-Za-z0-9_.:-]+/.exec(s.slice(i)); if (!am) return issue('html_lex');
       const attr = am[0].toLowerCase(); i += am[0].length;
+      if (s[i] === '{') return issue('html_template_position');
       if (!allowedAttribute(name, attr, rules)) return issue('html_attribute');
       if (attrs.has(attr)) return issue('html_duplicate'); attrs.add(attr);
       while (ws(s[i])) i++;
       if (s[i++] !== '=') return issue('html_quote');
       while (ws(s[i])) i++;
+      if (s[i] === '{') return issue('html_template_position');
       if (s[i++] !== '"') return issue('html_quote');
       const a = i, end = s.indexOf('"', i); if (end < 0) return issue('html_lex');
       const raw = s.slice(a, end); i = end + 1;

@@ -3,7 +3,6 @@ package sources
 import (
 	_ "embed"
 	"encoding/json"
-	"html"
 	"regexp"
 	"strconv"
 	"strings"
@@ -54,9 +53,20 @@ func has(xs []string, s string) bool {
 	}
 	return false
 }
+
+var htmlPatterns = func() map[string]*regexp.Regexp {
+	m := map[string]*regexp.Regexp{}
+	for _, xs := range [][]string{htmlRules.TemplateAttributePatterns, htmlRules.AttributeNamePatterns, {htmlRules.CSS.FragmentPattern, htmlRules.Asset.RenderedQueryPattern, htmlRules.Asset.SegmentPattern, "^&#(0+|[xX]0+);", "&#(0+|[xX]0+);", "(?i)</style[\t\n\r\f />]"}} {
+		for _, x := range xs {
+			m[x] = regexp.MustCompile(x)
+		}
+	}
+	return m
+}()
+
 func pattern(xs []string, s string) bool {
 	for _, x := range xs {
-		if regexp.MustCompile(x).MatchString(s) {
+		if htmlPatterns[x].MatchString(s) {
 			return true
 		}
 	}
@@ -82,7 +92,7 @@ func CheckHTMLURL(value, mode string, css bool) bool {
 	if strings.HasPrefix(low, "data:image/") || css && strings.HasPrefix(low, "data:font/") {
 		return strings.Contains(value, ",")
 	}
-	if css && regexp.MustCompile(htmlRules.CSS.FragmentPattern).MatchString(value) {
+	if css && htmlPatterns[htmlRules.CSS.FragmentPattern].MatchString(value) {
 		return true
 	}
 	a := htmlRules.Asset
@@ -91,7 +101,7 @@ func CheckHTMLURL(value, mode string, css bool) bool {
 	}
 	path := value
 	if i := strings.IndexByte(path, '?'); i >= 0 {
-		if mode != "rendered" || !regexp.MustCompile(a.RenderedQueryPattern).MatchString(path[i+1:]) {
+		if mode != "rendered" || !htmlPatterns[a.RenderedQueryPattern].MatchString(path[i+1:]) {
 			return false
 		}
 		path = path[:i]
@@ -105,7 +115,7 @@ func CheckHTMLURL(value, mode string, css bool) bool {
 		return false
 	}
 	for _, p := range parts {
-		if !regexp.MustCompile(a.SegmentPattern).MatchString(p) {
+		if !htmlPatterns[a.SegmentPattern].MatchString(p) {
 			return false
 		}
 	}
@@ -358,7 +368,7 @@ func (p *htmlScanner) run() error {
 			if j := strings.Index(s[i+4:end], "--!>"); j >= 0 {
 				return p.fail(i+4+j, "html_comment")
 			}
-			if end == i+3 {
+			if strings.HasPrefix(s[i+4:], ">") || strings.HasPrefix(s[i+4:], "->") {
 				return p.fail(a, "html_comment")
 			}
 			if j := strings.IndexByte(s[i:end], 0); j >= 0 {
@@ -381,8 +391,8 @@ func (p *htmlScanner) run() error {
 				if s[i] == '&' {
 					end := strings.IndexByte(s[i:], ';')
 					if end >= 0 {
-						v := html.UnescapeString(s[i : i+end+1])
-						if strings.HasPrefix(s[i:], "&#") && len(v) == 1 && space(v[0]) {
+						v, _, e := decodeHTML(s[i:i+end+1], 0)
+						if e == nil && strings.HasPrefix(s[i:], "&#") && len(v) == 1 && space(v[0]) {
 							i += end + 1
 							continue
 						}
@@ -391,7 +401,7 @@ func (p *htmlScanner) run() error {
 				return p.fail(i, "html_nesting")
 			}
 			if s[i] == '&' {
-				if regexp.MustCompile("^&#(0+|[xX]0+);").MatchString(s[i:]) {
+				if htmlPatterns["^&#(0+|[xX]0+);"].MatchString(s[i:]) {
 					return p.fail(i, "html_nul")
 				}
 			}
@@ -483,15 +493,15 @@ func (p *htmlScanner) run() error {
 			attrBranch := len(p.branches)
 			for i < len(s) && s[i] != '"' {
 				if p.mode == "save" && (s[i] == '{' || s[i] == '}') {
-					if attr == "style" {
-						i = templateEnd(s, i)
-						continue
-					}
 					kind := templateKind(s[i:templateEnd(s, i)])
 					if (kind == "end" || kind == "else" || kind == "elif") && len(p.branches) == attrBranch && attrBranch > 0 {
 						return p.fail(p.branches[attrBranch-1].pos, "html_branch")
 					}
-					end, e := p.tag(i, attr)
+					tagAttr := attr
+					if attr == "style" {
+						tagAttr = ""
+					}
+					end, e := p.tag(i, tagAttr)
 					if e != nil {
 						return e
 					}
@@ -506,7 +516,7 @@ func (p *htmlScanner) run() error {
 			if i == len(s) {
 				return p.fail(a, "html_lex")
 			}
-			if len(p.branches) > attrBranch {
+			if len(p.branches) > attrBranch && (attr != "style" || hasTemplateEnd(s[i:])) {
 				return p.fail(p.branches[attrBranch].pos, "html_branch")
 			}
 			value := s[vp:i]
@@ -514,7 +524,7 @@ func (p *htmlScanner) run() error {
 				return p.fail(vp+j, "html_nul")
 			}
 			if attr != "src" && attr != "style" {
-				if loc := regexp.MustCompile("&#(0+|[xX]0+);").FindStringIndex(value); loc != nil {
+				if loc := htmlPatterns["&#(0+|[xX]0+);"].FindStringIndex(value); loc != nil {
 					return p.fail(vp+loc[0], "html_nul")
 				}
 			}
@@ -579,7 +589,7 @@ func (p *htmlScanner) run() error {
 			}
 		}
 		if name == "style" {
-			re := regexp.MustCompile("(?i)</style[\t\n\r\f />]")
+			re := htmlPatterns["(?i)</style[\t\n\r\f />]"]
 			loc := re.FindStringIndex(s[i:])
 			if loc == nil {
 				if j := strings.IndexByte(s[i:], 0); j >= 0 {

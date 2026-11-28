@@ -2,7 +2,6 @@ package sources
 
 import (
 	"github.com/teru358/irl-live-keeper/internal/sources/template"
-	"regexp"
 	"sort"
 	"strings"
 )
@@ -29,11 +28,25 @@ func templateEnd(s string, i int) int {
 	return len(s)
 }
 func templateKind(s string) string {
-	f := strings.Fields(strings.Trim(s, "{}"))
-	if len(f) == 0 {
-		return ""
+	k, _ := template.TagToken(s)
+	return k
+}
+
+// hasTemplateEnd recognizes closing tags with the template lexer, including
+// whitespace around the keyword.
+func hasTemplateEnd(s string) bool {
+	for i := 0; i < len(s); {
+		if s[i] != '{' {
+			i++
+			continue
+		}
+		end := templateEnd(s, i)
+		if templateKind(s[i:end]) == "end" {
+			return true
+		}
+		i = end
 	}
-	return f[0]
+	return false
 }
 func escapeBraces(s string) string {
 	s = strings.ReplaceAll(s, "{", "{{")
@@ -63,7 +76,7 @@ func (p *htmlScanner) tag(i int, attr string) (int, error) {
 	if kind == "elif" {
 		snippet = strings.Replace(text, "elif", "if  ", 1) + "{end}"
 	}
-	if text != "{{" && text != "}}" && kind != "else" && kind != "end" {
+	if text != "{{" && text != "}}" && (kind != "else" && kind != "end" || len(p.branches) == 0) {
 		if _, err := template.Compile(snippet, p.defs); err != nil {
 			if te, ok := err.(*template.Error); ok {
 				line, col := 1, 1
@@ -103,55 +116,80 @@ func (p *htmlScanner) tag(i int, attr string) (int, error) {
 	return end, nil
 }
 func (p *htmlScanner) styleValue(s string, base int) (string, error) {
-	var b strings.Builder
+	raw := s
+	// Decode literal CSS only; template syntax keeps its original spelling.
+	var decodedText strings.Builder
+	var positions []int
 	for i := 0; i < len(s); {
-		if s[i] != '{' && s[i] != '}' {
-			b.WriteByte(s[i])
+		end := i
+		if s[i] == '{' || s[i] == '}' {
+			end = templateEnd(s, i)
+			decodedText.WriteString(s[i:end])
+			for j := i; j < end; j++ {
+				positions = append(positions, base+j)
+			}
+		} else {
+			for end < len(s) && s[end] != '{' && s[end] != '}' {
+				end++
+			}
+			value, offsets, err := decodeHTML(s[i:end], base+i)
+			if err != nil {
+				return "", p.fail(err.pos, err.code)
+			}
+			decodedText.WriteString(value)
+			positions = append(positions, offsets[:len(offsets)-1]...)
+		}
+		i = end
+	}
+	positions = append(positions, base+len(s))
+	decoded := decodedText.String()
+
+	s = decoded
+	var b strings.Builder
+	quote := byte(0)
+	comment, url := false, false
+	groupEnd := 0
+	for i := 0; i < len(s); {
+		if (s[i] != '{' && s[i] != '}') || raw[positions[i]-base] == '&' {
+			c := s[i]
+			if comment {
+				if strings.HasPrefix(s[i:], "*/") {
+					comment = false
+					b.WriteString("*/")
+					i += 2
+					continue
+				}
+			} else if quote != 0 {
+				if c == quote {
+					quote = 0
+				}
+			} else if strings.HasPrefix(s[i:], "/*") {
+				comment = true
+				b.WriteString("/*")
+				i += 2
+				continue
+			} else if c == '"' || c == '\'' {
+				quote = c
+			} else if i+4 <= len(s) && strings.EqualFold(s[i:i+4], "url(") {
+				url = true
+			} else if c == ')' {
+				url = false
+			}
+			b.WriteByte(c)
 			i++
 			continue
 		}
 		a := i
 		end := templateEnd(s, i)
 		tag := s[i:end]
-		// CSS token context before the substitution.
-		prefix := s[:i]
-		quote := byte(0)
-		comment := false
-		url := false
-		for j := 0; j < len(prefix); j++ {
-			if comment {
-				if strings.HasPrefix(prefix[j:], "*/") {
-					comment = false
-					j++
-				}
-				continue
-			}
-			if quote != 0 {
-				if prefix[j] == quote {
-					quote = 0
-				}
-				continue
-			}
-			if strings.HasPrefix(prefix[j:], "/*") {
-				comment = true
-				j++
-				continue
-			}
-			if prefix[j] == '"' || prefix[j] == '\'' {
-				quote = prefix[j]
-			}
-			if j+4 <= len(prefix) && strings.EqualFold(prefix[j:j+4], "url(") {
-				url = true
-			}
-			if prefix[j] == ')' {
-				url = false
-			}
-		}
 		bad := quote != 0 || comment || url || tag == "{{" || tag == "}}" || i > 0 && (ident(s[i-1]) || s[i-1] == '@' || s[i-1] == '#')
-		next := end
-		for next < len(s) && s[next] == '{' {
-			next = templateEnd(s, next)
+		if end > groupEnd {
+			groupEnd = end
+			for groupEnd < len(s) && s[groupEnd] == '{' {
+				groupEnd = templateEnd(s, groupEnd)
+			}
 		}
+		next := groupEnd
 		if i > 0 && next < len(s) && (s[i-1] == '/' && s[next] == '*' || s[i-1] == '*' && s[next] == '/') {
 			bad = true
 		}
@@ -166,17 +204,12 @@ func (p *htmlScanner) styleValue(s string, base int) (string, error) {
 			bad = true
 		}
 		if bad {
-			return "", p.fail(base+a, "html_template_position")
+			return "", p.fail(positions[a], "html_template_position")
 		}
-		name := strings.TrimSpace(strings.Split(strings.Trim(tag, "{}"), ":")[0])
+		kind, name := template.TagToken(tag)
 		d, ok := p.defs[name]
-		if !ok {
-			if strings.HasPrefix(name, "if ") || name == "else" || name == "end" || strings.HasPrefix(name, "elif ") {
-				return "", p.fail(base+a, "html_style_type")
-			}
-		}
-		if ok && d.Type != template.Number {
-			return "", p.fail(base+a, "html_style_type")
+		if kind != "name" || !ok || d.Type != template.Number {
+			return "", p.fail(positions[a], "html_style_type")
 		}
 		b.WriteString(strings.Repeat(" ", end-i))
 		i = end
@@ -232,7 +265,7 @@ func CompileHTML(s string, defs map[string]template.Definition) (*HTMLProgram, e
 			continue
 		}
 		for name := range defs {
-			if regexp.MustCompile("\\{" + regexp.QuoteMeta(name) + "(?:[:}])").MatchString(text) {
+			if strings.Contains(text, "{"+name+"}") || strings.Contains(text, "{"+name+":") {
 				literal = true
 			}
 		}
