@@ -270,6 +270,9 @@ func (s *FilesStore) List(used func(string) []string) (FileList, error) {
 func (s *FilesStore) Save(name string, data []byte) error {
 	filesMu.Lock()
 	defer filesMu.Unlock()
+	if filesOperationHook != nil {
+		filesOperationHook("Save")
+	}
 	if len(data) > MaxFileSize {
 		return ErrFileTooLarge
 	}
@@ -343,6 +346,9 @@ func (s *FilesStore) Save(name string, data []byte) error {
 func (s *FilesStore) Delete(name string) error {
 	filesMu.Lock()
 	defer filesMu.Unlock()
+	if filesOperationHook != nil {
+		filesOperationHook("Delete")
+	}
 	if !s.indexed() {
 		if _, err := s.rebuildLocked(); err != nil {
 			return err

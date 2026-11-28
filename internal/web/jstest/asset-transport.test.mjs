@@ -1,0 +1,29 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {runInNewContext} from 'node:vm';
+const source=readFileSync(new URL('../assets/app/sources.js',import.meta.url),'utf8');
+// Execute the actual screen handlers with their surrounding UI dependencies supplied.
+function handler(name,next,context){
+ const start=source.indexOf(' async function '+name+'('),end=source.indexOf(next,start);
+ assert.ok(start>=0&&end>start);
+ return runInNewContext('('+source.slice(start,end).trim()+')',context);
+}
+test('upload handler sends NFD filename as NFC in FormData',async()=>{
+ let sent;
+ const upload=handler('uploadFiles',' async function upload(',{
+ generation:1,lang:'ja',FormData,fetch:async(url,options)=>{sent={url,...options};return {ok:true,json:async()=>({name:'が.svg'})};},
+ load:async()=>{},editor:null,fail:e=>{throw e;},t:x=>x,networkError:()=>Error('network'),
+ });
+ const file=new Blob(['<svg/>'],{type:'image/svg+xml'});Object.defineProperty(file,'name',{value:'か\u3099.svg'});
+ await upload([file]);assert.equal(sent.url,'/api/source-files?lang=ja');assert.equal(sent.body.get('file').name,'が.svg');assert.equal(await sent.body.get('file').text(),'<svg/>');
+});
+test('delete handler encodes Japanese paths by segment on the wire',async()=>{
+ let sent;
+ const remove=handler('removeFile',' function insertBody(',{
+ confirm:()=>true,deletePrompt:()=>'',store:{get:()=>({list:[]})},t:x=>x,update:()=>{},load:async()=>{},fail:e=>{throw e;},
+ request:async(...args)=>{sent=args;},
+ });
+ await remove({name:'親/夕焼け.svg',used_by:[]});
+ assert.equal(sent[0],'source-files/%E8%A6%AA/%E5%A4%95%E7%84%BC%E3%81%91.svg');assert.equal(sent[2],'DELETE');
+});

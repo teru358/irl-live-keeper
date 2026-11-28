@@ -200,6 +200,10 @@ func readRegular(root *os.Root, rel string, want fs.FileInfo) ([]byte, fs.FileIn
 	return data, info, err
 }
 
+// Test seams run under filesMu; tests install them only with no operations active.
+var filesOperationHook func(string)
+var readIndexDir = func(f *os.File, n int) ([]fs.DirEntry, error) { return f.ReadDir(n) }
+
 type scanner struct {
 	root    *os.Root
 	entries []*fileEntry
@@ -223,7 +227,7 @@ func (sc *scanner) walk(dir string, folders int) {
 		return
 	}
 	remaining := MaxScanEntries - sc.visited
-	des, readErr := f.ReadDir(remaining + 1)
+	des, readErr := readIndexDir(f, remaining+1)
 	complete := readErr == nil || readErr == io.EOF
 	_ = f.Close()
 	if len(des) > remaining {
@@ -371,6 +375,9 @@ func (s *FilesStore) rebuildLocked() (*fileIndex, error) {
 func (s *FilesStore) Rebuild() error {
 	filesMu.Lock()
 	defer filesMu.Unlock()
+	if filesOperationHook != nil {
+		filesOperationHook("Rebuild")
+	}
 	_, err := s.rebuildLocked()
 	return err
 }
@@ -444,6 +451,9 @@ func (s *FilesStore) OpenWithHash(name string) ([]byte, string, string, error) {
 	}
 	filesMu.Lock()
 	defer filesMu.Unlock()
+	if filesOperationHook != nil {
+		filesOperationHook("OpenWithHash")
+	}
 	e, ok, err := s.lookup(name)
 	if err != nil {
 		return nil, "", "", err
@@ -571,6 +581,9 @@ func (s *FilesStore) Available() map[string]bool {
 func (s *FilesStore) Refresh(paths []string) bool {
 	filesMu.Lock()
 	defer filesMu.Unlock()
+	if filesOperationHook != nil {
+		filesOperationHook("Refresh")
+	}
 	rels := make([]string, 0, len(paths))
 	for _, p := range paths {
 		if rel := strings.TrimPrefix(p, AssetPrefix); rel != p && CheckPath(rel) == "" {
@@ -756,7 +769,7 @@ func (s *FilesStore) refreshNames(root *os.Root, rels []string) bool {
 				if _, err := lstatPath(root, path); err == nil {
 					if f, err := root.Open(path); err == nil {
 						var re error
-						des, re = f.ReadDir(MaxScanEntries + 1)
+						des, re = readIndexDir(f, MaxScanEntries+1)
 						f.Close()
 						complete = (re == nil || re == io.EOF) && len(des) <= MaxScanEntries
 					}
