@@ -4,11 +4,12 @@
 // The message of the draft is drawn only while there is a draft. No DOM and no lit-html here: the renderer (html) is handed in, so Node can run it with fakes.
 
 // Sticks while there is a draft, and while a notice is on the screen (the answer of the save or of the reload would otherwise be left at the end of a long page).
-export const barSticky=({dirty,notice='',applyNotice=''})=>!!dirty||!!notice||!!applyNotice;
+// The notice of a reload (quietNotice, S2-97) does not stick: there is no draft left, and the answer is at the end of the page, where the button was pressed.
+export const barSticky=({dirty,notice='',applyNotice='',quietNotice=''})=>!!dirty||(!!notice&&notice!==quietNotice)||!!applyNotice;
 
 // page: 'cameras' or 'settings' (the ids of the buttons are kept: <page>-save and <page>-reload).
-export function saveBar(html,{page,dirty,busy,notice='',applyNotice='',t,onSave,onReload}){
- const sticky=barSticky({dirty,notice,applyNotice});
+export function saveBar(html,{page,dirty,busy,notice='',quietNotice='',applyNotice='',t,onSave,onReload}){
+ const sticky=barSticky({dirty,notice,applyNotice,quietNotice});
  return html`<div id=${page+'-bar'} class=${'save-bar'+(sticky?' sticky':'')} data-dirty=${String(!!dirty)}><p id=${page+'-result'} class="notice" role="status">${notice}</p><p class="notice" role="status">${applyNotice}</p><div class="save-bar-main">${dirty?html`<p class="save-bar-msg" id=${page+'-unsaved'}>${t('settings_unsaved_bar')}</p>`:''}<div class="save-actions"><button id=${page+'-save'} type="button" class="btn primary" ?disabled=${busy} @click=${onSave}>${t('settings_save')}</button><button id=${page+'-reload'} type="button" class="btn" ?disabled=${busy} @click=${onReload}>${t('settings_reload')}</button></div></div></div>`;
 }
 

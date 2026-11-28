@@ -359,3 +359,23 @@ func TestAssetsAreNotLookedAtWhileNobodyWatches(t *testing.T) {
 		t.Fatal("not looked at with a screen connected")
 	}
 }
+
+// S2-97: the preview does not look at the name (it is checked only when the source is saved), but still refuses other bad values.
+func TestPreviewDoesNotRefuseBadNames(t *testing.T) {
+	b, _ := refBackend(t)
+	for _, name := range []string{"", "夕焼け", "my source", strings.Repeat("a", 40), "files", "preview"} {
+		w := apiCall(b, nil, "POST", "/api/sources/preview", map[string]any{"source": map[string]any{"name": name, "body": "<b>x</b>", "obs_width": 800, "obs_height": 200}, "simulate": map[string]any{}})
+		if w.Code != 200 || !strings.Contains(w.Body.String(), `"text"`) {
+			t.Fatalf("name %q: %d %s", name, w.Code, w.Body.String())
+		}
+		// Saving still says why the name is wrong.
+		w = apiCall(b, nil, "POST", "/api/sources", map[string]any{"name": name, "body": "<b>x</b>", "obs_width": 800, "obs_height": 200})
+		if w.Code != 422 {
+			t.Fatalf("name %q was saved: %d %s", name, w.Code, w.Body.String())
+		}
+	}
+	w := apiCall(b, nil, "POST", "/api/sources/preview", map[string]any{"source": map[string]any{"name": "夕焼け", "body": "x", "obs_width": 0, "obs_height": 200}, "simulate": map[string]any{}})
+	if w.Code != 422 {
+		t.Fatalf("a bad size must still be refused: %d", w.Code)
+	}
+}

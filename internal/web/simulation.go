@@ -176,9 +176,9 @@ func serveSimulation(w http.ResponseWriter, r *http.Request, b Backend, e *Event
 		if !ok {
 			return true
 		}
-		if src.Name == "" {
-			src.Name = "unnamed-preview"
-		}
+		// The name is not looked at here: it is checked when the source is saved, and the page shows that
+		// error beside the name field. A preview that refused it would say "reload the page", which does not help.
+		src.Name = "unnamed-preview"
 		if src.Validate(snapshot) != nil {
 			fail(422)
 			return true

@@ -109,11 +109,12 @@ test('Back from a page that keeps a draft asks first: 「いいえ」 stays on t
  assert.deepEqual([a.state.page,a.asked,a.win.location.hash],['sources',['cameras'],'#sources']);
  a.answer(false);
  assert.deepEqual([a.state.page,a.win.location.hash],['sources','#sources']);
- // the refused entry now says the page that stayed; Back again goes on to the page before it, and this time 「はい」
+ // the page that stayed is pushed again (S2-97), so Back again asks again: the question is 「cameras」 once more, then 「はい」 goes on
+ assert.deepEqual(a.win.entries,['','#cameras','#sources']);
  a.win.back();
- assert.deepEqual([a.state.page,a.asked],['sources',['status']]);
+ assert.deepEqual([a.state.page,a.asked],['sources',['cameras']]);
  a.answer(true);
- assert.deepEqual([a.state.page,a.win.location.hash],['status','#status']);
+ assert.deepEqual([a.state.page,a.win.location.hash],['cameras','#cameras']);
  assert.equal(a.state.draft,false);
 });
 

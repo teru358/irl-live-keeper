@@ -75,7 +75,7 @@ export const sourceDraft=source=>{const {cameras,...draft}=source;return structu
 export function clearEditor(state){
  state.draft=null;state.base=null;state.preview=null;state.warnings=[];
  state.valueGroups=[];state.valuesOpen=false;state.valuesFilter='';state.valuesError='';
- state.previewError='';state.editorError='';state.editorNotice='';state.diagnostics=[];
+ state.previewError='';state.editorError='';state.fieldErrors={};state.editorNotice='';state.diagnostics=[];
 }
 export const visibleLayout=(saved,mobile)=>({axis:mobile?'vertical':saved.axis,showAxis:saved.mode==='split'&&!mobile});
 
@@ -91,7 +91,7 @@ export function openEditor(state,source){
  state.draft=source?sourceDraft(source):structuredClone({...state.defaults,name:'',title:'',body:''});
  state.warnings=[];
  state.base=structuredClone(state.draft);state.fresh=!source;
- state.preview=null;state.editorNotice='';state.editorError='';
+ state.preview=null;state.editorNotice='';state.editorError='';state.fieldErrors={};
  const error=source?brokenError(state.broken,source.name):null;
  state.previewError=error?.error||'';state.diagnostics=templateDiagnostics(error);
 }

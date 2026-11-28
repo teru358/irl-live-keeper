@@ -234,7 +234,7 @@ test('the id of the admin page document is not repeated',()=>{
 test('"Send to" button on the status page names the destination and goes to the camera card',()=>{
  const main=read('main.js');
  // S2-94: a link of words only (the page is in the URL, so it is a link to #cameras)
- assert.ok(main.includes("<a class=\"to-send\" href=\"#cameras\" @click=${e=>{e.preventDefault();goSender(c.id);}}>${t('sender_link')}"));
+ assert.ok(main.includes("<a class=\"to-send\" href=\"#cameras\" @click=${e=>{e.preventDefault();goSender(c.id);}} aria-label=${t('sender_link_of').replace('{camera}',()=>cameraHeading(c,t))}>${t('sender_link')}"));
  assert.equal(table.ja.sender_link,'送り先');assert.equal(table.en.sender_link,table.en.camera_destination);
  // goSender: set the camera, open the Cameras page, scroll to its card (drawDestinations scrolls when the card is drawn).
  assert.ok(/function goSender\(id\)\{update\(s=>\{s\.camera=id;\}\);document\.querySelector\('\[data-page="cameras"\]'\)\.click\(\);/.test(main));
