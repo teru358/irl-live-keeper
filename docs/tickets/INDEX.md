@@ -3,9 +3,17 @@
 自動生成: `ticket.py index` (tickets skill)。手で編集しない。
 未完了: 10 件。完了分は closed/。
 
-## 設計待ち (10)
+## 裁定待ち (1)
 
-### 機能 (10)
+### 機能 (1)
+
+| id | 優先 | 起票 | 概要 |
+|---|---|---|---|
+| [status-warning-heading-empty](open/status-warning-heading-empty.md) | 低 | 2026-11-28 | 「状態」の「注意」が、注意がないときも見出しとボタンだけ出る |
+
+## 設計待ち (9)
+
+### 機能 (9)
 
 | id | 優先 | 起票 | 概要 |
 |---|---|---|---|
@@ -17,6 +25,5 @@
 | [source-values-open-state](open/source-values-open-state.md) | 低 | 2026-11-27 | 「値の一覧」を開いた状態を覚える |
 | [phone-menu-open-on-phone](open/phone-menu-open-on-phone.md) | 低 | 2026-11-28 | スマホのメニューに「スマホで開く」がない（意図どおりか確かめる） |
 | [regenerate-button-placement](open/regenerate-button-placement.md) | 低 | 2026-11-28 | カメラごとの送信用パスワードの作り直しを「送り先」の外に置くか |
-| [status-warning-heading-empty](open/status-warning-heading-empty.md) | 低 | 2026-11-28 | 「状態」の「注意」が、注意がないときも見出しとボタンだけ出る |
 | [stream-history](open/stream-history.md) | 低 | 2026-11-28 | 配信の記録と直近10分のグラフ（区切り3 全体。後回し） |
 
