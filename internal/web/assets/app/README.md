@@ -101,3 +101,12 @@ navigation.js（DOM を持たない。window と要素は渡す）が、ペー�
 スマホのメニューは `<dialog id="sheet" aria-label="メニュー">` を `show()` で開く（`showModal()` ではない。「メニュー」のボタンがヘッダーにあり、開いている間は「閉じる」として押せなければならないため）。開くと、後ろの `#summary`・`#admin`・`#tabs`・`#login-root` を `inert` にし、今のページの行へフォーカスを移す。Escape で閉じ、最後の行から Tab で「メニュー」のボタンへ戻り、閉じたらボタンへフォーカスを戻す。広い画面（900px 以上）になったら閉じる。
 ヘッダーの高さは `--top-h`（65px）の1つ。貼り付く要約・メニューの上端・`scroll-margin-top` が使う。押す所は 44px 以上（details の見出し、`.seg button`、スイッチ 48x44、「メニュー」、目のアイコン）。スイッチは入力そのものが 48x44 の箱で、溝と丸は `::before` / `::after`。
 押せないスイッチは薄く、`cursor:not-allowed`。ソースの「OBS にも反映」は、押せない理由（テストの状況を選んでいない / 配信中）を `obsSwitchState`（sources-state.js）の鍵で下に出し、`aria-describedby` でつなぐ。
+
+## 見た目（S2-94）
+
+色は `style.css` の変数で決め、字は地（`--bg`）と面（`--surface`）の両方で比 4.5 以上、入力欄の枠（`--field-line`）は 3 以上（`jstest/s2-94.test.mjs` が CSS から計算して確かめる）。字に `opacity` はかけない（帯の目盛りの線は色で薄くする）。
+見出しは、ページの題（h2）が 20px、区分（h3）が 17px、カメラのカード（h4）が 16px。状態の画面の小見出しは 15px の補助の色のまま（`#status h2`）。
+保存の行は save-bar.js の `saveBar`（DOM を持たない）。カメラと設定で同じ場所、「保存する」「読み直す」の順。下書きがある間だけ「保存していない変更があります」を出し、下書きか知らせがある間は画面の下に貼り付く（`position: sticky`）。知らせは行の中のボタンの上。「本体を再起動する」は `restartZone` で線の下。「パスワードを作り直す」は、その欄の下（settings.js の `regenerate`）。
+操作の誤りは操作の近く: 状態は main.js の `notice(e, place)` の place（`ops` は「注意」の節、`scenes` はシーンの節、空は上）。ログインはカードの中のボタンの上（`#login-error`、入力欄に `aria-describedby` と `aria-invalid`）。ソースの編集の誤りは「HTML 本文」の見出しの下。
+状態の「注意」は、注意か操作の誤りがあるときだけ出す。「すべて表示に戻す」は「カメラの表示」の節。「送り先」はカメラの名前の行の右の字だけのリンク（`<a href="#cameras">`、44px）。
+ソースのプレビューの箱は、おすすめの幅と高さの比（`previewRatio`）。左右の分割では `position: sticky`。
