@@ -25,6 +25,25 @@ export function appearanceChanged(draft,base){
  const appearance=source=>Object.fromEntries(Object.entries(source).filter(([key])=>!['name','title','template','obs_width','obs_height'].includes(key)));
  return dirty(appearance(draft),appearance(base));
 }
+// 回線の状況のテスト: 3つの軸（回線・待機・配信。どれも実際を持つ）と、軸とは別の「自由」。
+export const testAxes={line:['actual','OK','LOW','DOWN'],standby:['actual','none','auto'],stream:['actual','streaming','offline']};
+export const testInitial=()=>({line:'actual',standby:'actual',stream:'actual',free:false,custom:'{}'});
+export const testChoiceKey=(axis,value)=>value==='actual'?'src_actual':'src_'+axis+'_'+value;
+// 自由の JSON が、値の連想配列として読めればそれを、読めなければ null を返す。
+export function freeValues(text){try{const v=JSON.parse(text);return v&&typeof v==='object'&&!Array.isArray(v)?v:null;}catch(_){return null;}}
+const axisOf=(state,axis)=>state[axis]||'actual';
+// サーバーの simulate の形。実際の軸は省く。自由がオンなら values を足す（読めない JSON は例外）。
+export function simulateOf(state){
+ const sim={};
+ for(const axis of Object.keys(testAxes))if(axisOf(state,axis)!=='actual')sim[axis]=state[axis];
+ if(state.free)sim.values=JSON.parse(state.custom);
+ return sim;
+}
+// テスト中か（どれかの軸が実際でないか、自由に値がある）。「OBS にも反映」を使える条件も同じ。
+export const testActive=state=>Object.keys(testAxes).some(axis=>axisOf(state,axis)!=='actual')||(!!state.free&&Object.keys(freeValues(state.custom)||{}).length>0);
+export const testSignature=state=>JSON.stringify([state.line,state.standby,state.stream,state.free,state.custom]);
+// 配信の開始で、すべての軸を実際に戻し、自由も切る。
+export function testReset(state){state.line='actual';state.standby='actual';state.stream='actual';state.free=false;}
 export function applyPreview(state,data){
  state.previewError=data.template_error?.error||'';
  state.diagnostics=templateDiagnostics(data.template_error);
@@ -34,8 +53,8 @@ export function applyPreview(state,data){
 export function applySourceEvent(state,data,stopped){
  const test=data.test_obs;
  const reset=!test.enabled&&test.reason==='stream_started'&&(state.test||state.testReason!=='stream_started');
- if(reset){state.mode='actual';state.testNotice=stopped;if(state.preview)state.preview={...state.preview,text:''};}
- if(state.mode==='actual')state.texts=data.sources;
+ if(reset){testReset(state);state.testNotice=stopped;if(state.preview)state.preview={...state.preview,text:''};}
+ if(!testActive(state))state.texts=data.sources;
  state.test=test.enabled;state.testReason=test.reason;
  return reset;
 }

@@ -31,9 +31,10 @@ func TestSourceValuesAPI(t *testing.T) {
 	h := apiHandler(b, nil)
 	for _, tc := range []struct{ method, body, kbps, elapsed string }{
 		{"GET", "", "600", ""},
-		{"POST", `{"simulate":{"mode":"OK"}}`, "4200", "1:23:45"},
-		{"POST", `{"simulate":{"mode":"LOW"}}`, "600", "1:23:45"},
-		{"POST", `{"simulate":{"mode":"custom","values":{"cam1.kbps":1234.6}}}`, "1235", ""},
+		{"POST", `{"simulate":{"line":"OK","stream":"streaming"}}`, "4200", "1:23:45"},
+		{"POST", `{"simulate":{"line":"LOW","stream":"streaming"}}`, "600", "1:23:45"},
+		{"POST", `{"simulate":{"line":"OK"}}`, "4200", ""},
+		{"POST", `{"simulate":{"values":{"cam1.kbps":1234.6}}}`, "1235", ""},
 		{"POST", `{}`, "600", ""},
 	} {
 		r := httptest.NewRequest(tc.method, "/api/source-values", strings.NewReader(tc.body))
@@ -114,10 +115,12 @@ func TestSourceValuesErrorsMatchPreview(t *testing.T) {
 	}{
 		{`{`, 400}, {`{} {}`, 400}, {`{"extra":true}`, 400},
 		{`{"simulate":{"extra":true}}`, 400}, {`{"simulate":"OK"}`, 400},
-		{`{"simulate":{"mode":"bad"}}`, 422},
-		{`{"simulate":{"mode":"OK","values":{"obs.streaming":true}}}`, 422},
-		{`{"simulate":{"mode":"custom","values":{"password":"secret"}}}`, 422},
-		{`{"simulate":{"mode":"custom","values":{"obs.streaming":1}}}`, 422},
+		{`{"simulate":{"line":"bad"}}`, 422},
+		{`{"simulate":{"mode":"OK"}}`, 400},
+		{`{"simulate":{"mode":"custom","values":{"cam1.kbps":1}}}`, 400},
+		{`{"simulate":{"stream":"actual","standby":"nope"}}`, 422},
+		{`{"simulate":{"values":{"password":"secret"}}}`, 422},
+		{`{"simulate":{"line":"OK","values":{"obs.streaming":1}}}`, 422},
 		{`{"simulate":null}`, 200},
 	} {
 		for _, path := range []string{"/api/source-values", "/api/sources/preview"} {

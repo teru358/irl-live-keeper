@@ -249,9 +249,11 @@ body.in-standby .standby-tile { display: none; }
 #sources-panel .seg button { color:var(--ink); }
 #sources-panel .seg button[aria-pressed="true"] { color:var(--bg); }
 .source-test .seg button { font-size:12px; padding:6px 8px; }
-.source-obs.settings-field { margin:0; }
-.source-obs label { display:flex; align-items:center; gap:8px; min-height:36px; }
-.source-obs input { margin:0; flex-shrink:0; }
+.source-obs.settings-field, .source-free.settings-field { margin:0; }
+.source-obs label, .source-free label { display:flex; align-items:center; gap:8px; min-height:36px; }
+.source-obs input, .source-free input { margin:0; flex-shrink:0; }
+.source-free-values { flex:1 1 100%; }
+.source-free-values textarea { min-height:72px; font-family:monospace; }
 .source-field { display:flex; flex-direction:column; gap:6px; min-width:0; font-size:14px; }
 .source-input { display:flex; align-items:center; gap:8px; min-width:0; }
 #sources-panel input:not([type=checkbox]), #sources-panel select, #sources-panel textarea { min-width:0; max-width:100%; padding:8px; background:var(--surface); color:var(--ink); border:1px solid var(--line); border-radius:6px; font:inherit; }
