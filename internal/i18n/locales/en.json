@@ -175,7 +175,20 @@
     "source_files.duplicate": "A file with that name already exists.",
     "source_files.limit": "The limits are 5 MiB per file and 100 MiB total.",
     "source_files.in_use": "This file is used by a source.",
-    "source_files.io": "Cannot read or write source files."
+    "source_files.io": "Cannot read or write source files.",
+    "source_files.reason_bad_name": "The name cannot be used (letters, digits, _ , - and a middle . only, up to 128 characters)",
+    "source_files.reason_reserved_name": "Reserved Windows name",
+    "source_files.reason_bad_extension": "Not an image extension (png, jpg, jpeg, gif, webp, avif, bmp, svg)",
+    "source_files.reason_path_too_long": "The whole path is longer than 512 characters",
+    "source_files.reason_too_deep": "Folders are nested deeper than 3 levels",
+    "source_files.reason_too_large": "Larger than the 5 MiB per-file limit",
+    "source_files.reason_not_image": "Cannot be read as an image",
+    "source_files.reason_ext_mismatch": "The extension does not match the image contents",
+    "source_files.reason_symlink": "Links are not supported",
+    "source_files.reason_not_regular": "Not a regular file",
+    "source_files.reason_unreadable": "Cannot be read",
+    "source_files.reason_over_limit": "Over the limit (1000 files, 100 MiB total)",
+    "source_files.scan_limit": "The assets folder has too many entries; only the first {limit} were checked."
   },
   "ui": {
     "editor_completions": "Completions",

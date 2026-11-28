@@ -2,11 +2,10 @@ package sources
 
 import (
 	"bytes"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -77,7 +76,7 @@ func TestDetectImageAcceptsAVIFBMPAndSVG(t *testing.T) {
 	}
 }
 func TestFilesStoreLimitsAndDuplicate(t *testing.T) {
-	s := FilesStore{Dir: t.TempDir()}
+	s := &FilesStore{Dir: t.TempDir()}
 	png := samplePNG(t)
 	if err := s.Save("one.png", bytes.Repeat([]byte{'x'}, MaxFileSize+1)); err == nil {
 		t.Fatal("accepted oversized file")
@@ -92,13 +91,11 @@ func TestFilesStoreLimitsAndDuplicate(t *testing.T) {
 
 func TestFilesStoreTotalLimit(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "existing.png"), []byte("x"), 0600); err != nil {
-		t.Fatal(err)
+	big := paddedPNG(t, MaxFileSize)
+	for i := 0; i < MaxFilesSize/MaxFileSize; i++ {
+		writeFile(t, dir, fmt.Sprintf("existing%02d.png", i), big)
 	}
-	if err := os.Truncate(filepath.Join(dir, "existing.png"), MaxFilesSize); err != nil {
-		t.Fatal(err)
-	}
-	s := FilesStore{Dir: dir}
+	s := &FilesStore{Dir: dir}
 	if err := s.Save("new.png", samplePNG(t)); err != ErrTotalTooLarge {
 		t.Fatalf("got %v", err)
 	}

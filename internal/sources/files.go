@@ -28,14 +28,23 @@ var ErrTotalTooLarge = errors.New("source files exceed total size limit")
 var fileNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-][A-Za-z0-9_.-]{0,127}$`)
 var filesMu sync.Mutex
 
+// FileInfo is one listed file. Name is the relative path with "/" only.
 type FileInfo struct {
 	Name   string   `json:"name"`
 	Size   int64    `json:"size"`
 	Type   string   `json:"type"`
+	Usable bool     `json:"usable"`
+	Reason string   `json:"reason,omitempty"`
 	UsedBy []string `json:"used_by"`
 }
 
-type FilesStore struct{ Dir string }
+// FilesStore is the source-files folder and its in-memory index. The zero
+// value of the unexported fields is ready to use; keep one store per folder.
+type FilesStore struct {
+	Dir   string
+	idx   *fileIndex
+	scans int
+}
 
 func SafeFileName(upload string) (string, error) {
 	if upload == "" || strings.ContainsAny(upload, `/\\`) || upload == "." || upload == ".." || strings.Contains(upload, "..") {
@@ -59,7 +68,7 @@ func SafeFileName(upload string) (string, error) {
 		}
 	}
 	name := b.String() + ext
-	if !fileNamePattern.MatchString(name) {
+	if !fileNamePattern.MatchString(name) || CheckPath(name) != "" {
 		return "", errors.New("invalid file name")
 	}
 	return name, nil
@@ -88,7 +97,7 @@ func DetectImage(name string, data []byte) (string, error) {
 	}
 	validExt := map[string]string{".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp", ".avif": "image/avif", ".bmp": "image/bmp", ".svg": "image/svg+xml"}
 	if validExt[ext] != typ {
-		return "", errors.New("extension does not match image")
+		return "", ErrExtensionMismatch
 	}
 	if typ == "image/svg+xml" {
 		// SVG is delivered in a sandboxed context. The prefix check also
@@ -218,97 +227,118 @@ func binaryLittle(b []byte) uint32 {
 	return uint32(b[0]) | uint32(b[1])<<8 | uint32(b[2])<<16 | uint32(b[3])<<24
 }
 
-func (s *FilesStore) List(used func(string) []string) ([]FileInfo, error) {
+// FileList is the result of List.
+type FileList struct {
+	Files []FileInfo
+	// ScanLimited is true when the folder had more than MaxScanEntries entries
+	// and the rest was not looked at.
+	ScanLimited bool
+}
+
+// List rebuilds the index and returns every file with its usable flag.
+func (s *FilesStore) List(used func(string) []string) (FileList, error) {
 	filesMu.Lock()
 	defer filesMu.Unlock()
-	entries, err := os.ReadDir(s.Dir)
-	if errors.Is(err, os.ErrNotExist) {
-		return []FileInfo{}, nil
-	}
+	idx, err := s.rebuildLocked()
 	if err != nil {
-		return nil, err
+		return FileList{}, err
 	}
-	out := []FileInfo{}
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
+	out := FileList{Files: []FileInfo{}, ScanLimited: idx.limited}
+	for _, e := range idx.entries {
+		info := FileInfo{Name: e.Path, Size: e.Size, Type: e.Type, Usable: e.Usable, Reason: string(e.Reason), UsedBy: []string{}}
+		if e.Usable && used != nil {
+			if refs := used(e.Path); refs != nil {
+				info.UsedBy = refs
+			}
 		}
-		data, err := os.ReadFile(filepath.Join(s.Dir, e.Name()))
-		if err != nil {
-			return nil, err
-		}
-		typ, err := DetectImage(e.Name(), data)
-		if err != nil {
-			continue
-		}
-		var refs []string
-		if used != nil {
-			refs = used(e.Name())
-		}
-		out = append(out, FileInfo{Name: e.Name(), Size: int64(len(data)), Type: typ, UsedBy: refs})
+		out.Files = append(out.Files, info)
 	}
 	return out, nil
 }
+
+// Save writes a new file directly under the folder. It never overwrites.
 func (s *FilesStore) Save(name string, data []byte) error {
 	filesMu.Lock()
 	defer filesMu.Unlock()
 	if len(data) > MaxFileSize {
 		return ErrFileTooLarge
 	}
+	if strings.Contains(name, "/") || CheckPath(name) != "" {
+		return errors.New("invalid file name")
+	}
 	if _, err := DetectImage(name, data); err != nil {
 		return err
 	}
-	entries, err := os.ReadDir(s.Dir)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := os.MkdirAll(s.Dir, 0700); err != nil {
 		return err
 	}
+	idx, err := s.rebuildLocked()
+	if err != nil {
+		return err
+	}
+	var count int
 	var total int64
-	for _, e := range entries {
-		if !e.IsDir() {
-			info, er := e.Info()
-			if er != nil {
-				return er
-			}
-			total += info.Size()
+	for _, e := range idx.entries {
+		if e.Reason == ReasonOverLimit {
+			return ErrTotalTooLarge
 		}
+		if e.Usable {
+			count++
+			total += e.Size
+		}
+	}
+	if count+1 > MaxFilesCount {
+		return ErrTooManyFiles
 	}
 	if total+int64(len(data)) > MaxFilesSize {
 		return ErrTotalTooLarge
 	}
-	if err = os.MkdirAll(s.Dir, 0700); err != nil {
+	root, err := os.OpenRoot(s.Dir)
+	if err != nil {
 		return err
 	}
-	f, err := os.OpenFile(filepath.Join(s.Dir, name), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	defer root.Close()
+	f, err := root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 	if err != nil {
 		return err
 	}
 	if _, err = f.Write(data); err != nil {
 		_ = f.Close()
-		_ = os.Remove(f.Name())
+		_ = root.Remove(name)
 		return err
 	}
-	return f.Close()
-}
-func (s *FilesStore) Open(name string) ([]byte, string, error) {
-	filesMu.Lock()
-	defer filesMu.Unlock()
-	if !fileNamePattern.MatchString(name) || strings.ContainsAny(name, `/\\`) || name == "." || name == ".." {
-		return nil, "", os.ErrNotExist
+	if err = f.Close(); err != nil {
+		return err
 	}
-	data, err := os.ReadFile(filepath.Join(s.Dir, name))
-	if err != nil {
-		return nil, "", err
-	}
-	typ, err := DetectImage(name, data)
-	return data, typ, err
+	_, _ = s.rebuildLocked()
+	return nil
 }
+
+// Delete removes a file directly under the folder. Nested deletion is not
+// supported yet.
 func (s *FilesStore) Delete(name string) error {
 	filesMu.Lock()
 	defer filesMu.Unlock()
 	if !fileNamePattern.MatchString(name) || strings.ContainsAny(name, `/\\`) || name == "." || name == ".." {
 		return os.ErrNotExist
 	}
-	return os.Remove(filepath.Join(s.Dir, name))
+	root, err := os.OpenRoot(s.Dir)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	info, err := root.Lstat(name)
+	if err != nil {
+		return err
+	}
+	if info.IsDir() {
+		return os.ErrNotExist
+	}
+	if err = root.Remove(name); err != nil {
+		return err
+	}
+	_, _ = s.rebuildLocked()
+	return nil
 }
 
 // ReadUpload accepts one bounded multipart file field named "file".
