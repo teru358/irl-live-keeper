@@ -1,6 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {tokenizeTemplate,templateState,nextTemplateToken} from '../assets/app/template-lexer.js';
+import {templateState,nextTemplateToken} from '../assets/app/template-lexer.js';
+import {tokenizeTemplate} from './tokens.mjs';
 const compact=text=>tokenizeTemplate(text).filter(t=>t.style).map(t=>[t.text,t.style]);
 for(const [text,want] of [
  ['{a}}}',[['{','bracket'],['a','variableName'],['}','bracket']]],

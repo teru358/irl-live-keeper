@@ -57,12 +57,10 @@ button { font: inherit; color: inherit; }
 
 .layout { display: grid; grid-template-columns: 1fr; gap: 0; max-width: 1120px; margin: 0 auto; }
 .col { display: grid; gap: 28px; }
-nav.rail { display: none; }
 main { padding: 16px; display: grid; gap: 24px; }
 h2 { font-size: 15px; font-weight: 700; color: var(--muted); margin: 0 0 10px; }
 
 /* 中心の一点: カメラの信号の帯 */
-.cams { display: grid; gap: 14px; }
 .cam { display: grid; grid-template-columns: 1fr auto; row-gap: 6px; align-items: baseline; }
 .cam-name { font-weight: 700; font-size: 18px; }
 .cam-read { font-size: 15px; color: var(--muted); }
@@ -144,13 +142,10 @@ body[data-page]:not([data-page="status"]) #summary { display: none; }
 body[data-tab="scene"] .scene { min-height: 72px; font-size: 18px; }
 
 /* 待機はシーンの一覧の中で扱う: 最後に横長の「待機にする」、待機中は上に帯と「戻る」 */
-.standby-tile { grid-column: 1 / -1; border: 2px dashed var(--low); color: var(--ink); background: transparent; min-height: 64px; }
-.standby-tile small { color: var(--muted); }
 .standby-banner { display: none; margin-bottom: 12px; padding: 12px; border: 2px solid var(--k-standby); border-radius: 12px; background: var(--surface); }
 .standby-banner p { margin: 0 0 10px; }
 .standby-banner .btn { width: 100%; }
 body.in-standby .standby-banner { display: block; }
-body.in-standby .standby-tile { display: none; }
 .standby-chip { color: var(--ink); background: var(--surface); border-color: var(--k-standby); font-weight: 700; }
 
 /* シーンの種類: 色・枠・文字の3つで区別する（色だけに頼らない） */
@@ -165,7 +160,6 @@ body.in-standby .standby-tile { display: none; }
 .scene.k-none .kind { color: var(--k-none); }
 .scene.k-standby { border-left-color: var(--k-standby); border-style: dashed; border-left-style: solid; grid-column: 1 / -1; }
 .scene.k-standby .kind { color: var(--k-standby); }
-.scene.k-standby.k-half { grid-column: auto; }
 .scene i { display: block; font-style: normal; font-weight: 400; font-size: 13px; color: var(--muted); margin-top: 2px; }
 .scene em { display: block; font-style: normal; font-size: 13px; font-weight: 700; margin-top: 2px; }
 .scene[aria-pressed="true"] { border-color: var(--ink); border-style: solid; }
@@ -194,9 +188,6 @@ body.in-standby .standby-tile { display: none; }
   .layout { grid-template-columns: 180px 1fr; }
   .prefs { display: flex; }
   .menu-btn, .sheet, .sheet.open { display: none; }
-  nav.rail { display: flex; flex-direction: column; gap: 2px; padding: 16px 8px; border-right: 1px solid var(--line); min-height: calc(100vh - 57px); }
-  nav.rail a { color: var(--ink); text-decoration: none; padding: 10px 12px; border-radius: 8px; }
-  nav.rail a[aria-current="page"] { background: var(--surface); font-weight: 700; box-shadow: inset 3px 0 0 var(--ink); }
   main { grid-template-columns: 1.2fr 1fr; align-items: start; column-gap: 32px; padding: 24px; }
 }
 
@@ -208,16 +199,15 @@ body.in-standby .standby-tile { display: none; }
 #manual-hint { margin-bottom: 16px; }
 
 .send-cam{margin-top:20px;padding:20px;border:1px solid var(--line);border-radius:12px}.send-cam summary{cursor:pointer;font-weight:600;margin-bottom:16px}.sender-field{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:12px 0}.sender-field label{flex-basis:100%;font-size:13px}.sender-field input{min-width:0;flex:1;font-family:monospace}.sender-field button{padding:8px}.send-cam .seg{margin:12px 0}
-#sender-panel{grid-column:1/-1}.sender-field input{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:8px}.sender-field button{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:6px}
+.sender-field input{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:8px}.sender-field button{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:6px}
 /* 送信の設定: 住所の選択とプロトコルの切り替えを、屋外でも押しやすい大きさに */
-#sender-address { display: block; width: 100%; min-height: 48px; margin-top: 6px; font-size: 16px; }
 .send-cam .seg { display: flex; margin: 10px 0 12px; }
 .send-cam .seg button { flex: 1; min-height: 48px; }
 .send-cam:not([open]) summary { margin-bottom: 0; }
 #obs[data-connected="true"]{color:var(--ok)}
 #obs[data-connected="false"]{color:var(--down)}
 
-#settings-panel{grid-column:1/-1}.settings-layout{display:grid;grid-template-columns:160px minmax(0,1fr);gap:24px}#settings-groups{display:flex;flex-direction:column;gap:6px}#settings-groups button{min-height:48px;text-align:left;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px}#settings-groups button[aria-pressed=true]{box-shadow:inset 3px 0 var(--act);font-weight:bold}.settings-field{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0}.settings-field label{width:100%;font-weight:600}.settings-field input:not([type=checkbox]),.settings-field select{min-width:0;flex:1;padding:8px;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:6px}.settings-field input[readonly]{opacity:.65}.settings-field input[role=switch]{appearance:none;width:48px;height:28px;min-height:28px;border-radius:20px;background:var(--line);position:relative}.settings-field input[role=switch]:before{content:'';position:absolute;width:20px;height:20px;top:4px;left:4px;border-radius:50%;background:var(--ink)}.settings-field input[role=switch]:checked{background:var(--act)}.settings-field input[role=switch]:checked:before{left:24px;background:var(--surface)}.settings-field small,.settings-field p{width:100%;margin:0}.settings-field .settings-badge{display:inline;margin-left:12px;font-size:12px;font-weight:normal;color:var(--muted)}#settings-panel .row{margin-top:20px;flex-wrap:wrap}#settings-confirm{max-width:560px;width:calc(100% - 48px);max-height:80vh;overflow:auto;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:12px;padding:24px}#settings-confirm::backdrop{background:#0008}.danger{color:var(--down);border:2px solid var(--down);padding:12px}#settings-update-label{display:flex;align-items:center;gap:12px;margin:20px 0}fieldset{border:1px solid var(--line);border-radius:8px;min-width:0;margin:16px 0}#sender-regenerate{flex-wrap:wrap;gap:8px;margin:20px 0}
+#settings-panel{grid-column:1/-1}.settings-layout{display:grid;grid-template-columns:160px minmax(0,1fr);gap:24px}#settings-groups{display:flex;flex-direction:column;gap:6px}#settings-groups button{min-height:48px;text-align:left;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px}#settings-groups button[aria-pressed=true]{box-shadow:inset 3px 0 var(--act);font-weight:bold}.settings-field{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0}.settings-field label{width:100%;font-weight:600}.settings-field input:not([type=checkbox]),.settings-field select{min-width:0;flex:1;padding:8px;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:6px}.settings-field input[readonly]{opacity:.65}.settings-field input[role=switch]{appearance:none;width:48px;height:28px;min-height:28px;border-radius:20px;background:var(--line);position:relative}.settings-field input[role=switch]:before{content:'';position:absolute;width:20px;height:20px;top:4px;left:4px;border-radius:50%;background:var(--ink)}.settings-field input[role=switch]:checked{background:var(--act)}.settings-field input[role=switch]:checked:before{left:24px;background:var(--surface)}.settings-field small,.settings-field p{width:100%;margin:0}.settings-field .settings-badge{display:inline;margin-left:12px;font-size:12px;font-weight:normal;color:var(--muted)}#settings-panel .row{margin-top:20px;flex-wrap:wrap}#settings-confirm{max-width:560px;width:calc(100% - 48px);max-height:80vh;overflow:auto;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:12px;padding:24px}#settings-confirm::backdrop{background:#0008}.danger{color:var(--down);border:2px solid var(--down);padding:12px}#settings-update-label{display:flex;align-items:center;gap:12px;margin:20px 0}fieldset{border:1px solid var(--line);border-radius:8px;min-width:0;margin:16px 0}
 @media(max-width:899px){.settings-layout{grid-template-columns:1fr}#settings-groups{flex-direction:row;flex-wrap:wrap}#settings-groups button{flex:1 0 30%}}
 #setup-fields{display:grid;gap:16px}#login input{box-sizing:border-box;width:100%;min-width:0}#login button{min-height:44px}
 .settings-note{margin:40px 0 24px;color:var(--muted)}.settings-card{border:1px solid var(--line);border-radius:8px;padding:16px;margin:16px 0}.settings-card summary{cursor:pointer;font-weight:600}.settings-field .settings-badge{color:var(--ink);margin-left:4px}.settings-field input{box-shadow:none}
@@ -300,10 +290,6 @@ body.in-standby .standby-tile { display: none; }
  .source-workspace.previewonly > .source-preview { min-height:300px; }
 }
 
-.source-color { position:relative; flex:0 0 48px; display:flex; align-items:center; }
-.source-color.empty { border:1px dashed var(--muted); border-radius:6px; background:linear-gradient(135deg,transparent 48%,var(--muted) 49%,var(--muted) 51%,transparent 52%); }
-.source-color.empty input { opacity:0; }
-.source-color:focus-within { outline:2px solid var(--act); outline-offset:2px; }
 .source-editor-notice { margin:8px 0 16px; white-space:pre-line; }
 #sources-panel p[role=alert] { color:var(--down); }
 #sources-panel p[role=status]:empty, #sources-panel p[role=alert]:empty { display:none; }

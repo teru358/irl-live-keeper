@@ -18,3 +18,6 @@ import './s2-86.test.mjs';
 import './asset-names.test.mjs';
 
 import './asset-transport.test.mjs';
+
+import './s2-89.test.mjs';
+import './s2-90b.test.mjs';

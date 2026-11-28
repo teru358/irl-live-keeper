@@ -9,7 +9,8 @@ import {failureState,nothingToSave,noChangesNotice,finishAccept} from '../assets
 import {confirmationLines} from '../assets/app/settings-state.js';
 import {streamingChanged,testNoticeFor,applySourceEvent,testInitial} from '../assets/app/sources-state.js';
 import {cssContext,bodyAssetInsertion,assetInsertText} from '../assets/app/source-body.js';
-import {styleStart,insideStyle} from '../assets/app/template-lexer.js';
+import {styleStart} from '../assets/app/template-lexer.js';
+const insideStyle=prefix=>styleStart(prefix)>=0;
 
 const read=name=>readFileSync(new URL('../assets/app/'+name,import.meta.url),'utf8');
 const locale=lang=>JSON.parse(readFileSync(new URL('../../i18n/locales/'+lang+'.json',import.meta.url),'utf8'));
@@ -147,7 +148,7 @@ test('a notice goes when the same field is worked on again, or the page is left'
 });
 
 test('the status of a failed or reverted apply stops being shown when the state moves on',()=>{
- const settings=read('settings.js');
+ const settings=read('settings-flow.js');
  assert.ok(/s\.applyNotice=\['failed','reverted'\]\.includes\(status\.apply\?\.state\)\?[^;]*:'';/.test(settings));
 });
 

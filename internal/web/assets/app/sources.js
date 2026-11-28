@@ -6,7 +6,9 @@ import {html,render} from '../vendor/lit-html-3.3.3/lit-html.js';
 import {live} from '../vendor/lit-html-3.3.3/directives/live.js';
 import {repeat} from '../vendor/lit-html-3.3.3/directives/repeat.js';
 import {createStore} from './store.js';
-import {networkError} from './api.js';
+import {copyValue} from './clipboard.js';
+import {loadRules} from './rules.js';
+import {openStream} from './events.js';
 import {createFilesRefresher,layout,remember,dirty,previewRequest,sourceURL,valueText,conditionText,applyPreview,applySourceEvent,deletePrompt,clearEditor,visibleLayout,templateDiagnostics,applyCollection,openEditor,testAxes,testInitial,testChoiceKey,simulateOf,testActive,testSignature,brokenError,sourceValueGroups,streamingChanged,testNoticeFor} from './sources-state.js';
 export function mountSources(t,request,lang){
  const root=document.querySelector('#sources-panel');
@@ -16,10 +18,10 @@ export function mountSources(t,request,lang){
  const update=f=>store.update(f);let editor=null,editorHost=null,mounting=null,generation=0,previewVersion=0,timer,events,polling=false,valuesPolling=false,valuesVersion=0;
  const fail=e=>update(s=>{if(s.draft)s.editorError=e.message;else s.notice=e.message;s.failNetwork=!!e.network;});
  const refreshFiles=createFilesRefresher({request,update,fail});
- const sim=simulateOf;
+ const sim=s=>simulateOf(s,t);
  const frames=new WeakMap(), activeFrames=new Set();
  function cleanupFrames(){for(const c of activeFrames)if(!c.host.isConnected){c.observer.disconnect();activeFrames.delete(c);}}
- const rulesPromise=fetch('/source/assets/html_rules.json').then(r=>r.json()).then(r=>{setCompletionRules(r);return r;});
+ const rulesPromise=loadRules().then(r=>{setCompletionRules(r);return r;});
  function previewFrame(host,text='',name,width=1920,height=1080){
   let c=frames.get(host);
   if(!c){
@@ -97,8 +99,7 @@ export function mountSources(t,request,lang){
   const version=generation;
   for(const file of files)try{
    const body=new FormData();body.append('file',file,file.name.normalize('NFC'));
-   let r;try{r=await fetch('/api/source-files?lang='+lang,{method:'POST',headers:{'X-IRL-Live-Keeper':'1'},body});}catch(e){throw e instanceof TypeError?networkError(t):e;}
-   const d=await r.json();if(!r.ok)throw Error(d.error||t('failed'));
+   const d=await request('source-files',body);
    await load();
    if(version===generation)editor?.insertAsset(d.name);
   }catch(e){fail(e);}
@@ -138,7 +139,7 @@ export function mountSources(t,request,lang){
  const testBar=s=>html`<div class="source-test" role="group" aria-label=${t('src_test')}>${Object.entries(testAxes).map(([axis,values])=>segments(t('src_'+axis),values,s[axis],value=>choose(axis,value),value=>t(testChoiceKey(axis,value))))}<div class="settings-field source-free"><label><input name="source-test-free" type="checkbox" role="switch" .checked=${s.free} @change=${e=>{const free=e.target.checked;change(x=>{x.free=free;x.testNotice='';});retest();}}>${t('src_custom')}</label></div>${s.free?html`<label class="source-field source-free-values">${t('src_custom_hint')}<textarea name="source-test-custom" .value=${live(s.custom)} @input=${e=>{const value=e.target.value;change(x=>{x.custom=value;});}}></textarea></label>`:''}<div class="settings-field source-obs"><label><input name="source-test-obs" type="checkbox" role="switch" .checked=${s.test} ?disabled=${s.streaming||(!s.test&&!testActive(s))} @change=${e=>obs(e.target.checked)}>${t('src_obs')}</label></div></div>`;
  const copy=(src,s)=>{
   const urls=sourceURL(s.settings,s.autoHost,src.name);
-  const row=(url,kind)=>html`<label class="source-field">${t('src_url_'+kind)}<span class="source-url"><input name=${'source-url-'+kind+'-'+src.name} readonly .value=${url} aria-label=${t('src_url_'+kind)}><button class="btn" @click=${async()=>{try{await navigator.clipboard.writeText(url);}catch(_){fail(Error(t('sender_manual')));}}}>${t('sender_copy')}</button></span></label>`;
+  const row=(url,kind)=>html`<label class="source-field">${t('src_url_'+kind)}<span class="source-url"><input name=${'source-url-'+kind+'-'+src.name} readonly .value=${url} aria-label=${t('src_url_'+kind)}><button class="btn" @click=${async()=>{if(!await copyValue(url))fail(Error(t('sender_manual')));}}>${t('sender_copy')}</button></span></label>`;
   return html`${row(urls.url,'local')}${urls.remoteURL?row(urls.remoteURL,'remote'):''}`;
  };
  const valuesList=s=>{
@@ -163,7 +164,7 @@ export function mountSources(t,request,lang){
  window.addEventListener('keeper-before-page',e=>{if(e.detail!=='sources'&&!close())e.preventDefault();});
  window.addEventListener('beforeunload',e=>{const s=store.get();if(s.draft&&dirty(s.draft,s.base)){e.preventDefault();e.returnValue='';}});
  window.addEventListener('keeper-status',e=>update(s=>streamingChanged(s,e.detail.obs.streaming)));window.addEventListener('keeper-reconnected',()=>update(s=>{if(s.failNetwork){s.notice='';s.editorError='';s.failNetwork=false;}}));
- window.addEventListener('keeper-page',e=>{const active=e.detail==='sources';++valuesVersion;update(s=>{s.active=active;if(!active){s.notice='';s.editorNotice='';s.testNotice='';}});events?.close();events=null;if(active){load();events=new EventSource('/api/events?topics=sources&lang='+lang);events.addEventListener('sources',e=>{try{receive(JSON.parse(e.data));}catch(err){console.error(err);}});}});
+ window.addEventListener('keeper-page',e=>{const active=e.detail==='sources';++valuesVersion;update(s=>{s.active=active;if(!active){s.notice='';s.editorNotice='';s.testNotice='';}});events?.();events=null;if(active){load();events=openStream(()=>{const source=new EventSource('/api/events?topics=sources&lang='+lang);source.addEventListener('sources',e=>{try{receive(JSON.parse(e.data));}catch(err){console.error(err);}});return source;},{probe:()=>request('status')});}});
  setInterval(()=>{refreshValues();},1000);
  setInterval(async()=>{const s=store.get();if(!s.active||polling||timer)return;polling=true;try{if(testActive(s)||s.draft)await preview();}finally{polling=false;}},1000);
  setInterval(()=>{if(store.get().test)request('sources/test-obs/alive',{}).then(receive).catch(fail);},15000);

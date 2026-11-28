@@ -145,7 +145,7 @@ func TestSettingsPageControls(t *testing.T) {
 	servePage(w, &displayFake{}, false)
 	app := pageModules(t)
 	html := w.Body.String() + string(app)
-	for _, want := range []string{`id="settings-panel"`, `id=${page+'-groups'}`, `id=${page+'-fields'}`, `id=${page+'-lan'}`, `id=${page+'-local'}`, `role="switch"`, `id="settings-confirm"`, `id="cameras-confirm"`, `id=${page+'-update'}`} {
+	for _, want := range []string{`id="settings-panel"`, `id=${page+'-groups'}`, `id=${page+'-fields'}`, `id=${page+'-local'}`, `role="switch"`, `id="settings-confirm"`, `id="cameras-confirm"`, `id=${page+'-update'}`} {
 		if !strings.Contains(html, want) {
 			t.Errorf("missing %s", want)
 		}

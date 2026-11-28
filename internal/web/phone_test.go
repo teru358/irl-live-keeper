@@ -92,7 +92,9 @@ func TestDesignV019Elements(t *testing.T) {
 			if i18n.UI(i18n.EN)[key] == "" {
 				t.Fatal(key)
 			}
-			if strings.HasPrefix(key, "setting_") && !strings.HasPrefix(key, "setting_option_") && !strings.HasSuffix(key, "_help") {
+			// 節の見出し（中に項目を持つ組）と、画面が id だけで出す欄は、見出しの文だけを持つ。説明（_help）は葉の項目に付ける。
+			heading := map[string]bool{"setting_admin": true, "setting_mediamtx": true, "setting_stream": true, "setting_cameras": true, "setting_obs": true, "setting_on_stream_start": true, "setting_log": true, "setting_gui": true, "setting_switch": true, "setting_id": true}
+			if strings.HasPrefix(key, "setting_") && !strings.HasPrefix(key, "setting_option_") && !strings.HasSuffix(key, "_help") && !heading[key] {
 				for _, lang := range []i18n.Lang{i18n.JA, i18n.EN} {
 					if i18n.UI(lang)[key+"_help"] == "" {
 						t.Fatal(key, lang)

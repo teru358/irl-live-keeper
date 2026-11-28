@@ -1,6 +1,7 @@
 import {html,render,nothing} from '../vendor/lit-html-3.3.3/lit-html.js';
 import {live} from '../vendor/lit-html-3.3.3/directives/live.js';
 import {createStore} from './store.js';
+import {passwordEye} from './eye.js';
 export function mountShell(boot,{lang,t,setLanguage},request){
 const saved=k=>{try{return localStorage.getItem(k);}catch(_){return null;}};
 const desktop=matchMedia('(min-width:900px)');
@@ -11,7 +12,7 @@ function navigate(page){if(!['status','cameras','sources','settings'].includes(p
 async function login(e){e.preventDefault();const s=store.get();try{if(boot.setup&&s.password!==s.confirmation)throw Error(t('setup_mismatch'));await request(boot.setup?'setup':'login',{password:s.password});location.replace('/');}catch(e){change(s=>{s.error=e.message;});}}
 async function logout(){try{await request('logout',{});location.replace('/?login');}catch(e){change(s=>{s.error=e.message;});}}
 function openPhone(){window.dispatchEvent(new Event('keeper-phone'));}
-const eye=key=>html`<button type="button" class="password-eye" aria-label=${t(store.get().visible[key]?'sender_hide':'sender_show')} aria-pressed=${String(!!store.get().visible[key])} @click=${()=>change(s=>{s.visible[key]=!s.visible[key];})}><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path class="eye-slash" d="m3 3 18 18" stroke="currentColor" stroke-width="2"/></svg></button>`;
+const eye=key=>passwordEye({label:t(store.get().visible[key]?'sender_hide':'sender_show'),pressed:store.get().visible[key],toggle:()=>change(s=>{s.visible[key]=!s.visible[key];})});
 function draw(s){document.documentElement.lang=lang;document.title=t('title');if(['light','dark'].includes(s.theme))document.documentElement.dataset.theme=s.theme;else delete document.documentElement.dataset.theme;document.body.dataset.tab=s.tab;document.body.dataset.page=s.page;
 render(html`<header class="top"><h1 data-ui="title">${t("title")}</h1><span id="tally" ?hidden=${boot.login} class="tally off"></span><button class="menu-btn" aria-expanded=${String(s.menu)} @click=${()=>change(x=>{x.menu=!x.menu;})} aria-controls="sheet" data-ui="menu">${t("menu")}</button><div id="desktop-prefs" class="prefs"></div></header>
 <div id="summary" ?hidden=${boot.login} class="summary" role="status"></div>
@@ -25,5 +26,5 @@ const prefs=document.querySelector('.sheet-prefs');const destination=document.qu
 render(html`${boot.login?html`<form id="login" @submit=${login}><label for="password">${t('password')}</label><span class="password-control"><input id="password" name="password" required minlength=${boot.setup?8:0} autocomplete=${boot.setup?'new-password':'current-password'} type=${s.visible.password?'text':'password'} .value=${live(s.password)} @input=${e=>change(x=>{x.password=e.target.value;})}>${eye('password')}</span>${boot.setup?html`<span id="setup-fields"><label for="password-confirm">${t('setup_confirm')}</label><span class="password-control"><input id="password-confirm" required minlength="8" autocomplete="new-password" type=${s.visible.confirmation?'text':'password'} .value=${live(s.confirmation)} @input=${e=>change(x=>{x.confirmation=e.target.value;})}>${eye('confirmation')}</span></span>`:''}<button id="login-submit" class="btn primary">${t(boot.setup?'setup_title':'login')}</button></form>`:''}`,document.querySelector('#login-root'));
 render(html`${s.error}`,document.querySelector('#error'));}
 window.addEventListener('keeper-draft',e=>change(s=>{s.drafts[e.detail.page]=e.detail.dirty;}));window.addEventListener('keeper-navigate',e=>navigate(e.detail));
-const safeDraw=s=>{try{draw(s);}catch(e){console.error(e);}};store.subscribe(safeDraw);safeDraw(store.get());desktop.addEventListener('change',()=>change(s=>{s.desktop=desktop.matches;}));return {navigate,eye};
+const safeDraw=s=>{try{draw(s);}catch(e){console.error(e);}};store.subscribe(safeDraw);safeDraw(store.get());desktop.addEventListener('change',()=>change(s=>{s.desktop=desktop.matches;}));return {navigate};
 }

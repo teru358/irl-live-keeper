@@ -23,3 +23,11 @@ export function rebaseDraft(base,draft,next){
  }
  return {values:merge(base,draft,next,''),conflicts};
 }
+// The values as the page holds them: a missing list is [], a missing switch block has empty fields, the cameras are in the order of their ids.
+export function normalize(v,key){
+ if(v===null&&['cameras','scene_fallbacks'].includes(key))return [];
+ if(v===null&&key==='switch')return {fail_kbps:null,low_sec:null,recover_kbps:null,recover_sec:null,down_sec:null};
+ if(key==='cameras'&&Array.isArray(v))v.sort((a,b)=>a.id.localeCompare(b.id));
+ if(v&&typeof v==='object')for(const k of Object.keys(v))v[k]=normalize(v[k],k);
+ return v;
+}
