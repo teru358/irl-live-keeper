@@ -1,6 +1,7 @@
 package web
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"github.com/teru358/irl-live-keeper/internal/i18n"
@@ -44,12 +45,21 @@ func serveSources(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.L
 	collection := r.URL.Path == "/api/sources"
 	name := strings.TrimPrefix(r.URL.Path, "/api/sources/")
 	saved, deleted := false, false
+	// The body is read before the store lock is taken, and the reply is written
+	// after it is released: a slow sender or reader must not hold up other saves
+	// or the source list. Inside the transaction we only decide.
+	var body []byte
+	var bodyErr error
+	if r.Method == "PUT" || r.Method == "POST" {
+		body, bodyErr = io.ReadAll(http.MaxBytesReader(w, r.Body, 256<<10))
+	}
+	var res reply
 	err := provider.SourcesStore().Transaction(b.Snapshot(), func(list []sources.Source, loadErr error) ([]sources.Source, bool) {
 		if loadErr != nil {
 			if r.Method == "GET" {
-				writeJSON(w, 200, map[string]any{"sources": []sources.Source{}, "broken": map[string]any{}, "names": sourceNames(b), "default": sources.Default(), "error": i18n.Render(lang, i18n.New("sources.unreadable")), "code": "sources.unreadable"})
+				res = reply{200, map[string]any{"sources": []sources.Source{}, "broken": map[string]any{}, "names": sourceNames(b), "default": sources.Default(), "error": i18n.Render(lang, i18n.New("sources.unreadable")), "code": "sources.unreadable"}}
 			} else {
-				writeError(w, 409, lang, i18n.New("sources.unreadable"))
+				res = errorReply(409, lang, i18n.New("sources.unreadable"))
 			}
 			return nil, false
 		}
@@ -72,16 +82,16 @@ func serveSources(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.L
 				for _, src := range list {
 					rows = append(rows, sourceRow{src, sources.ReferencesOf(src.Body, defs).Cameras})
 				}
-				writeJSON(w, 200, map[string]any{"sources": rows, "broken": broken, "names": sourceNames(b), "default": sources.Default()})
+				res = reply{200, map[string]any{"sources": rows, "broken": broken, "names": sourceNames(b), "default": sources.Default()}}
 			} else if index >= 0 {
-				writeJSON(w, 200, list[index])
+				res = reply{200, list[index]}
 			} else {
-				writeError(w, 404, lang, i18n.New("api.not_found"))
+				res = errorReply(404, lang, i18n.New("api.not_found"))
 			}
 			return nil, false
 		}
 		if !collection && index < 0 {
-			writeError(w, 404, lang, i18n.New("api.not_found"))
+			res = errorReply(404, lang, i18n.New("api.not_found"))
 			return nil, false
 		}
 		if r.Method == "DELETE" {
@@ -89,31 +99,31 @@ func serveSources(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.L
 			return append(list[:index], list[index+1:]...), true
 		}
 		v := sources.Default()
-		d := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10))
+		d := json.NewDecoder(bytes.NewReader(body))
 		d.DisallowUnknownFields()
-		if d.Decode(&v) != nil || d.Decode(new(any)) != io.EOF {
-			writeError(w, 400, lang, i18n.New("sources.invalid"))
+		if bodyErr != nil || d.Decode(&v) != nil || d.Decode(new(any)) != io.EOF {
+			res = errorReply(400, lang, i18n.New("sources.invalid"))
 			return nil, false
 		}
 		if e := v.Validate(b.Snapshot()); e != nil {
 			var te *template.Error
 			if errors.As(e, &te) {
-				writeJSON(w, 422, map[string]any{"error": i18n.Render(lang, te.Message), "code": te.Message.Code, "line": te.Line, "column": te.Column, "fields": map[string]string{"body": i18n.Render(lang, te.Message)}})
+				res = reply{422, map[string]any{"error": i18n.Render(lang, te.Message), "code": te.Message.Code, "line": te.Line, "column": te.Column, "fields": map[string]string{"body": i18n.Render(lang, te.Message)}}}
 			} else if ve := (*sources.ValidationError)(nil); errors.As(e, &ve) {
-				writeError(w, 422, lang, ve.Message)
+				res = errorReply(422, lang, ve.Message)
 			} else {
-				writeError(w, 422, lang, i18n.New("sources.invalid"))
+				res = errorReply(422, lang, i18n.New("sources.invalid"))
 			}
 			return nil, false
 		}
 		if !collection && v.Name != name {
-			writeError(w, 422, lang, i18n.New("sources.invalid"))
+			res = errorReply(422, lang, i18n.New("sources.invalid"))
 			return nil, false
 		}
 		if collection {
 			for _, old := range list {
 				if old.Name == v.Name {
-					writeError(w, 409, lang, i18n.New("sources.duplicate"))
+					res = errorReply(409, lang, i18n.New("sources.duplicate"))
 					return nil, false
 				}
 			}
@@ -127,6 +137,10 @@ func serveSources(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.L
 	})
 	if err != nil {
 		writeError(w, 500, lang, i18n.New("sources.write_failed"))
+		return
+	}
+	if res.status != 0 {
+		res.write(w)
 		return
 	}
 	if saved || deleted {

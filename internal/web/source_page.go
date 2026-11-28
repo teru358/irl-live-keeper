@@ -93,7 +93,7 @@ func serveSource(w http.ResponseWriter, r *http.Request, b Backend, e *Events, l
 
 func (e *Events) serveSource(w http.ResponseWriter, r *http.Request, name string) {
 	rc := http.NewResponseController(w)
-	c := &eventClient{topics: map[string]bool{"source:" + name: true}, queue: make(chan eventMessage, 64), stop: make(chan struct{}), ended: make(chan struct{}), abort: func() { _ = rc.SetWriteDeadline(time.Now()) }}
+	c := &eventClient{topics: map[string]bool{"source:" + name: true}, queue: make(chan eventMessage, 64), stop: make(chan struct{}), abort: func() { _ = rc.SetWriteDeadline(time.Now()) }}
 	e.mu.Lock()
 	if e.closed {
 		e.mu.Unlock()
@@ -101,9 +101,10 @@ func (e *Events) serveSource(w http.ResponseWriter, r *http.Request, name string
 		return
 	}
 	e.clients[c] = true
+	e.handlers.Add(1)
 	initial := e.sourceTexts[name]
 	e.mu.Unlock()
-	defer func() { e.mu.Lock(); e.remove(c); e.mu.Unlock(); close(c.ended) }()
+	defer e.unregister(c)
 	_ = rc.SetWriteDeadline(time.Time{})
 	w.Header().Set("Content-Type", "text/event-stream")
 	send := func(v any) bool {

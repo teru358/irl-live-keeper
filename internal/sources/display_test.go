@@ -8,7 +8,7 @@ import (
 )
 
 func TestRenderFailure(t *testing.T) {
-	text, err := Render(Source{Body: "{obs.password}"}, core.Snapshot{}, time.Now())
+	text, err := RenderSimulation(Source{Body: "{obs.password}"}, core.Snapshot{}, time.Now(), nil, Simulation{}, nil)
 	if err == nil || text != "" {
 		t.Fatal(text, err)
 	}

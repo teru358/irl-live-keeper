@@ -52,13 +52,21 @@ func serveSettings(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.
 		return
 	}
 	local := sourceKind(r) == "local"
+	// The body is read before App.mu is taken, so a slow sender cannot stall other
+	// saves. Inside the transaction we only decide; the reply is written after.
+	var body []byte
+	var bodyErr error
+	if r.Method != http.MethodGet {
+		body, bodyErr = io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
+	}
 	var start func()
+	var res reply
 	err := provider.SettingsTransaction(func(s *SettingsStore) {
 		fail := func(code int, key string) {
 			if r.Method != http.MethodGet {
 				requestLogger(r).Warn("settings operation failed", "code", key, "source", sourceKind(r))
 			}
-			writeError(w, code, lang, settingsMessage(key))
+			res = errorReply(code, lang, settingsMessage(key))
 		}
 		if r.Method == http.MethodGet {
 			cfg, err := config.Parse(s.Raw)
@@ -69,7 +77,7 @@ func serveSettings(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.
 			raw, _ := yaml.Marshal(cfg)
 			values := map[string]any{}
 			_ = yaml.Unmarshal(raw, &values)
-			writeJSON(w, 200, map[string]any{"values": values, "hash": settings.Hash(s.Raw), "local": local, "apply_modes": settings.ConfigFieldModes(), "field_locations": settings.ConfigFieldLocations(), "page_hashes": map[string]string{"cameras": settings.PageHash(cfg, "cameras"), "settings": settings.PageHash(cfg, "settings")}})
+			res = reply{200, map[string]any{"values": values, "local": local, "apply_modes": settings.ConfigFieldModes(), "field_locations": settings.ConfigFieldLocations(), "page_hashes": map[string]string{"cameras": settings.PageHash(cfg, "cameras"), "settings": settings.PageHash(cfg, "settings")}}}
 			return
 		}
 		save := r.Method == http.MethodPut
@@ -79,9 +87,9 @@ func serveSettings(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.
 			return
 		}
 		var req settingsRequest
-		d := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+		d := json.NewDecoder(bytes.NewReader(body))
 		d.DisallowUnknownFields()
-		if d.Decode(&req) != nil || d.Decode(new(any)) != io.EOF {
+		if bodyErr != nil || d.Decode(&req) != nil || d.Decode(new(any)) != io.EOF {
 			fail(400, "settings.invalid")
 			return
 		}
@@ -184,15 +192,15 @@ func serveSettings(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.
 		}
 		if len(fields) > 0 {
 			requestLogger(r).Warn("settings operation failed", "code", "settings.invalid", "source", sourceKind(r))
-			writeJSON(w, 422, map[string]any{"error": i18n.Render(lang, settingsMessage("settings.invalid")), "fields": fields})
+			res = reply{422, map[string]any{"error": i18n.Render(lang, settingsMessage("settings.invalid")), "fields": fields}}
 			return
 		}
 		if !save && !regenerate {
-			writeJSON(w, 200, summary)
+			res = reply{200, summary}
 			return
 		}
 		if len(summary.Fields) == 0 {
-			writeJSON(w, 202, map[string]any{"ok": true, "apply": "none"})
+			res = reply{202, map[string]any{"ok": true, "apply": "none"}}
 			return
 		}
 		check := s.CheckPorts
@@ -204,7 +212,7 @@ func serveSettings(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.
 		}
 		if len(fields) > 0 {
 			requestLogger(r).Warn("settings operation failed", "code", "settings.invalid", "source", sourceKind(r))
-			writeJSON(w, 422, map[string]any{"error": i18n.Render(lang, settingsMessage("settings.invalid")), "fields": fields})
+			res = reply{422, map[string]any{"error": i18n.Render(lang, settingsMessage("settings.invalid")), "fields": fields}}
 			return
 		}
 		changes := settingsChanges(&next, summary)
@@ -261,12 +269,13 @@ func serveSettings(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.
 				response["admin_url"] = u.String()
 			}
 		}
-		writeJSON(w, 202, response)
+		res = reply{202, response}
 		start = s.StartApply
 	})
 	if err != nil {
-		writeError(w, 500, lang, i18n.New("api.internal"))
+		res = errorReply(500, lang, i18n.New("api.internal"))
 	}
+	res.write(w)
 	if start != nil {
 		if f, ok := w.(http.Flusher); ok {
 			f.Flush()

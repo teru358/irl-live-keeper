@@ -83,7 +83,7 @@ func TestReviewOverLimitCollision(t *testing.T) {
 	}
 	s.Refresh([]string{AssetPrefix + last})
 	e, _, _ := s.peek(last)
-	if e.Usable || e.ContentReason != ReasonOverLimit {
+	if e.Usable || e.Reason != ReasonOverLimit {
 		t.Fatalf("%+v", e)
 	}
 	if len(s.Available()) > MaxFilesCount {

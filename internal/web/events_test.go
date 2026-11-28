@@ -105,7 +105,7 @@ func TestEventsTopicsAuth(t *testing.T) {
 }
 func TestEventsOverflow(t *testing.T) {
 	e := NewEvents(eventBackend{}, nil, nil)
-	c := &eventClient{topics: map[string]bool{"sample": true}, queue: make(chan eventMessage, 64), stop: make(chan struct{}), ended: make(chan struct{}), abort: func() {}}
+	c := &eventClient{topics: map[string]bool{"sample": true}, queue: make(chan eventMessage, 64), stop: make(chan struct{}), abort: func() {}}
 	e.clients[c] = true
 	for i := 0; i < 65; i++ {
 		e.broadcast(eventMessage{kind: "sample"})
@@ -115,7 +115,6 @@ func TestEventsOverflow(t *testing.T) {
 	default:
 		t.Fatal("あふれた接続が閉じない")
 	}
-	close(c.ended)
 	e.Close()
 }
 

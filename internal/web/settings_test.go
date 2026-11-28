@@ -346,8 +346,8 @@ func TestSettingsHaveNoRevert(t *testing.T) {
 	if _, ok := got["file_hash"]; ok {
 		t.Fatal("file_hash is still returned")
 	}
-	if got["hash"] == nil || got["page_hashes"] == nil {
-		t.Fatal("hash and page_hashes must stay")
+	if _, ok := got["hash"]; ok || got["page_hashes"] == nil {
+		t.Fatal("whole-file hash is gone; page_hashes must stay")
 	}
 }
 

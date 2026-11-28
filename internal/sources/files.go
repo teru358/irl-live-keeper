@@ -442,7 +442,7 @@ func ReadUpload(w http.ResponseWriter, r *http.Request) (string, []byte, error) 
 					return "", nil, err
 				}
 				if len(data) > MaxFileSize {
-					selectionErr = errors.New("too large")
+					selectionErr = ErrFileTooLarge
 				}
 			}
 		}
