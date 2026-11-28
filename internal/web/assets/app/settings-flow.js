@@ -17,10 +17,12 @@ export function failureState(s,e,t,page){
 // "Save" with nothing changed does not open the confirmation window.
 export const nothingToSave=(action,s)=>action==='save'&&!!s.data&&!dirty(s);
 export function noChangesNotice(s,t){clearNotice(s);s.notice=t('settings_no_changes');}
+// "Reload" with a changed draft asks before the draft is thrown away (same form as the sources' "back to list").
+export const confirmReload=(s,ask,t)=>!dirty(s)||ask(t('settings_discard'));
 // The saved result: restarting to apply means no read now (the application is going away). The settings and
 // the destinations are read again when the status says applied or reverted. Immediate apply reads at once.
 export async function finishAccept({action,result,values,preview,updateOBS,t,update,dispatch,load,closeDialog,page,go=()=>{}}){
- update(x=>{x.baseline=JSON.stringify(values);clearNotice(x);x.notice=t('settings_saved');if(preview.obs_url_changes&&!updateOBS)x.notice=t('settings_pending_urls');});
+ update(x=>{x.baseline=JSON.stringify(values);clearNotice(x);x.notice=t(action==='restart'?'settings_restart_accepted':'settings_saved');if(preview.obs_url_changes&&!updateOBS)x.notice=t('settings_pending_urls');});
  closeDialog();
  if(action==='restart'||result.apply==='restart'){
   dispatch('keeper-restarting');

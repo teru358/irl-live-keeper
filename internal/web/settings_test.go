@@ -197,6 +197,9 @@ func TestRegenerateSettings(t *testing.T) {
 			if !strings.Contains(logOutput.String(), "settings saved") || !strings.Contains(logOutput.String(), "password regenerated") {
 				t.Fatal("missing audit log")
 			}
+			if tc.target == "publish" != strings.Contains(logOutput.String(), "camera=cam1") {
+				t.Fatalf("camera in log: %s", logOutput.String())
+			}
 			cfg, err := config.Parse(b.store.Raw)
 			if err != nil {
 				t.Fatal(err)

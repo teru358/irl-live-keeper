@@ -95,6 +95,16 @@ export function openEditor(state,source){
  state.previewError=error?.error||'';state.diagnostics=templateDiagnostics(error);
 }
 
+// Reads the uploaded files again (the folder may have changed outside the page). A read that is running is shared.
+export function createFilesRefresher({request,update,fail}){
+ let running=null;
+ return ()=>running||(running=(async()=>{
+  try{const f=await request('source-files');update(s=>{s.files=f.files;s.fileNotices=f.notices||[];});}
+  catch(e){fail(e);}
+  finally{running=null;}
+ })());
+}
+
 // Labels use src_value_<definition name>; camera IDs share cam<n>.* labels.
 export function sourceValueGroups(groups,filter,t){
  const query=filter.toLowerCase();
@@ -105,7 +115,8 @@ export function sourceValueGroups(groups,filter,t){
   const values=group.values.map(value=>{
    const name=camera?'cam<n>.'+value.name.slice((camera.id+'.').length):value.name;
    const meaning=t('src_value_'+name);
-   return {...value,meaning,label:value.name+': '+meaning,text:value.text??'—'};
+   const text=value.text??'—';
+   return {...value,meaning,label:value.name+': '+meaning+': '+text,text};
   }).filter(value=>value.name.toLowerCase().includes(query)||value.meaning.toLowerCase().includes(query));
   return {key,title,values};
  }).filter(group=>group.values.length);

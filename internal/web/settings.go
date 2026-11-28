@@ -242,7 +242,11 @@ func serveSettings(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.
 		}
 		requestLogger(r).Info("settings saved", "paths", paths, "apply", summary.Apply, "source", sourceKind(r))
 		if regenerate {
-			requestLogger(r).Info("password regenerated", "target", req.Target, "source", sourceKind(r))
+			attrs := []any{"target", req.Target}
+			if req.Target == "publish" {
+				attrs = append(attrs, "camera", req.Camera)
+			}
+			requestLogger(r).Info("password regenerated", append(attrs, "source", sourceKind(r))...)
 		}
 		s.ApplySaved(old, &next, summary, req.UpdateOBSInput)
 		response := map[string]any{"ok": true, "apply": summary.Apply}

@@ -393,6 +393,8 @@
     "settings_lan_close": "この機器から管理ページを開けなくなります。",
     "settings_pending_urls": "OBS のメディアソースの URL はまだ書き換えていません。「カメラ」の「送り先」で確認してください。",
     "settings_saved": "保存を受け付けました。",
+    "settings_restart_accepted": "再起動を受け付けました。",
+    "settings_discard": "未保存の変更を破棄しますか？",
     "settings_applied": "保存して反映しました。",
     "settings_failed": "反映に失敗しました。ログを確認してください。",
     "settings_reverted": "反映に失敗したので元の設定に戻しました。",

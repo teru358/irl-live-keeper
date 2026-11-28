@@ -213,6 +213,7 @@ body.in-standby .standby-tile { display: none; }
 #sender-address { display: block; width: 100%; min-height: 48px; margin-top: 6px; font-size: 16px; }
 .send-cam .seg { display: flex; margin: 10px 0 12px; }
 .send-cam .seg button { flex: 1; min-height: 48px; }
+.send-cam:not([open]) summary { margin-bottom: 0; }
 #obs[data-connected="true"]{color:var(--ok)}
 #obs[data-connected="false"]{color:var(--down)}
 
