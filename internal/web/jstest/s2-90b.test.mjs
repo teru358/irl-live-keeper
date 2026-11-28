@@ -272,7 +272,7 @@ test('the unused sentences are gone from both tables, and the Japanese of the AP
 // ---- the whole-file hash is gone from GET /api/settings: the regenerate request does not send it ----
 test('the body of a regenerate has no hash, and nothing reads the whole-file hash',()=>{
  const settings=read('settings.js');
- assert.match(settings,/preview\('regenerate',\{target,camera\}\)/);
+ assert.match(settings,/preview\('regenerate',\{target,camera\}(?:,opener)?\)/);
  assert.ok(!/preview\('regenerate',\{[^}]*hash/.test(settings));
  for(const [name,text] of sources)assert.ok(!/data\.hash\b/.test(text),name);
  assert.ok(settings.includes('page_hashes[page]'));

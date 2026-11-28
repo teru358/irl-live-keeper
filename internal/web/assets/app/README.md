@@ -69,3 +69,13 @@ network の知らせは、つながり直したとき（keeper-reconnected）に
 元の状態が終わったとき（例: OBS のテストの解除の知らせは配信が止まったとき）に消す。
 カメラの送り先は main.js が状態を持ち、settings.js の空の安定した入れ物を root として描く。
 パスワードの目のボタンは eye.js の passwordEye が1つだけ持つ（shell.js、settings.js、main.js が使う）。
+
+## 確認の窓と配信のボタン
+
+確認の窓は confirm-dialog.js が決める（DOM を持たない）。confirmSpec が題（「〜しますか？」）、題の下の行、「はい」の色（終わらせる・消すは赤の `.btn.stop`、ほかは青の `.btn.primary`）、開いたときのフォーカス（赤は「いいえ」）を返し、confirmContent が中身、showConfirm が showModal・最初のフォーカス・閉じたあとの元のボタンへの戻しを担当する。
+Escape は「いいえ」と同じ。ブラウザの `confirm()` は使わない。1つの質問だけの窓は confirm.js の askConfirm(spec, opener)（true なら「はい」）。
+設定とカメラの窓（`#settings-confirm`、`#cameras-confirm`）は要素を残し、同じ中身と同じ決め方（settings-state.js の confirmationSpec）を使う。
+元のボタンは忙しい間 disabled になるので、押した時点で控え、使えるようになってから戻す。
+ソースのページを離れるときの確認は答えが遅れて来るので、keeper-before-page を先に止め、「はい」のあとで keeper-navigate をもう一度出す。
+配信のボタンは stream-control.js（状態の画面の「配信開始」「配信終了」の1つ。OBS 未接続は押せず理由を出す。配信開始の窓に on_stream_start のシーンを出すため、押したときに settings を読む）。
+カメラの「削除」はカードを残す。削除する下書きから外し（dirty、保存はそのまま動く）、保存済みのカメラは settings-state.js の removeCamera / undoCameraRemoval / cameraCards で「保存すると削除します」と「取り消す」のカードにする。

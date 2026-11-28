@@ -21,7 +21,7 @@ test('upload handler sends NFD filename as NFC in FormData, through request',asy
 test('delete handler encodes Japanese paths by segment on the wire',async()=>{
  let sent;
  const remove=handler('removeFile',' function insertBody(',{
- confirm:()=>true,deletePrompt:()=>'',store:{get:()=>({list:[]})},t:x=>x,update:()=>{},load:async()=>{},fail:e=>{throw e;},
+ askDelete:async()=>true,store:{get:()=>({list:[]})},t:x=>x,update:()=>{},load:async()=>{},fail:e=>{throw e;},
  request:async(...args)=>{sent=args;},
  });
  await remove({name:'親/夕焼け.svg',used_by:[]});

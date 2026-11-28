@@ -191,10 +191,9 @@ body.in-standby .standby-banner { display: block; }
   main { grid-template-columns: 1.2fr 1fr; align-items: start; column-gap: 32px; padding: 24px; }
 }
 
-[hidden]{display:none!important}button,input,select{font:inherit}button{cursor:pointer}button:disabled{opacity:.5;cursor:wait}#status{display:contents}#scenes{display:grid;grid-template-columns:1fr 1fr;gap:10px}#cameras{display:grid;gap:22px}h1{font-size:17px;margin:0 auto 0 0}#admin{max-width:1120px;margin:auto}#menu{padding:16px}#menu nav{display:grid}#menu button{background:transparent;border:0;text-align:left;min-height:48px;color:var(--ink)}#menu button[aria-current]{box-shadow:inset 3px 0 var(--ink);font-weight:bold}.sheet-nav button{min-height:52px;text-align:left;background:transparent;border:0;border-bottom:1px solid var(--line);font-size:18px}#actions{display:grid;gap:12px}.stop{margin-top:40px!important}#login{max-width:400px;margin:48px auto;padding:24px;background:var(--surface);display:grid;gap:16px}input{min-height:48px;max-width:100%}#error,#connection{color:var(--down)}#error{padding:0 16px;margin:8px 0}#error:empty{display:none}.summary{overflow-x:auto;white-space:nowrap}.summary .chip{display:inline-block;margin-right:8px}#sheet .seg{flex-wrap:wrap}#theme-switch{display:flex}#language-switch{display:flex}
+[hidden]{display:none!important}button,input,select{font:inherit}button{cursor:pointer}button:disabled{opacity:.5;cursor:wait}#status{display:contents}#scenes{display:grid;grid-template-columns:1fr 1fr;gap:10px}#cameras{display:grid;gap:22px}h1{font-size:17px;margin:0 auto 0 0}#admin{max-width:1120px;margin:auto}#menu{padding:16px}#menu nav{display:grid}#menu button{background:transparent;border:0;text-align:left;min-height:48px;color:var(--ink)}#menu button[aria-current]{box-shadow:inset 3px 0 var(--ink);font-weight:bold}.sheet-nav button{min-height:52px;text-align:left;background:transparent;border:0;border-bottom:1px solid var(--line);font-size:18px}#actions{display:grid;gap:12px}#login{max-width:400px;margin:48px auto;padding:24px;background:var(--surface);display:grid;gap:16px}input{min-height:48px;max-width:100%}#error,#connection{color:var(--down)}#error{padding:0 16px;margin:8px 0}#error:empty{display:none}.summary{overflow-x:auto;white-space:nowrap}.summary .chip{display:inline-block;margin-right:8px}#sheet .seg{flex-wrap:wrap}#theme-switch{display:flex}#language-switch{display:flex}
 @media(max-width:899px){#menu{display:none}#admin{display:block}main{display:block}.tabbar{z-index:3}body[data-page]:not([data-page="status"]) .tabbar,body[data-page]:not([data-page="status"]) .summary{display:none}}
 @media(min-width:900px){#admin{display:grid;grid-template-columns:180px 1fr}main{display:block}#status{display:grid;grid-template-columns:1.2fr 1fr;gap:28px}#links{grid-column:1;grid-row:1/3}#scene-panel{grid-column:1}#details-panel{grid-column:2;grid-row:1}#ops-panel{grid-column:2;grid-row:2/5}.menu-btn{display:none}.sheet.open{display:none}#menu{display:flex;flex-direction:column}#menu .logout{margin-top:auto}}
-.row .stop { margin-top: 0 !important; }
 /* 手動の待機の説明と、次の節（注意）の間をあける */
 #manual-hint { margin-bottom: 16px; }
 
@@ -220,9 +219,11 @@ body.in-standby .standby-banner { display: block; }
 .password-eye{position:absolute;right:4px;top:50%;transform:translateY(-50%);width:40px;min-height:40px!important;padding:8px!important;margin:0!important;border:0!important;background:transparent!important;color:var(--ink)}
 .password-eye .eye-slash{display:none}.password-eye[aria-pressed=true] .eye-slash{display:block}
 #login input{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:10px}
-#settings-confirm h2{position:static;margin:0 0 20px}
-#settings-preview{margin-bottom:24px}#settings-preview p:first-child{margin-top:0}
-#settings-confirm>.row{margin-top:24px}
+.confirm-dialog{max-width:560px;width:calc(100% - 48px);max-height:80vh;overflow:auto;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:12px;padding:24px}.confirm-dialog::backdrop{background:#0008}
+.confirm-dialog h2{position:static;margin:0 0 16px;font-size:20px;line-height:1.4;color:var(--ink)}
+.confirm-lines{margin-bottom:24px}.confirm-lines p{margin:8px 0}.confirm-lines p:first-child{margin-top:0}.confirm-lines:empty{display:none}
+.confirm-actions{margin-top:24px}
+.confirm-yes.stop{background:var(--down);border-color:var(--down);color:var(--down-ink)}
 #tally,.menu-btn{white-space:nowrap;flex-shrink:0}
 .sender-table{table-layout:fixed}.sender-table td{min-width:0}
 @media(max-width:599px){.top{gap:8px;padding:10px}.top h1{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tally{font-size:13px;padding:6px 8px}}
@@ -310,13 +311,22 @@ body.in-standby .standby-banner { display: block; }
 @media(max-width:700px) {
  .source-value-row { grid-template-columns:minmax(0,1fr); gap:4px; }
 }
-#cameras-panel{grid-column:1/-1;min-width:0}#cameras-panel .settings-layout{grid-template-columns:minmax(0,1fr)}#cameras-panel .row{margin-top:20px;flex-wrap:wrap}#cameras-confirm{max-width:560px;width:calc(100% - 48px);max-height:80vh;overflow:auto;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:12px;padding:24px}#cameras-confirm::backdrop{background:#0008}#cameras-update-label{display:flex;align-items:center;gap:12px;margin:20px 0}
+#cameras-panel{grid-column:1/-1;min-width:0}#cameras-panel .settings-layout{grid-template-columns:minmax(0,1fr)}#cameras-panel .row{margin-top:20px;flex-wrap:wrap}#cameras-update-label{display:flex;align-items:center;gap:12px;margin:20px 0}
 
 .source-preview { position:relative; overflow:hidden; }
-.source-preview iframe { position:absolute; left:0; top:0; border:0; transform-origin:top left; }
+/* The frame document has no colour scheme of its own (light); an iframe whose scheme differs from its element is painted opaque, so the element says light too. */
+.source-preview iframe { position:absolute; left:0; top:0; border:0; transform-origin:top left; color-scheme:light; }
 
 /* S2-86: 設定の入力欄は幅いっぱいに（空欄の文字が切れない）。ボタンの文字は文節で折り返す。 */
 .settings-field>span:not(.password-control){display:flex;flex:1 1 100%;min-width:0}
 .settings-field>span:not(.password-control)>input:not([type=checkbox]){flex:1;width:100%;min-width:0;box-sizing:border-box}
 .btn,.seg button,#settings-groups button{word-break:keep-all;overflow-wrap:anywhere}
 @supports (word-break:auto-phrase){.btn,.seg button,#settings-groups button{word-break:auto-phrase}}
+
+/* ボタンの色の決まり（spec v0.37）: 終わらせる・消す操作は赤。窓の「はい」は塗る。 */
+:root{--down-ink:#FFFFFF}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--down-ink:#0E1622}}
+:root[data-theme="dark"]{--down-ink:#0E1622}
+.stream-zone .btn.wide{margin-top:4px}
+#stream-reason{margin:8px 0 0}
+.settings-card.removing{border-style:dashed}.settings-card.removing .removing-note{margin:8px 0 16px}

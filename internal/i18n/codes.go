@@ -46,3 +46,6 @@ func init() {
 func init() {
 	Codes = append(Codes, "template.html_lex", "template.html_comment", "template.html_style_unclosed", "template.html_nul", "template.html_element", "template.html_attribute", "template.html_duplicate", "template.html_quote", "template.html_nesting", "template.html_branch", "template.html_template_position", "template.html_style_type", "template.html_url", "template.css_escape", "template.css_import", "template.css_function", "template.css_syntax")
 }
+
+// ログインの失敗（パスワードが違う）の文。ログインが切れたときの api.unauthorized とは別にする。
+func init() { Codes = append(Codes, "api.wrong_password") }

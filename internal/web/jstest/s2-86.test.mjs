@@ -135,7 +135,7 @@ test('a notice goes when the same field is worked on again, or the page is left'
  assert.ok(/function set\(path,value\)\{update\(s=>\{clearNotice\(s\);/.test(settings));
  // reload, preview (save) start by clearing it
  assert.ok(settings.includes("return;update(clearNotice);if(await load())"));
- assert.ok(/async function preview\(action,payload\)\{[^]*?update\(clearNotice\);/.test(settings));
+ assert.ok(/async function preview\(action,payload(?:,opener[^)]*)?\)\{[^]*?update\(clearNotice\);/.test(settings));
  // leaving the page, and coming back online
  assert.ok(settings.includes("if(e.detail!==page)update(clearNotice);"));
  assert.ok(settings.includes("keeper-reconnected"));

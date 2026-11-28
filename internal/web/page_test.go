@@ -126,7 +126,7 @@ func TestUIKeys(t *testing.T) {
 			t.Fatal(k)
 		}
 	}
-	for _, file := range []string{"assets/page.html", "assets/app/settings.js", "assets/app/main.js", "assets/app/shell.js", "assets/app/phone.js", "assets/app/settings-state.js", "assets/app/sources.js"} {
+	for _, file := range []string{"assets/page.html", "assets/app/settings.js", "assets/app/main.js", "assets/app/shell.js", "assets/app/phone.js", "assets/app/settings-state.js", "assets/app/sources.js", "assets/app/confirm-dialog.js", "assets/app/stream-control.js"} {
 		b, err := assets.ReadFile(file)
 		if err != nil {
 			t.Fatal(err)

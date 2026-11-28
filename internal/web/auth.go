@@ -376,7 +376,7 @@ func NewWithLogger(b Backend, password string, port int, a *Auth, events *Events
 				return
 			}
 			if !ok {
-				fail(401, "api.unauthorized")
+				fail(401, "api.wrong_password")
 				return
 			}
 			if issue("password") {

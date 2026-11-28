@@ -60,12 +60,13 @@ export function applySourceEvent(state,data,stopped){
  return reset;
 }
 
-// Deleting an asset that sources use: the titles, and that they will need repair.
-export function deletePrompt(item,list,t){
+// Deleting a source or an asset: the title of the confirmation window (「〜を削除しますか？」), and when sources use the asset, the titles of the
+// sources and that they will need repair.
+export function deleteParts(item,list,t){
  const label=source=>source.title||source.name;
- const prompt=t('src_confirmdelete').replace('{name}',()=>label(item));
+ const title=t('src_confirmdelete').replace('{name}',()=>label(item));
  const used=item.used_by?.map(name=>label(list.find(src=>src.name===name)||{name}));
- return prompt+(used?.length?'\n'+t('src_used').replace('{sources}',()=>used.join(', '))+'\n'+t('src_file_used_note'):'');
+ return {title,lines:used?.length?[t('src_used').replace('{sources}',()=>used.join(', ')),t('src_file_used_note')]:[]};
 }
 // The list rows carry the camera ids of the body; a saved source does not, so the draft drops them.
 export const sourceDraft=source=>{const {cameras,...draft}=source;return structuredClone(draft);};

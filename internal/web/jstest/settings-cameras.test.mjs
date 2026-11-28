@@ -25,6 +25,7 @@ test('confirmation camera headings use IDs and names for edits, adds and deletes
  ]},false,k=>k,saved);
  assert.deepEqual(lines,[
   'settings_restart_mode',
+  'settings_cameras_reset',
   'settings_camera 1 (cam1 name) — settings_removed',
   'settings_camera 3 (cam3 name) — settings_added',
   'settings_camera 2 (cam2 name) — setting_name'
@@ -42,7 +43,7 @@ test('camera delete confirmation lists source titles with the repair and empty-p
  const preview={apply:'restart',fields:[{path:'cameras[cam1]',kind:'removed'}]};
  assert.deepEqual(state.removedCameraIDs(preview),['cam1']);
  const lines=state.confirmationLines('save',{values:{cameras:cams('cam2')}},preview,false,tu,saved,usage);
- assert.deepEqual(lines.slice(1),[
+ assert.deepEqual(lines.slice(2),[
   'settings_camera 1 (cam1 name) — settings_removed',
   'settings_camera 1 (cam1 name) — このカメラの値を使っているソース: 回線の表示, b',
   '直しが要る状態になり、OBS のページは空になります。'
@@ -53,7 +54,7 @@ test('camera delete confirmation lists source titles with the repair and empty-p
  assert.ok(!edit.join('\n').includes('このカメラの値'));
  // A removed camera that no source uses has no note.
  const none=state.confirmationLines('save',{values:{cameras:cams('cam1')}},{apply:'restart',fields:[{path:'cameras[cam2]',kind:'removed'}]},false,tu,saved,state.cameraUsage({sources:[{name:'a',title:'a',cameras:['cam1']}]}));
- assert.deepEqual(none.slice(1),['settings_camera 2 (cam2 name) — settings_removed']);
+ assert.deepEqual(none.slice(2),['settings_camera 2 (cam2 name) — settings_removed']);
 });
 test('camera delete confirmation says the source list cannot be read, and the deletion still goes on',()=>{
  const saved={cameras:cams('cam1')};
@@ -62,10 +63,10 @@ test('camera delete confirmation says the source list cannot be read, and the de
   const usage=state.cameraUsage(data);
   assert.equal(usage.error,true);
   const lines=state.confirmationLines('save',{values:{cameras:[]}},preview,false,tu,saved,usage);
-  assert.deepEqual(lines.slice(1),['settings_camera 1 (cam1 name) — settings_removed','ソースの一覧が読めないため、このカメラを使っているソースを確かめられません']);
+  assert.deepEqual(lines.slice(2),['settings_camera 1 (cam1 name) — settings_removed','ソースの一覧が読めないため、このカメラを使っているソースを確かめられません']);
  }
  // Without a usage lookup the lines are as before.
- assert.deepEqual(state.confirmationLines('save',{values:{cameras:[]}},preview,false,tu,saved).slice(1),['settings_camera 1 (cam1 name) — settings_removed']);
+ assert.deepEqual(state.confirmationLines('save',{values:{cameras:[]}},preview,false,tu,saved).slice(2),['settings_camera 1 (cam1 name) — settings_removed']);
 });
 test('422 focuses the camera field by ID and opens its details',()=>{
  const path='cameras[cam3].switch.low_sec',events=[];
@@ -80,7 +81,7 @@ test('confirmation includes the camera name from the ID diff',()=>{
  const lines=state.confirmationLines('save',{},{
   apply:'restart',fields:[{path:'cameras[cam4]',kind:'added',camera_name:'Restored'}]
  },false,k=>k,{cameras:[]});
- assert.equal(lines[1],'settings_camera 4 (Restored) — settings_added');
+ assert.equal(lines[2],'settings_camera 4 (Restored) — settings_added');
 });
 test('add button reasons distinguish camera limit from exhausted draft IDs',()=>{
  const all=cams(...Array.from({length:8},(_,i)=>'cam'+(i+1)));
