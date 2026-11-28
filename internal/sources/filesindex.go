@@ -61,6 +61,9 @@ type fileEntry struct {
 	Usable        bool
 	Reason        Reason
 	ContentReason Reason
+	// kept is the detected image type of a row whose content is a valid image,
+	// also while the row is over the limits (Type is empty then).
+	kept string
 }
 
 // fileIndex is the remembered list of the folder. Its entries are guarded by idxMu.
@@ -148,7 +151,7 @@ func (e *fileEntry) checkContent(data []byte) {
 		e.Type, e.Usable, e.Reason = "", false, reasonOfDetect(err)
 		return
 	}
-	e.Type, e.Usable, e.Reason = typ, true, ""
+	e.Type, e.kept, e.Usable, e.Reason = typ, typ, true, ""
 	sum := sha256.Sum256(data)
 	e.Hash = hex.EncodeToString(sum[:])
 }
@@ -333,25 +336,8 @@ func (s *FilesStore) scan() (*fileIndex, error) {
 		e.ContentReason = e.Reason
 		applyNames(idx, e)
 	}
-	var count int
-	var total int64
-	exceeded := false
-	for _, e := range sc.entries {
-		if !e.Usable {
-			continue
-		}
-		if !exceeded && (count+1 > MaxFilesCount || total+e.Size > MaxFilesSize) {
-			exceeded = true
-		}
-		if exceeded {
-			e.Type, e.Usable, e.Reason = "", false, ReasonOverLimit
-			e.ContentReason = ReasonOverLimit
-			continue
-		}
-		count++
-		total += e.Size
-	}
 	idx.entries, idx.limited = sc.entries, sc.limited
+	applyLimits(idx)
 	for _, e := range sc.entries {
 		idx.byPath[e.Path] = e
 	}
@@ -432,6 +418,7 @@ func (s *FilesStore) update(name string, e fileEntry) {
 		if cur, ok := s.idx.byPath[name]; ok {
 			*cur = e
 		}
+		applyLimits(s.idx)
 	}
 }
 
@@ -479,10 +466,12 @@ func (s *FilesStore) OpenWithHash(name string) ([]byte, string, string, error) {
 	// The file changed after the index was made: re-validate only this file.
 	ne := revalidatedEntry(name, data, info)
 	s.update(name, ne)
-	if !ne.Usable {
+	// Usable now depends on the names and the limits, so read the row back.
+	cur, ok, _ := s.peek(name)
+	if !ok || !cur.Usable {
 		return nil, "", "", os.ErrNotExist
 	}
-	return data, ne.Type, ne.Hash, nil
+	return data, cur.Type, cur.Hash, nil
 }
 
 // revalidatedEntry makes the index row of a file again from the bytes read
@@ -499,21 +488,27 @@ func revalidatedEntry(name string, data []byte, info fs.FileInfo) fileEntry {
 }
 
 // put stores a row in the index, adding it when the file was not known.
-func (s *FilesStore) put(name string, e fileEntry) {
+// The rows stay in path order, and the limits are applied again over every row.
+// It reports whether a row changed its Usable because of the limits.
+func (s *FilesStore) put(name string, e fileEntry) bool {
 	idxMu.Lock()
 	defer idxMu.Unlock()
 	if s.idx == nil {
-		return
+		return false
 	}
 	e.ContentReason = e.Reason
 	applyNames(s.idx, &e)
 	if cur, ok := s.idx.byPath[name]; ok {
 		*cur = e
-		return
+	} else {
+		ne := e
+		i := sort.Search(len(s.idx.entries), func(i int) bool { return s.idx.entries[i].Path >= name })
+		s.idx.entries = append(s.idx.entries, nil)
+		copy(s.idx.entries[i+1:], s.idx.entries[i:])
+		s.idx.entries[i] = &ne
+		s.idx.byPath[name] = &ne
 	}
-	ne := e
-	s.idx.entries = append(s.idx.entries, &ne)
-	s.idx.byPath[name] = &ne
+	return applyLimits(s.idx)
 }
 
 // peek returns a copy of the index row of a file, without building the index.
@@ -613,8 +608,7 @@ func (s *FilesStore) Refresh(paths []string) bool {
 			}
 			continue
 		}
-		// A row over the limit stays so until the next rebuild counts the files again.
-		if known && (old.ContentReason == ReasonOverLimit || lst.Size() == old.Size && lst.ModTime().Equal(old.ModTime)) {
+		if known && lst.Size() == old.Size && lst.ModTime().Equal(old.ModTime) {
 			continue
 		}
 		data, info, err := readRegular(root, rel, lst)
@@ -627,8 +621,10 @@ func (s *FilesStore) Refresh(paths []string) bool {
 		default:
 			ne = revalidatedEntry(rel, data, info)
 		}
-		s.put(rel, ne)
-		if (known && old.Usable || ne.Usable) && (old.Usable != ne.Usable || old.Hash != ne.Hash || old.Type != ne.Type) {
+		flipped := s.put(rel, ne)
+		// Compare with the row as it stands now: names and the limits count too.
+		cur, _, _ := s.peek(rel)
+		if flipped || (known && old.Usable || cur.Usable) && (old.Usable != cur.Usable || old.Hash != cur.Hash || old.Type != cur.Type) {
 			changed = true
 		}
 	}
@@ -721,6 +717,43 @@ func applyNames(idx *fileIndex, e *fileEntry) {
 	}
 	e.Usable = e.Reason == ""
 }
+
+// applyLimits applies the count (MaxFilesCount) and total size (MaxFilesSize)
+// limits to the rows in path order, after applyNames. A row that is usable by
+// name and content counts; once one does not fit, it and every later one is over
+// the limit. It works from the remembered rows only, so a partial refresh gives
+// the same result as a rebuild. It reports whether a row changed its Usable.
+// idx.entries must be sorted by path, and the caller holds idxMu (or owns idx).
+func applyLimits(idx *fileIndex) bool {
+	changed := false
+	count, total := 0, int64(0)
+	exceeded := false
+	for _, e := range idx.entries {
+		if e.kept == "" && e.Usable {
+			e.kept = e.Type
+		}
+		if !e.Usable && e.Reason != ReasonOverLimit {
+			if e.kept != "" {
+				e.Type = e.kept
+			}
+			continue
+		}
+		if !exceeded && (count+1 > MaxFilesCount || total+e.Size > MaxFilesSize) {
+			exceeded = true
+		}
+		was := e.Usable
+		if exceeded {
+			e.Type, e.Usable, e.Reason = "", false, ReasonOverLimit
+		} else {
+			e.Type, e.Usable, e.Reason = e.kept, true, ""
+			count++
+			total += e.Size
+		}
+		changed = changed || was != e.Usable
+	}
+	return changed
+}
+
 func (s *FilesStore) invalidateNames() {
 	idxMu.Lock()
 	defer idxMu.Unlock()
@@ -731,6 +764,7 @@ func (s *FilesStore) invalidateNames() {
 	for _, e := range s.idx.entries {
 		applyNames(s.idx, e)
 	}
+	applyLimits(s.idx)
 }
 func (s *FilesStore) exactKnown(rel string) bool {
 	idxMu.Lock()
@@ -785,17 +819,21 @@ func (s *FilesStore) refreshNames(root *os.Root, rels []string) bool {
 	}
 	idxMu.Lock()
 	defer idxMu.Unlock()
-	changed := false
 	if s.idx.parents == nil {
 		s.idx.parents = map[string]*parentNames{}
 	}
 	for dir, p := range updates {
 		s.idx.parents[dir] = p
 	}
-	for _, e := range s.idx.entries {
-		old := e.Usable
+	before := make([]bool, len(s.idx.entries))
+	for i, e := range s.idx.entries {
+		before[i] = e.Usable
 		applyNames(s.idx, e)
-		changed = changed || old != e.Usable
+	}
+	applyLimits(s.idx)
+	changed := false
+	for i, e := range s.idx.entries {
+		changed = changed || before[i] != e.Usable
 	}
 	return changed
 }

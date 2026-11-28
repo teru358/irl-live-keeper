@@ -87,7 +87,7 @@ func TestSourceFileMultipartMatrix(t *testing.T) {
 		{"truncated", good + "--b\r\nbroken", 400, "source_files.invalid"},
 		{"bad tail", good + "--b\r\nBad header\r\n\r\nx\r\n" + end, 400, "source_files.invalid"},
 		{"5MiB", file("夕.svg", image+strings.Repeat(" ", sources.MaxFileSize-len(image))) + end, 201, ""},
-		{"5MiB+1", file("夕.svg", image+strings.Repeat(" ", sources.MaxFileSize+1-len(image))) + end, 400, "source_files.invalid"},
+		{"5MiB+1", file("夕.svg", image+strings.Repeat(" ", sources.MaxFileSize+1-len(image))) + end, 413, "source_files.limit"},
 		{"6MiB", sized(limit), 201, ""}, {"6MiB+1", sized(limit + 1), 413, "source_files.limit"},
 		{"extra overflow", good + part(`form-data; name="extra"; filename="extra.svg"`, strings.Repeat("x", limit)) + end, 413, "source_files.limit"},
 		{"type", file("夕.svg", "bad") + end, 400, "source_files.invalid"},

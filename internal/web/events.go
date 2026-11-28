@@ -30,7 +30,8 @@ type Events struct {
 	assetChecked   time.Time // 素材を最後に stat した時刻（e.mu）
 	langs          []i18n.Lang
 	mu             sync.Mutex
-	clients        map[*eventClient]bool
+	clients        map[*eventClient]bool // 接続中のもの。ハンドラーが終わるときに消す
+	handlers       sync.WaitGroup        // 動いている SSE ハンドラー（e.mu の下で足す）
 	closed         bool
 	done           chan struct{}
 	finished       chan struct{}
@@ -46,7 +47,6 @@ type eventClient struct {
 	topics map[string]bool
 	queue  chan eventMessage
 	stop   chan struct{}
-	ended  chan struct{}
 	abort  func()
 }
 
@@ -124,6 +124,17 @@ func sampleJSON(v core.SampleEvent) any {
 	}
 	return map[string]any{"t": v.At, "cameras": cams}
 }
+
+// unregister はハンドラーの終わりに、配信を止めて接続を map から消す。
+func (e *Events) unregister(c *eventClient) {
+	e.mu.Lock()
+	e.remove(c)
+	delete(e.clients, c)
+	e.mu.Unlock()
+	e.handlers.Done()
+}
+
+// remove は配信を止める（キューあふれ・Close）。map からは消さない。消すのは unregister。
 func (e *Events) remove(c *eventClient) {
 	if e.clients[c] {
 		e.clients[c] = false
@@ -160,15 +171,11 @@ func (e *Events) Close() {
 		e.closed = true
 		close(e.done)
 	}
-	var waits []chan struct{}
 	for c := range e.clients {
-		waits = append(waits, c.ended)
 		e.remove(c)
 	}
 	e.mu.Unlock()
-	for _, ch := range waits {
-		<-ch
-	}
+	e.handlers.Wait()
 	<-e.finished
 	if e.statisticsDone != nil {
 		<-e.statisticsDone
@@ -200,10 +207,11 @@ func (e *Events) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, lang, i18n.New("api.internal"))
 		return
 	}
-	c := &eventClient{topics: topics, queue: make(chan eventMessage, 64), stop: make(chan struct{}), ended: make(chan struct{}), abort: func() { _ = rc.SetWriteDeadline(time.Now()) }}
+	c := &eventClient{topics: topics, queue: make(chan eventMessage, 64), stop: make(chan struct{}), abort: func() { _ = rc.SetWriteDeadline(time.Now()) }}
 	e.clients[c] = true
+	e.handlers.Add(1)
 	e.mu.Unlock()
-	defer func() { e.mu.Lock(); e.remove(c); e.mu.Unlock(); close(c.ended) }()
+	defer e.unregister(c)
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("X-Accel-Buffering", "no")
