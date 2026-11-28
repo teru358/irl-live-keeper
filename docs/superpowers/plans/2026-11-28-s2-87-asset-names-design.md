@@ -1,8 +1,10 @@
-# S2-87 素材の日本語の名前 — 設計 v2
+# S2-87 素材の日本語の名前 — 設計 v2.1
 
 2026-11-28。対象は s2-87-design、基点 HEAD 2469a8c。指揮者の決定と Fable・codex sol の v1 レビューを反映した設計であり、実装・実機検証の完了報告ではない。この作業では本書だけを変更する。
 
-## v2 の要約とレビュー対応
+## v2・v2.1 の要約とレビュー対応
+
+v2.1：閉鎖確認の4件を反映し、親の未確定時の配信停止、filesMu による更新の直列化、ハングルの生成検証、ReadUpload の part 選択・上限・応答を確定する。
 
 日本語の実名を本文でも使えるようにする目的は維持する。v1 の「L/N/M と NFC ライブラリ」を「必ず NFC になる Unicode 15.0 の L/N の部分集合」に変更する。Go/JS の正規化差と依存をなくすためで、管理ページだけが送信前にブラウザの NFC を使う。長さは相対パスの UTF-8 512バイトに統一する。
 
@@ -34,7 +36,7 @@ S2-82 F-7 の `__-203121.png` への置換を解消し、画像と親フォル�
 
 | 場所 | 変更／維持 | 理由 |
 |---|---|---|
-| internal/sources/files.go | SafeFileName、DetectImage の拡張子比較、Delete | 日本語保存、ASCII folding、索引完全一致 |
+| internal/sources/files.go | SafeFileName、DetectImage の拡張子比較、Delete、ReadUpload の MultipartReader 移行 | 日本語保存、ASCII folding、索引完全一致 |
 | internal/sources/filesindex.go | checkSegment・CheckPath・予約名、再構築・Refresh・OpenWithHash・put | 名前と内容と衝突を分離 |
 | internal/sources/html_rules.json | version 3 → 4、固定許可表と長さ・予約名 | Go/JS の共通契約 |
 | internal/sources/html.go、html_template.go | checkURL 相当、参照抽出と位置での書換え | 相対バイト数、日本語の生パスを全枝から抽出 |
@@ -42,7 +44,7 @@ S2-82 F-7 の `__-203121.png` への置換を解消し、画像と親フォル�
 | internal/web/assets/app/source-body.js | bodyAssetInsertion の本文用 encodeURIComponent を除く | 差し込みを生パスへ |
 | internal/web/assets/app/sources-state.js | assetText の本文用 encodeURIComponent を除く | 同上。削除要求等の通信の符号化は維持 |
 | internal/web/assets/app/template-lexer.js | 97〜98行付近の補完開始判定・validFor | 日本語を打っても補完が閉じない。共通名規則で候補を絞る |
-| internal/web/source_files.go、管理ページの送信箇所 | MultipartReader、明示した送信 filename に NFC、エラー文言 | basename 前の元名を検査 |
+| internal/web/source_files.go、管理ページの送信箇所 | ReadUpload の呼出しとエラー応答、明示した送信 filename に NFC、エラー文言 | 取り込み本体は files.go。API は応答を担当 |
 | i18n、Go/Node 試験 | 第7・8節を実装時に追加 | 新 Reason と長名の表示 |
 
 validateTree は既に attr.value を読んでおり、生の属性値を使う境界を維持する。auth.go の配信入口は既に独自振分けで clean/redirect しない。このためだけの変更は不要。
@@ -97,7 +99,9 @@ v1 の M の位置規則、M 専用除外表、not_nfc、置換出力列に基�
 
 スクリプトは元ファイルのみを入力にし、First/Last 範囲を展開して L/N と ccc を読む。DCP の Default_Ignorable_Code_Point を引く。DerivedNormalizationProps の NFC_QC=N と L/N の交差を単独非 NFC として除く（正規分解があるだけでは除外しない）。残る L/N が全て ccc=0、単独 NFC であることを検査する。UnicodeData の正規分解（互換タグつきは除く）から合成の後続に現れる ccc=0 の候補も列挙・除外し、アルゴリズムによるハングル合成の V U+1161〜1175 と T U+11A8〜11C2 も除外する。この既知2範囲は21＋27文字だが、集合との交差数と除外総数は15.0データで生成時に確定する。追加候補が出たら黙って無視しない。
 
-残る文字は単独 NFC、ccc=0、かつ前からの合成の後続にならない。正規分解を持つ合成済み文字は分解末尾の non-starter を含むため、後続が ccc=0 ならその境界を越えた合成も起きない。この条件を生成検証で確かめ、連結しても NFC であることを保証する。ASCII `_-.` もこの性質を壊さない。生成試験はこの条件と境界を検証する。実行環境の Python unicodedata や Go/JS の Unicode 表から許可表を作らない。
+残る文字は単独 NFC、ccc=0、かつ前からの合成の後続にならない。ハングル以外の正規分解を持つ合成済み文字については、再帰的な正規分解の末尾が non-starter になる条件を生成時に検証する。後続が ccc=0 ならこの境界を越える合成は起きない。
+
+ハングル音節 U+AC00〜D7A3 は UnicodeData の分解欄ではなく、Unicode のアルゴリズムによる L/V/T 分解・合成として別に扱う。その分解末尾は starter なので上の non-starter の説明を適用しない。許可された音節の後に合成が進む LV＋T は T の除外で、L＋V は V の除外で防ぐ。LVT の後には追加合成がなく、合成済み音節自身も前の文字の合成後続にはならない。この区別と ASCII `_-.` を含む連結境界から NFC を保証する。生成試験には `한.png` の許可、音節の最初・最後（U+AC00/U+D7A3）、LV 音節 `하`＋T U+11AB の拒否、L U+1112＋V U+1161 の拒否、`한한.png` と `한A.png` の許可を入れる。実行環境の Python unicodedata や Go/JS の Unicode 表から許可表を作らない。
 
 出力は `internal/sources/html_rules.json` version **4** の asset.allowedRanges（ソート・結合したコードポイント範囲）、unicodeVersion=15.0.0、lengthUnit=utf8Bytes、maxSegmentLength=128、maxPathLength=512、maxSegments=4、予約名。除外理由別の数・範囲と入力 SHA-256 を `scripts/unicode/15.0.0/asset-name-generation.json` に残す。実装時の再生成は `python3 scripts/generate-asset-name-ranges.py` でネットワークなしに同じ出力となり、差分ゼロを確認する。
 
@@ -111,9 +115,15 @@ Go と JS は同じ完成済み表を使う。二分探索等の範囲検索構�
 
 名前状態・親の衝突状態と内容検査の結果は別々に保持する。usable は全条件の積で導出し、checkContent が成功しても衝突を消さない。Refresh・OpenWithHash・put の全経路でこの導出を使う。理由の優先は構造／深さ／全体長 → 不正文字／部分長 → 予約名 → 衝突 → 拡張子／画像型等の既存内容検査（symlink 等のアクセス禁止は理由にかかわらず常に適用）。
 
-Refresh が未知名を追加する前には、ルートから各親を実名完全一致で確認し、親の ReadDir に末尾の完全一致する実名があることを確かめる。親から保持した兄弟情報も更新し衝突を再計算する。既存行でも Refresh の対象親と祖先のディレクトリ情報を確認し、追加された衝突を反映する。親衝突の変化は既存の配下全行へ反映する。読めない／走査上限で未確認の場合は usable に昇格させない。
+Refresh が未知名を追加する前には、ルートから各親を実名完全一致で確認し、親の ReadDir に末尾の完全一致する実名があることを確かめる。親から保持した兄弟情報も更新し衝突を再計算する。既存行でも Refresh の対象親と祖先のディレクトリ情報を確認し、追加された衝突を反映する。親衝突の変化は既存の配下全行へ反映する。親の兄弟一覧を完全に取得できなければ、その親の衝突判定は「未確定」とする。ReadDir の途中エラー（部分結果が返る場合も含む）、Open の失敗、MaxScanEntries による打切り・未訪問を含み、部分集合から「衝突なし」を決めない。ReadDir の EOF は全件取得できた場合だけ正常完了として扱う。ルートも同じ親として扱う。
 
-全走査を配信ごとに増やさない。再構築が親情報を作り、Refresh が対象親と祖先だけを更新する。OpenWithHash と put は保持した名前状態を使い、未登録名を OS の大小解決だけで足さない。直接配置の変更は既存の定期更新・再構築のタイミングで検出する。確認できた親情報の更新でのみ衝突を解除し、内容の更新では解除しない。既存のロック下で索引の行と親情報を一体で更新する。
+未確定の親の配下は、既存の usable 行・今回読めた行も含め全て usable=false にする。旧索引を残すエラー経路でも先に親状態を未確定にし、旧 usable を残さない。未訪問の親の過去の「確認済み」を引き継がない。未確定の診断には既存 unreadable を使い、上限では既存 scan_limit 通知も出す。理由順は上記の構造・名前違反の後、確定衝突／未確定、内容検査の順とし、どの理由でも配信不可。Available・Versions・OpenWithHash も同じ状態を参照する。次回の完全な兄弟走査でのみ未確定を解除し、祖先も確認済み・衝突なしで内容等の全条件を満たせば既存行も復帰する。
+
+全走査を配信ごとに増やさない。再構築が親情報を作り、Refresh が対象親と祖先だけを更新する。OpenWithHash と put は保持した名前状態を使い、未登録名を OS の大小解決だけで足さない。直接配置の変更は既存の定期更新・再構築のタイミングで検出する。確認できた親情報の更新でのみ衝突を解除し、内容の更新では解除しない。索引の行と親情報は idxMu 下で一体更新するが、読み取りから反映までの順序は次の直列化で保証する。
+
+**更新順は世代番号ではなく既存 filesMu による直列化を採用する。** 現行の Save・Delete・Rebuild・EnsureIndex の初期構築は既に filesMu を保持して rebuildLocked を呼ぶ。一方 Refresh と OpenWithHash はロック外で読んだ古い行を put/update できるため、この2経路も親情報・行の取得前からファイル読取り、判定、反映、戻り値の確定まで filesMu を保持する。内容が不変で早期 return する経路も対象とし、保持した古い usable だけで返さない。Save・Delete は実名確認、ディスク変更、再構築まで同じロック区間に置く。保存先の兄弟一覧が不完全なら保存は行わず I/O エラーにする。
+
+ロック順は常に filesMu → idxMu。idxMu を保持したまま I/O や filesMu 待機をしない。OpenWithHash は EnsureIndex をロック取得前に呼んだ後、ロック内で最新の行を取り直すか、初期構築をロック保持前提の内部関数に分ける。既存のロックを取る公開メソッドをロック内から呼んで再入しない。put/update は filesMu 保持中の内部更新専用とし、全行置換で親状態を消さない。これで古い走査を始めた処理が新しい衝突判定の後から反映される順序自体をなくす。世代方式は再構築による索引交換・保存／削除を含む失効判定と再試行を全経路へ足す必要があり、既存の直列化を拡張する方が適合する。I/O 中の待ち時間増加は受け入れる。外部の直接配置は filesMu では止まらず、次の定期検出までの窓は既存どおり残る。
 
 Delete は共通名前検査に加え、索引の実名完全一致を必須にする。使用中判定もそのキーで行う。未知名は root.Remove に渡さず404。登録済みでも削除直前に親実名を確認して OS の別名解決を防ぐ。衝突は配信不可だが、名前として有効で索引に実名がある項目の削除は既存の使用確認を守って扱う。不許可名の削除を新たに有効化せず Explorer での改名・削除を案内する。
 
@@ -158,10 +168,20 @@ sol の GET/DELETE 両方で encoded slash を常に拒否する期待は採ら�
 
 multipart の決まりは次の4つとする。独自のパラメーター字句解析は加えない。
 
-1. ParseMultipartForm/FormFile を経由せず MultipartReader を使い、Content-Disposition を mime.ParseMediaType に渡す。既存の総量・件数等の制限は維持する。
+1. `internal/sources/files.go` の ReadUpload を主に変更する。ParseMultipartForm/FormFile を経由せず MultipartReader を使い、Content-Disposition を mime.ParseMediaType に渡す。呼出しと HTTP エラー応答は internal/web/source_files.go が担当する。
 2. basename 前の `params["filename"]` を使う。Part.FileName や filepath.Base で元名を消さない。
 3. パーサーエラー、空、不正 UTF-8、`/`、`\\`、`／`、`＼`、`..` を含む名前は400。壊れたヘッダーも置換前に拒否する。
 4. filename*、通常名との併記、重複、連結、不正 charset/escape は、標準パーサーが返した結果をそのまま同じ名前検査に通す。パーサーエラーなら400、成功なら結果の値で決める。独自 fallback や二度目の percent decode はしない。
+
+### part の選択・上限・応答
+
+今の FormFile("file") と同じく、Content-Disposition が form-data、name が大小を含め `file`、パーサーの filename が非空の**最初のファイル part 1個**を採用する。通常値の `file`（filename なし／空）は候補にならない。対象がなければ今どおり400 `source_files.invalid`。後続の同名ファイル、別フィールドのファイル、通常値は今どおり保存対象にせず読み捨てる。一律に複数 part を拒否しない。採用対象の不正名を後続候補で救済しない。第6節の元名検査は採用対象に適用する。
+
+採用 part の取得だけで成功を返さず、終端まで全 part を読み、構文エラー・途中切断は今どおり400 `source_files.invalid`。余分な part も全体上限に数え、捨てるときの読取り／Close エラーを無視しない。最後まで正常なことを確かめてから Save を呼ぶ。本文全体（ヘッダー・境界・通常値・余分なファイルを含む）は今どおり MaxBytesReader の **MaxFileSize＋1MiB＝6MiB**、採用ファイルは **MaxFileSize＝5MiB** とする。全体上限を見落とさないよう multipart 終端後の残りの body も上限内で読み切る。ファイルは最大 MaxFileSize＋1 バイトまで検査用に読み、余分な part はバッファへ全量保存しない。
+
+全体超過は MaxBytesError を保持し、今どおり413 `source_files.limit`。採用ファイルだけが5MiBを超えて全体6MiB以下なら、現行 ReadUpload の汎用 "too large" と同じ **400 `source_files.invalid`** を維持する（ErrFileTooLarge に変えて413にしない）。余分なファイルに個別5MiB制限は適用せず、全体制限で止める。ParseMultipartForm の既定上限に相当する総 part 数1000とファイル part の累積 MIME ヘッダー数10000も明示して保ち、超過は400とする。NextPart 自体のヘッダー制限も維持する。GODEBUG による旧パーサー上限の上書きは新契約には含めず、この既定値を固定する。
+
+Save の件数・保存総量・ファイル容量超過は今どおり413 `source_files.limit`、重複は409 `source_files.duplicate`、型不正等は400 `source_files.invalid`、成功は201（ok/name/size）を維持する。予約名と長名は400のまま、第6・8節の修正可能な専用説明を返す。
 
 受信名の UTF-8・パス混入検査 → 最後の ASCII ドットで拡張子確認と ASCII 小文字化 → stem の不許可コードポイント1つにつき `_` 1つ → 完成形規則を再検査 → 直下全項目との衝突検査 → 排他的保存、の順。サーバー NFC はない。連続 `_` は圧縮しない。先頭ドットは `_`、有効な途中ドットは維持。長名・予約名を切詰めや接頭辞で救わない。
 
@@ -253,8 +273,12 @@ S/R は save/rendered。表中の Unicode escape は実文字へ展開する。o
 
 | 試験 | 入力 → 期待 |
 |---|---|
-| 生成・名前 | L/N 全下位分類、M、不可視、表外、128/129・512/513、予約名、ASCII folding →一致。再生成差分ゼロ |
+| 生成・名前 | ハングルのアルゴリズム分解・合成を別検証し、第3節の `한.png`・LV/T・L/V・音節端点と連結境界を確認。L/N 全下位分類、M、不可視、表外、128/129・512/513、予約名、ASCII folding →一致。再生成差分ゼロ |
 | multipart | 日本語 raw UTF-8、filename*／併記／重複／連結／不正拡張値 →標準パーサー結果を完成形検査へ。パス混入は basename 前に400 |
+| multipart 選択 | 通常値 file＋ファイル file、複数 file、別名ファイル →最初の対象だけ保存。空 filename のみ／対象なし→400。不正な先頭対象＋正常な後続→400。後続不正構文・途中切断→400、保存なし |
+| multipart 上限・応答 | 採用ファイル5MiBちょうど／＋1（全体6MiB以下）→201／400。全体6MiBちょうど／＋1→他条件正常なら201／413。余分な part・終端後の body での全体超過も413、保存なし。1000／1001 part・累積ヘッダー10000／10001→境界内可／400。保存上限413・重複409・型不正400と JSON code も検証 |
+| 親の未確定 | 既存 usable を作り、未読側に衝突相手を置いて MaxScanEntries 打切り→既存を含む配下全行不可。部分結果つき ReadDir 失敗・ルート Open 失敗・未訪問の親も不可。Available/Versions から除外、GET は404。次の完全走査で衝突なしなら復帰、衝突ありなら name_collision のまま |
+| 更新の交錯 | barrier で Refresh の親読取り後を停止し、衝突を検出する Rebuild を開始→filesMu 待ちになり、Refresh 完了後の Rebuild が最終状態を決める。逆順でも古い Refresh が衝突を解除しない。OpenWithHash の不変／変更経路・put/update、Save、Delete と再構築も両順で交錯させ、後から古い行が復活しない・配下不可・デッドロックなしを検証（sleep に依存しない） |
 | 保存・索引 | 日本語保存→一覧→読出し→削除、管理ページ NFC と他クライアント NFD の違い、置換後衝突、直下フォルダ／内容不良との衝突 →規定どおり |
 | sol 統合1 | A.png/a.png の片方更新→定期 Refresh→OpenWithHash・put →両方衝突のまま |
 | sol 統合2 | A/x.png と a/y.png →親衝突で両方不可。追加・削除の親情報更新でも整合 |
