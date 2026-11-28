@@ -341,6 +341,23 @@ func (s *FilesStore) Save(name string, data []byte) error {
 	return nil
 }
 
+// Known reports whether name is in the index with exactly this spelling and a
+// path that Delete would accept. It builds the index when there is none.
+func (s *FilesStore) Known(name string) (bool, error) {
+	filesMu.Lock()
+	defer filesMu.Unlock()
+	if !s.indexed() {
+		if _, err := s.rebuildLocked(); err != nil {
+			return false, err
+		}
+	}
+	idxMu.Lock()
+	_, known := s.idx.byPath[name]
+	idxMu.Unlock()
+	reason := CheckPath(name)
+	return known && (reason == "" || reason == ReasonBadExtension), nil
+}
+
 // Delete removes a file under the folder; name is the relative path with "/"
 // (up to three folders). Folders themselves are never removed.
 func (s *FilesStore) Delete(name string) error {

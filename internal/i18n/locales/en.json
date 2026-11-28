@@ -393,6 +393,8 @@
     "settings_lan_close": "This device will lose access to the admin page.",
     "settings_pending_urls": "OBS media source URLs have not been updated yet. Check Send to on the Cameras page.",
     "settings_saved": "Save accepted.",
+    "settings_restart_accepted": "Restart accepted.",
+    "settings_discard": "Discard unsaved changes?",
     "settings_applied": "Saved and applied.",
     "settings_failed": "Apply failed. Check the logs.",
     "settings_reverted": "Apply failed; previous settings were restored.",

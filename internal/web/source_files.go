@@ -146,6 +146,14 @@ func serveSourceFilesAPI(w http.ResponseWriter, r *http.Request, b Backend, e *E
 		writeError(w, 400, lang, i18n.New("source_files.invalid"))
 		return
 	}
+	// A name that is not in the index is 404 before the in-use check.
+	if known, err := store.Known(name); err != nil {
+		writeError(w, 500, lang, i18n.New("source_files.io"))
+		return
+	} else if !known {
+		writeError(w, 404, lang, i18n.New("api.not_found"))
+		return
+	}
 	usage, readErr := assetUsage(b)
 	if readErr != nil {
 		writeError(w, 409, lang, i18n.New("sources.unreadable"))
