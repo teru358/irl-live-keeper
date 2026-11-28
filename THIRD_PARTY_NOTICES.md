@@ -4,16 +4,30 @@ irl-live-keeper（MIT License）は、次のソフトウェアを利用してい
 
 ## 同梱するプログラム: MediaMTX
 
-| ソフトウェア | 版 | ライセンス | 著作権者 | 入手先 |
-|---|---|---|---|---|
-| MediaMTX | v1.21.4 | MIT | aler9 | https://github.com/bluenviron/mediamtx |
+| 項目 | 内容 |
+|---|---|
+| ソフトウェア | MediaMTX（RTMP・SRT などを受けて中継するサーバー） |
+| 版 | v1.21.4（2026-11-15 公開。タグの commit `e65f9411a56b19076a0dfde1fb4a59414bdf642c`） |
+| ライセンス | MIT License（SPDX: `MIT`） |
+| 著作権表示 | Copyright (c) 2019 aler9 |
+| ソースの入手先 | https://github.com/bluenviron/mediamtx （この版のソース: https://github.com/bluenviron/mediamtx/tree/v1.21.4） |
+| 配布物の入手先 | https://github.com/bluenviron/mediamtx/releases/tag/v1.21.4 |
+| ライセンスの全文 | このリポジトリの [`licenses/MediaMTX-LICENSE.txt`](licenses/MediaMTX-LICENSE.txt)（https://github.com/bluenviron/mediamtx/blob/v1.21.4/LICENSE をそのまま写したもの） |
 
-- **同梱の形:** 公式リリースの配布物（`mediamtx(.exe)` と `LICENSE`）を改変せずに同梱する。irl-live-keeper とは別のプログラムで、irl-live-keeper は子プロセスとして起動し、API で通信するだけ。MediaMTX のソースコードは irl-live-keeper に組み込んでいない
-- **ライセンスの兼ね合い:** irl-live-keeper も MediaMTX も MIT なので衝突しない。また、別のプログラムとして同梱するだけなので、MediaMTX のライセンスの条件は irl-live-keeper のコードには及ばない
-- **守ること:** MediaMTX の `LICENSE`（著作権表示と許諾文）を、配布する zip に必ず入れる。ファイル名は `licenses/MediaMTX-LICENSE.txt` とする予定
-- **MediaMTX のバイナリに組み込まれた依存:** MediaMTX の実行ファイルには、MediaMTX 自身が依存するライブラリ（Apache-2.0、BSD、MIT など）が組み込まれている。MediaMTX の公式リリースは `LICENSE` だけを付けて配布しており、irl-live-keeper も公式の配布物を改変せずに同梱する。第4段階で、MediaMTX v1.21.4 の go.mod から依存のライセンスを自動で集め、`licenses/mediamtx-deps/` に添える予定（GPL 系の依存がないことも、そのときに確かめる）
-- **名前:** 「MediaMTX」の名前は、同梱しているプログラムを示すためだけに使う。MediaMTX の作者が irl-live-keeper を推奨・保証しているかのような表現はしない
+同梱する公式の配布物と、公式の `checksums.sha256`（https://github.com/bluenviron/mediamtx/releases/download/v1.21.4/checksums.sha256 ）にある SHA-256:
+
+| 同梱する先 | 公式の配布物 | SHA-256 |
+|---|---|---|
+| Windows の zip | `mediamtx_v1.21.4_windows_amd64.zip` | `835645b2700ffce4d2b6cb04bfa0aadce95335da6dfc0d7c2114e6da585734f8` |
+| Linux の版 | `mediamtx_v1.21.4_linux_amd64.tar.gz` | `be0c05d9c8af8338116977e7f1c3fcb409fbf882075e5ab075cf8baad76a59d2` |
+
+- **同梱の形:** 上の公式の配布物を、配る zip を作るときに取ってきて、SHA-256 が上の値と同じことを確かめてから、中の `mediamtx(.exe)` を改変せずに入れる。値が違えば zip を作らない。MediaMTX の設定ファイル（`mediamtx.yml`）は、irl-live-keeper が起動のたびに作る（公式の配布物の `mediamtx.yml` は入れない）
+- **ライセンスの表示:** 配る zip に `licenses/MediaMTX-LICENSE.txt`（著作権表示と許諾文の全文）を必ず入れる
+- **別のプログラムであること:** irl-live-keeper は MediaMTX を子プロセスとして起動し、API で通信するだけ。MediaMTX のソースコードは irl-live-keeper に組み込んでいない。irl-live-keeper も MediaMTX も MIT なので衝突せず、MediaMTX のライセンスの条件は irl-live-keeper のコードには及ばない
+- **MediaMTX のバイナリに組み込まれた依存:** MediaMTX の実行ファイルには、MediaMTX 自身が依存するライブラリ（Apache-2.0、BSD、MIT など）が組み込まれている。MediaMTX の公式リリースは `LICENSE` だけを付けて配布しており、irl-live-keeper も公式の配布物を改変せずに同梱する。依存のライセンスは、配る zip を作るときに MediaMTX v1.21.4 の `go.mod` から集めて `licenses/mediamtx-deps/` に添える（GPL 系の依存がないことも、そのときに確かめる。α版の準備 S2-96）
+- **名前:** 「MediaMTX」の名前は、同梱しているプログラムを示すためだけに使う。irl-live-keeper は MediaMTX の作者による公式のソフトウェアではなく、MediaMTX の作者が irl-live-keeper を推奨・保証しているかのような表現はしない
 - **コーデックについて:** MediaMTX は受け取った映像を中継するだけで、映像の符号化や復号はしない（irl-live-keeper も同じ）
+- **版を上げるとき:** この表の版・commit・SHA-256 と `licenses/MediaMTX-LICENSE.txt` を、同じ commit で新しい版のものに替える
 
 ## 実行ファイルに組み込まれる Go のライブラリ
 
