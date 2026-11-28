@@ -10,3 +10,5 @@ import './syntax.test.mjs';
 import './html.test.mjs';
 
 import './reconcile.test.mjs';
+
+import './review.test.mjs';

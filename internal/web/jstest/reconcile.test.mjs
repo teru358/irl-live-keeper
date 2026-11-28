@@ -33,3 +33,18 @@ test('duplicate ids consume separate siblings and comments update',()=>{
  const next=el('body'),c=new Node(null,'new');c.nodeType=8;next.append(el('b',{id:'same',title:'one'}),el('b',{id:'same',title:'two'}),c);
  reconcile(root,next);assert.equal(root.childNodes[0],a);assert.equal(root.childNodes[1],b);assert.equal(a.getAttribute('title'),'one');assert.equal(b.getAttribute('title'),'two');assert.equal(root.childNodes[2],comment);assert.equal(comment.textContent,'new');
 });
+
+for (const scenario of ['tag change','removal','insertion']) test('retained sibling is never moved after preceding '+scenario,()=>{
+ const root=el('div'),keep=el('span',{id:'keep'}),next=el('body');
+ root.append(el('div'),keep);
+ if(scenario==='tag change')next.append(el('p'));
+ if(scenario==='insertion')next.append(el('div'),el('b'));
+ next.append(keep.cloneNode());
+ const calls=[];
+ for(const method of ['insertBefore','appendChild','removeChild']){
+  const original=root[method];
+  root[method]=function(node,...args){if(node===keep)calls.push(method);return original?.call(this,node,...args);};
+ }
+ reconcile(root,next);
+ assert.equal(root.childNodes.at(-1),keep);assert.deepEqual(calls,[]);
+});

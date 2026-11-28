@@ -34,6 +34,9 @@ func TestSourcesMethods(t *testing.T) {
 		}
 		return w.Body.String()
 	}
+	for _, name := range []string{"files", "assets", "frame", "preview", "test-obs"} {
+		call("POST", "/api/sources", `{"name":"`+name+`","body":"ok"}`, true, 422)
+	}
 	body := `{"name":"demo","body":"{cam1.kbps}"}`
 	call("POST", "/api/sources", body, false, 403)
 	call("POST", "/api/sources", body, true, 201)

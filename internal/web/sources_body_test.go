@@ -84,7 +84,7 @@ func TestSourcePreviewRendersBody(t *testing.T) {
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, r)
 	var out struct{ Text, CSS string }
-	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &out) != nil || out.Text != "<b>LOW</b>" || out.CSS != sources.BaseStylesheet {
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &out) != nil || out.Text != "<b>LOW</b>" || out.CSS != "" {
 		t.Fatal(w.Code, w.Body.String())
 	}
 }

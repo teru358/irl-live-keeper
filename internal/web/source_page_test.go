@@ -152,3 +152,12 @@ func TestSourceSSEInitialHTML(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestFrameSkeletonStyle(t *testing.T) {
+	w := httptest.NewRecorder()
+	writeSourceFrame(w, "", false)
+	body := w.Body.String()
+	if strings.Contains(body, "opacity:1") || !strings.Contains(body, "overflow:hidden") {
+		t.Fatal(body)
+	}
+}

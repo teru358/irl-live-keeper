@@ -21,8 +21,8 @@ const MaxBody = 64 << 10
 
 var NamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,32}$`)
 
-// ReservedNames are URL path segments under /source/ that a source cannot take.
-var ReservedNames = map[string]bool{"files": true, "assets": true}
+// ReservedNames are URL path segments under /source/ and /api/sources/ that a source cannot take.
+var ReservedNames = map[string]bool{"files": true, "assets": true, "frame": true, "preview": true, "test-obs": true}
 
 // Source is one saved source. Body is the HTML fragment for the inside of <body>
 // (<style>, HTML and {...} template tags together).

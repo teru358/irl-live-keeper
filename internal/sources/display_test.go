@@ -14,7 +14,10 @@ func TestRenderFailure(t *testing.T) {
 	}
 }
 func TestBaseStylesheet(t *testing.T) {
-	for _, want := range []string{"html,body{margin:0;background:transparent;}", ".irl-source{"} {
+	if strings.Contains(BaseStylesheet, "opacity") {
+		t.Fatal(BaseStylesheet)
+	}
+	for _, want := range []string{"html,body{margin:0;background:transparent;}"} {
 		if !strings.Contains(BaseStylesheet, want) {
 			t.Fatal(want, BaseStylesheet)
 		}

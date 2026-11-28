@@ -139,9 +139,13 @@ func writeSourceFrame(w http.ResponseWriter, name string, script bool) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+	styles := sources.BaseStylesheet
+	if !script {
+		styles += "html,body{overflow:hidden;}\n"
+	}
 	js := ""
 	if script {
 		js = `<script type="module" src="/source/assets/source.js"></script>`
 	}
-	fmt.Fprintf(w, `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="%s"><style>%s</style>%s</head><body><div class="irl-source irl-source-%s"></div></body></html>`, sourceCSP, sources.BaseStylesheet, js, name)
+	fmt.Fprintf(w, `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="%s"><style>%s</style>%s</head><body><div class="irl-source irl-source-%s"></div></body></html>`, sourceCSP, styles, js, name)
 }

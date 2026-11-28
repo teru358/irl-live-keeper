@@ -58,10 +58,7 @@ export function applySourceEvent(state,data,stopped){
  state.test=test.enabled;state.testReason=test.reason;
  return reset;
 }
-export function previewChanges(previous,next){
- return {text:!previous||previous.text!==next.text||previous.name!==next.name,
-  style:!previous||previous.name!==next.name||previous.css!==next.css||previous.version!==next.version};
-}
+
 // Deleting an asset that sources use: the titles, and that they will need repair.
 export function deletePrompt(item,list,t){
  const label=source=>source.title||source.name;
