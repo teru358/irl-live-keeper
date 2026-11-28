@@ -553,7 +553,7 @@
     "src_url_remote": "For OBS on another PC",
     "src_custom_hint": "Enter values as JSON (e.g. {\"cam1.kbps\":600})",
     "src_used": "Used by: {sources}",
-    "src_file_used_note": "The sources that use it will need repair (the OBS page will show no image and be empty).",
+    "src_file_used_note": "Sources that use it will no longer show this image (the editor shows a missing-asset warning).",
     "settings_camera_used": "Sources that use this camera's values: {sources}",
     "settings_camera_used_note": "These sources will need repair and their OBS page will be empty.",
     "settings_camera_sources_unreadable": "Cannot check which sources use this camera because the source list cannot be read.",

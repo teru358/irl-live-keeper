@@ -108,9 +108,9 @@ test('delete prompts identify source titles and asset names, with fallback for m
  assert.equal(state.deletePrompt({name:'image.png',used_by:['a','b','gone']},list,t),'「image.png」を削除しますか？\n使用中のソース: 回線の表示, b, gone\n直しが要ります。OBS は空になります。');
  assert.equal(state.deletePrompt({name:'d/e.png',used_by:[]},list,t),'「d/e.png」を削除しますか？');
 });
-test('the delete note says that sources need repair and the OBS page is empty, in both languages',async()=>{
+test('the delete note says that the image stops showing and the editor warns, in both languages',async()=>{
  const {readFileSync}=await import('node:fs');
- for(const [lang,words] of [['ja',['直しが要','OBS','空']],['en',['repair','OBS','empty']]]){
+ for(const [lang,words] of [['ja',['画像が出なくなります','素材が見つかりません']],['en',['no longer show','warning']]]){
   const ui=JSON.parse(readFileSync(new URL('../../i18n/locales/'+lang+'.json',import.meta.url),'utf8')).ui;
   for(const word of words)assert.ok(ui.src_file_used_note.includes(word),lang+' '+word);
   assert.ok(ui.src_used.includes('{sources}'));

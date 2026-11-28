@@ -553,7 +553,7 @@
     "src_url_remote": "別の PC の OBS 用",
     "src_custom_hint": "値を JSON で入力（例: {\"cam1.kbps\":600}）",
     "src_used": "使用中のソース: {sources}",
-    "src_file_used_note": "使っているソースは直しが要ります（OBS のページでは画像が出ず、空になります）。",
+    "src_file_used_note": "使っているソースでは、この画像が出なくなります（編集の画面に「素材が見つかりません」の注意が出ます）。",
     "settings_camera_used": "このカメラの値を使っているソース: {sources}",
     "settings_camera_used_note": "これらのソースは直しが要る状態になり、OBS のページは空になります。",
     "settings_camera_sources_unreadable": "ソースの一覧が読めないため、このカメラを使っているソースを確かめられません",
