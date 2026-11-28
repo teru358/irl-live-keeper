@@ -3,7 +3,15 @@
 自動生成: `ticket.py index` (tickets skill)。手で編集しない。
 未完了: 11 件。完了分は closed/。
 
-## 設計待ち (11)
+## 裁定待ち (1)
+
+### 保守 (1)
+
+| id | 優先 | 起票 | 概要 |
+|---|---|---|---|
+| [integ-overload-failures](open/integ-overload-failures.md) | 低 | 2026-11-23 | 結合のテストが強い過負荷（32本×2回）で INV-03・INV-04・入場の逆順で落ちる |
+
+## 設計待ち (10)
 
 ### 機能 (10)
 
@@ -19,10 +27,4 @@
 | [regenerate-button-placement](open/regenerate-button-placement.md) | 低 | 2026-11-28 | カメラごとの送信用パスワードの作り直しを「送り先」の外に置くか |
 | [status-warning-heading-empty](open/status-warning-heading-empty.md) | 低 | 2026-11-28 | 「状態」の「注意」が、注意がないときも見出しとボタンだけ出る |
 | [stream-history](open/stream-history.md) | 低 | 2026-11-28 | 配信の記録と直近10分のグラフ（区切り3 全体。後回し） |
-
-### 保守 (1)
-
-| id | 優先 | 起票 | 概要 |
-|---|---|---|---|
-| [integ-overload-failures](open/integ-overload-failures.md) | 低 | 2026-11-23 | 結合のテストが強い過負荷（32本×2回）で INV-03・INV-04・入場の逆順で落ちる |
 

@@ -1,7 +1,7 @@
 ---
 id: integ-overload-failures
 title: 結合のテストが強い過負荷（32本×2回）で INV-03・INV-04・入場の逆順で落ちる
-status: 設計待ち
+status: 裁定待ち
 priority: 低
 kind: 保守
 opened: 2026-11-23
@@ -10,7 +10,7 @@ related: []
 ---
 # [integ-overload-failures] 結合のテストが強い過負荷（32本×2回）で INV-03・INV-04・入場の逆順で落ちる
 
-**状態**: 設計待ち / **優先**: 低 / **種別**: 保守
+**状態**: 裁定待ち / **優先**: 低 / **種別**: 保守
 
 ## 現象
 
@@ -27,6 +27,7 @@ related: []
 - 2026-11-23: 起票。
 - 2026-11-23: 16本×TestIntegration でもまれに出る。S2-58 の確かめで、ブランチで 1/48（FB-INV-06 seed 20006: 改名で owner auto→none）、main で 1/48（INV-04 seed 30001: 回復から30秒で hidden.json が空でない）。seed 20006 だけを16本×4回回すと、ブランチも main も 0/64。S2-58 の変更によるものではない
 - 2026-11-23 夜: ふだんの負荷の `go test -race ./...` でも1回、`TestIntegrationFallbackInvariants/fault/seed25002`（入場: 戻り先 Nest に悪い hide のカメラ [sub] が表示されたままなのに本体が戻した）が落ちた。8本×3回で回すと、main でも直しのブランチでも 0/24。過負荷だけの揺れではないので、優先を上げて調べる候補
+- 2026-11-28: 状態: 裁定待ち — 2026-11-28: ふつうの go test ./... で FallbackInvariants/normal/seed20011 が1回落ちた（世界 program=Dual、status scene=SubOnly、静かな時点）。調べ（sonnet、約400回、load avg 27 まで、2コアの閉じ込めも）では 20011 は0回で未再現。本体の Machine は最後の SceneChanged だけで今のシーンを決め、順が入れ替わらない限り間違う道は見つからない。試験の偽の OBS の SetSceneUUID が mu を放してから sendNow するので、走者の humanScene と重なると SceneChanged の順が入れ替わりうる（未検証の候補）。負荷の下では別に HiddenInvariants seed1008・FallbackInvariants late seed30001 の INV-04（約110回に1〜2回）、HiddenInvariants fault seed5034 の INV-01（2コアで6回に1回）、internal/app の TestRun の10秒の待ち（43回に1回）が出た。どれも実時間の待ち（settle の 80µs、fbSync の 100µs、second() の 1ms、HiddenRetry 5ms）に寄る。判断は (c)、(a) 寄り。直し方の案: 偽の OBS の順を sendMu の下で守る、sleep のポーリングをやめて中核ループのフックで待つ、INV-04 は hidden.json の書き込みの数えに追いつくまで待つ、食い違いのときに世界の program の履歴と渡した SceneChanged の列を出す診断
 
 ## 2026-11-24 調査（integ-flake）
 
