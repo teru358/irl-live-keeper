@@ -25,7 +25,7 @@ func GenerateYAML(cfg *config.Config, apiUser, apiPass string) ([]byte, error) {
 	var pubPerms, readPerms, paths strings.Builder
 	for _, cam := range cfg.Cameras {
 		path := cfg.CameraPath(cam.ID)
-		fmt.Fprintf(&pubPerms, "      - action: publish\n        path: %q\n", path)
+		fmt.Fprintf(&pubPerms, "  - user: %s\n    pass: %s\n    ips: []\n    permissions:\n      - action: publish\n        path: %q\n", cam.ID, cam.PublishPass, path)
 		fmt.Fprintf(&readPerms, "      - action: read\n        path: %q\n", path)
 		fmt.Fprintf(&paths, "  %q: {}\n", path)
 	}
@@ -52,10 +52,6 @@ webrtc: false
 moq: false
 authMethod: internal
 authInternalUsers:
-  - user: %s
-    pass: %s
-    ips: []
-    permissions:
 %s  - user: %s
     pass: %s
     ips: []
@@ -68,7 +64,7 @@ authInternalUsers:
 paths:
 %s`,
 		m.APIPort, m.RTSPPort, m.RTMPEnabled, m.RTMPPort, m.SRTEnabled, m.SRTPort,
-		s.PublishUser, s.PublishPass, pubPerms.String(),
+		pubPerms.String(),
 		s.ReadUser, s.ReadPass, readPerms.String(),
 		apiUser, apiPass,
 		paths.String())
@@ -97,10 +93,10 @@ func PublishURLs(cfg *config.Config, host string) []PublishURLSet {
 	for _, cam := range cfg.Cameras {
 		u := PublishURLSet{ID: cam.ID}
 		if cfg.MediaMTX.SRTEnabled {
-			u.SRT = fmt.Sprintf("srt://%s?streamid=publish:%s:%s:%s", hostPort(host, srtPort), cfg.CameraPath(cam.ID), s.PublishUser, s.PublishPass)
+			u.SRT = fmt.Sprintf("srt://%s?streamid=publish:%s:%s:%s", hostPort(host, srtPort), cfg.CameraPath(cam.ID), cam.ID, cam.PublishPass)
 		}
 		if cfg.MediaMTX.RTMPEnabled {
-			u.RTMP = fmt.Sprintf("rtmp://%s/%s?user=%s&pass=%s", hostPort(host, rtmpPort), cfg.CameraPath(cam.ID), s.PublishUser, s.PublishPass)
+			u.RTMP = fmt.Sprintf("rtmp://%s/%s?user=%s&pass=%s", hostPort(host, rtmpPort), cfg.CameraPath(cam.ID), cam.ID, cam.PublishPass)
 		}
 		out = append(out, u)
 	}

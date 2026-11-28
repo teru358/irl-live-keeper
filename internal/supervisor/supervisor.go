@@ -221,7 +221,7 @@ func (s *Supervisor) runOnce(ctx context.Context) (time.Duration, error) {
 	if err := os.WriteFile(ymlPath, yml, 0o600); err != nil {
 		return fail(i18n.Error{Message: i18n.New("mediamtx.write", "error", err.Error()), Cause: err})
 	}
-	lw := newLineWriter(s.log.With("component", "mediamtx"), s.cfg.Stream.PublishPass, s.cfg.Stream.ReadPass, pass)
+	lw := newLineWriter(s.log.With("component", "mediamtx"), append(s.cfg.Secrets(), pass)...)
 	lw.readers = s.readers
 	s.readers.Reset()
 	cmd := exec.Command(s.binPath, ymlPath)

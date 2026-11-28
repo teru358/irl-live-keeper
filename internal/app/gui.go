@@ -38,19 +38,20 @@ func (a *App) RunWindow(ctx context.Context) int {
 }
 
 type WindowState struct {
-	PasswordUnset bool
-	Snapshot      *core.Snapshot
-	Apply         Apply
-	Language      i18n.Lang
-	CloseAction   string
-	LogDir        string
-	Generated     bool
-	Restore       bool
+	PasswordUnset   bool
+	Snapshot        *core.Snapshot
+	Apply           Apply
+	Language        i18n.Lang
+	CloseAction     string
+	LogDir          string
+	Generated       bool
+	CredentialReset bool
+	Restore         bool
 }
 
 func (a *App) WindowState() WindowState {
 	a.mu.Lock()
-	s := WindowState{PasswordUnset: a.windowPasswordUnset, Apply: a.apply, Language: a.windowLang, CloseAction: a.windowClose, LogDir: a.windowLog, Generated: a.windowGenerated}
+	s := WindowState{CredentialReset: a.windowCredentialReset, PasswordUnset: a.windowPasswordUnset, Apply: a.apply, Language: a.windowLang, CloseAction: a.windowClose, LogDir: a.windowLog, Generated: a.windowGenerated}
 	if s.Language == "" {
 		s.Language = i18n.OSLang()
 	}
@@ -113,27 +114,30 @@ func (a *App) RestoreBackup() error {
 		return ErrNotRunning
 	}
 	path := filepath.Join(a.opts.BaseDir, configName)
-	bak, err := os.ReadFile(path + ".bak")
+	backupRaw, _ := os.ReadFile(path + ".bak")
+	backupConfig, _ := config.Parse(backupRaw)
+	cfg, regenerated, err := settings.RestoreBackup(path)
 	if err != nil {
 		return err
 	}
-	if _, err = config.Parse(bak); err != nil {
-		return err
-	}
-	raw, err := os.ReadFile(path)
-	if err == nil && settings.Hash(raw) == settings.Hash(bak) {
-		return os.ErrInvalid
-	}
-	if err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	if err == nil {
-		if err = settings.WriteFile(path+".bak", raw); err != nil {
-			return err
+	a.rememberSecrets(cfg.Secrets()...)
+	if regenerated {
+		a.windowCredentialReset = true
+		if backupConfig != nil {
+			a.obsInputURLs = make(map[string]string)
+			a.obsInputOldURLs = make(map[string]string)
+			a.obsInputUUIDs = nil
+			for _, u := range buildCameraURLs(cfg, "") {
+				a.obsInputURLs[u.ID] = u.OBSRead
+			}
+			for _, u := range buildCameraURLs(backupConfig, "") {
+				a.obsInputOldURLs[u.ID] = u.OBSRead
+			}
+			a.updateOBSInput = len(a.obsInputURLs) > 0
+			if a.updateOBSInput {
+				a.obsInputWarning.Store(i18n.New("app.obs_url_pending"))
+			}
 		}
-	}
-	if err = settings.WriteFile(path, bak); err != nil {
-		return err
 	}
 	a.apply = Apply{State: ApplyApplying, Kind: ApplyRevert}
 	// lock を持ったまま送るので待たない（失敗の状態では再起動は積まれていない。積まれていれば、それが元に戻した版を読む）

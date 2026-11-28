@@ -15,7 +15,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const base = "admin:\n  password: abcdefgh\nstream:\n  publish_pass: abcdefgh\n  read_pass: abcdefgh\ncameras:\n  - id: cam1\n    name: メイン\n    on_bad: standby\n"
+const base = "admin:\n  password: abcdefgh\nstream:\n  read_pass: abcdefgh\ncameras:\n  - id: cam1\n    publish_pass: publishpass\n    name: メイン\n    on_bad: standby\n"
 
 func TestGolden(t *testing.T) {
 	cases := []struct {
@@ -30,7 +30,7 @@ func TestGolden(t *testing.T) {
 		{"plain_scalar", "obs:\n  host: before # 維持\n", []Change{{"obs.host", "after"}}},
 		{"quote_required", "obs:\n  host: before # 維持\n", []Change{{"obs.host", "yes"}}},
 		{"binary", "mediamtx:\n  binary:\n", []Change{{"mediamtx.binary", "bin"}}},
-		{"sequence", "", []Change{{"cameras", []config.Camera{{ID: "cam1", Name: "一", OnBad: "hide"}, {ID: "cam2", Name: "二", OnBad: "standby"}}}}},
+		{"sequence", "", []Change{{"cameras", []config.Camera{{ID: "cam1", PublishPass: "publishpass", Name: "一", OnBad: "hide"}, {ID: "cam2", PublishPass: "publishpass", Name: "二", OnBad: "standby"}}}}},
 		{"addition", "# 前\nobs:\n  host: localhost # 保持\n\n", []Change{{"obs.port", 4456}, {"gui.close_action", "quit"}}},
 		{"section", "obs: {host: localhost, password: 'secret'}\n\n# 別区分\nlog:\n  dir: logs  # 保持\n", []Change{{"obs.password", "changed"}}},
 	}

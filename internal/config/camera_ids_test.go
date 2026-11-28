@@ -11,7 +11,7 @@ func TestNumberedCameraIDs(t *testing.T) {
 	for _, id := range []string{"cam1", "cam2", "cam3", "cam4", "cam5", "cam6", "cam7", "cam8", "cam0", "cam9", "main", "Cam1", "cam01", "all", "all_others", "state"} {
 		t.Run(id, func(t *testing.T) {
 			c := valid()
-			c.Cameras = []Camera{{ID: id, Name: "Camera", OnBad: "standby"}}
+			c.Cameras = []Camera{{PublishPass: "publishpass", ID: id, Name: "Camera", OnBad: "standby"}}
 			err := c.Validate()
 			good := len(id) == 4 && id >= "cam1" && id <= "cam8"
 			if good {
@@ -38,7 +38,7 @@ func TestNumberedCameraIDs(t *testing.T) {
 func TestLoadCameraNumberOrder(t *testing.T) {
 	raw := camMinimal + "cameras:\n"
 	for _, i := range []int{8, 2, 1, 7, 3, 6, 5, 4} {
-		raw += fmt.Sprintf("  - id: cam%d\n    name: Camera %d\n    on_bad: standby\n", i, i)
+		raw += fmt.Sprintf("  - id: cam%d\n    publish_pass: publishpass\n    name: Camera %d\n    on_bad: standby\n", i, i)
 	}
 	c, err := Load(writeCfg(t, raw))
 	if err != nil {

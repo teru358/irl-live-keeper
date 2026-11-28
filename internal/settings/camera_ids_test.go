@@ -9,7 +9,9 @@ import (
 )
 
 func TestCameraDiffByID(t *testing.T) {
-	cam := func(id, name string) config.Camera { return config.Camera{ID: id, Name: name, OnBad: "standby"} }
+	cam := func(id, name string) config.Camera {
+		return config.Camera{PublishPass: "publishpass", ID: id, Name: name, OnBad: "standby"}
+	}
 	a, b, c := cam("cam1", "One"), cam("cam2", "Two"), cam("cam3", "Three")
 	for _, tc := range []struct {
 		name      string
@@ -55,7 +57,7 @@ func TestCameraDiffByID(t *testing.T) {
 	}
 }
 func TestRewriteCameraNumberOrder(t *testing.T) {
-	cams := []config.Camera{{ID: "cam3", Name: "Three", OnBad: "hide"}, {ID: "cam1", Name: "One", OnBad: "standby"}}
+	cams := []config.Camera{{ID: "cam3", PublishPass: "publishpass", Name: "Three", OnBad: "hide"}, {ID: "cam1", PublishPass: "publishpass", Name: "One", OnBad: "standby"}}
 	out, err := Rewrite([]byte(base), []Change{{Path: "cameras", Value: cams}})
 	if err != nil {
 		t.Fatal(err)
@@ -64,7 +66,7 @@ func TestRewriteCameraNumberOrder(t *testing.T) {
 		t.Fatalf("%s", out)
 	}
 	// Saving another section must also normalize a manually reversed camera list.
-	reversed := strings.Replace(base, "id: cam1", "id: cam3", 1) + "  - id: cam1\n    name: One\n    on_bad: standby\n"
+	reversed := strings.Replace(base, "id: cam1", "id: cam3", 1) + "  - id: cam1\n    publish_pass: publishpass\n    name: One\n    on_bad: standby\n"
 	out, err = Rewrite([]byte(reversed), []Change{{Path: "log.keep_days", Value: 3}})
 	if err != nil {
 		t.Fatal(err)

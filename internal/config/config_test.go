@@ -14,9 +14,8 @@ import (
 func valid() *Config {
 	c := defaults()
 	c.Admin.Password = "adminpass"
-	c.Stream.PublishPass = "publishpass"
 	c.Stream.ReadPass = "readpass1"
-	c.Cameras = []Camera{{ID: "cam1", Name: "メインカメラ", OnBad: "standby"}}
+	c.Cameras = []Camera{{ID: "cam1", PublishPass: "publishpass", Name: "メインカメラ", OnBad: "standby"}}
 	return c
 }
 
@@ -105,23 +104,18 @@ func TestValidate(t *testing.T) {
 		{"publish_srt_port 負 落ちる", func(c *Config) { c.Stream.PublishSRTPort = -1 }, "stream.publish_srt_port"},
 		{"publish_srt_port 65536 落ちる", func(c *Config) { c.Stream.PublishSRTPort = 65536 }, "stream.publish_srt_port"},
 
-		{"publish_user 空 落ちる", func(c *Config) { c.Stream.PublishUser = "" }, "stream.publish_user"},
-		{"publish_user コロン 落ちる", func(c *Config) { c.Stream.PublishUser = "a:b" }, "stream.publish_user"},
-		{"publish_pass 空 落ちる", func(c *Config) { c.Stream.PublishPass = "" }, "stream.publish_pass"},
-		{"publish_pass # 落ちる", func(c *Config) { c.Stream.PublishPass = "abcdefg#h" }, "stream.publish_pass"},
+		{"publish_pass 空 落ちる", func(c *Config) { c.Cameras[0].PublishPass = "" }, "cameras[cam1].publish_pass"},
+		{"publish_pass # 落ちる", func(c *Config) { c.Cameras[0].PublishPass = "abcdefg#h" }, "cameras[cam1].publish_pass"},
 		{"read_user & 落ちる", func(c *Config) { c.Stream.ReadUser = "a&b" }, "stream.read_user"},
 		{"read_user 空 落ちる", func(c *Config) { c.Stream.ReadUser = "" }, "stream.read_user"},
 		{"read_pass 空白 落ちる", func(c *Config) { c.Stream.ReadPass = "abcd efgh" }, "stream.read_pass"},
 		{"read_pass 空 落ちる", func(c *Config) { c.Stream.ReadPass = "" }, "stream.read_pass"},
 
-		{"publish_pass 8文字 通る", func(c *Config) { c.Stream.PublishPass = "12345678" }, ""},
-		{"publish_pass 7文字 落ちる", func(c *Config) { c.Stream.PublishPass = "1234567" }, "stream.publish_pass"},
+		{"publish_pass 8文字 通る", func(c *Config) { c.Cameras[0].PublishPass = "12345678" }, ""},
+		{"publish_pass 7文字 落ちる", func(c *Config) { c.Cameras[0].PublishPass = "1234567" }, "cameras[cam1].publish_pass"},
 		{"read_pass 7文字 落ちる", func(c *Config) { c.Stream.ReadPass = "1234567" }, "stream.read_pass"},
 
-		{"publish_user any 落ちる", func(c *Config) { c.Stream.PublishUser = "any" }, "stream.publish_user"},
 		{"read_user any 落ちる", func(c *Config) { c.Stream.ReadUser = "any" }, "stream.read_user"},
-		{"user が同じ 落ちる", func(c *Config) { c.Stream.ReadUser = c.Stream.PublishUser }, "stream.read_user"},
-		{"user が異なる 通る", func(c *Config) { c.Stream.PublishUser = "alice"; c.Stream.ReadUser = "bob" }, ""},
 
 		{"standby_scene 空 落ちる", func(c *Config) { c.OBS.StandbyScene = "" }, "obs.standby_scene"},
 		{"standby_scene が監視対象と別 通る", func(c *Config) { c.OBS.StandbyScene = "待機" }, ""},
@@ -232,7 +226,7 @@ func TestByFieldは同じ項目の理由を句点でつなぐ(t *testing.T) {
 
 func TestLoadの検証のエラーはValidationError(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "c.yaml")
-	if err := os.WriteFile(p, []byte("admin:\n  port: 0\n  password: adminpass\nstream:\n  publish_pass: publishpass\n  read_pass: readpass1\ncameras:\n  - id: cam1\n    name: メイン\n    on_bad: standby\n"), 0o600); err != nil {
+	if err := os.WriteFile(p, []byte("admin:\n  port: 0\n  password: adminpass\nstream:\n  read_pass: readpass1\ncameras:\n  - id: cam1\n    publish_pass: publishpass\n    name: メイン\n    on_bad: standby\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	_, err := Load(p)
@@ -321,7 +315,7 @@ func TestGenerateとLoad(t *testing.T) {
 	if cfg.Admin.Password != "" {
 		t.Fatal("initial password must be empty")
 	}
-	secrets := []string{cfg.Stream.PublishPass, cfg.Stream.ReadPass}
+	secrets := []string{cfg.Cameras[0].PublishPass, cfg.Stream.ReadPass}
 	for _, s := range secrets {
 		if !re.MatchString(s) {
 			t.Errorf("生成した値が文字種・長さに合わない: %q", s)
@@ -354,7 +348,7 @@ func TestLoad(t *testing.T) {
 		}
 		return p
 	}
-	const minimal = "admin:\n  password: adminpass\nstream:\n  publish_pass: publishpass\n  read_pass: readpass1\ncameras:\n  - id: cam1\n    name: メイン\n    on_bad: standby\n"
+	const minimal = "admin:\n  password: adminpass\nstream:\n  read_pass: readpass1\ncameras:\n  - id: cam1\n    publish_pass: publishpass\n    name: メイン\n    on_bad: standby\n"
 
 	t.Run("省略した項目は既定値", func(t *testing.T) {
 		cfg, err := Load(write(t, minimal))
@@ -416,7 +410,7 @@ func TestLoad(t *testing.T) {
 	})
 	t.Run("検証に落ちる", func(t *testing.T) {
 		_, err := Load(write(t, "admin:\n  password: x\n"))
-		if err == nil || !strings.Contains(err.Error(), "stream.publish_pass") {
+		if err == nil || !strings.Contains(err.Error(), "stream.read_pass") {
 			t.Fatalf("err=%v", err)
 		}
 	})
@@ -451,7 +445,7 @@ func TestWarnings(t *testing.T) {
 
 func TestLoadの古いadmin_listen(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "c.yaml")
-	if err := os.WriteFile(p, []byte("admin:\n  listen: \"127.0.0.1:8787\"\n  password: adminpass\nstream:\n  publish_pass: publishpass\n  read_pass: readpass1\ncameras:\n  - id: cam1\n    name: メイン\n    on_bad: standby\n"), 0o600); err != nil {
+	if err := os.WriteFile(p, []byte("admin:\n  listen: \"127.0.0.1:8787\"\n  password: adminpass\nstream:\n  read_pass: readpass1\ncameras:\n  - id: cam1\n    publish_pass: publishpass\n    name: メイン\n    on_bad: standby\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	_, err := Load(p)
@@ -473,7 +467,7 @@ func TestLoadの古いadmin_listen(t *testing.T) {
 }
 
 func TestStudioModeHideの既定とエラー文(t *testing.T) {
-	const minimal = "admin:\n  password: adminpass\nstream:\n  publish_pass: publishpass\n  read_pass: readpass1\ncameras:\n  - id: cam1\n    name: メイン\n    on_bad: standby\n"
+	const minimal = "admin:\n  password: adminpass\nstream:\n  read_pass: readpass1\ncameras:\n  - id: cam1\n    publish_pass: publishpass\n    name: メイン\n    on_bad: standby\n"
 	cfg, err := parse([]byte(minimal))
 	if err != nil {
 		t.Fatal(err)
@@ -580,7 +574,7 @@ func TestCameraPath(t *testing.T) {
 func TestLoadのstream_app(t *testing.T) {
 	load := func(streamApp string) (*Config, error) {
 		p := filepath.Join(t.TempDir(), "config.yaml")
-		body := "admin:\n  password: adminPASS123\nstream:\n" + streamApp + "  publish_pass: pubPASS123\n  read_pass: readPASS123\ncameras:\n  - id: cam1\n    name: m\n    on_bad: standby\n"
+		body := "admin:\n  password: adminPASS123\nstream:\n" + streamApp + "  read_pass: readPASS123\ncameras:\n  - id: cam1\n    publish_pass: publishpass\n    name: m\n    on_bad: standby\n"
 		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
 			t.Fatal(err)
 		}

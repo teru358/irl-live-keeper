@@ -14,7 +14,7 @@ func ip(v int) *int { return &v }
 func cams(n int) []Camera {
 	out := make([]Camera, n)
 	for i := range out {
-		out[i] = Camera{ID: fmt.Sprintf("cam%d", i+1), Name: fmt.Sprintf("カメラ%d", i), OnBad: "standby"}
+		out[i] = Camera{PublishPass: "publishpass", ID: fmt.Sprintf("cam%d", i+1), Name: fmt.Sprintf("カメラ%d", i), OnBad: "standby"}
 	}
 	return out
 }
@@ -146,8 +146,8 @@ func writeCfg(t *testing.T, s string) string {
 	return p
 }
 
-const camMinimal = "admin:\n  password: adminpass\nstream:\n  publish_pass: publishpass\n  read_pass: readpass1\n"
-const oneCam = "cameras:\n  - id: cam1\n    name: メイン\n    on_bad: standby\n"
+const camMinimal = "admin:\n  password: adminpass\nstream:\n  read_pass: readpass1\n"
+const oneCam = "cameras:\n  - id: cam1\n    publish_pass: publishpass\n    name: メイン\n    on_bad: standby\n"
 
 func TestLoadCameras(t *testing.T) {
 	t.Run("rtmp_enabled と srt_enabled の省略は true", func(t *testing.T) {
@@ -169,13 +169,13 @@ func TestLoadCameras(t *testing.T) {
 		}
 	})
 	t.Run("カメラを読む（上書きは書いた項目だけ）", func(t *testing.T) {
-		y := "cameras:\n  - id: cam1\n    name: メイン\n    on_bad: standby\n  - id: cam2\n    name: サブ\n    on_bad: hide\n    switch:\n      fail_kbps: 400\n      recover_kbps: 800\n"
+		y := "cameras:\n  - id: cam1\n    publish_pass: publishpass\n    name: メイン\n    on_bad: standby\n  - id: cam2\n    publish_pass: publishpass\n    name: サブ\n    on_bad: hide\n    switch:\n      fail_kbps: 400\n      recover_kbps: 800\n"
 		cfg, err := Load(writeCfg(t, camMinimal+y))
 		if err != nil {
 			t.Fatal(err)
 		}
 		if len(cfg.Cameras) != 2 || cfg.Cameras[0].Switch != nil || cfg.Cameras[1].OnBad != "hide" {
-			t.Fatalf("%+v", cfg.Cameras)
+			t.Fatal("unexpected camera configuration")
 		}
 		sw := cfg.CameraSwitch(1)
 		if sw.FailKbps != 400 || sw.RecoverKbps != 800 || sw.LowSec != 5 || sw.DownSec != 2 {
@@ -193,19 +193,19 @@ func TestLoadCameras(t *testing.T) {
 		}
 	})
 	t.Run("switch の下の知らない項目は不正", func(t *testing.T) {
-		y := "cameras:\n  - id: cam1\n    name: メイン\n    on_bad: standby\n    switch:\n      fail_kb: 1\n"
+		y := "cameras:\n  - id: cam1\n    publish_pass: publishpass\n    name: メイン\n    on_bad: standby\n    switch:\n      fail_kb: 1\n"
 		if _, err := Load(writeCfg(t, camMinimal+y)); err == nil {
 			t.Fatal("通ってしまった")
 		}
 	})
 	t.Run("switch の下の auto_enabled は不正（5つの閾値だけ）", func(t *testing.T) {
-		y := "cameras:\n  - id: cam1\n    name: メイン\n    on_bad: standby\n    switch:\n      auto_enabled: false\n"
+		y := "cameras:\n  - id: cam1\n    publish_pass: publishpass\n    name: メイン\n    on_bad: standby\n    switch:\n      auto_enabled: false\n"
 		if _, err := Load(writeCfg(t, camMinimal+y)); err == nil {
 			t.Fatal("通ってしまった")
 		}
 	})
 	t.Run("カメラの知らない項目は不正", func(t *testing.T) {
-		y := "cameras:\n  - id: cam1\n    name: メイン\n    on_bad: standby\n    bogus: 1\n"
+		y := "cameras:\n  - id: cam1\n    publish_pass: publishpass\n    name: メイン\n    on_bad: standby\n    bogus: 1\n"
 		if _, err := Load(writeCfg(t, camMinimal+y)); err == nil {
 			t.Fatal("通ってしまった")
 		}
@@ -213,7 +213,7 @@ func TestLoadCameras(t *testing.T) {
 }
 
 func TestLoadの古いstream_name(t *testing.T) {
-	_, err := Load(writeCfg(t, "admin:\n  password: adminpass\nstream:\n  name: live\n  publish_pass: publishpass\n  read_pass: readpass1\n"+oneCam))
+	_, err := Load(writeCfg(t, "admin:\n  password: adminpass\nstream:\n  name: live\n  read_pass: readpass1\n"+oneCam))
 	if err == nil {
 		t.Fatal("通ってしまった")
 	}
@@ -255,8 +255,8 @@ func TestGenerateのカメラと受付(t *testing.T) {
 	if err := cfg.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if len(cfg.Cameras) != 1 || cfg.Cameras[0] != (Camera{ID: "cam1", Name: "メインカメラ", OnBad: "standby"}) {
-		t.Fatalf("%+v", cfg.Cameras)
+	if len(cfg.Cameras) != 1 || cfg.Cameras[0] != (Camera{PublishPass: cfg.Cameras[0].PublishPass, ID: "cam1", Name: "メインカメラ", OnBad: "standby"}) {
+		t.Fatal("unexpected camera configuration")
 	}
 	if !cfg.MediaMTX.RTMPEnabled || !cfg.MediaMTX.SRTEnabled {
 		t.Fatalf("%+v", cfg.MediaMTX)

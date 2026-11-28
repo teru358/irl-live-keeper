@@ -24,8 +24,8 @@ func TestPageHashNormalization(t *testing.T) {
 	if PageHash(a, "settings") != PageHash(b, "settings") {
 		t.Fatal("equal values differ")
 	}
-	a.Cameras = []config.Camera{{ID: "cam2"}, {ID: "cam1"}}
-	b.Cameras = []config.Camera{{ID: "cam1"}, {ID: "cam2"}}
+	a.Cameras = []config.Camera{{PublishPass: "publishpass", ID: "cam2"}, {ID: "cam1", PublishPass: "publishpass"}}
+	b.Cameras = []config.Camera{{PublishPass: "publishpass", ID: "cam1"}, {ID: "cam2", PublishPass: "publishpass"}}
 	if PageHash(a, "cameras") != PageHash(b, "cameras") {
 		t.Fatal("camera order changes hash")
 	}
@@ -64,8 +64,8 @@ func TestPageHashDefaultsAndFormatting(t *testing.T) {
 }
 
 func TestPageHashDistinguishesInheritedAndExplicitZero(t *testing.T) {
-	a := &config.Config{Cameras: []config.Camera{{ID: "cam1"}}}
-	b := &config.Config{Cameras: []config.Camera{{ID: "cam1", Switch: &config.SwitchOverride{LowSec: new(int)}}}}
+	a := &config.Config{Cameras: []config.Camera{{PublishPass: "publishpass", ID: "cam1"}}}
+	b := &config.Config{Cameras: []config.Camera{{ID: "cam1", PublishPass: "publishpass", Switch: &config.SwitchOverride{LowSec: new(int)}}}}
 	if PageHash(a, "cameras") == PageHash(b, "cameras") {
 		t.Fatal("inherited and explicit zero must have different versions")
 	}

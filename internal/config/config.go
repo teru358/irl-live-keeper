@@ -70,9 +70,10 @@ type MediaMTX struct {
 
 // Camera は監視するカメラ1台。
 type Camera struct {
-	ID    string `yaml:"id"`
-	Name  string `yaml:"name"`
-	OnBad string `yaml:"on_bad"`
+	ID          string `yaml:"id"`
+	PublishPass string `yaml:"publish_pass"`
+	Name        string `yaml:"name"`
+	OnBad       string `yaml:"on_bad"`
 	// Switch は共通の switch の閾値を上書きする値。省略可。書いた項目だけ上書きする。
 	Switch *SwitchOverride `yaml:"switch"`
 }
@@ -123,11 +124,9 @@ func (c *Config) CameraPath(id string) string {
 type Stream struct {
 	// App は MediaMTX の path の1段目（アプリ名）。path は `<app>/<カメラの id>` になる。既定は live。
 	// 空は「1段の path（<カメラの id> だけ）」。
-	App         string `yaml:"app"`
-	PublishUser string `yaml:"publish_user"`
-	PublishPass string `yaml:"publish_pass"`
-	ReadUser    string `yaml:"read_user"`
-	ReadPass    string `yaml:"read_pass"`
+	App      string `yaml:"app"`
+	ReadUser string `yaml:"read_user"`
+	ReadPass string `yaml:"read_pass"`
 	// ObsReadHost は OBS 用 URL の host。空なら 127.0.0.1。LAN の中継 PC に置くときは中継 PC の LAN のアドレス。
 	ObsReadHost string `yaml:"obs_read_host"`
 	// PublishRTMPPort / PublishSRTPort は送信用 URL に出すポート。0 なら受信のポート（mediamtx.*）と同じ。
@@ -187,7 +186,7 @@ func defaults() *Config {
 		MediaMTX: MediaMTX{
 			RTMPPort: 1935, SRTPort: 8890, RTSPPort: 8554, APIPort: 9997, RTMPEnabled: true, SRTEnabled: true,
 		},
-		Stream: Stream{App: "live", PublishUser: "irl", ReadUser: "obs"},
+		Stream: Stream{App: "live", ReadUser: "obs"},
 		OBS: OBS{
 			Host: "127.0.0.1", Port: 4455, StandbyScene: "Standby", StudioModeHide: StudioHideStandby,
 		},
@@ -273,6 +272,7 @@ mediamtx:
 
 cameras:                     # 1〜8台。番号の順に表示する
   - id: cam1                 # cam1〜cam8。重複不可。画面が空いている最小番号を付ける。作ったあとは変更不可
+    publish_pass: "*"
     name: メインカメラ        # 表示名（日本語可）。1〜32 文字
     on_bad: standby          # 回線が悪いとき: standby（待機シーンへ送る）/ hide（このカメラのソースを OBS で隠す）
     # switch:                # 省略可。書いた項目だけ共通の switch を上書きする（fail_kbps、low_sec、recover_kbps、recover_sec、down_sec）
@@ -280,8 +280,6 @@ cameras:                     # 1〜8台。番号の順に表示する
 
 stream:
   app: live                  # MediaMTX の path の1段目（アプリ名）。path は live/<カメラの id> になる。Larix や IRL Pro のように URL を「アプリ名」と「ストリームキー」に分けて入れるアプリ向け。空（""）にすると1段の path（<カメラの id> だけ）。使える文字は半角の英数字と _ - だけ
-  publish_user: irl
-  publish_pass: "*"
   read_user: obs             # OBS が読み出すときの資格情報（OBS 用 URL に埋め込む）
   read_pass: "*"
   obs_read_host: ""          # OBS 用 URL の host。空なら 127.0.0.1（本ツールを配信 PC に置く場合）。LAN の中継 PC に置くときは、中継 PC の LAN のアドレスを書く
@@ -450,8 +448,6 @@ func (c *Config) Validate() error {
 
 	// 資格情報と path 名
 	for _, f := range []struct{ field, v string }{
-		{"stream.publish_user", c.Stream.PublishUser},
-		{"stream.publish_pass", c.Stream.PublishPass},
 		{"stream.read_user", c.Stream.ReadUser},
 		{"stream.read_pass", c.Stream.ReadPass},
 	} {
@@ -462,7 +458,6 @@ func (c *Config) Validate() error {
 		}
 	}
 	for _, f := range []struct{ field, v string }{
-		{"stream.publish_pass", c.Stream.PublishPass},
 		{"stream.read_pass", c.Stream.ReadPass},
 	} {
 		if f.v != "" && len(f.v) < 8 {
@@ -470,15 +465,25 @@ func (c *Config) Validate() error {
 		}
 	}
 	for _, f := range []struct{ field, v string }{
-		{"stream.publish_user", c.Stream.PublishUser},
 		{"stream.read_user", c.Stream.ReadUser},
 	} {
 		if f.v == "any" {
 			add(f.field, i18n.New("config.validation_09"))
 		}
 	}
-	if c.Stream.PublishUser != "" && c.Stream.PublishUser == c.Stream.ReadUser {
+	if regexp.MustCompile(`^cam[1-8]$`).MatchString(c.Stream.ReadUser) {
 		add("stream.read_user", i18n.New("config.validation_10"))
+	}
+
+	for _, cam := range c.Cameras {
+		field := "cameras[" + cam.ID + "].publish_pass"
+		if cam.PublishPass == "" {
+			add(field, i18n.New("config.validation_06"))
+		} else if !nameRe.MatchString(cam.PublishPass) {
+			add(field, i18n.New("config.validation_07"))
+		} else if len(cam.PublishPass) < 8 {
+			add(field, i18n.New("config.validation_08", "a", fmt.Sprint(len(cam.PublishPass))))
+		}
 	}
 
 	// 送信用 URL と OBS 用 URL の host。IP アドレスか、スキーム・ポート・パス・角括弧を含まないホスト名

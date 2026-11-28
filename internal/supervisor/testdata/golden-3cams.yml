@@ -21,14 +21,22 @@ webrtc: false
 moq: false
 authMethod: internal
 authInternalUsers:
-  - user: irl
+  - user: cam1
     pass: pubPASS123
     ips: []
     permissions:
       - action: publish
         path: "live/cam1"
+  - user: cam2
+    pass: pubPASS123
+    ips: []
+    permissions:
       - action: publish
         path: "live/cam2"
+  - user: cam3
+    pass: pubPASS123
+    ips: []
+    permissions:
       - action: publish
         path: "live/cam3"
   - user: obs

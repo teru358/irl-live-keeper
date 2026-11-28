@@ -13,6 +13,7 @@ import (
 
 	"github.com/teru358/irl-live-keeper/internal/app"
 	"github.com/teru358/irl-live-keeper/internal/i18n"
+	"github.com/teru358/irl-live-keeper/internal/settings"
 )
 
 func main() {
@@ -74,6 +75,17 @@ func runMain() int {
 	}
 	defer release()
 	if duplicate {
+		return 0
+	}
+	if args.restore {
+		_, reset, err := settings.RestoreBackup(filepath.Join(base, "config.yaml"))
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		if reset {
+			fmt.Fprintln(os.Stdout, i18n.UI(i18n.OSLang())["credentials_reset"])
+		}
 		return 0
 	}
 	crashDir, crashPath, cleanupCrash, crashErr := prepareCrashOutput(base, started)

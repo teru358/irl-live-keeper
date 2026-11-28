@@ -2,7 +2,7 @@ const equal=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
 export const pageDirty=(values,baseline)=>!equal(values,baseline);
 export function projectPage(values,page,locations){
  function walk(value,path){
-  if(Array.isArray(value))return Object.entries(locations).some(([p,l])=>p.startsWith(path+'[].')&&l.page===page)?structuredClone(value):undefined;
+  if(Array.isArray(value))return Object.entries(locations).some(([p,l])=>p.startsWith(path+'[].')&&l.page===page)?value.map(({publish_pass,...camera})=>camera):undefined;
   if(value&&typeof value==='object'){const out={};for(const [k,v] of Object.entries(value)){const projected=walk(v,path?path+'.'+k:k);if(projected!==undefined)out[k]=projected;}return Object.keys(out).length?out:undefined;}
   return locations[path]?.page===page?value:undefined;
  }

@@ -58,9 +58,9 @@ func TestSenderAddressesFilterVirtualInterfaces(t *testing.T) {
 }
 func TestBuildSender(t *testing.T) {
 	cfg := testConfig(t)
-	cfg.Cameras = []config.Camera{{ID: "cam1", Name: "メイン"}}
+	cfg.Cameras = []config.Camera{{ID: "cam1", PublishPass: "publishpass", Name: "メイン"}}
 	cfg.Stream.PublishHost = "example.com"
-	cfg.Stream.PublishPass = "&?:%/ space"
+	cfg.Cameras[0].PublishPass = "&?:%/ space"
 	list := func() ([]netIface, error) {
 		return []netIface{{Up: true, Addrs: []net.Addr{&net.IPAddr{IP: net.ParseIP("100.64.0.2")}, &net.IPAddr{IP: net.ParseIP("192.168.1.3")}}}}, nil
 	}
@@ -81,14 +81,14 @@ func TestBuildSender(t *testing.T) {
 						t.Fatal(c)
 					}
 					if cfg.MediaMTX.SRTEnabled {
-						if c.SRT == nil || c.SRT.URL != want.PublishSRT || c.SRT.Address+"?streamid="+c.SRT.StreamID != want.PublishSRT || c.SRT.Password != cfg.Stream.PublishPass {
+						if c.SRT == nil || c.SRT.URL != want.PublishSRT || c.SRT.Address+"?streamid="+c.SRT.StreamID != want.PublishSRT || c.SRT.Password != cfg.Cameras[0].PublishPass {
 							t.Fatal(c)
 						}
 					} else if c.SRT != nil {
 						t.Fatal(c)
 					}
 					if cfg.MediaMTX.RTMPEnabled {
-						if c.RTMP == nil || c.RTMP.URL != want.PublishRTMP || c.RTMP.Address+"/"+c.RTMP.Key != want.PublishRTMP || c.RTMP.Password != cfg.Stream.PublishPass {
+						if c.RTMP == nil || c.RTMP.URL != want.PublishRTMP || c.RTMP.Address+"/"+c.RTMP.Key != want.PublishRTMP || c.RTMP.Password != cfg.Cameras[0].PublishPass {
 							t.Fatal(c)
 						}
 					} else if c.RTMP != nil {
