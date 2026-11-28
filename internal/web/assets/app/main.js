@@ -16,7 +16,7 @@ import {applyEvent,connectEvents} from './events.js';
 import {isOnline,setNotice,clearNotice,clearNetworkNotice,applyKey,reloadAfterApply,createSenderLoader} from './connection.js';
 const boot=JSON.parse(document.querySelector('#bootstrap').textContent);
 const i18n=createI18n(boot), {lang,t}=i18n, request=createAPI({lang,t,login:boot.login});
-mountShell(boot,i18n,request);
+const shell=mountShell(boot,i18n,request);
 if(!boot.login){mountSettings(t,request);mountSettings(t,request,'cameras');mountPhone(t,request);mountSources(t,request,lang);}
 const store=createStore({status:null,statusVersion:0,readings:{},flashes:{},cameraStates:{},scenes:[],pendingScene:'',disconnected:false,restarting:false,since:0,notice:'',busy:'',sender:null,host:'',camera:'',protocols:{},visible:{},copied:{},senderNotice:'',noticeNetwork:false});
 const update=fn=>store.update(fn), notice=e=>update(s=>setNotice(s,e));
@@ -65,3 +65,5 @@ if(!boot.login){
  window.addEventListener('keeper-page',e=>{update(s=>{clearNotice(s);s.senderNotice='';});if(e.detail==='cameras')loadSender();});window.addEventListener('keeper-restarting',()=>update(s=>{s.restarting=true;s.since=Date.now();}));
  setInterval(()=>{if(store.get().status?.obs.connected)loadScenes();},10000);setInterval(()=>{if(store.get().restarting)update(()=>{});},1000);
 }
+// The page of the first URL (#cameras ...) is announced now that every page is mounted.
+shell.start();

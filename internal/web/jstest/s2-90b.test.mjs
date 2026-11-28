@@ -69,8 +69,8 @@ test('the confirmation of a restart only does not say that the settings are appl
  assert.deepEqual(confirmationLines('restart',{},{apply:'restart'},false,t),['T:settings_restart_only']);
  assert.deepEqual(confirmationLines('restart',{},{apply:'restart'},true,t),['T:settings_restart_only','T:settings_stream_warning']);
  assert.equal(confirmationLines('save',{},{apply:'restart',fields:[]},false,t)[0],'T:settings_restart_mode');
- assert.equal(ui.ja.settings_restart_only,'本体を再起動します。設定は変わりません。');
- assert.equal(ui.en.settings_restart_only,'The app restarts. Settings do not change.');
+ assert.equal(ui.ja.settings_restart_only,'設定は変わりません。');
+ assert.equal(ui.en.settings_restart_only,'Settings do not change.');
 });
 
 // ---- Important 3: the event stream after the process was started again ----
