@@ -14,6 +14,7 @@ export function cameraAddReason(saved=[],draft=[],removed=[]){
 }
 export {cameraHeading} from './camera-name.js';
 import {cameraHeading} from './camera-name.js';
+import {confirmSpec} from './confirm-dialog.js';
 export function focusSettingError(errors,doc){
  const path=Object.keys(errors||{})[0];
  if(!path)return;
@@ -41,12 +42,16 @@ export function cameraUsageLines(ids,usage,t,saved={}){
  }
  return lines.length?[...lines,t('settings_camera_used_note')]:lines;
 }
+// A save that adds or removes a camera restarts everything that receives video.
+const cameraListChanged=preview=>(preview.fields||[]).some(f=>['added','removed'].includes(f.kind)&&/^cameras\[(cam[1-8])\]$/.test(f.path));
+// The lines under the title of the confirmation window: what happens.
 export function confirmationLines(action,payload,preview,streaming,t,saved={},usage=null){
  const lines=[];
- if(action==='regenerate')lines.push(t('settings_regenerate_'+payload.target));
  if(action==='regenerate'&&payload.target==='publish'){if(payload.camera)lines.push(cameraHeading({id:payload.camera},t));lines.push(t('publish_reset_warning'));}
  lines.push(t(action==='restart'?'settings_restart_only':preview.apply==='restart'?'settings_restart_mode':'settings_immediate'));
  if(streaming&&preview.apply==='restart')lines.push(t('settings_stream_warning'));
+ // While streaming, the warning above already says that the reception breaks.
+ if(!streaming&&cameraListChanged(preview))lines.push(t('settings_cameras_reset'));
  for(const f of preview.fields||[]){
   const key=f.path.replace(/\[(?:\d+|cam[1-8])\]/g,'').split('.').pop(),match=f.path.match(/^cameras\[(cam[1-8])\]/);
   const camera=match&&(typeof f.camera_name==='string'?{id:match[1],name:f.camera_name}:((f.kind==='removed'?saved.cameras:payload?.values?.cameras)?.find(c=>c.id===match[1])||saved.cameras?.find(c=>c.id===match[1])||{id:match[1]}));
@@ -55,4 +60,45 @@ export function confirmationLines(action,payload,preview,streaming,t,saved={},us
  lines.push(...cameraUsageLines(removedCameraIDs(preview),usage,t,saved));
  if(preview.admin_lan_will_close)lines.push(t('settings_lan_close'));
  return lines;
+}
+// The title of the confirmation window: 「〜しますか？」.
+export function confirmationTitle(action,payload,t){
+ if(action==='restart')return t('confirm_restart');
+ if(action==='regenerate')return t('confirm_regenerate_'+payload.target);
+ return t('confirm_save');
+}
+// Only a save that deletes a camera is an operation that deletes (a red 「はい」, the focus on 「いいえ」). Saving, restarting and regenerating are blue (spec v0.37).
+export const confirmationDanger=preview=>removedCameraIDs(preview||{}).length>0;
+export function confirmationSpec(action,payload,preview,streaming,t,saved={},usage=null,extraLines=[]){
+ return confirmSpec(t,{title:confirmationTitle(action,payload,t),lines:[...confirmationLines(action,payload,preview,streaming,t,saved,usage),...extraLines],danger:confirmationDanger(preview)});
+}
+
+// ---- Deleting a camera leaves its card (A-9): the camera leaves the draft values (so the draft, the unsaved mark and the save work as before),
+// and the card stays as 「保存すると削除します」 with 「取り消す」. The removed row is kept to put it back.
+const byID=(a,b)=>a.id.localeCompare(b.id);
+const isSaved=(s,id)=>!!s.data?.values?.cameras?.some(c=>c.id===id);
+export function removeCamera(s,id){
+ const row=s.values.cameras.find(c=>c.id===id);
+ if(!row)return false;
+ s.values.cameras=s.values.cameras.filter(c=>c.id!==id);
+ s.removedCameraIDs=[...new Set([...(s.removedCameraIDs||[]),id])];
+ if(isSaved(s,id))s.removedRows={...s.removedRows,[id]:structuredClone(row)};
+ return true;
+}
+export function undoCameraRemoval(s,id){
+ if(!isSaved(s,id)||s.values.cameras.some(c=>c.id===id))return false;
+ const row=structuredClone(s.removedRows?.[id]||s.data.values.cameras.find(c=>c.id===id));
+ s.values.cameras=[...s.values.cameras,row].sort(byID);
+ s.removedCameraIDs=(s.removedCameraIDs||[]).filter(x=>x!==id);
+ const rows={...s.removedRows};delete rows[id];s.removedRows=rows;
+ return true;
+}
+// The cards of the camera page in order of their ids: the cameras of the draft, and the saved cameras that the draft deletes (removing: true).
+export function cameraCards(values=[],saved=[],removedIDs=[],rows={}){
+ const cards=values.map(row=>({id:row.id,row,removing:false}));
+ for(const id of new Set(removedIDs)){
+  const base=saved.find(c=>c.id===id);
+  if(base&&!values.some(c=>c.id===id))cards.push({id,row:rows[id]||base,removing:true});
+ }
+ return cards.sort(byID);
 }

@@ -83,12 +83,12 @@ test('testReset sets every axis to actual and turns free off, keeping the typed 
  assert.equal(state.testSignature(s)===state.testSignature({...s,line:'OK'}),false);
 });
 
-test('delete prompts identify source titles and asset names, with fallback for missing sources',()=>{
+test('delete confirmations identify source titles and asset names, with fallback for missing sources',()=>{
  const list=[{name:'a',title:'回線の表示'},{name:'b',title:''}];
  const t=key=>({src_confirmdelete:'「{name}」を削除しますか？',src_used:'使用中のソース: {sources}',src_file_used_note:'直しが要ります。OBS は空になります。'})[key];
- assert.equal(state.deletePrompt(list[0],list,t),'「回線の表示」を削除しますか？');
- assert.equal(state.deletePrompt({name:'image.png',used_by:['a','b','gone']},list,t),'「image.png」を削除しますか？\n使用中のソース: 回線の表示, b, gone\n直しが要ります。OBS は空になります。');
- assert.equal(state.deletePrompt({name:'d/e.png',used_by:[]},list,t),'「d/e.png」を削除しますか？');
+ assert.deepEqual(state.deleteParts(list[0],list,t),{title:'「回線の表示」を削除しますか？',lines:[]});
+ assert.deepEqual(state.deleteParts({name:'image.png',used_by:['a','b','gone']},list,t),{title:'「image.png」を削除しますか？',lines:['使用中のソース: 回線の表示, b, gone','直しが要ります。OBS は空になります。']});
+ assert.deepEqual(state.deleteParts({name:'d/e.png',used_by:[]},list,t),{title:'「d/e.png」を削除しますか？',lines:[]});
 });
 test('the delete note says that the image stops showing and the editor warns, in both languages',async()=>{
  const {readFileSync}=await import('node:fs');

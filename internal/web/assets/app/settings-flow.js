@@ -34,7 +34,7 @@ export function applyLoaded(s,{data,scenes,page,background,t,normalize}){
  s.scenes=scenes;
  if(!s.carryErrors)s.errors={};
  s.carryErrors=false;
- if(!background){s.removedCameraIDs=[];s.applyNotice='';}
+ if(!background){s.removedCameraIDs=[];s.removedRows={};s.applyNotice='';}
 }
 // A status event: the states of the cameras, whether the stream runs, whether OBS is connected (the scene choice needs
 // it), and the notice of a failed or reverted apply.
@@ -58,7 +58,7 @@ export const confirmReload=(s,ask,t)=>!dirty(s)||ask(t('settings_discard'));
 // the destinations are read again when the status says applied or reverted. Immediate apply reads at once.
 // A restart alone changes no saved value, so the baseline stays.
 export async function finishAccept({action,result,values,preview,updateOBS,t,update,dispatch,load,closeDialog,page,go=()=>{}}){
- update(x=>{if(action!=='restart')x.baseline=JSON.stringify(values);clearNotice(x);x.notice=t(action==='restart'?'settings_restart_accepted':'settings_saved');if(preview.obs_url_changes&&!updateOBS)x.notice=t('settings_pending_urls');});
+ update(x=>{if(action!=='restart'){x.baseline=JSON.stringify(values);x.removedCameraIDs=[];x.removedRows={};}clearNotice(x);x.notice=t(action==='restart'?'settings_restart_accepted':'settings_saved');if(preview.obs_url_changes&&!updateOBS)x.notice=t('settings_pending_urls');});
  closeDialog();
  if(action==='restart'||result.apply==='restart'){
   dispatch('keeper-restarting');
