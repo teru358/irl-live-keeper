@@ -17,8 +17,15 @@ func (a *App) SourcesStore() *sources.Store {
 
 func (b *pageBackend) SourcesStore() *sources.Store { return b.sourceStore }
 
+// SourceFilesStore returns the one store of the source-files folder, so that
+// its index is kept between requests.
 func (a *App) SourceFilesStore() *sources.FilesStore {
-	return &sources.FilesStore{Dir: filepath.Join(a.opts.BaseDir, "source-files")}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.filesStore == nil {
+		a.filesStore = &sources.FilesStore{Dir: filepath.Join(a.opts.BaseDir, "source-files")}
+	}
+	return a.filesStore
 }
 
 func statisticsReader(o obsRunner) sources.StatisticsReader {
