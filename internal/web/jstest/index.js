@@ -12,3 +12,5 @@ import './html.test.mjs';
 import './reconcile.test.mjs';
 
 import './review.test.mjs';
+
+import './body-editor.test.mjs';

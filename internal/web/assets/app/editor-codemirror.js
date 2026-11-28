@@ -7,7 +7,8 @@ import {autocompletion, completionKeymap} from '@codemirror/autocomplete';
 import {setDiagnostics, lintGutter} from '@codemirror/lint';
 import {css} from '@codemirror/lang-css';
 import {editorInsertion} from './sources-state.js';
-import {templateState, nextTemplateToken, templateCompletion} from './template-lexer.js';
+import {bodyAssetInsertion,diagnosticRange} from './source-body.js';
+import {templateState, nextTemplateToken, bodyCompletion} from './template-lexer.js';
 
 const template=StreamLanguage.define({
  startState:templateState,
@@ -25,6 +26,8 @@ const theme=EditorView.theme({
 });
 const colors=HighlightStyle.define([
  {tag:[tags.bracket,tags.punctuation],color:'var(--muted)'},
+ {tag:[tags.tagName,tags.attributeName,tags.propertyName],color:'var(--act)'},
+ {tag:tags.comment,color:'var(--muted)'},
  {tag:tags.keyword,color:'var(--act)'},
  {tag:tags.variableName,color:'var(--source-value)'},
  {tag:tags.string,color:'var(--ok)'},
@@ -32,24 +35,22 @@ const colors=HighlightStyle.define([
  {tag:tags.operator,color:'var(--act)'},
  {tag:tags.invalid,color:'var(--down)'},
 ]);
-export function createEditor(container,{kind='template',value='',names=[],label='',onChange=()=>{},t=key=>key}={}) {
+export function createEditor(container,{kind='template',value='',names=[],files=()=>[],onFiles=()=>{},label='',onChange=()=>{},t=key=>key}={}) {
  const phrases=Object.fromEntries([["Completions", "editor_completions"], ["Diagnostics", "editor_diagnostics"], ["No diagnostics", "editor_no_diagnostics"], ["close", "editor_close"], ["Control character", "editor_control_character"]].map(([phrase,key])=>[phrase,t(key)]));
  const completion=context=>{
-  const range=templateCompletion(context.state.doc.sliceString(0,context.pos),context.explicit);
-  if(!range)return null;
-  return {...range,options:names.map(name=>({label:name,type:'variable'})),validFor:/^[A-Za-z0-9_.]*$/};
+  return bodyCompletion(context.state.doc.sliceString(0,context.pos),names,files(),context.explicit);
  };
  let cursorPlaced=false;
  const view=new EditorView({parent:container,state:EditorState.create({doc:value,extensions:[
   EditorState.phrases.of(phrases),EditorView.contentAttributes.of({'aria-label':label,'name':'source-editor-'+kind}),
-  EditorView.domEventHandlers({pointerdown(){cursorPlaced=true;},keydown(){cursorPlaced=true;}}),
+  EditorView.domEventHandlers({drop(event){if(event.dataTransfer?.files.length){event.preventDefault();event.stopPropagation();onFiles([...event.dataTransfer.files]);return true;}},pointerdown(){cursorPlaced=true;},keydown(){cursorPlaced=true;}}),
   lineNumbers(),EditorView.lineWrapping,drawSelection(),history(),lintGutter(),theme,syntaxHighlighting(colors),
   keymap.of([...completionKeymap,...defaultKeymap,...historyKeymap]),
   kind==='css'?css():[template,autocompletion({override:[completion]})],
   EditorView.updateListener.of(update=>{if(update.docChanged)onChange(update.state.doc.toString());}),
  ]})});
  const insert=(text,asset=false)=>{
-  const change=editorInsertion(view.state.doc.toString(),view.state.selection.main,cursorPlaced,text,asset);
+  const change=(asset?bodyAssetInsertion:editorInsertion)(view.state.doc.toString(),view.state.selection.main,cursorPlaced,text);
   view.dispatch({changes:change,selection:{anchor:change.from+change.insert.length},scrollIntoView:true});
   view.focus();
  };
@@ -61,9 +62,8 @@ export function createEditor(container,{kind='template',value='',names=[],label=
   // API positions: 1-based line and Unicode character; CM uses UTF-16.
   setErrors(errors){view.dispatch(setDiagnostics(view.state,errors.map(error=>{
    const line=view.state.doc.line(Math.max(1,Math.min(view.state.doc.lines,error.line)));
-   const offset=Array.from(line.text).slice(0,Math.max(0,error.column-1)).join('').length;
-   const from=line.from+offset;
-   return {from,to:Math.min(line.to,from+(line.text.codePointAt(offset)>0xffff?2:1)),severity:'error',message:error.message};
+   const range=diagnosticRange(line.text,error.column);
+   return {from:line.from+range.from,to:line.from+range.to,severity:error.severity||'error',message:error.message};
   })));},
   destroy:()=>view.destroy(),
  };
