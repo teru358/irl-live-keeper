@@ -1,15 +1,9 @@
 # チケット一覧
 
 自動生成: `ticket.py index` (tickets skill)。手で編集しない。
-未完了: 14 件。完了分は closed/。
+未完了: 11 件。完了分は closed/。
 
-## 設計待ち (14)
-
-### 不具合 (1)
-
-| id | 優先 | 起票 | 概要 |
-|---|---|---|---|
-| [html-split-charref](open/html-split-charref.md) | 低 | 2026-11-28 | 文字参照を差し込みや if で割ると、保存できたのに表示で誤りになる |
+## 設計待ち (11)
 
 ### 機能 (10)
 
@@ -26,11 +20,9 @@
 | [status-warning-heading-empty](open/status-warning-heading-empty.md) | 低 | 2026-11-28 | 「状態」の「注意」が、注意がないときも見出しとボタンだけ出る |
 | [stream-history](open/stream-history.md) | 低 | 2026-11-28 | 配信の記録と直近10分のグラフ（区切り3 全体。後回し） |
 
-### 保守 (3)
+### 保守 (1)
 
 | id | 優先 | 起票 | 概要 |
 |---|---|---|---|
 | [integ-overload-failures](open/integ-overload-failures.md) | 低 | 2026-11-23 | 結合のテストが強い過負荷（32本×2回）で INV-03・INV-04・入場の逆順で落ちる |
-| [html-nul-code-mismatch](open/html-nul-code-mismatch.md) | 低 | 2026-11-28 | 閉じない属性値の中の NUL で、Go と JS の誤りの code が違う |
-| [template-compile-quadratic](open/template-compile-quadratic.md) | 低 | 2026-11-28 | テンプレートの Compile が本文の長さの2乗に近い時間がかかる |
 

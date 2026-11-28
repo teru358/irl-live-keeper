@@ -346,6 +346,27 @@ type htmlScanner struct {
 	lenient bool
 }
 
+// splitCharRef reports where a template tag cuts a character reference that
+// starts at s[i] (an '&'). The reference is "in progress" when the '&' is
+// followed by '#' and/or letters and digits (&#, &#x, &amp, &#12) and the next
+// character opens a template tag: the rendered text could then become a
+// reference that the saved text never showed (&#{if a}0{end}; gives &#0;). The
+// '{' of the tag is returned; -1 means no split. '&' followed directly by a tag
+// or by anything else is not a reference start, and '{{' is a literal brace.
+func splitCharRef(s string, i int) int {
+	j := i + 1
+	if j < len(s) && s[j] == '#' {
+		j++
+	}
+	for j < len(s) && (letter(s[j]) || s[j] >= '0' && s[j] <= '9') {
+		j++
+	}
+	if j > i+1 && j < len(s) && s[j] == '{' && !strings.HasPrefix(s[j:], "{{") {
+		return j
+	}
+	return -1
+}
+
 func (p *htmlScanner) fail(pos int, code string) error { return htmlError(p.s, pos, code) }
 func (p *htmlScanner) css(s string, base int, decode bool) error {
 	positions := make([]int, len(s)+1)
@@ -424,6 +445,11 @@ func (p *htmlScanner) run() error {
 				return p.fail(i, "html_nesting")
 			}
 			if s[i] == '&' {
+				if p.mode == "save" && !p.lenient {
+					if j := splitCharRef(s, i); j >= 0 {
+						return p.fail(j, "html_template_position")
+					}
+				}
 				if htmlPatterns["^&#(0+|[xX]0+);"].MatchString(s[i:]) {
 					return p.fail(i, "html_nul")
 				}
@@ -533,6 +559,11 @@ func (p *htmlScanner) run() error {
 				}
 				if s[i] == 0 {
 					return p.fail(i, "html_nul")
+				}
+				if s[i] == '&' && p.mode == "save" && !p.lenient && attr != "src" && attr != "style" {
+					if j := splitCharRef(s, i); j >= 0 {
+						return p.fail(j, "html_template_position")
+					}
 				}
 				i++
 			}

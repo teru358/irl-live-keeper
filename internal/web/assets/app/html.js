@@ -175,7 +175,7 @@ export function validateRendered(s, rules) {
       while (ws(s[i])) i++;
       if (s[i] === '{') return issue('html_template_position');
       if (s[i++] !== '"') return issue('html_quote');
-      const a = i, end = s.indexOf('"', i); if (end < 0) return issue('html_lex');
+      const a = i, end = s.indexOf('"', i); if (end < 0) return issue(s.includes('\0', i) ? 'html_nul' : 'html_lex');
       const raw = s.slice(a, end); i = end + 1;
       if (raw.includes('\0')) return issue('html_nul');
       if (attr === 'src' || attr === 'style') {

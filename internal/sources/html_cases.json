@@ -502,6 +502,21 @@
     {"id": "H498", "mode": "save", "input": "<img src=\"/source/files/夕焼け.png?v=0123456789ab&amp;v=0123456789ab\">", "expect": "error", "reason": "S2-87 Unicode 15.0", "error": {"code": "template.html_url", "line": 1, "column": 11}},
     {"id": "H499", "mode": "rendered", "input": "<img src=\"/source/files/夕焼け.png?v=0123456789ab&amp;v=0123456789ab\">", "expect": "error", "reason": "S2-87 Unicode 15.0", "error": {"code": "template.html_url", "line": 1, "column": 11}},
     {"id": "H500", "mode": "save", "input": "😀<img src=\"/source/files/夕 焼け.png\">", "expect": "error", "reason": "S2-87 Unicode 15.0", "error": {"code": "template.html_url", "line": 1, "column": 12}},
-    {"id": "H501", "mode": "rendered", "input": "😀<img src=\"/source/files/夕 焼け.png\">", "expect": "error", "reason": "S2-87 Unicode 15.0", "error": {"code": "template.html_url", "line": 1, "column": 12}}
+    {"id": "H501", "mode": "rendered", "input": "😀<img src=\"/source/files/夕 焼け.png\">", "expect": "error", "reason": "S2-87 Unicode 15.0", "error": {"code": "template.html_url", "line": 1, "column": 12}},
+    {"id": "H502", "mode": "save", "input": "<div title=\"&#{if cam1.online}a{end}0;\"></div>", "expect": "error", "reason": "html-split-charref: 属性値の数値参照を if で割る", "error": {"code": "template.html_template_position", "line": 1, "column": 15}},
+    {"id": "H503", "mode": "save", "input": "<p>&#{cam1.name}0;</p>", "expect": "error", "reason": "html-split-charref: 本文の数値参照を差し込みで割る", "error": {"code": "template.html_template_position", "line": 1, "column": 6}},
+    {"id": "H504", "mode": "save", "input": "<p>&amp{cam1.name};</p>", "expect": "error", "reason": "html-split-charref: 名前つき参照の途中", "error": {"code": "template.html_template_position", "line": 1, "column": 8}},
+    {"id": "H505", "mode": "save", "input": "<div title=\"&amp{cam1.name};\"></div>", "expect": "error", "reason": "html-split-charref: 属性値の名前つき参照の途中", "error": {"code": "template.html_template_position", "line": 1, "column": 17}},
+    {"id": "H506", "mode": "save", "input": "<p>&#x{cam1.name};</p>", "expect": "error", "reason": "html-split-charref: 16進参照の途中", "error": {"code": "template.html_template_position", "line": 1, "column": 7}},
+    {"id": "H507", "mode": "save", "input": "<p>😀\n&#{cam1.name}0;</p>", "expect": "error", "reason": "html-split-charref: 行と文字目はコードポイント", "error": {"code": "template.html_template_position", "line": 2, "column": 3}},
+    {"id": "H508", "mode": "save", "input": "<p>a & {cam1.name}</p>", "expect": "ok", "reason": "html-split-charref: & のあとが空白なら通す"},
+    {"id": "H509", "mode": "save", "input": "<p>&{cam1.name}</p>", "expect": "ok", "reason": "html-split-charref: & のすぐあとの差し込みは今の決まりどおり通す"},
+    {"id": "H510", "mode": "save", "input": "<p>R&D {cam1.name}</p>", "expect": "ok", "reason": "html-split-charref: 名前のあとが空白なら通す"},
+    {"id": "H511", "mode": "save", "input": "<p>&amp;{cam1.name}</p>", "expect": "ok", "reason": "html-split-charref: 参照が閉じたあとの差し込みは通す"},
+    {"id": "H512", "mode": "save", "input": "<div title=\"a & {cam1.name}\"></div>", "expect": "ok", "reason": "html-split-charref: 属性値の & のあとが空白なら通す"},
+    {"id": "H513", "mode": "save", "input": "<p>&#{{;</p>", "expect": "ok", "reason": "html-split-charref: 波括弧の文字 {{ は差し込みでない"},
+    {"id": "H514", "mode": "rendered", "input": "<div dir=\"\u0000{cam1.nam></div>", "expect": "error", "reason": "html-nul-code-mismatch: 閉じない属性値の NUL は html_nul", "error": {"code": "template.html_nul", "line": 1, "column": 11}},
+    {"id": "H515", "mode": "rendered", "input": "<div dir=\"\u0000{cam1.nam\"></div>", "expect": "error", "reason": "html-nul-code-mismatch: 閉じる属性値の NUL（変わらない）", "error": {"code": "template.html_nul", "line": 1, "column": 11}},
+    {"id": "H516", "mode": "rendered", "input": "<div dir=\"{cam1.nam></div>", "expect": "error", "reason": "html-nul-code-mismatch: NUL がなければ閉じない属性値は html_lex", "error": {"code": "template.html_lex", "line": 1, "column": 1}}
   ]
 }

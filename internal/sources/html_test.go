@@ -186,6 +186,38 @@ func TestHTMLNonFiniteNumber(t *testing.T) {
 	}
 }
 
+// 制御タグが並ぶ 64 KiB の本文でも、保存の検査は長さに比例する時間で終わる。
+func BenchmarkHTMLSaveControlTags64KiB(b *testing.B) {
+	unit := "{if cam1.online}a{end}"
+	for name, input := range map[string]string{
+		"one line":   strings.Repeat(unit, 65536/len(unit)),
+		"with lines": strings.Repeat(unit+"\n", 65536/(len(unit)+1)),
+	} {
+		b.Run(name, func(b *testing.B) {
+			defs := map[string]template.Definition{"cam1.online": {Type: template.Bool}}
+			b.SetBytes(int64(len(input)))
+			for i := 0; i < b.N; i++ {
+				if _, err := CompileHTML(input, defs); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
+// 文字参照を割る本文は保存で断るが、すでに保存された本文の参照は最後まで読む。
+func TestReferencesOfBodyWithSplitCharRef(t *testing.T) {
+	body := "<p>&#{cam1.name}0;</p><img src=\"/source/files/a.png\">"
+	defs := map[string]template.Definition{"cam1.name": {Type: template.String}}
+	if _, err := CompileHTML(body, defs); err == nil {
+		t.Fatal("split character reference was saved")
+	}
+	got := ReferencesOf(body, defs)
+	if !slices.Equal(got.Assets, []string{"/source/files/a.png"}) || !slices.Equal(got.Cameras, []string{"cam1"}) {
+		t.Fatalf("references %+v", got)
+	}
+}
+
 func BenchmarkHTMLSave64KiB(b *testing.B) {
 	for name, unit := range map[string]string{"substitutions": "{n}", "ampersands": "&", "references": "&amp;", "urls": "url(/source/files/a.png);"} {
 		b.Run(name, func(b *testing.B) {
