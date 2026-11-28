@@ -25,6 +25,8 @@ import (
 
 // 結合の試験: 乱数の入力の列を、偽の OBS の世界に対して流し、第5節の4つ（HB-INV-01〜04）をいつも確かめる。
 // 判定は、世界の事実と hidden.json のファイルの中身だけ。core と Machine の内部（observe、Machine の状態）は読まない。
+// （静まるのを待つ所だけは、中核ループの goroutine で呼ばれる observe のフックから、列に積んだバッチの数と
+// persistRev を読む。判定には使わない。）
 // 落ちたら、種、プロファイル、入力の列、世界の記録の末尾を出す。
 // 回数: -short で少なく、ふだんは数百。IRL_INTEG_SEEDS で種の数を変えられる（深く回すとき）。
 
@@ -83,12 +85,13 @@ func (r *runner) startGen(autoOn bool, studioHide string) {
 	gnum := w.gen
 	w.fbOnNewGenLocked()
 	w.mu.Unlock()
+	w.switchWriteGen(gnum) // 古い世代の書き込みの終わりを待ち、以後は捨てる。新しい世代が読む hidden.json は、その後の中身
 	entries, warn := LoadHiddenMessage(r.path)
 	g := &gen{samples: make(chan ingest.SampleSet), ticks: make(chan time.Time), done: make(chan struct{})}
 	deps := Deps{
 		OBS: &genClient{w: w, gen: gnum}, StandbyScene: standby, Cameras: w.deviceCameras(), AutoEnabled: autoOn,
 		StudioModeHide: studioHide, HiddenPath: r.path, HiddenRestored: entries, HiddenLoadMessage: warn,
-		HiddenWrite: r.hw.wrap(nil), HiddenRetry: 5 * time.Millisecond, StopTimeout: 300 * time.Millisecond,
+		HiddenWrite: r.hw.wrap(w.pokeAfterWrite(w.gateWrite(gnum, nil))), HiddenRetry: 5 * time.Millisecond, StopTimeout: 300 * time.Millisecond,
 		Samples: g.samples, Tick: g.ticks, Now: r.clk.Now,
 		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
@@ -103,7 +106,9 @@ func (r *runner) startGen(autoOn bool, studioHide string) {
 		}
 	}
 	g.core = New(deps)
-	g.core.observe = w.observeCore
+	g.core.observe = w.observeGen(g.core)
+	w.coreBusy.Store(0)
+	w.persistObs.Store(int64(g.core.persistRev)) // 前の世代の番号を残さない（番号は世代ごとに0から数え直す）
 	if w.fb != nil {
 		w.mu.Lock()
 		w.fb.snap = g.core.Snapshot
@@ -174,19 +179,74 @@ func (r *runner) sendTick() {
 	}
 }
 
-// settle は、本体と偽の OBS のやりとりが静まるまで待つ（Tick を流しながら、偽の OBS の動きが続けて止まるのを見る）。
+// settle は、本体と偽の OBS のやりとりが静まるまで待つ。Tick を2つ続けて渡すと、それまでに渡したイベントの処理が中核ループで
+// 終わっている。そのうえで、偽の OBS の動き（activity）が変わらず、実行中の要求がなく、中核ループが積んだバッチがすべて
+// 終わっている（coreIdle）ことを2周続けて確かめる。静まっていなければ、動きの知らせ（要求の終わり、イベントの処理、
+// BatchDone）を待ってから見直す。実時間の短い sleep のくり返しはしない。
 func (r *runner) settle() {
-	quiet := 0
-	for i := 0; i < 600 && quiet < 3; i++ {
-		before := r.w.activity.Load()
-		r.sendTick()
-		r.sendTick()
-		time.Sleep(80 * time.Microsecond)
-		if r.w.activity.Load() == before && (r.w.fb == nil || r.w.faulty || r.w.inflight.Load() == 0) {
-			quiet++
-		} else {
-			quiet = 0
+	if !r.awaitIdle(2, settleLimit) {
+		integWaits.settleGaveUp.Add(1)
+		if !r.w.faulty { // 通常の列で静まらないのは、本体の止まりか試験の待ちの抜け。打ち切って先へ進むと原因が見えなくなる
+			r.fatalf("settle: %v たっても本体と偽の OBS が静まらない（inflight=%d coreBusy=%d）", settleLimit, r.w.inflight.Load(), r.w.coreBusy.Load())
 		}
+	}
+}
+
+// settleLimit は静まるのを待つ実時間の上限（応えない本体の見張り。通常は動きの知らせで先に終わる）。
+const settleLimit = 20 * time.Second
+
+// awaitIdle は quietRounds 周続けて静かなら true。limit を過ぎたら、診断を残して false。
+func (r *runner) awaitIdle(quietRounds int, limit time.Duration) bool {
+	w := r.w
+	deadline := time.Now().Add(limit)
+	for quiet := 0; quiet < quietRounds; {
+		w.drainWake()
+		before := w.activity.Load()
+		r.sendTick()
+		r.sendTick()
+		if w.activity.Load() == before && w.coreIdle() {
+			quiet++
+			continue
+		}
+		quiet = 0
+		if !time.Now().Before(deadline) {
+			w.settleTimedOut.Add(1)
+			w.mu.Lock()
+			w.logf("静まるのを %v 待ったが静まらない（打ち切り。inflight=%d coreBusy=%d hung=%d）", limit, w.inflight.Load(), w.coreBusy.Load(), len(w.hung))
+			w.mu.Unlock()
+			return false
+		}
+		w.waitWake(100 * time.Millisecond) // 100ms は取りこぼしの保険。動きの知らせで先に起きる
+	}
+	return true
+}
+
+// waitHiddenWritten は、中核ループが保存を求めた最後の番号まで hidden.json が書けるのを待つ（persister の書き込みは
+// 非同期。偽の時計の進みに実時間の書き込みが追いつくのを待つ）。Tick を3つ渡すと、最後の1つを受け取る時点で、
+// 最初の Tick の処理の publish（保存の依頼）が済んでいて、次の observe がその番号を写している。
+func (r *runner) waitHiddenWritten() {
+	g := r.cur
+	if g == nil || g.core.store == nil {
+		return
+	}
+	w := r.w
+	deadline := time.Now().Add(settleLimit)
+	for {
+		w.drainWake()
+		r.sendTick()
+		r.sendTick()
+		r.sendTick()
+		want := w.persistObs.Load()
+		if g.core.store.writtenRev.Load() >= want && r.hw.inflight.Load() == 0 {
+			return
+		}
+		if !time.Now().Before(deadline) {
+			w.mu.Lock()
+			w.logf("hidden.json の書き込みが追いつかない（打ち切り。保存を求めた番号 %d、書けた番号 %d）", want, g.core.store.writtenRev.Load())
+			w.mu.Unlock()
+			return
+		}
+		w.waitWake(5 * time.Millisecond) // 書き込みの終わりの知らせは、書けた番号の更新より少し早いので、短い保険をつける
 	}
 }
 
@@ -223,20 +283,24 @@ func (r *runner) second() {
 	}
 	r.sendTick()
 	r.settle()
-	for i := 0; i < 200; i++ {
+	// hidden.json の書き直しは非同期。保存を求めた番号まで書けてから見る。それでも足りなければ、書き込みの知らせを待って見直す。
+	r.waitHiddenWritten()
+	recheck := time.Now().Add(5 * time.Second)
+	for {
 		w.mu.Lock()
 		msg := ""
 		if !w.fatalLocked() {
 			msg = w.persistentProblemLocked()
 		}
-		if msg != "" && i == 199 {
+		late := !time.Now().Before(recheck)
+		if msg != "" && late {
 			w.violate("%s", msg)
 		}
 		w.mu.Unlock()
-		if msg == "" {
+		if msg == "" || late {
 			break
 		}
-		time.Sleep(time.Millisecond) // 非同期の書き直しを待つ
+		w.waitWake(10 * time.Millisecond)
 	}
 	r.fbCheck("1秒の終わり")
 }
@@ -344,6 +408,7 @@ func (r *runner) stepfLocked(f string, a ...any) {
 
 func (r *runner) humanScene() {
 	w := r.w
+	w.sendMu.Lock() // program を変えてからイベントを積むまでを、偽の OBS の要求（SetSceneUUID）と入れ替わらない一つの約束にする（sendMu → mu の順）
 	w.mu.Lock()
 	var names []string
 	for _, n := range w.order {
@@ -354,9 +419,11 @@ func (r *runner) humanScene() {
 	to := names[r.rng.Intn(len(names))]
 	r.stepfLocked("人がシーンを %s に切替", to)
 	w.program = to
+	w.noteProgramLocked("人の切替")
 	w.fbOnHumanLocked("人のシーン切替", true)
 	w.enqueueLocked(switcher.SceneChanged{At: r.clk.Now(), Scene: w.sceneNameLocked(to), SceneUUID: to}, true, ik{}, false)
 	w.mu.Unlock()
+	w.sendMu.Unlock()
 	if r.rng.Intn(2) == 0 {
 		w.deliverDue(true)
 	}
@@ -365,6 +432,7 @@ func (r *runner) humanScene() {
 
 func (r *runner) streamToggle() {
 	w := r.w
+	w.sendMu.Lock() // 配信の状態も、偽の OBS の要求（StartStream、StopStream）と順が入れ替わらないようにする
 	w.mu.Lock()
 	w.streaming = !w.streaming
 	w.fbOnStreamLocked()
@@ -374,6 +442,7 @@ func (r *runner) streamToggle() {
 	}
 	w.enqueueLocked(switcher.StreamStateChanged{At: r.clk.Now(), Streaming: w.streaming}, false, ik{}, false)
 	w.mu.Unlock()
+	w.sendMu.Unlock()
 	r.settle()
 }
 
@@ -551,6 +620,7 @@ func (r *runner) recoverAll() {
 		r.disconnect()
 	}
 	r.reconnect()
+	w.sendMu.Lock() // 配信の状態の変更と積むイベントの順を、偽の OBS の要求と入れ替わらないようにする
 	w.mu.Lock()
 	switch mode {
 	case 0:
@@ -566,6 +636,7 @@ func (r *runner) recoverAll() {
 		}
 	}
 	w.mu.Unlock()
+	w.sendMu.Unlock()
 	const limit = 60 // 上限は 5秒×3 + 2秒 + 全対象のバッチ処理（偽の OBS は即答）+ Tick 間隔1秒 に余裕を足した秒数
 	for i := 0; i < limit; i++ {
 		r.second()
@@ -603,6 +674,7 @@ func (r *runner) recoverAll() {
 	// 戻したあとの hidden.json は空になる（通常の動作）。隠しかけの掃除は決着から10秒後なので、30秒まで進める。
 	if !w.faulty {
 		for i := 0; ; i++ {
+			r.waitHiddenWritten() // 偽の時計の30秒に、実時間の書き込みが追いつくのを待つ（sleep で待たない）
 			es, err := readHiddenFileRaw(r.path)
 			if err == nil && len(es) == 0 {
 				break
@@ -614,7 +686,6 @@ func (r *runner) recoverAll() {
 				break
 			}
 			r.second()
-			time.Sleep(time.Millisecond) // persister が書くのを待つ
 		}
 	}
 }
@@ -676,8 +747,9 @@ func runSeed(t *testing.T, seed int64, faulty bool, steps int) {
 		if faulty {
 			profile = "fault"
 		}
-		t.Errorf("seed=%d profile=%s: %s\n--- 入力の列 ---\n%s\n--- 世界の記録（末尾） ---\n%s",
-			seed, profile, strings.Join(w.violations, "\n"), strings.Join(r.steps, "\n"), joinTrace(w.trace, 150))
+		// 診断を頭のほうに置く（出力が長いと、頭しか残らないことがある）。世界の記録の末尾も必ず出す。
+		t.Errorf("seed=%d profile=%s: %s\n--- 食い違いの診断 ---\n%s\n--- 世界の記録（末尾） ---\n%s\n--- 入力の列 ---\n%s",
+			seed, profile, strings.Join(w.violations, "\n"), w.diagString(), joinTrace(w.trace, 150), strings.Join(r.steps, "\n"))
 	}
 	w.mu.Lock()
 	st := w.stats
@@ -700,6 +772,7 @@ func seedCount(short, normal int) int {
 
 func TestIntegrationHiddenInvariants(t *testing.T) {
 	base := runtime.NumGoroutine()
+	t.Cleanup(func() { reportIntegWaits("Hidden") })
 	t.Cleanup(func() {
 		deadline := time.Now().Add(5 * time.Second)
 		for runtime.NumGoroutine() > base+2 && time.Now().Before(deadline) {

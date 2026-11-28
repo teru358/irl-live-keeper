@@ -81,7 +81,7 @@ func (r *runner) injectConfig() {
 }
 
 func (w *world) fbQuietLocked() bool {
-	return w.inflight.Load() == 0 && w.connected && len(w.pending) == 0 && len(w.late) == 0 && len(w.hung) == 0
+	return w.inflight.Load() == 0 && w.coreBusy.Load() == 0 && w.connected && len(w.pending) == 0 && len(w.late) == 0 && len(w.hung) == 0
 }
 
 func stackEq(a, b []string) bool { return slices.Equal(a, b) }
@@ -148,6 +148,7 @@ func (r *runner) fbSetAuto(on bool) {
 
 func (r *runner) fbHumanScene() {
 	w := r.w
+	w.sendMu.Lock() // program を変えてからイベントを積むまでを、偽の OBS の要求（SetSceneUUID）と入れ替わらない一つの約束にする（sendMu → mu の順）
 	w.mu.Lock()
 	us := w.sceneUUIDsLocked()
 	to := us[r.rng.Intn(len(us))]
@@ -181,9 +182,11 @@ func (r *runner) fbHumanScene() {
 	}
 	r.stepfLocked("人がシーンを %s に切替", w.sceneNameLocked(to))
 	w.program = to
+	w.noteProgramLocked("人の切替")
 	w.fbOnHumanLocked("人のシーン切替", true)
 	w.enqueueLocked(switcher.SceneChanged{At: r.clk.Now(), Scene: w.sceneNameLocked(to), SceneUUID: to}, true, ik{}, false)
 	w.mu.Unlock()
+	w.sendMu.Unlock()
 	if r.rng.Intn(2) == 0 {
 		w.deliverDue(true)
 	}
@@ -251,6 +254,7 @@ func (r *runner) fbRename() {
 
 func (r *runner) fbDelete() {
 	w := r.w
+	w.sendMu.Lock() // program が移るときの SceneChanged を、偽の OBS の要求と入れ替わらずに積む（sendMu → mu の順）
 	w.mu.Lock()
 	var us []string
 	for _, u := range w.sceneUUIDsLocked() {
@@ -260,6 +264,7 @@ func (r *runner) fbDelete() {
 	}
 	if len(us) <= 3 {
 		w.mu.Unlock()
+		w.sendMu.Unlock()
 		return
 	}
 	u := us[r.rng.Intn(len(us))]
@@ -285,12 +290,14 @@ func (r *runner) fbDelete() {
 	w.enqueueLocked(switcher.SceneMapChanged{At: r.clk.Now(), Map: w.snapshotMapLocked()}, true, ik{}, false)
 	if w.program == u { // OBS が別のシーンへ移す（外部のシーン切替）
 		w.program = standby
+		w.noteProgramLocked("シーンの削除で OBS が移す")
 		w.fbOnHumanLocked("削除で program が移る", true)
 		w.enqueueLocked(switcher.SceneChanged{At: r.clk.Now(), Scene: standby, SceneUUID: standby}, true, ik{}, false)
 	}
 	w.fbOnHumanLocked("削除", false)
 	w.fbMapMutatedLocked()
 	w.mu.Unlock()
+	w.sendMu.Unlock()
 	if r.rng.Intn(2) == 0 {
 		w.deliverDue(true)
 	}
@@ -534,18 +541,14 @@ func (r *runner) fbCheckOff(pre Snapshot, cfg0 int) {
 
 var fbWarnRe = regexp.MustCompile(`^scene_fallbacks の (\d+) 行目: (scene|fallback)「(.*)」が`)
 
-// fbSync は、実行中の OBS の要求が終わるのを待ち（上限あり）、core がそれまでに受けたイベントの処理と publish を
-// 終えたことを Tick の受理で確かめる（Tick は core の1回のループが終わってからしか受け取られない）。
+// fbSync は、本体の処理が済む（実行中の OBS の要求がなく、積んだバッチがすべて終わる）のを待ち（上限あり）、core がそれまでに
+// 受けたイベントの処理と publish を終えたことを Tick の受理で確かめる（Tick は core の1回のループが終わってからしか受け取られない）。
+// 待ちは動きの知らせで起きる（awaitIdle）。応えない要求（hung）を待っている間は、静かな時点の判定を控えるので false を返す。
 func (r *runner) fbSync() bool {
-	deadline := time.Now().Add(5 * time.Second)
-	for r.w.inflight.Load() > 0 {
-		if time.Now().After(deadline) {
-			return false // 要求が終わらない（hung など）。静かな時点の判定は控える
-		}
-		time.Sleep(100 * time.Microsecond)
+	if !r.awaitIdle(1, 5*time.Second) {
+		return false // 要求が終わらない。静かな時点の判定は控える
 	}
-	r.sendTick()
-	return r.w.inflight.Load() == 0
+	return r.w.inflight.Load() == 0 && r.w.coreBusy.Load() == 0
 }
 
 func (r *runner) fbCheck(where string) {
@@ -1026,8 +1029,8 @@ func runSeedFB(t *testing.T, seed int64, profile string, steps int) {
 	}
 	r.fbCheckLog(faulty)
 	if len(w.violations) > 0 {
-		t.Errorf("seed=%d profile=%s: %s\n--- 入力の列 ---\n%s\n--- 世界の記録（末尾） ---\n%s",
-			seed, profile, strings.Join(w.violations, "\n"), strings.Join(r.steps, "\n"), joinTrace(w.trace, 150))
+		t.Errorf("seed=%d profile=%s: %s\n--- 食い違いの診断 ---\n%s\n--- 世界の記録（末尾） ---\n%s\n--- 入力の列 ---\n%s",
+			seed, profile, strings.Join(w.violations, "\n"), w.diagString(), joinTrace(w.trace, 150), strings.Join(r.steps, "\n"))
 	}
 	w.mu.Lock()
 	cov := w.fb.cov
@@ -1073,6 +1076,7 @@ func fbSeedCount(short, normal int) int { return seedCount(short, normal) }
 
 func TestIntegrationFallbackInvariants(t *testing.T) {
 	base := runtime.NumGoroutine()
+	t.Cleanup(func() { reportIntegWaits("Fallback") })
 	t.Cleanup(func() {
 		deadline := time.Now().Add(5 * time.Second)
 		for runtime.NumGoroutine() > base+2 && time.Now().Before(deadline) {

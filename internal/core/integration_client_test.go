@@ -31,10 +31,12 @@ func (g *genClient) current() bool { return g.w.gen == g.gen }
 
 func (g *genClient) StartStream() error {
 	g.w.reqSeq.Add(1)
-	g.w.inflight.Add(1) // OBS の要求の実行中（世界の更新から、イベントを送り終えるまで）は静かな時点ではない
-	defer g.w.inflight.Add(-1)
+	g.w.reqStart() // OBS の要求の実行中（世界の更新から、イベントを送り終えるまで）は静かな時点ではない
+	defer g.w.reqEnd()
 	g.w.activity.Add(1)
 	defer g.w.activity.Add(1)
+	g.w.sendMu.Lock() // 世界を変えてからイベントを送るまでを、人の操作（streamToggle など）と入れ替わらない一つの約束にする（sendMu → mu の順）
+	defer g.w.sendMu.Unlock()
 	g.w.mu.Lock()
 	if !g.current() || !g.w.connected {
 		g.w.mu.Unlock()
@@ -43,16 +45,18 @@ func (g *genClient) StartStream() error {
 	g.w.streaming = true
 	g.w.fbOnStreamLocked()
 	g.w.mu.Unlock()
-	g.w.sendNow(switcher.StreamStateChanged{At: g.w.clk.Now(), Streaming: true})
+	g.w.sendNowSerial(switcher.StreamStateChanged{At: g.w.clk.Now(), Streaming: true})
 	return nil
 }
 
 func (g *genClient) StopStream() error {
 	g.w.reqSeq.Add(1)
-	g.w.inflight.Add(1) // OBS の要求の実行中（世界の更新から、イベントを送り終えるまで）は静かな時点ではない
-	defer g.w.inflight.Add(-1)
+	g.w.reqStart() // OBS の要求の実行中（世界の更新から、イベントを送り終えるまで）は静かな時点ではない
+	defer g.w.reqEnd()
 	g.w.activity.Add(1)
 	defer g.w.activity.Add(1)
+	g.w.sendMu.Lock() // StartStream と同じ約束
+	defer g.w.sendMu.Unlock()
 	g.w.mu.Lock()
 	if !g.current() || !g.w.connected {
 		g.w.mu.Unlock()
@@ -62,7 +66,7 @@ func (g *genClient) StopStream() error {
 	g.w.fbOnStreamLocked()
 	g.w.clearMarksLocked("配信の停止")
 	g.w.mu.Unlock()
-	g.w.sendNow(switcher.StreamStateChanged{At: g.w.clk.Now(), Streaming: false})
+	g.w.sendNowSerial(switcher.StreamStateChanged{At: g.w.clk.Now(), Streaming: false})
 	return nil
 }
 
@@ -77,8 +81,8 @@ func (g *genClient) SceneTransitionOverrideUUID(string) (*int, bool, error) {
 
 func (g *genClient) RestartMediaInputs(inputs []string) error {
 	g.w.reqSeq.Add(1)
-	g.w.inflight.Add(1) // OBS の要求の実行中（世界の更新から、イベントを送り終えるまで）は静かな時点ではない
-	defer g.w.inflight.Add(-1)
+	g.w.reqStart() // OBS の要求の実行中（世界の更新から、イベントを送り終えるまで）は静かな時点ではない
+	defer g.w.reqEnd()
 	g.w.mu.Lock()
 	defer g.w.mu.Unlock()
 	if !g.current() || !g.w.connected {
@@ -90,10 +94,15 @@ func (g *genClient) RestartMediaInputs(inputs []string) error {
 
 func (g *genClient) SetSceneUUID(name string) error {
 	g.w.reqSeq.Add(1)
-	g.w.inflight.Add(1) // OBS の要求の実行中（世界の更新から、イベントを送り終えるまで）は静かな時点ではない
-	defer g.w.inflight.Add(-1)
+	g.w.reqStart() // OBS の要求の実行中（世界の更新から、イベントを送り終えるまで）は静かな時点ではない
+	defer g.w.reqEnd()
 	g.w.activity.Add(1)
 	defer g.w.activity.Add(1)
+	// 世界の program を変えてから SceneChanged を送る（または積む）までを、人の切替（humanScene、fbHumanScene、fbDelete）と
+	// 入れ替わらない一つの約束にする。mu を放してから sendMu を取ると、その間に人の切替が積まれて先に流れ、
+	// 本体が見る最後の SceneChanged が世界の program と食い違う（実 OBS では1本の接続の順が保たれるので起きない）。ロックの順は sendMu → mu。
+	g.w.sendMu.Lock()
+	defer g.w.sendMu.Unlock()
 	g.w.mu.Lock()
 	if !g.current() || !g.w.connected {
 		g.w.mu.Unlock()
@@ -113,6 +122,7 @@ func (g *genClient) SetSceneUUID(name string) error {
 	from := g.w.program
 	g.w.fbBeforeAppSceneLocked(from, name)
 	g.w.program = name
+	g.w.noteProgramLocked("本体の SetScene")
 	g.w.logf("本体: シーンを %s に切替", name)
 	g.w.checkNotEmptyLocked("本体の SetScene の適用直後", nil)
 	g.w.fbAfterAppSceneLocked(from, name)
@@ -126,7 +136,7 @@ func (g *genClient) SetSceneUUID(name string) error {
 	}
 	g.w.mu.Unlock()
 	if sync {
-		g.w.sendNow(ev)
+		g.w.sendNowSerial(ev)
 	}
 	return nil
 }
@@ -176,8 +186,8 @@ func (w *world) pickMode() reqMode {
 
 func (g *genClient) SetSceneItemEnabled(scene string, id int, en bool) error {
 	g.w.reqSeq.Add(1)
-	g.w.inflight.Add(1) // OBS の要求の実行中（世界の更新から、イベントを送り終えるまで）は静かな時点ではない
-	defer g.w.inflight.Add(-1)
+	g.w.reqStart() // OBS の要求の実行中（世界の更新から、イベントを送り終えるまで）は静かな時点ではない
+	defer g.w.reqEnd()
 	w := g.w
 	w.activity.Add(1)
 	defer w.activity.Add(1)
