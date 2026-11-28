@@ -3,6 +3,7 @@
   --bg: #F5F7F6; --surface: #FFFFFF; --ink: #16202A; --muted: #5B6773; --line: #CFD6DC;
   --ok: #0F7F62; --low: #A86A00; --down: #C2352C; --tally: #D7263D; --act: #2457D6; --act-ink: #FFFFFF;
   --track: #E3E8EC;
+  --top-h: 65px;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
@@ -36,6 +37,7 @@ button { font: inherit; color: inherit; }
   position: sticky; top: 0; z-index: 2;
   display: flex; align-items: center; gap: 12px;
   padding: 10px 16px; background: var(--bg); border-bottom: 1px solid var(--line);
+  min-height: var(--top-h);
 }
 .name { font-weight: 700; font-size: 17px; margin-right: auto; }
 .tally {
@@ -47,12 +49,12 @@ button { font: inherit; color: inherit; }
 .tally.off { background: transparent; color: var(--muted); border: 2px solid var(--line); }
 .tally.off::before { background: var(--muted); }
 .prefs { display: none; gap: 6px; }
-.menu-btn { border: 1px solid var(--line); background: transparent; border-radius: 10px; min-height: 40px; padding: 6px 12px; cursor: pointer; }
+.menu-btn { border: 1px solid var(--line); background: transparent; border-radius: 10px; min-height: 44px; min-width: 44px; padding: 6px 12px; cursor: pointer; }
 .sheet { display: none; padding: 12px 16px; border-bottom: 1px solid var(--line); gap: 12px; flex-wrap: wrap; align-items: center; }
-.sheet.open { display: flex; }
+/* (the menu is a dialog: it is drawn while it is open) */
 .sheet a { color: var(--ink); padding: 8px 4px; }
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
-.seg button { border: 0; background: transparent; padding: 6px 10px; min-height: 36px; font-size: 14px; cursor: pointer; }
+.seg button { border: 0; background: transparent; padding: 8px 12px; min-height: 44px; min-width: 44px; font-size: 14px; cursor: pointer; }
 .seg button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
 
 .layout { display: grid; grid-template-columns: 1fr; gap: 0; max-width: 1120px; margin: 0 auto; }
@@ -119,7 +121,7 @@ dl.facts dd { margin: 0; }
 .cam-read .rate-unit { font-size: 13px; font-weight: 400; }
 
 /* スマホの幅: 上に回線の要約、下にタブ。選んだタブの節だけを出す */
-.summary { display: flex; gap: 8px; padding: 8px 16px; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; background: var(--bg); position: sticky; top: 61px; z-index: 1; }
+.summary { display: flex; gap: 8px; padding: 8px 16px; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; background: var(--bg); position: sticky; top: var(--top-h); z-index: 1; }
 .chip { flex: none; font-size: 14px; padding: 3px 10px; border-radius: 999px; border: 2px solid currentColor; white-space: nowrap; }
 .chip[data-state="OK"] { color: var(--ok); }
 .chip[data-state="LOW"] { color: var(--low); border-style: dashed; }
@@ -170,11 +172,11 @@ body.in-standby .standby-banner { display: block; }
 /* 回線の行から送信の設定へ */
 .to-send { margin-left: 12px; color: var(--act); font-weight: 700; }
 /* メニュー: 上から覆う板。画面の移動は大きな行、今の画面に印 */
-.sheet { position: fixed; left: 0; right: 0; top: 61px; bottom: 0; z-index: 4; background: var(--bg); padding: 8px 16px 24px; overflow-y: auto; flex-direction: column; gap: 16px; align-items: stretch; border-bottom: 0; }
-.sheet.open { display: flex; }
+.sheet { position: fixed; left: 0; right: 0; top: var(--top-h); bottom: 0; z-index: 4; width: auto; height: auto; max-width: none; max-height: none; margin: 0; border: 0; color: var(--ink); background: var(--bg); padding: 8px 16px 24px; overflow-y: auto; flex-direction: column; gap: 16px; align-items: stretch; }
+.sheet[open] { display: flex; }
 .sheet-nav { display: grid; }
 .sheet-nav a { display: block; min-height: 52px; padding: 14px 12px; color: var(--ink); text-decoration: none; font-size: 18px; border-bottom: 1px solid var(--line); }
-.sheet-nav a[aria-current="page"] { font-weight: 700; box-shadow: inset 4px 0 0 var(--ink); }
+.sheet-nav button[aria-current="page"] { font-weight: 700; box-shadow: inset 4px 0 0 var(--ink); }
 .sheet-prefs { display: flex; gap: 10px; flex-wrap: wrap; }
 .sheet-prefs .seg button { min-height: 44px; padding: 8px 14px; }
 .logout { min-height: 48px; border-radius: 12px; border: 2px solid var(--line); background: transparent; font-weight: 700; cursor: pointer; margin-top: auto; }
@@ -187,13 +189,13 @@ body.in-standby .standby-banner { display: block; }
   body[data-tab="scene"] .scene { min-height: 56px; font-size: inherit; }
   .layout { grid-template-columns: 180px 1fr; }
   .prefs { display: flex; }
-  .menu-btn, .sheet, .sheet.open { display: none; }
+  .menu-btn, .sheet, .sheet[open] { display: none; }
   main { grid-template-columns: 1.2fr 1fr; align-items: start; column-gap: 32px; padding: 24px; }
 }
 
 [hidden]{display:none!important}button,input,select{font:inherit}button{cursor:pointer}button:disabled{opacity:.5;cursor:wait}#status{display:contents}#scenes{display:grid;grid-template-columns:1fr 1fr;gap:10px}#cameras{display:grid;gap:22px}h1{font-size:17px;margin:0 auto 0 0}#admin{max-width:1120px;margin:auto}#menu{padding:16px}#menu nav{display:grid}#menu button{background:transparent;border:0;text-align:left;min-height:48px;color:var(--ink)}#menu button[aria-current]{box-shadow:inset 3px 0 var(--ink);font-weight:bold}.sheet-nav button{min-height:52px;text-align:left;background:transparent;border:0;border-bottom:1px solid var(--line);font-size:18px}#actions{display:grid;gap:12px}#login{max-width:400px;margin:48px auto;padding:24px;background:var(--surface);display:grid;gap:16px}input{min-height:48px;max-width:100%}#error,#connection{color:var(--down)}#error{padding:0 16px;margin:8px 0}#error:empty{display:none}.summary{overflow-x:auto;white-space:nowrap}.summary .chip{display:inline-block;margin-right:8px}#sheet .seg{flex-wrap:wrap}#theme-switch{display:flex}#language-switch{display:flex}
 @media(max-width:899px){#menu{display:none}#admin{display:block}main{display:block}.tabbar{z-index:3}body[data-page]:not([data-page="status"]) .tabbar,body[data-page]:not([data-page="status"]) .summary{display:none}}
-@media(min-width:900px){#admin{display:grid;grid-template-columns:180px 1fr}main{display:block}#status{display:grid;grid-template-columns:1.2fr 1fr;gap:28px}#links{grid-column:1;grid-row:1/3}#scene-panel{grid-column:1}#details-panel{grid-column:2;grid-row:1}#ops-panel{grid-column:2;grid-row:2/5}.menu-btn{display:none}.sheet.open{display:none}#menu{display:flex;flex-direction:column}#menu .logout{margin-top:auto}}
+@media(min-width:900px){#admin{display:grid;grid-template-columns:180px 1fr}main{display:block}#status{display:grid;grid-template-columns:1.2fr 1fr;gap:28px}#links{grid-column:1;grid-row:1/3}#scene-panel{grid-column:1}#details-panel{grid-column:2;grid-row:1}#ops-panel{grid-column:2;grid-row:2/5}.menu-btn{display:none}.sheet[open]{display:none}#menu{display:flex;flex-direction:column}#menu .logout{margin-top:auto}}
 /* 手動の待機の説明と、次の節（注意）の間をあける */
 #manual-hint { margin-bottom: 16px; }
 
@@ -206,7 +208,7 @@ body.in-standby .standby-banner { display: block; }
 #obs[data-connected="true"]{color:var(--ok)}
 #obs[data-connected="false"]{color:var(--down)}
 
-#settings-panel{grid-column:1/-1}.settings-layout{display:grid;grid-template-columns:160px minmax(0,1fr);gap:24px}#settings-groups{display:flex;flex-direction:column;gap:6px}#settings-groups button{min-height:48px;text-align:left;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px}#settings-groups button[aria-pressed=true]{box-shadow:inset 3px 0 var(--act);font-weight:bold}.settings-field{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0}.settings-field label{width:100%;font-weight:600}.settings-field input:not([type=checkbox]),.settings-field select{min-width:0;flex:1;padding:8px;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:6px}.settings-field input[readonly]{opacity:.65}.settings-field input[role=switch]{appearance:none;width:48px;height:28px;min-height:28px;border-radius:20px;background:var(--line);position:relative}.settings-field input[role=switch]:before{content:'';position:absolute;width:20px;height:20px;top:4px;left:4px;border-radius:50%;background:var(--ink)}.settings-field input[role=switch]:checked{background:var(--act)}.settings-field input[role=switch]:checked:before{left:24px;background:var(--surface)}.settings-field small,.settings-field p{width:100%;margin:0}.settings-field .settings-badge{display:inline;margin-left:12px;font-size:12px;font-weight:normal;color:var(--muted)}#settings-panel .row{margin-top:20px;flex-wrap:wrap}#settings-confirm{max-width:560px;width:calc(100% - 48px);max-height:80vh;overflow:auto;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:12px;padding:24px}#settings-confirm::backdrop{background:#0008}.danger{color:var(--down);border:2px solid var(--down);padding:12px}#settings-update-label{display:flex;align-items:center;gap:12px;margin:20px 0}fieldset{border:1px solid var(--line);border-radius:8px;min-width:0;margin:16px 0}
+#settings-panel{grid-column:1/-1}.settings-layout{display:grid;grid-template-columns:160px minmax(0,1fr);gap:24px}#settings-groups{display:flex;flex-direction:column;gap:6px}#settings-groups button{min-height:48px;text-align:left;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px}#settings-groups button[aria-pressed=true]{box-shadow:inset 3px 0 var(--act);font-weight:bold}.settings-field{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0}.settings-field label{width:100%;font-weight:600}.settings-field input:not([type=checkbox]),.settings-field select{min-width:0;flex:1;padding:8px;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:6px}.settings-field input[readonly]{opacity:.65}.settings-field small,.settings-field p{width:100%;margin:0}.settings-field .settings-badge{display:inline;margin-left:12px;font-size:12px;font-weight:normal;color:var(--muted)}#settings-panel .row{margin-top:20px;flex-wrap:wrap}#settings-confirm{max-width:560px;width:calc(100% - 48px);max-height:80vh;overflow:auto;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:12px;padding:24px}#settings-confirm::backdrop{background:#0008}.danger{color:var(--down);border:2px solid var(--down);padding:12px}#settings-update-label{display:flex;align-items:center;gap:12px;margin:20px 0}fieldset{border:1px solid var(--line);border-radius:8px;min-width:0;margin:16px 0}
 @media(max-width:899px){.settings-layout{grid-template-columns:1fr}#settings-groups{flex-direction:row;flex-wrap:wrap}#settings-groups button{flex:1 0 30%}}
 #setup-fields{display:grid;gap:16px}#login input{box-sizing:border-box;width:100%;min-width:0}#login button{min-height:44px}
 .settings-note{margin:40px 0 24px;color:var(--muted)}.settings-card{border:1px solid var(--line);border-radius:8px;padding:16px;margin:16px 0}.settings-card summary{cursor:pointer;font-weight:600}.settings-field .settings-badge{color:var(--ink);margin-left:4px}.settings-field input{box-shadow:none}
@@ -216,7 +218,7 @@ body.in-standby .standby-banner { display: block; }
 /* Shared password controls, including first-run setup. */
 .password-control{position:relative;display:inline-flex;flex:1;min-width:0;width:100%}
 .password-control input{width:100%;box-sizing:border-box;padding-right:48px!important}
-.password-eye{position:absolute;right:4px;top:50%;transform:translateY(-50%);width:40px;min-height:40px!important;padding:8px!important;margin:0!important;border:0!important;background:transparent!important;color:var(--ink)}
+.password-eye{position:absolute;right:2px;top:50%;transform:translateY(-50%);width:44px;min-height:44px!important;padding:8px!important;margin:0!important;border:0!important;background:transparent!important;color:var(--ink)}
 .password-eye .eye-slash{display:none}.password-eye[aria-pressed=true] .eye-slash{display:block}
 #login input{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:10px}
 .confirm-dialog{max-width:560px;width:calc(100% - 48px);max-height:80vh;overflow:auto;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:12px;padding:24px}.confirm-dialog::backdrop{background:#0008}
@@ -240,9 +242,9 @@ body.in-standby .standby-banner { display: block; }
 #sources-panel .seg { flex-wrap:wrap; }
 #sources-panel .seg button { color:var(--ink); }
 #sources-panel .seg button[aria-pressed="true"] { color:var(--bg); }
-.source-test .seg button { font-size:12px; padding:6px 8px; }
+.source-test .seg button { font-size:14px; padding:8px 10px; }
 .source-obs.settings-field, .source-free.settings-field { margin:0; }
-.source-obs label, .source-free label { display:flex; align-items:center; gap:8px; min-height:36px; }
+.source-obs label, .source-free label { display:flex; align-items:center; gap:8px; min-height:44px; }
 .source-obs input, .source-free input { margin:0; flex-shrink:0; }
 .source-free-values { flex:1 1 100%; }
 .source-free-values textarea { min-height:72px; font-family:monospace; }
@@ -330,3 +332,20 @@ body.in-standby .standby-banner { display: block; }
 .stream-zone .btn.wide{margin-top:4px}
 #stream-reason{margin:8px 0 0}
 .settings-card.removing{border-style:dashed}.settings-card.removing .removing-note{margin:8px 0 16px}
+
+/* S2-93: what is pressed is 44px or more; the page is scrolled to under the header; a switch that cannot be pressed looks so. */
+main summary{display:list-item;box-sizing:border-box;min-height:44px;padding:10px 0}
+main h2{scroll-margin-top:calc(var(--top-h) + 12px)}
+@media(max-width:899px){#status h2{scroll-margin-top:calc(var(--top-h) + 56px)}}
+.settings-card{scroll-margin-top:calc(var(--top-h) + 12px)}
+/* The switch: a box 48x44 (the part that is pressed), with the track and the knob drawn inside it. */
+input[role=switch]{appearance:none;-webkit-appearance:none;position:relative;flex:none;width:48px;height:44px;min-height:44px;margin:0;padding:0;border:0;background:none;box-shadow:none}
+input[role=switch]::before{content:'';position:absolute;left:0;top:8px;width:48px;height:28px;border-radius:20px;background:var(--line)}
+input[role=switch]::after{content:'';position:absolute;top:12px;left:4px;width:20px;height:20px;border-radius:50%;background:var(--ink)}
+input[role=switch]:checked::before{background:var(--act)}
+input[role=switch]:checked::after{left:24px;background:var(--surface)}
+input[role=switch]:disabled{opacity:.5;cursor:not-allowed}
+.source-obs:has(input:disabled) label{color:var(--muted);cursor:not-allowed}
+#settings-update-label,#cameras-update-label{min-height:44px}
+/* A heading that takes the focus after a move is not operable: no ring on it (the page change is told by the focus and the reader). */
+h2[tabindex="-1"]:focus{outline:none}

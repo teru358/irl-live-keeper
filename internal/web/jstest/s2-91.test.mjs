@@ -318,7 +318,7 @@ test('a foreground read and a finished save clear the pending removals',async()=
 // ---- the sources page ----
 test('leaving the sources page with unsaved changes asks first and then goes on; the delete confirmations are red windows',()=>{
  const sources=read('sources.js');
- assert.match(sources,/async function close\(\)\{if\(draftChanged\(\)&&!await askConfirm\(confirmSpec\(t,\{title:t\('src_discard'\),lines:\[t\('confirm_discard_note'\)\],danger:true\}\)\)\)return false;leaveEditor\(\);return true;\}/);
+ assert.match(sources,/async function close\(\)\{if\(draftChanged\(\)&&!await askConfirm\(confirmSpec\(t,\{title:t\('src_discard'\),lines:\[t\('confirm_discard_note'\)\],danger:true\}\)\)\)return false;leaveEditor\(\);queueMicrotask\(\(\)=>focusHeading\(root\)\);return true;\}/);
  // the page change is vetoed at once (the answer comes later), and made again after 「はい」
  assert.match(sources,/'keeper-before-page',e=>\{if\(e\.detail==='sources'\)return;if\(!draftChanged\(\)\)\{leaveEditor\(\);return;\}e\.preventDefault\(\);close\(\)\.then\(left=>\{if\(left\)window\.dispatchEvent\(new CustomEvent\('keeper-navigate',\{detail:e\.detail\}\)\);\}\);\}\);/);
  assert.match(sources,/const askDelete=\(item,opener\)=>\{const \{title,lines\}=deleteParts\(item,store\.get\(\)\.list,t\);return askConfirm\(confirmSpec\(t,\{title,lines,danger:true\}\),opener\);\};/);

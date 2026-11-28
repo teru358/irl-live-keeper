@@ -88,3 +88,16 @@ Escape は「いいえ」と同じ。ブラウザの `confirm()` は使わない
 「＊ 保存すると本体が再起動します」は、1ページに1回だけ、項目の並びの下に出す（印は `settings_restart_mark`）。カメラの保存で config.yaml のコメントが消えることは、保存の確認の窓の行で言う。
 ソースの保存の誤りは、理由ごとの鍵（`sources.name_empty`・`name_chars`・`name_long`・`title_long`・`size_range`・`reserved_name`・`duplicate`）で返る。「URL 用の名前」の欄の下に、使える文字と「作ったあとは変えられません」を出す。
 OBS につながっていないとき、状態の画面のシーンの欄は「OBS の設定を開く」を出し、`keeper-settings-group`（設定の区分）と `keeper-navigate` で設定の「OBS」へ移る。
+
+## 移り方とスマホのメニュー（S2-93）
+
+navigation.js（DOM を持たない。window と要素は渡す）が、ページの URL・移ったあとのフォーカス・スマホのメニューを決める。
+今のページは `location.hash`（`#status`・`#cameras`・`#sources`・`#settings`。空や知らない値は status）。人の操作の移りは `pushState` で履歴を積む（`pushState` は何も起こさない）。
+戻る・進む・手で書き換えたハッシュは `popstate` / `hashchange` で読み、書かない。同じページは積まない。読み直しや言語の切り替え（`location.reload()`）でも、ハッシュが残るので同じページに戻る。
+最初のページは shell.js が store の初期値に入れ、各ページが `keeper-page` で読み込むので、全部を組み立てたあとに main.js が `shell.start()` で `keeper-page` を出す（初めの読み込みではフォーカスを奪わない）。
+`keeper-before-page` の拒否（ソースの編集に下書きがあるとき）は、戻る・進むの場合、すでに URL が動いているので、今のページのハッシュへ `replaceState` で書き戻す。「はい」のあとの `keeper-navigate` は、人の操作として積む。戻るを断った履歴の項目は、今のページのハッシュに書き換わる（その1つ前の項目へは、もう一度戻るで行く）。
+ソースの編集の画面（新しく作る・編集する）は URL にしない。読み直すとソースの一覧に戻る。編集の画面で「戻る」を押すと、前のページへ移る（下書きがあれば確認）。
+移ったあとは、移った先の最初の見えている `h2` に `tabindex="-1"` を付けて `focus()` する（shell.js の `focusPage` が、描画のあとに1回だけ）。ソースの「新しく作る」「編集する」「一覧へ戻る」のあとも同じ（sources.js）。メニューのボタンへの戻しのあとに、見出しがフォーカスを取る。
+スマホのメニューは `<dialog id="sheet" aria-label="メニュー">` を `show()` で開く（`showModal()` ではない。「メニュー」のボタンがヘッダーにあり、開いている間は「閉じる」として押せなければならないため）。開くと、後ろの `#summary`・`#admin`・`#tabs`・`#login-root` を `inert` にし、今のページの行へフォーカスを移す。Escape で閉じ、最後の行から Tab で「メニュー」のボタンへ戻り、閉じたらボタンへフォーカスを戻す。広い画面（900px 以上）になったら閉じる。
+ヘッダーの高さは `--top-h`（65px）の1つ。貼り付く要約・メニューの上端・`scroll-margin-top` が使う。押す所は 44px 以上（details の見出し、`.seg button`、スイッチ 48x44、「メニュー」、目のアイコン）。スイッチは入力そのものが 48x44 の箱で、溝と丸は `::before` / `::after`。
+押せないスイッチは薄く、`cursor:not-allowed`。ソースの「OBS にも反映」は、押せない理由（テストの状況を選んでいない / 配信中）を `obsSwitchState`（sources-state.js）の鍵で下に出し、`aria-describedby` でつなぐ。
