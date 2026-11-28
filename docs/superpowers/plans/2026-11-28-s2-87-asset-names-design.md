@@ -1,157 +1,193 @@
-# S2-87 素材の日本語の名前 — 設計 v1
+# S2-87 素材の日本語の名前 — 設計 v2
 
-2026-11-28。Fable と codex sol のレビュー待ち。以下の細部は設計者の推奨案であり、レビュー済み・実装済みではない。
+2026-11-28。対象は s2-87-design、基点 HEAD 2469a8c。指揮者の決定と Fable・codex sol の v1 レビューを反映した設計であり、実装・実機検証の完了報告ではない。この作業では本書だけを変更する。
 
-目的は、S2-82 実機結果 F-7・気になった点6の `__-203121.png` への置換を解消し、ユーザーが決めた「日本語の名前を許す」を実現すること。対象は画像ファイルとその親フォルダの名前。本文の安全な文字集合を広げるだけで、S2-77 v3.2 のスクリプト禁止、外部要求禁止、文字列検査前の DOMParser 禁止、木の一致、枝の検査、CSS escape 禁止、テンプレート位置制限は変えない。
+## v2 の要約とレビュー対応
 
-この文書だけを追加する。コード、試験、spec、task 表、結果、チケットは変更しない。依存追加・試験追加・仕様改訂はレビュー後の実装役と指揮者への提案である。
+日本語の実名を本文でも使えるようにする目的は維持する。v1 の「L/N/M と NFC ライブラリ」を「必ず NFC になる Unicode 15.0 の L/N の部分集合」に変更する。Go/JS の正規化差と依存をなくすためで、管理ページだけが送信前にブラウザの NFC を使う。長さは相対パスの UTF-8 512バイトに統一する。
 
-## 1. 現状と変更の境界
-
-| 現在の入力・処理 | 期待する変更／維持 | 理由 |
+| 指摘 | 対応 | v2 での決定・理由 |
 |---|---|---|
-| `SafeFileName("夕焼け.png")` | `夕焼け.png` を返す | 今は stem の非 ASCII を `_` に置換する |
-| `CheckPath`、索引、`Delete` が別々に名前を検査 | 共通の名前検査へ揃える | Delete にも古い `fileNamePattern` が残っている |
-| `html_rules.json` version 3 の ASCII segmentPattern | 第2節の名前規則に置換 | Go と JS で同じ結果を得る |
-| `html.go`・`html_template.go` の参照抽出と書換え | 日本語の生パスを全枝から抽出し、同じ位置情報で書換え | S2-85 の完全一致と欠損注意を維持 |
-| `sources-state.js` 等の `encodeURIComponent` による本文差し込み | 本文へは生パスを差し込む | 現行は ASCII なので表面化しなかった不一致 |
-| HTTP 配信・削除 API の URL 組立て | 通信時は各 segment を符号化してよい | 本文の構文と HTTP の表現を分ける |
-| 画像型、拡張子、容量・件数、symlink、`os.Root` | 維持 | 名前を広げてもファイルアクセスの境界は広げない |
+| Fable I-1、sol Minor 4 | 採った | Default_Ignorable_Code_Point を L/N 内も全除外 |
+| Fable I-2、sol Minor 5 | 採った／一部消えた | 15.0 の生成元・SHA-256・再生成を固定。サーバー NFC・norm.Version・CEF に応じた版引下げは不要。folding は Go だけで実施 |
+| Fable I-3 | 採った | 拡張子・予約名は自前の ASCII A〜Z folding |
+| Fable I-4、sol I-2 | 採った | 実名完全一致、Delete の索引必須、親も含む衝突状態を内容検査から分離して維持 |
+| Fable I-5、sol Minor 6 | 採った | Go/JS とも相対 UTF-8 長。既存 H 行の調査結果と新境界行、bodyAssetInsertion を明記 |
+| Fable I-6、sol I-3 | Fable 案を採った | 標準 MIME パーサーの結果を検査。sol の独自構造解析・重複等の一律400は採らない。結果を同じ完成形検査に通せば安全境界を保てる |
+| Fable I-7 | 採った | 補完・本文差し込み2箇所・html.js の予約名を列挙 |
+| Fable I-8 | 採った | 衝突相手・順序、アップロードは直下全項目、NFD/NFC 同居を意図した仕様とする |
+| Fable I-9 | 採った | M、非 NFC の L/N、前の文字と合成する L/N を除外。x/text は追加しない |
+| Fable I-10、sol の追加行 | 採った／期待変更 | 第7節。M を含む名前は全て html_url。sol の q́ 可という期待は採らない |
+| sol I-1 | 消えた | M とサーバー正規化をなくすため stream-safe 制限・CGJ 挿入問題は存在しない |
+| Fable M-1 | 採った | unicode.SimpleFold の軌道の最小値。共有 folding 表なし |
+| Fable M-2 | 採った | 不正 UTF-8／孤立 surrogate は言語別試験 |
+| Fable M-3 | 一部採った／消えた | 直せる案内と互換漢字の注意を残す。not_nfc の Reason は不要 |
+| Fable M-4 | 消えた | M の位置判定・出力列に依存する置換順は不要 |
+| Fable M-5〜M-8 | 採った | 長名専用文言、raw path 検査は任意、RTL の注意、version 4・表の一度だけの構築・Reason の i18n |
+| sol の統合試験4項目 | 採った／期待調整 | 衝突更新、親衝突はそのまま。multipart と encoded slash は第7節の標準パーサー・復号後完全一致の期待へ変更 |
 
-参照元は spec v0.32 第14章の素材、S2-77 v3.2 第1・2・4〜7節、`internal/sources/files.go`・`filesindex.go`、`internal/web/source_files.go`、`internal/web/assets/app/html.js`・`sources-state.js`・`editor.js` 等。現行 API は重複時409で、自動連番ではない。
+参照したレビューは scratchpad/out/s2-87-review-fable.md と s2-87-review-sol.md。Fable の Go/Node/Chromium 実測と Windows/OBS 未確認を区別する。Unicode 15.0 の除外数は17.0 の実測値を転記せず、実装時の生成結果で確定する。
 
-## 2. 許す文字と長さ
+## 1. 目的と変更箇所
 
-**推奨: NFC の Unicode L・N・M と ASCII `_` `-` `.` の限定許可。** 分類表は Unicode 15.0 に固定する。実行環境の Unicode 更新で Go と JS の合否が変わらないよう第7節の共通範囲表を使う。L は Lu/Ll/Lt/Lm/Lo、N は Nd/Nl/No、M は Mn/Mc/Me。次の除外・位置制約が分類より優先する。
+S2-82 F-7 の `__-203121.png` への置換を解消し、画像と親フォルダに日本語の名前を許す。S2-77 v3.2 のスクリプト禁止、外部要求禁止、文字列検査前の DOMParser 禁止、木の一致、全枝検査、CSS escape 禁止、テンプレート位置制限は維持する。画像型・拡張子の集合、容量・件数、symlink 禁止、os.Root、S2-85 の使用判定と削除確認も維持する。
 
-| 入力（各部分） | 期待 | 理由 |
+| 場所 | 変更／維持 | 理由 |
 |---|---|---|
-| `夕焼け.png`、`カメラー１.png`、`ＡＢＣ１２.png` | 可 | 漢字・かな、長音 U+30FC（Lm）、全角英数字も含む |
-| `é.png`、`q\u0301.png`（実際の結合文字） | NFC なら可 | 合成されず残る M も必要。結合文字を一律禁止しない |
-| `\u0301a.png`、`_\u0301.png`、`a.\u0301png` | 不可 | M はその部分の L/N に始まる連続した L/N/M 列の中だけ。先頭、`_-.` の直後は禁止 |
-| `_画像-2.v1.png` | 可 | 既存の ASCII の有効名を維持 |
-| `.画像.png`、`画像.`、空、`.`、`..`、`a..png` | 不可 | 先頭・末尾ドットと連続ドットを禁止。URL 側の既存 `..` 禁止に揃える |
-| `{ }`、二重/単一引用符、バッククォート、`< > & ( )` | 不可 | HTML・テンプレート・CSS の構文文字を入れない |
-| `% ? # / \ : * \|`、全角 `／` `＼` | 不可 | URL・パス・Windows の特殊解釈を避ける。`/` は部分間の区切りだけ |
-| SP、TAB、CR/LF、NBSP、全角空白 U+3000、その他 Z | 不可 | 空白類はすべて拒否、trim で救済しない |
-| C0/C1/DEL、Cf（双方向制御・ゼロ幅・BOM）、Co/Cn/Cs | 不可 | 制御・書式・私用・未割当・サロゲートを除外。無効 UTF-8／孤立 UTF-16 surrogate も拒否 |
-| U+034F、U+180B〜180D、U+180F、U+FE00〜FE0F、U+E0100〜E01EF | 不可 | M の中でも不可視の結合制御・異体字選択を除く |
-| 絵文字、`★`、`・`、全角記号 `：` `．` | 不可 | L/N/M と ASCII `_-.` 以外の S/P は許可しない |
+| internal/sources/files.go | SafeFileName、DetectImage の拡張子比較、Delete | 日本語保存、ASCII folding、索引完全一致 |
+| internal/sources/filesindex.go | checkSegment・CheckPath・予約名、再構築・Refresh・OpenWithHash・put | 名前と内容と衝突を分離 |
+| internal/sources/html_rules.json | version 3 → 4、固定許可表と長さ・予約名 | Go/JS の共通契約 |
+| internal/sources/html.go、html_template.go | checkURL 相当、参照抽出と位置での書換え | 相対バイト数、日本語の生パスを全枝から抽出 |
+| internal/web/assets/app/html.js | checkURL、19行付近の予約名正規表現と末尾ドット判定を共通規則へ | COM¹ 等と Go の合否を揃える |
+| internal/web/assets/app/source-body.js | bodyAssetInsertion の本文用 encodeURIComponent を除く | 差し込みを生パスへ |
+| internal/web/assets/app/sources-state.js | assetText の本文用 encodeURIComponent を除く | 同上。削除要求等の通信の符号化は維持 |
+| internal/web/assets/app/template-lexer.js | 97〜98行付近の補完開始判定・validFor | 日本語を打っても補完が閉じない。共通名規則で候補を絞る |
+| internal/web/source_files.go、管理ページの送信箇所 | MultipartReader、明示した送信 filename に NFC、エラー文言 | basename 前の元名を検査 |
+| i18n、Go/Node 試験 | 第7・8節を実装時に追加 | 新 Reason と長名の表示 |
 
-各部分は **UTF-8 で1〜128バイト**、相対パス全体は `/` を含め **512バイト以下**。接頭辞 `/source/files/` と生成 query は数えない。拡張子も部分の長さに含める。最大4部分（親フォルダ3段＋ファイル）。末尾は既存の画像拡張子必須、拡張子の比較のみ ASCII 大小無視。M の個数制限を別に設けずバイト上限で抑える。
+validateTree は既に attr.value を読んでおり、生の属性値を使う境界を維持する。auth.go の配信入口は既に独自振分けで clean/redirect しない。このためだけの変更は不要。
 
-| 入力 | 期待 |
+## 2. 許可集合・長さ・予約名
+
+許可集合は Unicode 15.0 の L（Lu/Ll/Lt/Lm/Lo）と N（Nd/Nl/No）から、(1) Default_Ignorable_Code_Point 全体、(2) 単独で NFC でない文字、(3) 前の文字と合成しうる文字を引き、ASCII `_` `-` `.` を加えたもの。M（Mn/Mc/Me）は一切許さない。Go の unicode.IsLetter 等、JS の `\p{…}`、Unicode 大小変換を合否に使わない。
+
+各部分は UTF-8 **1〜128バイト**、相対パスは `/` を含め **512バイト以下**。`/source/files/` と生成 `?v=` は数えない。最大4部分（親3段）。拡張子も部分長に含む。先頭・末尾ドット、空部分、連続 `..`、先頭 `/`、バックスラッシュは禁止。末尾部分だけは既存の画像拡張子を必須とし、フォルダ名には拡張子を要求しない。
+
+| 入力 → 期待 | 理由 |
 |---|---|
-| `あ`×41 + `.png`（127バイト） | 可 |
-| `あ`×42 + `.png`（130バイト） | 長すぎるため不可 |
-| ASCII `a`×124 + `.png`／×125 + `.png` | 128バイトで可／129バイトで不可 |
-| 128バイトの部分を4つ、区切り3つ | 515バイトで不可。各部分が通っても全体を検査 |
-| `a/b/c/夕.png`／`a/b/c/d/夕.png` | 可／`too_deep` |
+| `夕焼け.png`、`カメラー１.png`、`ＡＢＣ１２.png`、`é.png`、`한.png`、`ｶﾞ.png` → 可 | 合成済み文字、半角濁点（Lm）は集合内 |
+| `_画像-2.v1.png` → 可 | ASCII の有効な途中ドットを維持 |
+| `q́.png`、`か゚.png`、`が.png`、`한.png` → 不可 | M 又は合成に参加する字母 |
+| `神.png`（U+FA19）、`Å.png` → 不可 | L でも単独 NFC でない |
+| `﨑.png`、`髙.png` → 可 | これらには正規分解がない |
+| `夕ㅤ.png`、U+115F/U+1160/U+FFA0 を含む名前 → 不可 | L の不可視文字も除外 |
+| `.画像.png`、`画像.`、空、`.`、`..`、`a..png` → 不可 | 位置・構造制限 |
+| SP/TAB/改行/NBSP/U+3000、Z/C/S/P（ASCII `_-.` を除く） → 不可 | 空白・制御・書式・私用・未割当・絵文字・構文記号を許さない |
+| `{}`、引用符、バッククォート、`<>&()`、`%?#/:*|`、`\\`、`／＼`、`・（）〜` → 不可 | HTML/CSS/URL/Windows の特殊文字を入れない |
+| 不正 UTF-8、孤立 UTF-16 surrogate → 不可 | 長さ計算前に拒否 |
+| `あ`×41＋`.png` → 可、×42 → 不可 | 127／130バイト |
+| `a`×124＋`.png` → 可、×125 → 不可 | 128／129バイト |
+| 128バイトの部分4つ → 不可 | 区切り込み515バイト |
+| `a/b/c/夕.png` → 可、`a/b/c/d/夕.png` → too_deep | 段数の境界 |
 
-比較案は「128コードポイント・512コードポイント」まで。日本語の長名には便利だが、一般的なファイルシステムの部分長の制約を超え得る。バイト案は現行 Go の `len(rel)` の意味と ASCII の境界を維持し、最大128 UTF-16単位以内にも収まるので推す。spec の「文字」は明確に改訂する必要がある。Windows の絶対パス長や保存先の制約による I/O 失敗までは、この論理上限だけで保証しない。
+拡張子と予約名の比較には **ASCII A〜Z だけを a〜z に写す自前の関数**を Go/JS 両方で使う。strings.ToLower/ToUpper、JS toLowerCase、正規表現の Unicode 大小無視は使わない。`a.PNG` は可、`a.gİf` と `夕.ｐｎｇ` は不可。
 
-## 3. 正規化
+予約名は全部分の最初の ASCII `.` より前で比較する。CON/PRN/AUX/NUL、COM1〜9/LPT1〜9、COM¹/²/³・LPT¹/²/³ は reserved_name。`con.夕.png`、`夕/NUL.png` も不可。COM0/COM10/ＣＯＮ は可。幅変換・NFKC はしない。`GAZOU~1.PNG` は集合外で、8.3 alias を素材 ID として扱わない。
 
-**推奨: Go に `golang.org/x/text/unicode/norm` を追加して NFC を使う。** バージョンは実装時に Go 1.27 と Unicode 15.0 の規則との互換性を確認して固定する。JS は `String.prototype.normalize('NFC')` を使うが、第7節の範囲制限が先に働く。NFKC・幅変換・かな変換はしない。
+## 3. NFC を保証する表と、変えないこと・失うもの
 
-| 入口の入力 | 期待 | 理由 |
-|---|---|---|
-| アップロード `か\u3099.png` | NFC `が.png` で保存し、実保存名を返す | macOS 由来の NFD を取り込める |
-| 直接配置 `か\u3099.png` | 改名せず一覧に残し `not_nfc` で使えない | 実ファイル名と索引キーを違わせない |
-| 直接配置 `が.png` | 可 | Explorer 由来でも出自を推測せず同じ検査 |
-| 本文 `か\u3099.png` の参照 | 保存・rendered とも `template.html_url` | 本文を黙って書換えず NFC を要求 |
-| `Ａ.png` と `A.png` | 別名 | NFC は全角半角を統合しない |
+依存は追加しない。サーバーと本文の Go/JS 検査は正規化も NFC 判定も実行しない。管理ページだけが FormData に設定する filename を `file.name.normalize('NFC')` にする（File 自体の name が変わると仮定しない）。サーバーは受信した名前の不許可文字を置換する。本文や直接配置は置換しない。
 
-もう1案は依存を足さず M を禁止し、NFD を理由つきで拒否する方式。しかし Go 標準には NFC 判定・変換がなく、M 禁止だけでは分解ハングルや正規分解を持つ L の非 NFC を検出しきれない。独自正規化表を持つより依存追加を推す。`norm` の説明は [Go norm](https://pkg.go.dev/golang.org/x/text/unicode/norm) を参照。
-
-## 4. Windows の名前と同名衝突
-
-名前の綴りを保存し、参照と索引は今どおり大小も含む完全一致。**衝突の検出だけ**大小無視にする。これは `a.png` と書けば `A.png` を配るという意味ではない。
-
-| 入力・状態 | 期待 | 理由 |
-|---|---|---|
-| `A.png` があり `a.png` をアップロード | 409、上書き・自動改名なし | Windows で共存できない |
-| `Ａ.png` があり `A.png` をアップロード | 別名として可 | 幅を畳まない |
-| Linux で大小違いを直接配置 | 両方 `name_collision` で使えない | 索引順に勝者を決めない。親フォルダ同士の衝突も配下全体に適用 |
-| `CON`、`con.png`、`PRN.x.png`、`AUX`、`NUL`、`COM1`〜`COM9`、`LPT1`〜`LPT9`（拡張子つき含む） | 全部分で `reserved_name` | 最初の ASCII `.` より前を大小無視で比較 |
-| `COM¹.png`、`COM².png`、`COM³.png`、対応する `LPT` | 同じく予約名 | No を許すため上付き1〜3の Windows 予約も除く |
-| `COM0.png`、`COM10.png`、`ＣＯＮ.png` | 可 | 予約名との幅変換はしない |
-| `画像.`、`画像 ` | 直接配置は不可。黙って削らない | Win32 の末尾処理で名前が変わることを避ける |
-| `GAZOU~1.PNG` | 不可 | `~` は許可集合外。8.3 alias を素材 ID として扱わない |
-
-衝突キーは NFC の各部分を Unicode 15.0 の simple case folding の同値類で揃えたものとし、幅を畳まない。参照検査にはキーを使わない。OS の大小比較と Unicode folding は完全には一致しないので、最終保存も `os.Root` と排他的作成 `O_EXCL` を維持し、OS が既存扱いしたら409。8.3 alias の検索や実名への自動解決はしない。配信・削除は索引に完全一致する実名だけを開く。
-
-根拠は [Microsoft の名前規則](https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file)。Unicode folding は Windows の内部比較の再実装ではなく、移植時に曖昧な同居を避けるための保守的なアプリ規則である。
-
-## 5. 本文の参照と HTTP
-
-**推奨: 保存本文と組立て HTML は日本語を生の文字で書く。percent encoding は本文では引き続き拒否する。** 比較案は両方を許して1回復号し同じキーにする方式だが、S2-77 第4節の percent decode 禁止を変え、区切りや二重復号への入口を増やすため採らない。
-
-| 入力 | 期待 | 理由 |
-|---|---|---|
-| `src="/source/files/夕焼け.png"` | 可、refs は `/source/files/夕焼け.png` | 生パスが唯一のキー |
-| `src="/source/files/&#22805;焼け.png"` | 可、同じ refs | 第2節の文字参照を1回戻した値で検査 |
-| `src="/source/files/%E5%A4%95焼け.png"` | `template.html_url`、refs に入れない | 生形式と符号化形式を両方受理しない |
-| `%25E5...`、`%2f`、`%5c`、`%2e%2e` | 本文ではすべて不可 | URL 解決・復号・clean はしない |
-| CSS `url(/source/files/夕焼け.png)`、`url("/source/files/夕焼け.png")`、単一引用符版 | 可、同じ refs | 名に空白・括弧・引用符を許さないので引用符なしも安全 |
-| style 属性の `url(&quot;/source/files/夕焼け.png&quot;)` | 可 | 属性文字参照は1回復号 |
-| style 要素内の `url(/source/files/&#22805;焼け.png)` | 不可 | style 生テキストでは文字参照を戻さない |
-| 保存本文の `夕焼け.png?v=0123456789ab` | 不可 | query は本体だけが付ける |
-| rendered の同パス＋`?v=0123456789ab` | 可 | 既存の12桁小文字 hex、重複 query 不可 |
-
-使用判定は全枝の正規の生パスの集合。文字参照版と生文字版は同じ素材になり、欠損も refs に保持して `template.asset_missing`。大小違い、全角半角違いは別キー。生成 hash は既存 SHA-256 先頭12桁を維持する。トークン位置による `?v=` の追記も維持し、文字列全置換はしない。固定文字参照の原文を残してもよいが、生成される名前自体を percent encoding へ変換しない。
-
-ブラウザは日本語を含むパスを HTTP 要求時に UTF-8 percent encoding する（[URL Standard](https://url.spec.whatwg.org/)）。Go の [URL.Path](https://pkg.go.dev/net/url#URL) は復号された表現を持つ。配信・削除 API は `r.URL.Path` を再度 PathUnescape せず検査・索引完全一致へ渡す。CEF でもこの動作を期待するが、OBS 実機での確認は未実施であり実装後の受入項目とする。
-
-| HTTP の入力 | 期待 |
+| 入口 → 期待 | 理由 |
 |---|---|
-| `/source/files/%E5%A4%95%E7%84%BC%E3%81%91.png` | `r.URL.Path` の日本語が有効な索引キーなら200 |
-| `%252f` | 1回の復号後に `%2f` が残り、名前検査で404 |
-| encoded slash/backslash、dot segment、空部分 | `EscapedPath()` の検査と復号後検査で拒否。clean/redirect で有効パスへ救済しない |
-| `/source/files/GAZOU~1.PNG` | 索引名として不許可、404 |
+| 管理ページで `か\u3099.png` → 送信 `が.png`、保存も同名 | ブラウザ NFC で通常の NFD を救済 |
+| 他クライアントが同じ NFD を送信 → `か_.png` | サーバーは正規化しない |
+| 直接配置 NFD と NFC `が.png` が同居 → NFD は bad_name、NFC は可 | 同じ見た目の2行は意図した仕様。改名・統合しない |
+| 本文 NFD → template.html_url | 自動修正しない |
+| 管理ページで `神.png` → `神.png` | NFC で互換漢字の一部は標準の字へ変わる。﨑・髙は変わらない |
+| `Ａ.png` と `A.png` → 別名 | NFC は幅を畳まない |
 
-HTTP の raw path では `%2f`・`%5c`（大小無視）を拒否し、他の escape も UTF-8 と復号後の名前の両方を検査する。API の削除に使う segment ごとの符号化は継続する。DOM 再検査は URL 解決済みの `img.src` ではなく `getAttribute('src')` を読む。そうしないと生文字の正規の参照をブラウザの絶対 URL／符号化へ変換して誤拒否する。
+失うものは M が必要なタイ語・インド系・ヘブライ語の母音記号、合成できないアクセント `q́`、鼻濁音 `か゚`、異体字選択子等。送信前 NFC でも残る M はアップロードで `_`、直接配置・本文では不可となる。通常の日本語・中国語、合成済み韓国語・ベトナム語・西欧語は扱えるが、その言語の全表記を保証する意味ではない。サーバー側 NFD→NFC も失う。
 
-## 6. 取り込みと直接配置
+v1 の M の位置規則、M 専用除外表、not_nfc、置換出力列に基づく M 判定は集合から M をなくしたため削除する。sol I-1 の stream-safe 制限も x/text を使わないため不要。M 禁止だけでは足りないという sol の懸念は、非 NFC の L/N と合成後続字母も除外することで解決する。
 
-取り込みは「ヘッダーの名前取得 → 妥当な UTF-8・パス混入検査 → NFC → 最終拡張子の確認・ASCII 小文字化 → stem の不許可文字だけ置換 → 全規則の再検査 → 衝突検査 → 排他的保存」の順。置換は不許可コードポイント1つにつき `_` 1つとし、連続 `_` を圧縮しない。既存の有効な途中の `.` も残す。先頭の `.`、位置に合わない M、末尾の `.` は `_` にするが、`..` を含む元名は従来どおり入口で拒否する。長すぎる名前・予約名は切り詰めや接頭辞追加で救済せず拒否する。
+### 表の生成・保存・再現性（実装時）
 
-| 入力 | 期待 | 理由 |
-|---|---|---|
-| `夕 焼け（夜）.PNG` | `夕_焼け_夜_.png` | 空白・全角括弧だけ置換 |
-| `夕焼け.v1.png` | そのまま | 有効な途中ドットを失わない |
-| `.夕焼け.png` | `_夕焼け.png` | 先頭ドットだけ置換 |
-| `CON.png` | 400 | 予約名は明示的に拒否 |
-| `a/b.png`、`a\b.png`、`a..png` | 400 | basename を取って通さない |
-| `a／b.png` | 400 | 全角区切りもパス混入として拒否。通常置換より優先 |
-| 既存 `夕_焼け.png` に `夕 焼け.png` | 409 | 置換後の衝突も同名として扱う |
-| 既存 `が.png` に NFD の同名 | 409 | NFC 後の名前で判定 |
-| 不正 UTF-8 の filename | 400 | 文字化けを置換して保存しない |
+生成スクリプトは `scripts/generate-asset-name-ranges.py`、元ファイルは `scripts/unicode/15.0.0/UnicodeData.txt` と `DerivedCoreProperties.txt`、単独非 NFC の正確な判定には同版の `DerivedNormalizationProps.txt` の NFC_QC=N も生成専用の補助入力として保存する。é のような正規分解を持つ NFC 文字を誤って落とさないためである。3ファイルの実バイトの SHA-256 は同ディレクトリの `SHA256SUMS` にコミットする。取得元は `https://www.unicode.org/Public/15.0.0/ucd/` の各同名ファイル。実装時に取得・照合し、ダイジェストを推測で本書へ記入しない。
 
-ブラウザの通常の multipart `filename` の日本語 UTF-8 を受け付ける。URL と違い `filename` に現れた `%E5...` は復号しない（`%` を `_` にする）。`filename*` は Go の MIME パラメーター解釈で UTF-8 の拡張パラメーターを1回だけ復号した結果を使い、通常 filename と併記なら有効な拡張値を優先する。ただし不正な拡張値、未対応 charset、重複、連結パラメーターは400として曖昧な fallback を作らない。実装時に現在の Go の受理動作を固定する表試験が必要。
+スクリプトは元ファイルのみを入力にし、First/Last 範囲を展開して L/N と ccc を読む。DCP の Default_Ignorable_Code_Point を引く。DerivedNormalizationProps の NFC_QC=N と L/N の交差を単独非 NFC として除く（正規分解があるだけでは除外しない）。残る L/N が全て ccc=0、単独 NFC であることを検査する。UnicodeData の正規分解（互換タグつきは除く）から合成の後続に現れる ccc=0 の候補も列挙・除外し、アルゴリズムによるハングル合成の V U+1161〜1175 と T U+11A8〜11C2 も除外する。この既知2範囲は21＋27文字だが、集合との交差数と除外総数は15.0データで生成時に確定する。追加候補が出たら黙って無視しない。
 
-[Go multipart.FileName](https://pkg.go.dev/mime/multipart#Part.FileName) は basename 処理を行うため、今の `FormFile` 後の `h.Filename` だけでは元の `/` 混入を検出できない。生の Content-Disposition も構造として検査する必要がある。文字列の手分割や独自 percent decoder は使わず、標準 MIME パーサーの結果と元パラメーターの有無を確認する。CR/LF 等の壊れたヘッダーは名前置換より前に拒否する。
+残る文字は単独 NFC、ccc=0、かつ前からの合成の後続にならない。正規分解を持つ合成済み文字は分解末尾の non-starter を含むため、後続が ccc=0 ならその境界を越えた合成も起きない。この条件を生成検証で確かめ、連結しても NFC であることを保証する。ASCII `_-.` もこの性質を壊さない。生成試験はこの条件と境界を検証する。実行環境の Python unicodedata や Go/JS の Unicode 表から許可表を作らない。
 
-直接置いたファイルと親フォルダは第2〜4節の同じ完成形規則に通す。変更・NFC 化・置換は一切しない。`not_nfc` と `name_collision` は新しい Reason 案であり、名前の文字・位置違反は既存 `bad_name`、予約名は `reserved_name`、全体長超過は `path_too_long`。理由の優先は構造・深さ・全体長 → 不正文字/部分長 → 非 NFC → 予約名 → 衝突 → 画像型等の既存検査。使えない素材は補完・差し込み・配信の対象外とし、一覧では実名と理由を示す。
+出力は `internal/sources/html_rules.json` version **4** の asset.allowedRanges（ソート・結合したコードポイント範囲）、unicodeVersion=15.0.0、lengthUnit=utf8Bytes、maxSegmentLength=128、maxPathLength=512、maxSegments=4、予約名。除外理由別の数・範囲と入力 SHA-256 を `scripts/unicode/15.0.0/asset-name-generation.json` に残す。実装時の再生成は `python3 scripts/generate-asset-name-ranges.py` でネットワークなしに同じ出力となり、差分ゼロを確認する。
 
-削除も古い正規表現を残さず共通検査へ移す。非 NFC など不許可名の削除を新たに有効化することは本件に含めず、Explorer での改名・削除を案内する。既存の使用中素材削除409・確認後削除は維持する。
+Go と JS は同じ完成済み表を使う。二分探索等の範囲検索構造はルール読込時に一度だけ組み立てる。checkURL の呼出しごとに RegExp を作らない。CEF が15.0より古くても合否は表で決まり、正規化実装の版に依存しない。管理ページの送信前 NFC は利用上の救済であり、合否の信頼境界にはしない。
 
-## 7. Go と JS の一致、試験の追加案
+## 4. 衝突・索引・実名完全一致
 
-JSON の `asset` に normalization=NFC、lengthUnit=utf8Bytes、maxSegmentLength=128、maxPathLength=512（相対パス）、unicodeVersion=15.0、許可 L/N/M のコードポイント範囲、除外範囲、予約名を持たせる案を推す。単一 `segmentPattern` にすべてを押し込まない。範囲表は固定した Unicode データから作り、Go/JS が同じ JSON を読む。ブラウザ固有の `\p{L}` 判定だけに依存しない。衝突キー用 simple folding の表も同じ版で固定するが、名前検査と参照の完全一致には混ぜない。
+参照、used_by、配信、削除は綴りと大小を含む完全一致。衝突検出だけは Go の unicode.SimpleFold の軌道の最小コードポイントで各文字を代表させる。共有 JSON や CaseFolding.txt は不要（Fable M-1）。この使用に限って Go unicode を許す。使用した Go と unicode.Version を実装検証で記録し、ツールチェーン更新時に衝突回帰を確認する。Windows 内部の比較の再実装ではなく、最終保存は os.Root と O_EXCL で既存扱いなら409にする。
 
-| 処理 | Go／JS の期待 | 理由 |
-|---|---|---|
-| UTF-8 の長さ | Go `len`／JS `TextEncoder` のバイト長 | JS `.length` は UTF-16 単位で不一致になる |
-| Unicode の走査 | rune／コードポイント走査 | 補助平面の漢字も1文字として検査 |
-| NFC | `norm.NFC`／`normalize('NFC')` | 許可範囲を先に固定し、未割当を後から合成で救わない |
-| 字句エラー位置 | 元入力の1始まりコードポイント | S2-77 第2節を維持。バイト長制限とは別 |
-| URL の合否 | 生パスのみ、百分号は拒否 | 保存・rendered・DOM 後の検査で一致 |
+再構築では、各親ディレクトリの実名集合と衝突グループを保持する。**部分の名前検査（拡張子は問わない）に通った兄弟項目同士**を、ファイル・フォルダ・画像以外・内容不良も含め中身検査の前に比較する。名前自体が不許可の項目はこのグループに入れない。親フォルダが衝突すれば配下全体も name_collision。索引走査順で勝者を決めない。
 
-### 共通入力表の行案
+名前状態・親の衝突状態と内容検査の結果は別々に保持する。usable は全条件の積で導出し、checkContent が成功しても衝突を消さない。Refresh・OpenWithHash・put の全経路でこの導出を使う。理由の優先は構造／深さ／全体長 → 不正文字／部分長 → 予約名 → 衝突 → 拡張子／画像型等の既存内容検査（symlink 等のアクセス禁止は理由にかかわらず常に適用）。
 
-現行の最後は **H359**。追加は H360 から。表の `\uXXXX` は JSON で実文字に展開する記法（本文に逆斜線を入れる意味ではない）。S/R は save/rendered。error の位置は S で必須、R は現行契約どおり code のみ比較する。ok の code・位置はなし。refs は save の期待値で、rendered は現行ハーネスに合わせ検査のみ。存在する fixture は `夕焼け.png` と `が.png` を追加し、欠損試験以外の注意は空にする。
+Refresh が未知名を追加する前には、ルートから各親を実名完全一致で確認し、親の ReadDir に末尾の完全一致する実名があることを確かめる。親から保持した兄弟情報も更新し衝突を再計算する。既存行でも Refresh の対象親と祖先のディレクトリ情報を確認し、追加された衝突を反映する。親衝突の変化は既存の配下全行へ反映する。読めない／走査上限で未確認の場合は usable に昇格させない。
 
+全走査を配信ごとに増やさない。再構築が親情報を作り、Refresh が対象親と祖先だけを更新する。OpenWithHash と put は保持した名前状態を使い、未登録名を OS の大小解決だけで足さない。直接配置の変更は既存の定期更新・再構築のタイミングで検出する。確認できた親情報の更新でのみ衝突を解除し、内容の更新では解除しない。既存のロック下で索引の行と親情報を一体で更新する。
+
+Delete は共通名前検査に加え、索引の実名完全一致を必須にする。使用中判定もそのキーで行う。未知名は root.Remove に渡さず404。登録済みでも削除直前に親実名を確認して OS の別名解決を防ぐ。衝突は配信不可だが、名前として有効で索引に実名がある項目の削除は既存の使用確認を守って扱う。不許可名の削除を新たに有効化せず Explorer での改名・削除を案内する。
+
+| 状態／操作 → 期待 | 理由 |
+|---|---|
+| A.png があり a.png をアップロード →409 | 大小衝突 |
+| Ａ.png と A.png →別名 | 幅を畳まない（OS が既存扱いなら409） |
+| A.png/a.png を直接配置、片方の内容を更新して Refresh →両方衝突のまま | 内容検査からの独立 |
+| A/x.png と a/y.png →両方衝突 | 親衝突も伝播 |
+| NFD と NFC の同居 →NFD は bad_name、NFC は可 | 不許可名を衝突相手にしない意図した仕様 |
+| Windows 実名 A.png に参照 a.png →欠損注意、非表示 | Refresh で別名行を作らない |
+| Windows で A.png 使用中に DELETE a.png →404、A.png は残る | 索引完全一致の必須試験 |
+
+アップロードの衝突検査は、保存先直下を ReadDir した**全項目**の名前と最終保存名を比較する。索引の usable ファイルだけと比べない。フォルダ、画像でない物、使えない A.png も相手にする。不許可名についても正規化せず取得した名前で同じ folding 比較を行い、同キーなら409。既存フォルダ Logo.png に保存名 logo.png をぶつける等、種別で見逃さない。完全一致も409。O_EXCL は競合と OS 固有の同一視に対する最後の防壁で、上書き・自動連番は行わない。
+
+## 5. 本文と通信
+
+保存本文と組立て HTML は日本語の生パス。本文の percent encoding は引き続き拒否する。属性の文字参照は既存の字句規則で一度だけ戻し、その値を検査する。style 要素の生テキストは文字参照を戻さない。全枝の正規の生パスを refs に残し、文字参照版と生版は同一キー、欠損も refs と warnings に残す。存在は本文の合否に使わない。
+
+| 入力 → 期待 | 理由 |
+|---|---|
+| src の `/source/files/夕焼け.png`、`/source/files/&#22805;焼け.png` →可、同じ refs | 生キー |
+| src の `/source/files/%E5%A4%95.png`、`%252f` →html_url | 本文は復号しない |
+| CSS url の日本語（無引用・二重引用・単一引用）→可 | 構文文字は集合外 |
+| style 属性の `url(&quot;/source/files/夕焼け.png&quot;)` →可 | 属性参照を一度戻す |
+| style 要素の `url(/source/files/&#22805;焼け.png)` →html_url | 生テキスト |
+| 保存本文の `?v=0123456789ab` →不可、rendered の同 query →可 | 生成だけが付ける12桁小文字hex。重複は不可 |
+
+hash は既存 SHA-256 先頭12桁。トークン位置で v を追記し全置換しない。参照抽出・書換えで生文字と元の文字参照を扱い、日本語を percent encoding に変えない。DOM 再検査は解決済み img.src でなく現在どおり attr.value を使う。
+
+HTTP はブラウザの UTF-8 percent encoding を許し、Go の r.URL.Path を**再復号せず**共通検査と索引完全一致へ渡す。clean・redirect・basename で救済しない。削除要求の segment ごとの encodeURIComponent は維持する。raw path の encoded separator を別に拒否する追加実装は必須にしない（Fable M-6）。
+
+| HTTP 入力 → 期待 | 理由 |
+|---|---|
+| 日本語の正しい percent encoding →有効な索引実名なら GET 200／DELETE は既存使用確認 | Path は一度復号済み |
+| `%252F`、`%5C`、不正 UTF-8、dot segment、空部分、8.3 alias →拒否、別名救済なし | 復号後の共通検査・実名一致 |
+| `%2F` →復号後の通常の階層として検査 | `夕%2F焼け.png` は実在する `夕/焼け.png` の完全一致キーなら可。違うファイルへ解決しない |
+
+sol の GET/DELETE 両方で encoded slash を常に拒否する期待は採らない。安全条件は raw 綴りの一意性ではなく、復号後の有効な実名キーへの完全一致である。
+
+## 6. 取り込み
+
+multipart の決まりは次の4つとする。独自のパラメーター字句解析は加えない。
+
+1. ParseMultipartForm/FormFile を経由せず MultipartReader を使い、Content-Disposition を mime.ParseMediaType に渡す。既存の総量・件数等の制限は維持する。
+2. basename 前の `params["filename"]` を使う。Part.FileName や filepath.Base で元名を消さない。
+3. パーサーエラー、空、不正 UTF-8、`/`、`\\`、`／`、`＼`、`..` を含む名前は400。壊れたヘッダーも置換前に拒否する。
+4. filename*、通常名との併記、重複、連結、不正 charset/escape は、標準パーサーが返した結果をそのまま同じ名前検査に通す。パーサーエラーなら400、成功なら結果の値で決める。独自 fallback や二度目の percent decode はしない。
+
+受信名の UTF-8・パス混入検査 → 最後の ASCII ドットで拡張子確認と ASCII 小文字化 → stem の不許可コードポイント1つにつき `_` 1つ → 完成形規則を再検査 → 直下全項目との衝突検査 → 排他的保存、の順。サーバー NFC はない。連続 `_` は圧縮しない。先頭ドットは `_`、有効な途中ドットは維持。長名・予約名を切詰めや接頭辞で救わない。
+
+| 入力 → 期待 | 理由 |
+|---|---|
+| `夕 焼け（夜）.PNG` → `夕_焼け_夜_.png` | 記号だけ置換 |
+| `夕焼け.v1.png` →そのまま、`.夕焼け.png` → `_夕焼け.png` | 途中ドットを維持 |
+| CON.png、長すぎる最終名 →400 | 専用の説明を返す |
+| a/b.png、a\\b.png、a／b.png、a＼b.png、a..png →400 | basename で通さない |
+| `%E5.png` → `_E5.png` | filename の percent encoding は復号しない |
+| 既存 `夕_焼け.png` に `夕 焼け.png` →409 | 置換後の名前で衝突 |
+| 既存 `が.png` に管理ページ経由 NFD →409、他クライアント NFD → `か_.png` | 送信前 NFC の有無を区別 |
+| `filename="a.png"; filename="a.png"` →パーサーが a.png を返すなら通常処理 | 重複自体を一律400にしない |
+| 不正 filename*＋通常名、filename*0* 連結 →標準パーサーの結果で決定 | sol の一律拒否案を縮小 |
+
+直接配置は改名・置換・正規化しない。文字違反／部分長超過は bad_name、全体長は path_too_long、予約名は reserved_name、新しい衝突理由は name_collision。not_nfc は追加しない。
+
+## 7. 共通入力表と試験の設計
+
+Go は rune と len、JS はコードポイント走査と TextEncoder で UTF-8 長を計算する。JS は孤立 surrogate を TextEncoder の置換前に拒否する。エラー位置は元入力の1始まりコードポイントで、バイト長とは別。
+
+既存 `internal/sources/html_cases.json` H001〜H359 を全行調査したところ、長さ変更で期待が変わる行は **ない**。128/512の URL 境界行自体がない。長い H293/H294 は HTML の深さ境界で無関係。従って「既存境界行を変更」とはせず、相対499〜512バイトが旧 Go/JS では接頭辞込みで落ちる不整合を新しい行で捕まえる。H357〜H359 の生成 query 受理も維持する。
+
+### H360〜H395（v1 の行を維持）
+
+S/R は save/rendered。表中の Unicode escape は実文字へ展開する。ok の refs は save で比較し、rendered の refs 比較はハーネスの契約に合わせる。エラーは下表の位置を両言語で検証し、H298以降の現行ハーネスに合わせ rendered 側にも必要な位置を持たせる。存在 fixture に夕焼け.png・が.pngを足し、欠損行以外の warnings は空にする。
 | id / mode | input | 期待（code、行・文字目）／refs |
 |---|---|---|
 | H360 S / H361 R | `<img src="/source/files/夕焼け.png">` | ok／`/source/files/夕焼け.png` |
@@ -175,57 +211,100 @@ JSON の `asset` に normalization=NFC、lengthUnit=utf8Bytes、maxSegmentLength
 | H394 S | `<img src="/source/files/欠損.png">` | ok、refs に保持、warnings は `template.asset_missing` |
 | H395 R | 同上 | ok（存在は合否に使わない） |
 
-旧行の ASCII・percent encoding 拒否の期待は緩めない。追加行のほか、下記の表試験を実装役が用意する。
 
-| 試験対象 | 入力 → 期待 |
+### H396 以降の追加行（入力→期待と理由）
+
+各独立入力を S/R の組で採番する。以下の URL 部分だけの行は `<img src="/source/files/…">` に入れる。`html_url` は `template.html_url` の略で、既定の位置は1・11。複数例を挙げた欄はそれぞれ別入力にする。ok は復号後の同じ生パスを refs に持つ。位置が異なる CSS 入力は字句の URL 値の開始位置を現行契約で数える。
+
+| 入力 | 期待 | 理由 |
+|---|---|---|
+| U+2EBF0＋`.png`、`Ᲊ.png`（U+1C89） | html_url | 15.0の表外 |
+| `夕ㅤ.png`、`ᅟ.png`、U+1160/U+FFA0 を含む名 | html_url | 不可視 L |
+| `𠮷.png` | ok | 補助平面 |
+| 全体 `<img src="/source/files/𠮷.png"><img src="x">` | html_url、1・42 | UTF-16／バイトで位置を数えない |
+| `あ`×41／×42＋`.png` | ok／html_url | 127／130バイト |
+| `a`×127 `/` `b`×127 `/` `c`×127 `/` `d`×124＋`.png` | ok | 相対512バイト、全部分128以下 |
+| 上の d を×125に | html_url | 相対513、最後の部分129。全体境界の試験は次行でも独立に行う |
+| `a`×128 `/` `b`×128 `/` `c`×128 `/` `d`×122＋`.png` | html_url | 相対513、全部分128以下で全体だけ超過 |
+| 相対499／500バイト（上と同様に各部分128以下） | ok | 旧接頭辞込み上限の境界 |
+| 相対512の URL＋生成 query | S html_url、R ok | query を長さに含めない |
+| `a.gİf`、`夕．png`、`夕.ｐｎｇ` | html_url | ASCII 拡張子だけ |
+| `神.png`、`Å.png`、`한.png`、U+1100 U+1161＋`.png` | html_url | 単独非 NFC とハングル合成後続を除外 |
+| `한.png`、`ｶﾞ.png`、`﨑.png`、`髙.png` | ok | NFC の許可文字 |
+| `q́.png`、`q̣́.png`、`q̣́.png`、`́a.png`、`か゚.png`、`夕឴.png` | 全て html_url | M は位置・順序によらず不可 |
+| q＋U+0301×30／×31＋`.png` | 両方 html_url | stream-safe 境界ではなく M 禁止 |
+| `か&#x3099;.png` | html_url | 属性復号後も M 禁止 |
+| `夕&#x3000;.png`、`夕&#37;E5.png`、`a&#46;&#46;b.png` | html_url | 復号後の空白・percent・連続ドット |
+| `ＣＯＮ.png`、`COM0.png` | ok | 幅を畳まない |
+| `con.夕.png`、`夕/NUL.png`、`LPT².png` | html_url | 全部分で予約名 |
+| 全体 `<style>.x{background:url(/source/files/夕　焼け.png)}</style>` | html_url | CSS では空白扱いされない U+3000 も名前検査で拒否 |
+| 全体 `<style>.x{background:url(/source/files/夕焼け.png?v=0123456789ab)}</style>` | S html_url、R ok | CSS query |
+| `夕&#47;焼け.png` | ok、refs `/source/files/夕/焼け.png` | 参照から生じた区切りも通常の階層規則 |
+| `夕&amp;#22805;.png` | html_url | 二度目の文字参照復号なし |
+| 全体 `<style>.x{background:url('/source/files/夕焼け.png')}</style>` | ok、同じ refs | 単一引用符も検証 |
+| 全体 `<style>.x{background:url(/source/files/&#22805;焼け.png)}</style>` | html_url | style は参照復号なし |
+| 全体 `<img srcset="/source/files/夕焼け.png 1x">` | template.html_attribute | srcset は許可しない |
+| `夕焼け.png?v=0123456789ab&v=0123456789ab` | S/R とも html_url | 重複 query 禁止 |
+| 全体 `😀<img src="/source/files/夕 焼け.png">` | html_url、1・12 | 補助平面後の位置 |
+
+### 名前・統合・実機試験（実装時）
+
+名前検査専用の共有 fixture は `internal/sources/asset_name_cases.json` に置き、Go と Node が同じ範囲・長さ・位置・予約名を検証する。不正 UTF-8 は JSON に書けず、孤立 surrogate は Go JSON 復号が U+FFFD に変えるため共有 fixture に入れない。Go は生バイト入力、JS は孤立 surrogate の文字列を各言語の個別試験にする。
+
+| 試験 | 入力 → 期待 |
 |---|---|
-| Go 名前検査表 | 第2節の全分類・境界、全予約名大小混在、上付き数字、前後ドット、空白、`~1`、無効 UTF-8 → 指定 Reason |
-| Go/JS 名前検査の共有 fixture | L/N/M 各下位分類、補助平面漢字、未割当、私用、孤立 surrogate → 同じ合否。128/129・512/513バイトも一致 |
-| multipart 表 | raw UTF-8 filename、UTF-8 filename*、両方、不正 charset/escape、パス混入、二重符号化 → 第6節の結果 |
-| 保存・索引 | 日本語保存→一覧→読出し→削除、NFD 取込→NFC、直接 NFD は使えない、大小衝突、親フォルダ衝突 → 第3・4節の結果 |
-| S2-85 統合 | 生文字・文字参照の両方と不実行枝 → 同じ used_by。hash が同じ、削除確認409、欠損注意、同名更新時の hash 更新 |
-| HTML 書換え | 第5節の img、style 属性、style 要素の引用符あり/なし → 生パスを保って既存 v だけ追記。外部要求ゼロ、木が同じ |
-| HTTP | 正しい日本語 percent encoding →200。二重符号化・encoded separator・dot segment・alias →404（リダイレクト救済なし） |
-| Windows/OBS 実機 | 日本語のドロップ・直接配置・補完・表示・同名更新・削除 → 実名表示、CEF の要求と再表示が成功 |
+| 生成・名前 | L/N 全下位分類、M、不可視、表外、128/129・512/513、予約名、ASCII folding →一致。再生成差分ゼロ |
+| multipart | 日本語 raw UTF-8、filename*／併記／重複／連結／不正拡張値 →標準パーサー結果を完成形検査へ。パス混入は basename 前に400 |
+| 保存・索引 | 日本語保存→一覧→読出し→削除、管理ページ NFC と他クライアント NFD の違い、置換後衝突、直下フォルダ／内容不良との衝突 →規定どおり |
+| sol 統合1 | A.png/a.png の片方更新→定期 Refresh→OpenWithHash・put →両方衝突のまま |
+| sol 統合2 | A/x.png と a/y.png →親衝突で両方不可。追加・削除の親情報更新でも整合 |
+| sol 統合3（期待修正） | 同値の filename 重複、不正 filename*＋通常名、連結 →一律400にはせず標準パーサーの結果を検査する |
+| sol 統合4（期待修正） | GET/DELETE の %2F/%5C/%252F、不正 UTF-8、dot segment →第5節どおり。%2F は復号後の完全一致キーなら許可、別名へ救済なし |
+| S2-85 | 生文字・文字参照・不実行枝 →同じ used_by、hash、削除確認409、欠損注意。同名更新で hash 更新 |
+| HTML 書換え | img・style 属性・style 要素、引用の各形 →生パスを保ち v を位置で追記、木一致、外部要求ゼロ |
+| 補完・差し込み | 日本語入力中も候補維持。両差し込み箇所から保存→再表示 →生パス |
+| Windows 実機1 | A.png 配置、本文 a.png →欠損注意・非表示。Refresh 後も a.png 行を作らない |
+| Windows 実機2 | 使用中 A.png に DELETE a.png →404、実ファイルが残る。全角大小と8.3 alias も確認 |
+| OBS/CEF 実機 | 日本語ドロップ・直接配置・CSS 各引用・文字参照・同名更新・削除 →正常表示。CEF の要求が通信時だけ符号化されることを観測 |
 
-試験の実装・実行は本設計作成には含めない。
+Linux の試験だけで Windows 実名保証を合格にしない。Fable の Chromium 実測を OBS/CEF 実機の代用にしない。本作業では試験コードや結果記録は変更しない。
 
-## 8. 画面
+## 8. 画面・文言・残る危険
 
-| 場所 | 入力 → 期待 | 理由 |
+| 場所／入力 → 期待 | 理由 |
+|---|---|
+| 素材一覧・補完・差し込み →実名の生文字 | 符号化表示・ローマ字化をしない |
+| アップロードで名前が長すぎる →専用「名前が長すぎます。拡張子を含め128バイト以内にしてください」 | 汎用 source_files.invalid だけでは直せない。日本語41字＋.pngの目安も案内 |
+| bad_name →「名前に使えない文字があります。管理ページから入れ直すか、名前を変更してください」 | NFC 用語だけで説明しない。M は入れ直しても `_` になるとヘルプに明記 |
+| name_collision →「同じ名前とみなされる項目があります。ファイルまたは親フォルダの名前を変更してください」 | 親衝突も説明 |
+| 削除確認 →実名・使用中ソース名を既存の確認文へ | S2-85 を維持 |
+
+新 Reason name_collision を Reasons に加え、全対応言語の `source_files.reason_name_collision` を追加する。長名のアップロード専用キー `source_files.name_too_long` も各言語へ追加。既存 path_too_long／bad_name も単位と案内を揃える。Reason 全コードに文がある前提を保ち、not_nfc 用のキーは増やさない。
+
+実名表示は textContent・テキストノード・エディター文字列を使い、innerHTML に渡さない。RTL のヘブライ・アラビア文字は許可されるので表示順が入れ替わりうる。名前表示は bdi 等で周囲と分離し、双方向制御文字そのものは禁止を維持する。ラテン／キリルなど見た目の混同検出は対象外。記号に似た Lm（ʼ U+02BC、ː U+02D0）は構文上安全なので許す。NFD/NFC 同居は勝手に統合しない。
+
+Windows の OS 比較と SimpleFold の差、絶対パス長や保存先制限による I/O 失敗、直接配置と定期検出の間の競合は残る。os.Root・実名確認・O_EXCL と既存のファイル同一性検査を維持し、失敗を黙った別名アクセスで救済しない。
+
+## 9. 実装の順と引継ぎの切れ目
+
+1. 名前の検査：生成元・SHA-256・スクリプト、固定範囲表、Go/JS 共通規則、共有 fixture と言語別不正入力試験。
+2. checkURL：html.go と html.js の相対 UTF-8 長、version 4、H360以降、抽出・書換えの一致。
+3. 索引：衝突状態と内容の分離、親情報、Refresh/OpenWithHash/put、Delete の実名完全一致。
+4. 取り込みと画面：MultipartReader、ブラウザ送信前 NFC、衝突、両差し込み・補完・i18n。
+5. spec と実機：仕様へ契約を反映し、Windows 2項目・OBS/CEF を確認する。
+
+3回に分けるなら、**第1〜2段階**（表と本文の契約が Go/Node で一致）、**第3段階**（更新後も衝突と完全一致が保たれる）、**第4〜5段階**（取り込みから実機表示・削除まで）を切れ目にする。2回なら前半を第1〜3段階、後半を第4〜5段階とする。中間の段階を製品完成とはせず、各回の入力表・境界条件を次の実装役へ渡す。コード・試験・spec はこの設計改訂では書かない。
+
+## 10. spec の直し方の案（本作業では変更しない）
+
+| 箇所 | 現在 → v2 の改訂案 | 理由 |
 |---|---|---|
-| 補完候補・素材一覧 | `夕焼け.png` → そのまま表示 | 符号化表示やローマ字化をしない |
-| 差し込み | 日本語の候補 → 生パスの img / 引用符つき url | 本文規則と揃える。CSS の引用符は今の挿入形式を維持 |
-| 削除確認 | `夕焼け.png` → 実名と使用中ソース表示名を既存の文に差し込む | S2-85 の確認内容を維持 |
-| 不許可の直接配置 | 実名＋「名前が NFC ではありません」等 | 理由から改名できる |
+| 第14章 素材の ASCII 正規表現・128文字／512文字 | 15.0 固定 L/N の限定表、M・不可視・非 NFC／合成後続を除外、部分128・相対512 UTF-8バイト、親3段 | 必ず NFC になる集合と単位を明確化 |
+| 同章 取り込みの正規化 | 管理ページのみ送信前 NFC、サーバーは正規化せず不許可文字を `_`、ASCII 拡張子、予約名400、直下全項目との衝突409、O_EXCL | クライアント別 NFD の差と非上書きを明記 |
+| 同章 multipart | 第6節の4規則、標準パーサー結果を検査、basename を使わない | 独自の重複／拡張形式拒否を要求しない |
+| 同章 直接配置・索引・削除 | 改名なし、bad_name と name_collision、親衝突、内容更新で解除しない、Refresh／Delete は実名完全一致 | 別名の追加・誤削除を防ぐ。not_nfc は作らない |
+| 第9章 固定素材 URL と S2-77 第4節相当 | 本文は生文字、属性の文字参照は1回、本文の percent decode／% 禁止維持、通信は復号済み Path の完全一致 | raw separator の追加拒否は必須にしない |
+| S2-85 使用判定・v | 生パスの綴り・大小の完全一致、文字参照だけ同一視、相対長に接頭辞・v を含めない | 衝突判定と参照一致を混ぜない |
+| 素材 UI・補完・差し込み | 実名の生文字、日本語入力で補完継続、送信前 NFC と失う表記、長名・衝突の案内、通信のみ符号化 | 操作と保存名の関係を説明 |
 
-表示は textContent・テキストノード・エディターの文字列として扱う。使えない名前は HTML 記号を含む可能性があるので innerHTML に渡さない。画面の名前と保存名・削除要求名を別に変換しない。通信だけを segment ごとに符号化する。
-
-## 9. 残る危険とレビュー依頼
-
-| リスク／レビューで見てほしい所 | 期待する判断・確かめ | 理由 |
-|---|---|---|
-| ラテン・キリルなど見た目の似た文字 | 同一扱いしない。実名表示を確認 | 文字種の全混同検出は本件に含めない |
-| NFC 差の同じ見た目の2名 | NFD 直接配置を使えなくし、勝手に統合しない | 改名・置換で別ファイルを失わない |
-| M と不可視文字 | 許可 M・例外範囲・先頭制約を Fable/codex sol に重点レビュー依頼 | 日本語の異体字選択も拒否する提案は利便性との判断が必要 |
-| 128/512バイト | 日本語41字＋拡張子で十分かレビュー | 現行 spec の「文字」との変更を明記して採否を決める |
-| Unicode 表と NFC 依存 | Unicode 15.0 固定、生成根拠、JS/Go の一致を確認 | 将来の実行環境更新だけで許可範囲を増やさない |
-| Windows 大小同値 | simple folding の保守的な衝突判定と OS の差、親フォルダ衝突を確認 | 参照の完全一致を緩めない |
-| 二重 URL 復号と区切りの抜け道 | 本文 `%` 禁止、HTTP は1回だけ、raw separator 拒否、索引実名一致を確認 | `os.Root` だけで論理上の別名アクセスを許さない |
-| multipart の basename と filename* | Go 標準の実挙動と追加拒否規則を表で確認 | 正常なブラウザ名と偽装されたパスを区別する |
-| CEF の要求 | 実機で文字参照、生文字、CSS の両引用形式を観測 | この文書の机上の期待だけで合格にしない |
-
-設計の選択は、NFC 依存追加、生文字だけの本文参照、バイト上限、衝突時の拒否。レビュー未決事項を実装役が黙って別案へ差し替えず、指揮者がレビュー結果を反映した版を渡す。
-
-## 10. spec 改訂案（指揮者向け、この作業では変更しない）
-
-| 箇所 | 現在 → 改訂案 | 理由 |
-|---|---|---|
-| 第14章「素材」の ASCII 正規表現と128文字・512文字 | 第2節の限定 Unicode 集合・除外・NFC・各部分128 UTF-8バイト・相対パス512バイトへ置換 | 判定単位を明確にする |
-| 同章の「取り込みの正規化は今どおり」 | 第6節の順序、NFC、不許可文字のみ `_`、予約名拒否、409維持、filename の規則を明記 | 日本語を消さず衝突を隠さない |
-| 同章の直接配置 | 改名せず検査、非 NFC・衝突も理由つきで使えないと追記 | 取り込みとの違いを明記 |
-| 第9章の固定素材 URL と S2-77 第4節相当 | 名前の集合だけ更新。percent decode・`%` 禁止は維持。文字参照は既存どおり1回 | 安全の規則を広げない |
-| S2-85 の使用判定・v | NFC の生パスを大小含め完全一致、文字参照だけ同一視。通信時の符号化と区別 | 曖昧な参照と二重復号を避ける |
-| 素材 UI と補完・差し込みの記述 | 候補と本文は実名の生文字、HTTP 操作だけ符号化と追記 | 利用者が実名を読める |
-
-S2-77 の許可要素・属性・CSS 関数・字句・テンプレート・枝・DOM 再検査の安全規則を改訂対象に含めない。
+S2-77 の許可要素・属性・CSS 関数・字句・テンプレート・全枝・DOM 再検査の安全規則は改訂対象外。依存追加、M の位置規則、stream-safe、not_nfc、共有 folding 表を仕様に残さない。
