@@ -1,9 +1,9 @@
 # チケット一覧
 
 自動生成: `ticket.py index` (tickets skill)。手で編集しない。
-未完了: 11 件。完了分は closed/。
+未完了: 10 件。完了分は closed/。
 
-## 設計待ち (11)
+## 設計待ち (10)
 
 ### 不具合 (1)
 
@@ -11,11 +11,10 @@
 |---|---|---|---|
 | [html-split-charref](open/html-split-charref.md) | 低 | 2026-11-28 | 文字参照を差し込みや if で割ると、保存できたのに表示で誤りになる |
 
-### 機能 (7)
+### 機能 (6)
 
 | id | 優先 | 起票 | 概要 |
 |---|---|---|---|
-| [source-style-live-update](open/source-style-live-update.md) | 中 | 2026-11-27 | ソースの見た目の保存を、開いている OBS へ自動で届ける |
 | [source-unknown-name-reason](open/source-unknown-name-reason.md) | 中 | 2026-11-27 | 「直しが要る」と書きかけの誤りに、知らない値の名前を出す |
 | [ntfy-notify](open/ntfy-notify.md) | 低 | 2026-11-24 | ntfy で回線の悪化と待機の切り替えをスマホに知らせる（検討） |
 | [unused-camera-display](open/unused-camera-display.md) | 低 | 2026-11-25 | 今のコレクションにメディアソースがないカメラを、警告でなく「使っていない」と出す（検討） |
