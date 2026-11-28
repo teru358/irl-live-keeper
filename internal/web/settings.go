@@ -43,6 +43,7 @@ type settingsRequest struct {
 	Hash           string         `json:"hash"`
 	Revert         bool           `json:"revert"`
 	UpdateOBSInput bool           `json:"update_obs_input"`
+	Camera         string         `json:"camera"`
 	Target         string         `json:"target"`
 }
 
@@ -128,6 +129,7 @@ func serveSettings(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.
 					fail(500, "api.internal")
 					return
 				}
+				_ = next.PreserveCredentials(old, true, false)
 				summary := settings.ClassifyChanges(old, next, local)
 				if len(summary.Fields) == 0 {
 					fail(409, "settings.no_revert_difference")
@@ -168,7 +170,16 @@ func serveSettings(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.
 				}
 				target = &next.Admin.Password
 			case "publish":
-				target = &next.Stream.PublishPass
+				for i := range next.Cameras {
+					if next.Cameras[i].ID == req.Camera {
+						target = &next.Cameras[i].PublishPass
+						break
+					}
+				}
+				if target == nil {
+					fail(422, "settings.invalid")
+					return
+				}
 			case "read":
 				target = &next.Stream.ReadPass
 			default:
@@ -186,6 +197,12 @@ func serveSettings(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.
 			decode.KnownFields(true)
 			decodeErr = decode.Decode(&next)
 		}
+		if !regenerate {
+			if err = next.PreserveCredentials(old, revert, save || revert); err != nil {
+				fail(500, "api.internal")
+				return
+			}
+		}
 		next.SortCameras()
 		summary := settings.ClassifyChanges(old, &next, local)
 		if (save || revert) && !local {
@@ -197,7 +214,16 @@ func serveSettings(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.
 			}
 		}
 		fields := map[string]string{}
-		if err = next.Validate(); err != nil {
+		validation := next
+		validation.Cameras = append([]config.Camera(nil), next.Cameras...)
+		if !save && !revert && !regenerate {
+			for i := range validation.Cameras {
+				if validation.Cameras[i].PublishPass == "" {
+					validation.Cameras[i].PublishPass = "previewOnly"
+				}
+			}
+		}
+		if err = validation.Validate(); err != nil {
 			var ve *config.ValidationError
 			if errors.As(err, &ve) {
 				fields = ve.RenderFields(lang)
@@ -236,7 +262,16 @@ func serveSettings(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.
 			return
 		}
 		changes := settingsChanges(&next, summary)
-		out, err := settings.Rewrite(s.Raw, changes)
+		rewriteBase := s.Raw
+		if revert {
+			rewriteBase = s.BackupRaw
+			changes = append(changes,
+				settings.Change{Path: "admin.password", Value: next.Admin.Password},
+				settings.Change{Path: "stream.read_user", Value: next.Stream.ReadUser},
+				settings.Change{Path: "stream.read_pass", Value: next.Stream.ReadPass},
+				settings.Change{Path: "cameras", Value: next.Cameras})
+		}
+		out, err := settings.Rewrite(rewriteBase, changes)
 		if err != nil {
 			var verification *settings.VerificationError
 			if errors.As(err, &verification) {

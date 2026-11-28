@@ -171,7 +171,7 @@ func TestRunは生成した設定の秘密をログファイルに書かない(t
 		}
 		// 管理ページのパスワードは初回の生成では空（S2-61）なので、送信と読み取りのパスワードで確かめる
 		script := fmt.Sprintf("#!/bin/sh\necho 'publish pass=%s'\necho 'read pass=%s'\nexec sleep 30\n",
-			cfg.Stream.PublishPass, cfg.Stream.ReadPass)
+			cfg.Cameras[0].PublishPass, cfg.Stream.ReadPass)
 		return cfg, os.WriteFile(bin, []byte(script), 0o700)
 	}
 
@@ -205,7 +205,7 @@ func TestRunは生成した設定の秘密をログファイルに書かない(t
 		t.Fatal("初回の生成で admin.password が空でない")
 	}
 	// 標準出力には、URL と生成した送信・読み取りのパスワードが出る
-	for _, want := range []string{cfg.Stream.PublishPass, cfg.Stream.ReadPass, "srt://", "rtmp://", "rtsp://"} {
+	for _, want := range []string{cfg.Cameras[0].PublishPass, cfg.Stream.ReadPass, "srt://", "rtmp://", "rtsp://"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("標準出力に %q がない", want)
 		}
@@ -231,7 +231,7 @@ func TestRunは生成した設定の秘密をログファイルに書かない(t
 		}
 	}
 	for name, secret := range map[string]string{
-		"publish_pass": cfg.Stream.PublishPass, "read_pass": cfg.Stream.ReadPass,
+		"publish_pass": cfg.Cameras[0].PublishPass, "read_pass": cfg.Stream.ReadPass,
 	} {
 		if strings.Contains(logs, secret) {
 			t.Errorf("ログファイルに %s が出ている", name)
@@ -240,7 +240,7 @@ func TestRunは生成した設定の秘密をログファイルに書かない(t
 	// 標準出力のうちログの行（起動の表示以外）にも出ない。偽の MediaMTX の行で確かめる
 	for _, line := range strings.Split(out, "\n") {
 		if strings.Contains(line, "component=mediamtx") {
-			for _, secret := range []string{cfg.Stream.PublishPass, cfg.Stream.ReadPass} {
+			for _, secret := range []string{cfg.Cameras[0].PublishPass, cfg.Stream.ReadPass} {
 				if strings.Contains(line, secret) {
 					t.Errorf("標準出力のログの行に秘密が出ている: %s", line)
 				}

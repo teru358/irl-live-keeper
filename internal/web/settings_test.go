@@ -178,7 +178,7 @@ func TestRegenerateSettings(t *testing.T) {
 			b.store.ApplySaved = func(_, _ *config.Config, summary settings.ChangeSummary, updateOBS bool) {
 				got, gotOBS = summary, updateOBS
 			}
-			body, _ := json.Marshal(map[string]any{"target": tc.target, "hash": settings.Hash(b.store.Raw), "update_obs_input": tc.obs})
+			body, _ := json.Marshal(map[string]any{"target": tc.target, "camera": "cam1", "hash": settings.Hash(b.store.Raw), "update_obs_input": tc.obs})
 			var logOutput bytes.Buffer
 			logger := slog.New(slog.NewTextHandler(&logOutput, nil))
 			r := httptest.NewRequest("POST", "/api/settings/regenerate", strings.NewReader(string(body)))
@@ -206,12 +206,12 @@ func TestRegenerateSettings(t *testing.T) {
 			case "admin":
 				value = cfg.Admin.Password
 			case "publish":
-				value = cfg.Stream.PublishPass
+				value = cfg.Cameras[0].PublishPass
 			case "read":
 				value = cfg.Stream.ReadPass
 			}
 			if !regexp.MustCompile(`^[A-Za-z0-9_-]{24}$`).MatchString(value) || cfg.Validate() != nil || got.Apply != tc.apply || gotOBS != tc.obs || strings.Contains(logOutput.String(), value) {
-				t.Fatalf("generated value rejected or wrong apply: %q %+v", value, got)
+				t.Fatal("generated value rejected or wrong apply")
 			}
 		})
 	}
@@ -238,7 +238,7 @@ func TestRegenerateSettingsChecksConflictsAndUnsetAdmin(t *testing.T) {
 			if tc.stale {
 				h = "stale"
 			}
-			body, _ := json.Marshal(map[string]any{"target": tc.target, "hash": h})
+			body, _ := json.Marshal(map[string]any{"target": tc.target, "camera": "cam1", "hash": h})
 			w := settingsCall(b, "POST", "/api/settings/regenerate", string(body), "127.0.0.1:4", true)
 			if w.Code != tc.code || (tc.code != 202 && b.writes != 0) {
 				t.Fatalf("%d %s", w.Code, w.Body.String())
@@ -429,7 +429,8 @@ func TestSettingsFullValuesPreserveFile(t *testing.T) {
 			case "cameras[1].name":
 				req.Values["cameras"].([]any)[1].(map[string]any)["name"] = "Renamed"
 				start, end := strings.Index(original, "cameras:\n"), strings.Index(original, "obs:\n")
-				want = original[:start] + "cameras:\n  - id: cam1\n    name: メインカメラ\n    on_bad: standby\n  - id: cam2\n    name: Renamed\n    on_bad: standby\n" + original[end:]
+				want = original[:start] + "cameras:\n  - id: cam1\n    publish_pass: publishpass\n    name: メインカメラ\n    on_bad: standby\n  - id: cam2\n    publish_pass: publishpass\n    name: Renamed\n    on_bad: standby\n" + original[end:]
+				want = strings.ReplaceAll(want, "publish_pass: publishpass", "publish_pass: "+c.Cameras[0].PublishPass)
 			case "none":
 				b.store.CheckPorts = func(*config.Config, *config.Config, []settings.ListeningPort) []settings.PortFailure {
 					t.Fatal("no-op checked ports")
@@ -447,7 +448,7 @@ func TestSettingsFullValuesPreserveFile(t *testing.T) {
 			body, _ := json.Marshal(map[string]any{"values": req.Values, "page": page, "hash": settings.PageHash(cfg, page)})
 			w = settingsCall(b, "PUT", "/api/settings", string(body), "127.0.0.1:4", true)
 			if w.Code != 202 || string(b.store.Raw) != want {
-				t.Fatalf("status=%d body=%s\ngot:\n%s\nwant:\n%s", w.Code, w.Body.String(), b.store.Raw, want)
+				t.Fatalf("status=%d; rewritten config differs (values hidden)", w.Code)
 			}
 			if path == "none" && (b.writes != 0 || !strings.Contains(w.Body.String(), `"apply":"none"`)) {
 				t.Fatal("no-op wrote", w.Body.String())

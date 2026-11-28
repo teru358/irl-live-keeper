@@ -92,12 +92,12 @@ func buildSender(cfg *config.Config, list func() ([]netIface, error), defaultHos
 			c := web.SenderCamera{ID: u.ID, Name: u.Name, OBS: u.OBSRead}
 			if u.PublishSRT != "" {
 				address, id, _ := strings.Cut(u.PublishSRT, "?streamid=")
-				c.SRT = &web.SenderProtocol{URL: u.PublishSRT, Address: address, StreamID: id, User: cfg.Stream.PublishUser, Password: cfg.Stream.PublishPass}
+				c.SRT = &web.SenderProtocol{URL: u.PublishSRT, Address: address, StreamID: id, User: u.ID, Password: cfg.PublishPassword(u.ID)}
 			}
 			if u.PublishRTMP != "" {
 				path, query, _ := strings.Cut(u.PublishRTMP, "?")
 				n := strings.LastIndex(path, "/")
-				c.RTMP = &web.SenderProtocol{URL: u.PublishRTMP, Address: path[:n], Key: path[n+1:] + "?" + query, User: cfg.Stream.PublishUser, Password: cfg.Stream.PublishPass}
+				c.RTMP = &web.SenderProtocol{URL: u.PublishRTMP, Address: path[:n], Key: path[n+1:] + "?" + query, User: u.ID, Password: cfg.PublishPassword(u.ID)}
 			}
 			a.Cameras = append(a.Cameras, c)
 		}

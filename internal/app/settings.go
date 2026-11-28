@@ -193,6 +193,10 @@ func (b *pageBackend) MarkRevert() { b.app.apply.Kind = ApplyKind("settings_reve
 
 // ApplySaved は保存に成功したあと App.mu 内で呼ぶ。版と印を保持し、反映中にする。
 func (b *pageBackend) ApplySaved(old, next *config.Config, summary settings.ChangeSummary, updateOBSInput bool) {
+	b.app.rememberSecrets(next.Secrets()...)
+	if b.app.current != nil {
+		b.app.current.logger.AddSecrets(next.Secrets()...)
+	}
 	b.app.pendingSettings = &savedSettings{old, next, summary, updateOBSInput}
 	kind := ApplyKind("live")
 	if summary.Apply == settings.ApplyRestart {

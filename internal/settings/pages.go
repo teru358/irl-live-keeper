@@ -34,6 +34,7 @@ var fieldLocations = map[string]FieldLocation{
 	"stream.publish_rtmp_port":       {"cameras", "common"},
 	"stream.publish_srt_port":        {"cameras", "common"},
 	"stream.publish_host":            {"cameras", "common"},
+	"cameras[].publish_pass":         {"cameras", "camera"},
 	"cameras[].id":                   {"cameras", "camera"},
 	"cameras[].name":                 {"cameras", "camera"},
 	"cameras[].on_bad":               {"cameras", "camera"},
@@ -60,8 +61,6 @@ var fieldLocations = map[string]FieldLocation{
 	"log.dir":                        {"settings", "other"},
 	"log.keep_days":                  {"settings", "other"},
 	"gui.close_action":               {"settings", "other"},
-	"stream.publish_user":            {"cameras", "common"},
-	"stream.publish_pass":            {"cameras", "common"},
 }
 
 func ConfigFieldLocations() map[string]FieldLocation {

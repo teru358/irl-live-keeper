@@ -1,12 +1,13 @@
 admin:
   password: abcdefgh
 stream:
-  publish_pass: abcdefgh
   read_pass: abcdefgh
 cameras:
   - id: cam1
+    publish_pass: publishpass
     name: 一
     on_bad: hide
   - id: cam2
+    publish_pass: publishpass
     name: 二
     on_bad: standby

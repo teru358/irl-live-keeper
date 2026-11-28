@@ -32,7 +32,7 @@ func TestObsConfig(t *testing.T) {
 	cfg.OBS.Host, cfg.OBS.Port, cfg.OBS.Password = "10.0.0.2", 4456, "obspw"
 	cfg.OBS.StandbyScene = "Wait"
 	cfg.MediaMTX.RTSPPort = 18554
-	cfg.Cameras = []config.Camera{{ID: "cam1", Name: "メイン", OnBad: "standby"}, {ID: "cam2", Name: "サブ", OnBad: "hide"}}
+	cfg.Cameras = []config.Camera{{ID: "cam1", PublishPass: "publishpass", Name: "メイン", OnBad: "standby"}, {ID: "cam2", PublishPass: "publishpass", Name: "サブ", OnBad: "hide"}}
 
 	got := obsConfig(cfg)
 	if got.Host != "10.0.0.2" || got.Port != 4456 || got.Password != "obspw" {
@@ -125,8 +125,8 @@ func TestCoreDeps(t *testing.T) {
 	cfg.Switch.LowSec, cfg.Switch.RecoverSec, cfg.Switch.DownSec = 6, 12, 3
 	fail := 300
 	cfg.Cameras = []config.Camera{
-		{ID: "cam1", Name: "メイン", OnBad: "standby"},
-		{ID: "cam2", Name: "サブ", OnBad: "hide", Switch: &config.SwitchOverride{FailKbps: &fail}},
+		{ID: "cam1", PublishPass: "publishpass", Name: "メイン", OnBad: "standby"},
+		{ID: "cam2", PublishPass: "publishpass", Name: "サブ", OnBad: "hide", Switch: &config.SwitchOverride{FailKbps: &fail}},
 	}
 	urls := []camURLs{
 		{ID: "cam1", Name: "メイン", PublishSRT: "s1", PublishRTMP: "r1", OBSRead: "o1"},
@@ -209,14 +209,14 @@ func TestMediaMTXBinary(t *testing.T) {
 
 func TestBuildCameraURLsOne(t *testing.T) {
 	cfg := testConfig(t)
-	cfg.Cameras = []config.Camera{{ID: "cam1", Name: "live", OnBad: "standby"}}
-	cfg.Stream.PublishUser, cfg.Stream.PublishPass = "irl", "PUBPASS12"
+	cfg.Cameras = []config.Camera{{ID: "cam1", PublishPass: "publishpass", Name: "live", OnBad: "standby"}}
+	cfg.Cameras[0].PublishPass = "PUBPASS12"
 	cfg.Stream.ReadUser, cfg.Stream.ReadPass = "obs", "READPASS1"
 	u := buildCameraURLs(cfg, "192.168.1.10")[0]
-	if want := "srt://192.168.1.10:8890?streamid=publish:live/cam1:irl:PUBPASS12"; u.PublishSRT != want {
+	if want := "srt://192.168.1.10:8890?streamid=publish:live/cam1:cam1:PUBPASS12"; u.PublishSRT != want {
 		t.Errorf("SRT = %q, want %q", u.PublishSRT, want)
 	}
-	if want := "rtmp://192.168.1.10:1935/live/cam1?user=irl&pass=PUBPASS12"; u.PublishRTMP != want {
+	if want := "rtmp://192.168.1.10:1935/live/cam1?user=cam1&pass=PUBPASS12"; u.PublishRTMP != want {
 		t.Errorf("RTMP = %q, want %q", u.PublishRTMP, want)
 	}
 	// OBS 用は host によらず 127.0.0.1
@@ -233,24 +233,24 @@ func TestBuildCameraURLsOverrides(t *testing.T) {
 		wantSRT, wantRTMP, wantOBSRead string
 	}{
 		{"既定", func(c *config.Config) {}, "192.168.1.10",
-			"srt://192.168.1.10:8890?streamid=publish:live/cam1:irl:PUBPASS12", "rtmp://192.168.1.10:1935/live/cam1?user=irl&pass=PUBPASS12", "rtsp://obs:READPASS1@127.0.0.1:8554/live/cam1"},
+			"srt://192.168.1.10:8890?streamid=publish:live/cam1:cam1:PUBPASS12", "rtmp://192.168.1.10:1935/live/cam1?user=cam1&pass=PUBPASS12", "rtsp://obs:READPASS1@127.0.0.1:8554/live/cam1"},
 		{"obs_read_host 指定", func(c *config.Config) { c.Stream.ObsReadHost = "192.168.1.20" }, "192.168.1.10",
-			"srt://192.168.1.10:8890?streamid=publish:live/cam1:irl:PUBPASS12", "rtmp://192.168.1.10:1935/live/cam1?user=irl&pass=PUBPASS12", "rtsp://obs:READPASS1@192.168.1.20:8554/live/cam1"},
+			"srt://192.168.1.10:8890?streamid=publish:live/cam1:cam1:PUBPASS12", "rtmp://192.168.1.10:1935/live/cam1?user=cam1&pass=PUBPASS12", "rtsp://obs:READPASS1@192.168.1.20:8554/live/cam1"},
 		{"ポート上書き", func(c *config.Config) { c.Stream.PublishRTMPPort, c.Stream.PublishSRTPort = 21935, 28890 }, "example.com",
-			"srt://example.com:28890?streamid=publish:live/cam1:irl:PUBPASS12", "rtmp://example.com:21935/live/cam1?user=irl&pass=PUBPASS12", "rtsp://obs:READPASS1@127.0.0.1:8554/live/cam1"},
+			"srt://example.com:28890?streamid=publish:live/cam1:cam1:PUBPASS12", "rtmp://example.com:21935/live/cam1?user=cam1&pass=PUBPASS12", "rtsp://obs:READPASS1@127.0.0.1:8554/live/cam1"},
 		{"ポート 0 は受信のポート", func(c *config.Config) { c.MediaMTX.RTMPPort, c.MediaMTX.SRTPort = 11935, 18890 }, "example.com",
-			"srt://example.com:18890?streamid=publish:live/cam1:irl:PUBPASS12", "rtmp://example.com:11935/live/cam1?user=irl&pass=PUBPASS12", "rtsp://obs:READPASS1@127.0.0.1:8554/live/cam1"},
+			"srt://example.com:18890?streamid=publish:live/cam1:cam1:PUBPASS12", "rtmp://example.com:11935/live/cam1?user=cam1&pass=PUBPASS12", "rtsp://obs:READPASS1@127.0.0.1:8554/live/cam1"},
 		{"IPv6", func(c *config.Config) {
 			c.Stream.ObsReadHost = "fd00::20"
 			c.Stream.PublishRTMPPort = 21935
 		}, "fd00::10",
-			"srt://[fd00::10]:8890?streamid=publish:live/cam1:irl:PUBPASS12", "rtmp://[fd00::10]:21935/live/cam1?user=irl&pass=PUBPASS12", "rtsp://obs:READPASS1@[fd00::20]:8554/live/cam1"},
+			"srt://[fd00::10]:8890?streamid=publish:live/cam1:cam1:PUBPASS12", "rtmp://[fd00::10]:21935/live/cam1?user=cam1&pass=PUBPASS12", "rtsp://obs:READPASS1@[fd00::20]:8554/live/cam1"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := testConfig(t)
-			cfg.Cameras = []config.Camera{{ID: "cam1", Name: "live", OnBad: "standby"}}
-			cfg.Stream.PublishUser, cfg.Stream.PublishPass = "irl", "PUBPASS12"
+			cfg.Cameras = []config.Camera{{ID: "cam1", PublishPass: "publishpass", Name: "live", OnBad: "standby"}}
+			cfg.Cameras[0].PublishPass = "PUBPASS12"
 			cfg.Stream.ReadUser, cfg.Stream.ReadPass = "obs", "READPASS1"
 			tt.mod(cfg)
 			u := buildCameraURLs(cfg, tt.publishHost)[0]
@@ -270,10 +270,10 @@ func TestBuildCameraURLsOverrides(t *testing.T) {
 func TestBuildCameraURLs(t *testing.T) {
 	cfg := testConfig(t)
 	cfg.Cameras = []config.Camera{
-		{ID: "cam1", Name: "メインカメラ", OnBad: "standby"},
-		{ID: "cam2", Name: "サブカメラ", OnBad: "hide"},
+		{ID: "cam1", PublishPass: "publishpass", Name: "メインカメラ", OnBad: "standby"},
+		{ID: "cam2", PublishPass: "publishpass", Name: "サブカメラ", OnBad: "hide"},
 	}
-	cfg.Stream.PublishUser, cfg.Stream.PublishPass = "irl", "PUBPASS12"
+	cfg.Cameras[0].PublishPass = "PUBPASS12"
 	cfg.Stream.ReadUser, cfg.Stream.ReadPass = "obs", "READPASS1"
 
 	// obs_read_host が空なら、どのカメラの OBS 用も 127.0.0.1
@@ -281,14 +281,14 @@ func TestBuildCameraURLs(t *testing.T) {
 	want := []camURLs{
 		{
 			Name: "メインカメラ", ID: "cam1",
-			PublishSRT:  "srt://192.168.1.10:8890?streamid=publish:live/cam1:irl:PUBPASS12",
-			PublishRTMP: "rtmp://192.168.1.10:1935/live/cam1?user=irl&pass=PUBPASS12",
+			PublishSRT:  "srt://192.168.1.10:8890?streamid=publish:live/cam1:cam1:PUBPASS12",
+			PublishRTMP: "rtmp://192.168.1.10:1935/live/cam1?user=cam1&pass=PUBPASS12",
 			OBSRead:     "rtsp://obs:READPASS1@127.0.0.1:8554/live/cam1",
 		},
 		{
 			Name: "サブカメラ", ID: "cam2",
-			PublishSRT:  "srt://192.168.1.10:8890?streamid=publish:live/cam2:irl:PUBPASS12",
-			PublishRTMP: "rtmp://192.168.1.10:1935/live/cam2?user=irl&pass=PUBPASS12",
+			PublishSRT:  "srt://192.168.1.10:8890?streamid=publish:live/cam2:cam2:publishpass",
+			PublishRTMP: "rtmp://192.168.1.10:1935/live/cam2?user=cam2&pass=publishpass",
 			OBSRead:     "rtsp://obs:READPASS1@127.0.0.1:8554/live/cam2",
 		},
 	}
@@ -308,7 +308,7 @@ func TestBuildCameraURLs(t *testing.T) {
 // 止めたプロトコルの送信用は空文字。OBS 用の RTSP は止めていても作る。
 func TestBuildCameraURLsStopped(t *testing.T) {
 	cfg := testConfig(t)
-	cfg.Cameras = []config.Camera{{ID: "cam1", Name: "メイン", OnBad: "standby"}, {ID: "cam2", Name: "サブ", OnBad: "standby"}}
+	cfg.Cameras = []config.Camera{{ID: "cam1", PublishPass: "publishpass", Name: "メイン", OnBad: "standby"}, {ID: "cam2", PublishPass: "publishpass", Name: "サブ", OnBad: "standby"}}
 	cfg.MediaMTX.RTMPEnabled = false
 	for i, c := range buildCameraURLs(cfg, "192.168.1.10") {
 		if c.PublishRTMP != "" || c.PublishSRT == "" || c.OBSRead == "" {
@@ -325,7 +325,7 @@ func TestBuildCameraURLsStopped(t *testing.T) {
 
 // All downstream lists inherit the normalized order from a manually edited file.
 func TestLoadedCameraOrderThroughSnapshotAndValues(t *testing.T) {
-	cfg, err := config.Parse([]byte("stream:\n  publish_pass: publishpass\n  read_pass: readpass1\ncameras:\n  - id: cam3\n    name: Three\n    on_bad: hide\n  - id: cam1\n    name: One\n    on_bad: standby\n  - id: cam2\n    name: Two\n    on_bad: standby\n"))
+	cfg, err := config.Parse([]byte("stream:\n  read_pass: readpass1\ncameras:\n  - id: cam3\n    publish_pass: publishpass\n    name: Three\n    on_bad: hide\n  - id: cam1\n    publish_pass: publishpass\n    name: One\n    on_bad: standby\n  - id: cam2\n    publish_pass: publishpass\n    name: Two\n    on_bad: standby\n"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -24,7 +24,7 @@ func TestFailureMessageAddsRestoreInstructionsOnlyWithBackup(t *testing.T) {
 		t.Fatal(writeErr)
 	}
 	got := a.failureMessage(err)
-	if !strings.Contains(got, "起動理由") || !strings.Contains(got, "config.yaml.bak") || !strings.Contains(got, "config.yaml") {
+	if !strings.Contains(got, "起動理由") || !strings.Contains(got, "--cli restore-backup") {
 		t.Fatalf("restore guidance missing: %s", got)
 	}
 }

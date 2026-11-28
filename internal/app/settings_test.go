@@ -96,8 +96,8 @@ func TestOBSInputURLRewriteRejectsNonMediaSourceAndHonorsUncheckedSave(t *testin
 
 func TestOBSInputURLMarkerTracksLatestSavedURLInProcess(t *testing.T) {
 	a := &App{}
-	old := &config.Config{Cameras: []config.Camera{{ID: "cam1"}}}
-	next := &config.Config{Cameras: []config.Camera{{ID: "cam1"}}}
+	old := &config.Config{Cameras: []config.Camera{{PublishPass: "publishpass", ID: "cam1"}}}
+	next := &config.Config{Cameras: []config.Camera{{PublishPass: "publishpass", ID: "cam1"}}}
 	b := &pageBackend{app: a}
 	b.ApplySaved(old, next, settings.ChangeSummary{}, true)
 	if a.obsInputURLs["cam1"] == "" || len(a.obsInputURLs) != 1 {
@@ -219,7 +219,8 @@ func TestRestoreBackupSwapsFilesAndSchedulesRevert(t *testing.T) {
 	}
 	got, _ := os.ReadFile(path)
 	rotated, _ := os.ReadFile(path + ".bak")
-	if string(got) != string(oldRaw) || string(rotated) != string(nextRaw) || a.apply.State != ApplyApplying || a.apply.Kind != ApplyRevert || len(a.restarts) != 1 {
+	restored, parseErr := config.Parse(got)
+	if parseErr != nil || restored.Log.KeepDays != old.Log.KeepDays || restored.Cameras[0].PublishPass != old.Cameras[0].PublishPass || string(rotated) != string(nextRaw) || a.apply.State != ApplyApplying || a.apply.Kind != ApplyRevert || len(a.restarts) != 1 {
 		t.Fatal("backup was not swapped and restart scheduled")
 	}
 }
@@ -314,12 +315,12 @@ func TestSavedSettingsRoutesAndBusy(t *testing.T) {
 func TestOBSURLRewriteOnlySharedIDs(t *testing.T) {
 	for _, connected := range []bool{false, true} {
 		t.Run(fmt.Sprint(connected), func(t *testing.T) {
-			old := &config.Config{Cameras: []config.Camera{{ID: "cam1"}, {ID: "cam2"}, {ID: "cam3"}}}
+			old := &config.Config{Cameras: []config.Camera{{PublishPass: "publishpass", ID: "cam1"}, {ID: "cam2"}, {ID: "cam3"}}}
 			old.Stream.App = "before"
 			old.MediaMTX.RTSPPort = 8554
 			next := *old
 			next.Stream.App = "after"
-			next.Cameras = []config.Camera{{ID: "cam3"}, {ID: "cam4"}, {ID: "cam1"}}
+			next.Cameras = []config.Camera{{PublishPass: "publishpass", ID: "cam3"}, {ID: "cam4"}, {ID: "cam1"}}
 			a := &App{}
 			(&pageBackend{app: a}).ApplySaved(old, &next, settings.ClassifyChanges(old, &next, true), true)
 			if len(a.obsInputURLs) != 2 || a.obsInputURLs["cam2"] != "" || a.obsInputURLs["cam4"] != "" {
@@ -358,11 +359,11 @@ type cameraMapOBS struct {
 func (f *cameraMapOBS) ConnectedMap() (*scenemap.Map, bool) { return f.m, true }
 
 func TestOBSURLRewriteWhenCameraCountChanges(t *testing.T) {
-	old := &config.Config{Cameras: []config.Camera{{ID: "cam1"}, {ID: "cam2"}, {ID: "cam3"}}}
+	old := &config.Config{Cameras: []config.Camera{{PublishPass: "publishpass", ID: "cam1"}, {ID: "cam2"}, {ID: "cam3"}}}
 	old.Stream.App = "before"
 	next := *old
 	next.Stream.App = "after"
-	next.Cameras = []config.Camera{{ID: "cam3"}}
+	next.Cameras = []config.Camera{{PublishPass: "publishpass", ID: "cam3"}}
 	a := &App{}
 	(&pageBackend{app: a}).ApplySaved(old, &next, settings.ClassifyChanges(old, &next, true), true)
 	m := &scenemap.Map{Inputs: map[string]scenemap.Input{"deleted": {CameraID: "cam1"}, "retained": {CameraID: "cam3"}}}
@@ -374,5 +375,35 @@ func TestOBSURLRewriteWhenCameraCountChanges(t *testing.T) {
 	a.updateOBSInputs(f, switcher.OBSConnected{Map: m})
 	if len(f.calls) != 1 || f.calls[0][0] != "retained" || !strings.HasSuffix(f.calls[0][1], "/after/cam3") {
 		t.Fatalf("calls=%v", f.calls)
+	}
+}
+
+func TestWindowRestoreUnreadableConfigRegeneratesCredentials(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, configName)
+	old, err := config.Generate(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(path+".bak", raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(path, []byte("invalid: ["), 0600); err != nil {
+		t.Fatal(err)
+	}
+	a := &App{opts: Options{BaseDir: dir}, apply: Apply{State: ApplyFailed, Kind: ApplyRestart}, restarts: make(chan struct{}, 1)}
+	if err = a.RestoreBackup(); err != nil {
+		t.Fatal(err)
+	}
+	next, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.Cameras[0].PublishPass == old.Cameras[0].PublishPass || next.Stream.ReadPass == old.Stream.ReadPass || !a.WindowState().CredentialReset {
+		t.Fatal("window restore reused credentials or omitted notice")
 	}
 }

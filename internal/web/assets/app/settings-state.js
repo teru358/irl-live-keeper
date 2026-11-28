@@ -26,6 +26,7 @@ export function focusSettingError(errors,doc){
 export function confirmationLines(action,payload,preview,streaming,t,saved={}){
  const lines=[];
  if(action==='regenerate')lines.push(t('settings_regenerate_'+payload.target));
+ if(action==='regenerate'&&payload.target==='publish'){if(payload.camera)lines.push(cameraHeading({id:payload.camera},t));lines.push(t('publish_reset_warning'));}
  lines.push(t(preview.apply==='restart'?'settings_restart_mode':'settings_immediate'));
  if(streaming&&preview.apply==='restart')lines.push(t('settings_stream_warning'));
  for(const f of preview.fields||[]){
@@ -33,6 +34,7 @@ export function confirmationLines(action,payload,preview,streaming,t,saved={}){
   const camera=match&&(typeof f.camera_name==='string'?{id:match[1],name:f.camera_name}:((f.kind==='removed'?saved.cameras:payload?.values?.cameras)?.find(c=>c.id===match[1])||saved.cameras?.find(c=>c.id===match[1])||{id:match[1]}));
   lines.push((camera?cameraHeading(camera,t)+' — ':'')+t(f.kind?'settings_'+f.kind:'setting_'+key));
  }
+ if(action==='revert')lines.push(t('revert_credentials'));
  if(preview.admin_lan_will_close)lines.push(t('settings_lan_close'));
  return lines;
 }

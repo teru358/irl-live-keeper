@@ -30,3 +30,12 @@ func TestGUIOutput(t *testing.T) {
 		t.Fatal("console output")
 	}
 }
+
+func TestRestoreBackupArguments(t *testing.T) {
+	for _, args := range [][]string{{"--cli", "restore-backup", "--dir", "/tmp/keeper"}, {"--dir", "/tmp/keeper", "--cli", "restore-backup"}} {
+		got, err := parseArgs(args)
+		if err != nil || !got.restore || !got.cli || got.dir != "/tmp/keeper" {
+			t.Fatal("restore command arguments rejected")
+		}
+	}
+}

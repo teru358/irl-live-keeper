@@ -21,7 +21,7 @@ webrtc: false
 moq: false
 authMethod: internal
 authInternalUsers:
-  - user: irl
+  - user: cam1
     pass: pubPASS123
     ips: []
     permissions:

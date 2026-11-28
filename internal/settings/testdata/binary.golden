@@ -1,10 +1,10 @@
 admin:
   password: abcdefgh
 stream:
-  publish_pass: abcdefgh
   read_pass: abcdefgh
 cameras:
   - id: cam1
+    publish_pass: publishpass
     name: メイン
     on_bad: standby
 mediamtx:

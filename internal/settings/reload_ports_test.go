@@ -222,7 +222,7 @@ func ownedForBaseline() []ListeningPort {
 
 func testConfig(t *testing.T) *config.Config {
 	t.Helper()
-	c, err := config.Parse([]byte("admin:\n  password: abcdefgh\nstream:\n  publish_pass: abcdefgh\n  read_pass: abcdefgh\ncameras:\n  - id: cam1\n    name: Main\n    on_bad: standby\n"))
+	c, err := config.Parse([]byte("admin:\n  password: abcdefgh\nstream:\n  read_pass: abcdefgh\ncameras:\n  - id: cam1\n    publish_pass: publishpass\n    name: Main\n    on_bad: standby\n"))
 	if err != nil {
 		t.Fatal(err)
 	}

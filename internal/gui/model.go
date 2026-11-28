@@ -167,6 +167,9 @@ func Build(s app.WindowState, dark bool) Model {
 		}
 		m.Notice = strings.Join(unique, "\n")
 	}
+	if s.CredentialReset {
+		m.Notice += "\n" + t("credentials_reset")
+	}
 	return m
 }
 
