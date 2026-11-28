@@ -9,14 +9,14 @@ function handler(name,next,context){
  assert.ok(start>=0&&end>start);
  return runInNewContext('('+source.slice(start,end).trim()+')',context);
 }
-test('upload handler sends NFD filename as NFC in FormData',async()=>{
+test('upload handler sends NFD filename as NFC in FormData, through request',async()=>{
  let sent;
  const upload=handler('uploadFiles',' async function upload(',{
- generation:1,lang:'ja',FormData,fetch:async(url,options)=>{sent={url,...options};return {ok:true,json:async()=>({name:'が.svg'})};},
- load:async()=>{},editor:null,fail:e=>{throw e;},t:x=>x,networkError:()=>Error('network'),
+ generation:1,FormData,request:async(path,body)=>{sent={path,body};return {name:'が.svg'};},
+ load:async()=>{},editor:null,fail:e=>{throw e;},t:x=>x,
  });
  const file=new Blob(['<svg/>'],{type:'image/svg+xml'});Object.defineProperty(file,'name',{value:'か\u3099.svg'});
- await upload([file]);assert.equal(sent.url,'/api/source-files?lang=ja');assert.equal(sent.body.get('file').name,'が.svg');assert.equal(await sent.body.get('file').text(),'<svg/>');
+ await upload([file]);assert.equal(sent.path,'source-files');assert.equal(sent.body.get('file').name,'が.svg');assert.equal(await sent.body.get('file').text(),'<svg/>');
 });
 test('delete handler encodes Japanese paths by segment on the wire',async()=>{
  let sent;

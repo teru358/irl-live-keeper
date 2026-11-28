@@ -45,7 +45,7 @@ export function confirmationLines(action,payload,preview,streaming,t,saved={},us
  const lines=[];
  if(action==='regenerate')lines.push(t('settings_regenerate_'+payload.target));
  if(action==='regenerate'&&payload.target==='publish'){if(payload.camera)lines.push(cameraHeading({id:payload.camera},t));lines.push(t('publish_reset_warning'));}
- lines.push(t(preview.apply==='restart'?'settings_restart_mode':'settings_immediate'));
+ lines.push(t(action==='restart'?'settings_restart_only':preview.apply==='restart'?'settings_restart_mode':'settings_immediate'));
  if(streaming&&preview.apply==='restart')lines.push(t('settings_stream_warning'));
  for(const f of preview.fields||[]){
   const key=f.path.replace(/\[(?:\d+|cam[1-8])\]/g,'').split('.').pop(),match=f.path.match(/^cameras\[(cam[1-8])\]/);

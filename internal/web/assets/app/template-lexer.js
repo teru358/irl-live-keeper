@@ -67,12 +67,6 @@ export function nextTemplateToken(text, pos, state) {
  const op=/^(?:<=|>=|==|!=|[<>()])/.exec(rest);
  return token(op?op[0].length:1,op?'operator':'invalid');
 }
-export function tokenizeTemplate(text) {
- const state=templateState(), tokens=[];
- for(let pos=0;pos<text.length;){const t=nextTemplateToken(text,pos,state);tokens.push({text:text.slice(pos,t.end),style:t.style});pos=t.end;}
- return tokens;
-}
-
 // Completion context at the cursor, including an opening brace without a name.
 export function templateCompletion(prefix,explicit=false){
  const state=templateState();let start=0,last=null,format=false;
@@ -97,7 +91,6 @@ export function styleStart(prefix){
  for(let p=0;p<prefix.length;){const wasRaw=state.raw;p=nextTemplateToken(prefix,p,state).end;if(!wasRaw&&state.raw)start=p;}
  return state.raw?start:-1;
 }
-export function insideStyle(prefix){return styleStart(prefix)>=0;}
 export function bodyCompletion(prefix,names,files,explicit=false){
  const match=/\/source\/files\/([^\s"\'<>():;{}]*)$/.exec(prefix);
  if(match)return {from:prefix.length-match[1].length,options:files.filter(f=>f.usable&&(!assetRules||checkAssetPath(f.name,assetRules))).map(f=>({label:f.name,type:'text'})),validFor:assetPrefix};

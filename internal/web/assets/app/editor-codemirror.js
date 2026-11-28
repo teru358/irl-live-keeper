@@ -5,7 +5,6 @@ import {tags} from '@lezer/highlight';
 import {defaultKeymap, history, historyKeymap} from '@codemirror/commands';
 import {autocompletion, completionKeymap} from '@codemirror/autocomplete';
 import {setDiagnostics, lintGutter} from '@codemirror/lint';
-import {css} from '@codemirror/lang-css';
 import {editorInsertion} from './sources-state.js';
 import {bodyAssetInsertion,diagnosticRange} from './source-body.js';
 import {templateState, nextTemplateToken, bodyCompletion} from './template-lexer.js';
@@ -35,18 +34,18 @@ const colors=HighlightStyle.define([
  {tag:tags.operator,color:'var(--act)'},
  {tag:tags.invalid,color:'var(--down)'},
 ]);
-export function createEditor(container,{kind='template',value='',names=[],files=()=>[],onFiles=()=>{},label='',onChange=()=>{},t=key=>key}={}) {
+export function createEditor(container,{value='',names=[],files=()=>[],onFiles=()=>{},label='',onChange=()=>{},t=key=>key}={}) {
  const phrases=Object.fromEntries([["Completions", "editor_completions"], ["Diagnostics", "editor_diagnostics"], ["No diagnostics", "editor_no_diagnostics"], ["close", "editor_close"], ["Control character", "editor_control_character"]].map(([phrase,key])=>[phrase,t(key)]));
  const completion=context=>{
   return bodyCompletion(context.state.doc.sliceString(0,context.pos),names,files(),context.explicit);
  };
  let cursorPlaced=false;
  const view=new EditorView({parent:container,state:EditorState.create({doc:value,extensions:[
-  EditorState.phrases.of(phrases),EditorView.contentAttributes.of({'aria-label':label,'name':'source-editor-'+kind}),
+  EditorState.phrases.of(phrases),EditorView.contentAttributes.of({'aria-label':label,'name':'source-editor-template'}),
   EditorView.domEventHandlers({drop(event){if(event.dataTransfer?.files.length){event.preventDefault();event.stopPropagation();onFiles([...event.dataTransfer.files]);return true;}},pointerdown(){cursorPlaced=true;},keydown(){cursorPlaced=true;}}),
   lineNumbers(),EditorView.lineWrapping,drawSelection(),history(),lintGutter(),theme,syntaxHighlighting(colors),
   keymap.of([...completionKeymap,...defaultKeymap,...historyKeymap]),
-  kind==='css'?css():[template,autocompletion({override:[completion]})],
+  template,autocompletion({override:[completion]}),
   EditorView.updateListener.of(update=>{if(update.docChanged)onChange(update.state.doc.toString());}),
  ]})});
  const insert=(text,asset=false)=>{
@@ -55,10 +54,9 @@ export function createEditor(container,{kind='template',value='',names=[],files=
   view.focus();
  };
  return {
-  view,getValue:()=>view.state.doc.toString(),
+  view,
   setValue(text){if(text!==view.state.doc.toString())view.dispatch({changes:{from:0,to:view.state.doc.length,insert:text}});},
-  insert,insertAsset:name=>insert(name,true),insertValue:name=>insert('{'+name+'}'),
-  insertCondition:(condition='',body='')=>insert('{if '+condition+'}'+body+'{end}'),
+  insert,insertAsset:name=>insert(name,true),
   // API positions: 1-based line and Unicode character; CM uses UTF-16.
   setErrors(errors){view.dispatch(setDiagnostics(view.state,errors.map(error=>{
    const line=view.state.doc.line(Math.max(1,Math.min(view.state.doc.lines,error.line)));

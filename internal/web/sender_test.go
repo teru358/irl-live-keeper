@@ -62,7 +62,7 @@ func TestSenderElementsAndCatalog(t *testing.T) {
 				t.Fatal(lang, "不要な文言", key)
 			}
 		}
-		for _, key := range []string{"sender_hint", "sender_address", "sender_protocol", "sender_url", "sender_endpoint", "sender_key", "sender_streamid", "sender_user", "sender_password", "sender_obs", "sender_copy", "sender_copy_all", "sender_copied", "sender_manual", "sender_show", "sender_hide", "sender_rtmp_hint", "sender_lan", "sender_tailscale", "sender_publish_host"} {
+		for _, key := range []string{"sender_address", "sender_protocol", "sender_url", "sender_endpoint", "sender_key", "sender_streamid", "sender_user", "sender_password", "sender_obs", "sender_copy", "sender_copy_all", "sender_copied", "sender_manual", "sender_show", "sender_hide", "sender_rtmp_hint", "sender_lan", "sender_tailscale"} {
 			if i18n.UI(lang)[key] == "" {
 				t.Fatal(lang, key)
 			}

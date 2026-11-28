@@ -1,0 +1,3 @@
+import {html} from '../vendor/lit-html-3.3.3/lit-html.js';
+// The button that shows or hides a password. The label is the translated sentence for the state it will change to.
+export const passwordEye=({label,pressed,toggle})=>html`<button type="button" class="password-eye" aria-label=${label} aria-pressed=${String(!!pressed)} @click=${toggle}><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path class="eye-slash" d="m3 3 18 18" stroke="currentColor" stroke-width="2"/></svg></button>`;

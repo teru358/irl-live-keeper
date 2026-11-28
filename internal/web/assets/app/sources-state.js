@@ -2,7 +2,6 @@ import {cameraHeading} from './camera-name.js';
 export function layout(storage){try{const v=JSON.parse(storage.getItem('source-layout'));return {mode:['editonly','previewonly','split'].includes(v?.mode)?v.mode:'split',axis:v?.axis==='vertical'?'vertical':'horizontal'};}catch(_){return {mode:'split',axis:'horizontal'};}}
 export function remember(storage,value){try{storage.setItem('source-layout',JSON.stringify(value));}catch(_){}}
 export const dirty=(draft,base)=>JSON.stringify(draft)!==JSON.stringify(base);
-export const assetText=name=>'url("/source/files/'+name+'")';
 export const previewRequest=(draft,names,simulate)=>({...draft?{source:draft}:{names},simulate});
 export const valueText=name=>'{'+name+'}';
 export const conditionText=(condition,body='')=>'{if '+condition+'}'+body+'{end}';
@@ -14,15 +13,10 @@ export function sourceURL(settings,auto,name){
  const url=h=>'http://'+(h.includes(':')?'['+h.replace(/^\[|\]$/g,'')+']':h)+':'+(admin.port||8787)+'/source/'+encodeURIComponent(name);
  return {url:url('127.0.0.1'),remoteURL:admin.lan&&remote?url(remote):null,hint:!admin.lan&&!!host&&!loop};
 }
-export function editorInsertion(doc,selection,hasCursor,text,asset=false){
+// The cursor rule: with no cursor placed yet the text goes to the end; a selection is replaced.
+export function editorInsertion(doc,selection,hasCursor,text){
  const from=hasCursor?selection.from:doc.length,to=hasCursor?selection.to:doc.length;
- const insert=asset?(hasCursor?assetText(text):(doc&&!doc.endsWith('\n')?'\n':'')+'.irl-source { background-image: '+assetText(text)+'; }'):text;
- return {from,to,insert};
-}
-// A plain textarea: the same cursor rule as the editor, as a replace range plus the new cursor position.
-export function textareaInsertion(value,selection,hasCursor,text){
- const {from,to,insert}=editorInsertion(value,selection,hasCursor,text);
- return {from,to,insert,cursor:from+insert.length};
+ return {from,to,insert:text};
 }
 // 回線の状況のテスト: 3つの軸（回線・待機・配信。どれも実際を持つ）と、軸とは別の「自由」。
 export const testAxes={line:['actual','OK','LOW','DOWN'],standby:['actual','none','auto'],stream:['actual','streaming','offline']};
@@ -31,11 +25,15 @@ export const testChoiceKey=(axis,value)=>value==='actual'?'src_actual':'src_'+ax
 // 自由の JSON が、値の連想配列として読めればそれを、読めなければ null を返す。
 export function freeValues(text){try{const v=JSON.parse(text);return v&&typeof v==='object'&&!Array.isArray(v)?v:null;}catch(_){return null;}}
 const axisOf=(state,axis)=>state[axis]||'actual';
-// サーバーの simulate の形。実際の軸は省く。自由がオンなら values を足す（読めない JSON は例外）。
-export function simulateOf(state){
+// サーバーの simulate の形。実際の軸は省く。自由がオンなら values を足す（読めない JSON は、文の表の文の例外）。
+export function simulateOf(state,t=key=>key){
  const sim={};
  for(const axis of Object.keys(testAxes))if(axisOf(state,axis)!=='actual')sim[axis]=state[axis];
- if(state.free)sim.values=JSON.parse(state.custom);
+ if(state.free){
+  const values=freeValues(state.custom);
+  if(values===null)throw Error(t('src_custom_invalid'));
+  sim.values=values;
+ }
  return sim;
 }
 // テスト中か（どれかの軸が実際でないか、自由に値がある）。「OBS にも反映」を使える条件も同じ。

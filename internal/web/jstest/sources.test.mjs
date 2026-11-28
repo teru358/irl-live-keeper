@@ -1,8 +1,8 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {layout,remember,dirty,assetText,valueText,conditionText,previewRequest,sourceURL} from '../assets/app/sources-state.js';
+import {layout,remember,dirty,valueText,conditionText,previewRequest,sourceURL} from '../assets/app/sources-state.js';
 test('layout survives storage failure and rejects invalid values',()=>{assert.deepEqual(layout({getItem(){throw Error();}}),{mode:'split',axis:'horizontal'});assert.deepEqual(layout({getItem:()=>'{"mode":"bad","axis":"vertical"}'}),{mode:'split',axis:'vertical'});remember({setItem(){throw Error();}},{});let saved;remember({setItem(k,v){saved=v;}},{mode:'previewonly',axis:'vertical'});assert.equal(layout({getItem:()=>saved}).mode,'previewonly');});
-test('insertions and unsaved changes',()=>{assert.equal(assetText('a.png'),'url("/source/files/a.png")');assert.equal(valueText('cam1.kbps'),'{cam1.kbps}');assert.equal(conditionText('cam1.online','x'),'{if cam1.online}x{end}');assert.equal(dirty({body:'a'},{body:'a'}),false);assert.equal(dirty({body:'b'},{body:'a'}),true);});
+test('insertions and unsaved changes',()=>{assert.equal(valueText('cam1.kbps'),'{cam1.kbps}');assert.equal(conditionText('cam1.online','x'),'{if cam1.online}x{end}');assert.equal(dirty({body:'a'},{body:'a'}),false);assert.equal(dirty({body:'b'},{body:'a'}),true);});
 test('preview payload distinguishes draft and names',()=>{assert.deepEqual(previewRequest(null,['a'],{}),{names:['a'],simulate:{}});assert.deepEqual(previewRequest({body:'x'},[],{line:'LOW'}),{source:{body:'x'},simulate:{line:'LOW'}});});
 
 import * as state from '../assets/app/sources-state.js';
@@ -16,21 +16,12 @@ test('source URL host table always includes local and optional non-loopback remo
   assert.equal(r.hint,!lan&&['relay.local','2001:db8::1','[2001:db8::1]'].includes(host));
  }
 });
-test('insertions append until cursor was placed, with a complete CSS rule for assets',()=>{
+test('insertions append until the cursor was placed, and replace the selection after',()=>{
  assert.deepEqual(state.editorInsertion('abc',{from:0,to:0},false,'X'),{from:3,to:3,insert:'X'});
  assert.deepEqual(state.editorInsertion('abc',{from:1,to:2},true,'X'),{from:1,to:2,insert:'X'});
- assert.deepEqual(state.editorInsertion('.irl-source {}',{from:0,to:0},false,'a b.png',true),{from:14,to:14,insert:'\n.irl-source { background-image: url("/source/files/a b.png"); }'});
- assert.equal(state.editorInsertion('',{from:0,to:0},false,'a.png',true).insert,'.irl-source { background-image: url("/source/files/a.png"); }');
- assert.equal(state.editorInsertion('a\n',{from:0,to:0},false,'a.png',true).insert,'.irl-source { background-image: url("/source/files/a.png"); }');
- assert.equal(state.editorInsertion('abc',{from:1,to:1},true,'a.png',true).insert,assetText('a.png'));
-});
-test('textarea insertion appends until focused, then replaces the selection and reports the new cursor',()=>{
- assert.deepEqual(state.textareaInsertion('abc',{from:0,to:0},false,'{cam1.kbps}'),{from:3,to:3,insert:'{cam1.kbps}',cursor:14});
- assert.deepEqual(state.textareaInsertion('abc',{from:1,to:1},true,'X'),{from:1,to:1,insert:'X',cursor:2});
- assert.deepEqual(state.textareaInsertion('abc',{from:1,to:3},true,'日本'),{from:1,to:3,insert:'日本',cursor:3});
- assert.deepEqual(state.textareaInsertion('',{from:0,to:0},false,'X'),{from:0,to:0,insert:'X',cursor:1});
+ assert.deepEqual(state.editorInsertion('abc',{from:1,to:3},true,'日本'),{from:1,to:3,insert:'日本'});
  const apply=(value,r)=>value.slice(0,r.from)+r.insert+value.slice(r.to);
- assert.equal(apply('a<b>c',state.textareaInsertion('a<b>c',{from:2,to:2},true,state.valueText('now'))),'a<{now}b>c');
+ assert.equal(apply('a<b>c',state.editorInsertion('a<b>c',{from:2,to:2},true,state.valueText('now'))),'a<{now}b>c');
 });
 test('a new source starts with an empty body and the wire shape is exactly name, title, body and OBS size',()=>{
  const s={defaults:{name:'',title:'',body:'',obs_width:800,obs_height:200},broken:{},texts:{}};

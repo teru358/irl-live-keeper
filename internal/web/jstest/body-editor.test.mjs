@@ -1,7 +1,9 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {tokenizeTemplate,templateCompletion,bodyCompletion,insideStyle} from '../assets/app/template-lexer.js';
+import {templateCompletion,bodyCompletion,styleStart} from '../assets/app/template-lexer.js';
+import {tokenizeTemplate} from './tokens.mjs';
+const insideStyle=prefix=>styleStart(prefix)>=0;
 import {sourceTemplates,templateBody,bodyAssetInsertion,fileAccept} from '../assets/app/source-body.js';
 test('HTML attributes and template precedence',()=>{
  const ts=tokenizeTemplate('<span class="{if cam1.kbps < 8}low{end}">文字</span>');
