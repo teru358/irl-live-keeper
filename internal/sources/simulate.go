@@ -248,7 +248,7 @@ func RenderSimulation(src Source, s core.Snapshot, now time.Time, stats map[stri
 	if src.Broken != nil {
 		return "", nil
 	}
-	p, err := template.Compile(src.Template, Definitions(s))
+	p, err := template.Compile(src.Body, Definitions(s))
 	if err != nil {
 		return "", err
 	}

@@ -86,7 +86,9 @@ func serveSources(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.L
 		if e := v.Validate(b.Snapshot()); e != nil {
 			var te *template.Error
 			if errors.As(e, &te) {
-				writeJSON(w, 422, map[string]any{"error": i18n.Render(lang, te.Message), "code": te.Message.Code, "line": te.Line, "column": te.Column, "fields": map[string]string{"template": i18n.Render(lang, te.Message)}})
+				writeJSON(w, 422, map[string]any{"error": i18n.Render(lang, te.Message), "code": te.Message.Code, "line": te.Line, "column": te.Column, "fields": map[string]string{"body": i18n.Render(lang, te.Message)}})
+			} else if ve := (*sources.ValidationError)(nil); errors.As(e, &ve) {
+				writeError(w, 422, lang, ve.Message)
 			} else {
 				writeError(w, 422, lang, i18n.New("sources.invalid"))
 			}

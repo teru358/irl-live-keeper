@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import {layout,remember,dirty,assetText,valueText,conditionText,previewRequest,sourceURL,sourceFileDeletionPaused} from '../assets/app/sources-state.js';
 test('source file deletion is paused',()=>{assert.equal(sourceFileDeletionPaused(),true);});
 test('layout survives storage failure and rejects invalid values',()=>{assert.deepEqual(layout({getItem(){throw Error();}}),{mode:'split',axis:'horizontal'});assert.deepEqual(layout({getItem:()=>'{"mode":"bad","axis":"vertical"}'}),{mode:'split',axis:'vertical'});remember({setItem(){throw Error();}},{});let saved;remember({setItem(k,v){saved=v;}},{mode:'previewonly',axis:'vertical'});assert.equal(layout({getItem:()=>saved}).mode,'previewonly');});
-test('insertions and unsaved changes',()=>{assert.equal(assetText('a.png'),'url("/source/files/a.png")');assert.equal(valueText('cam1.kbps'),'{cam1.kbps}');assert.equal(conditionText('cam1.online','x'),'{if cam1.online}x{end}');assert.equal(dirty({css:'a'},{css:'a'}),false);assert.equal(dirty({css:'b'},{css:'a'}),true);});
-test('preview payload distinguishes draft and names',()=>{assert.deepEqual(previewRequest(null,['a'],{}),{names:['a'],simulate:{}});assert.deepEqual(previewRequest({template:'x'},[],{line:'LOW'}),{source:{template:'x'},simulate:{line:'LOW'}});});
+test('insertions and unsaved changes',()=>{assert.equal(assetText('a.png'),'url("/source/files/a.png")');assert.equal(valueText('cam1.kbps'),'{cam1.kbps}');assert.equal(conditionText('cam1.online','x'),'{if cam1.online}x{end}');assert.equal(dirty({body:'a'},{body:'a'}),false);assert.equal(dirty({body:'b'},{body:'a'}),true);});
+test('preview payload distinguishes draft and names',()=>{assert.deepEqual(previewRequest(null,['a'],{}),{names:['a'],simulate:{}});assert.deepEqual(previewRequest({body:'x'},[],{line:'LOW'}),{source:{body:'x'},simulate:{line:'LOW'}});});
 
 import * as state from '../assets/app/sources-state.js';
 test('source URL host table always includes local and optional non-loopback remote',()=>{
@@ -25,16 +25,26 @@ test('insertions append until cursor was placed, with a complete CSS rule for as
  assert.equal(state.editorInsertion('a\n',{from:0,to:0},false,'a.png',true).insert,'.irl-source { background-image: url("/source/files/a.png"); }');
  assert.equal(state.editorInsertion('abc',{from:1,to:1},true,'a.png',true).insert,assetText('a.png'));
 });
-test('empty decoration fields use zero numbers and empty colors without changing wire shape',()=>{
- assert.equal(state.decorationInput(0),'');assert.equal(state.decorationInput(''),'');
- assert.equal(state.decorationInput(-12),'-12');assert.equal(state.decorationInput('#000000'),'#000000');
- assert.equal(state.decorationNumber(''),0);assert.equal(state.decorationNumber('0'),0);assert.equal(state.decorationNumber('-3.5'),-3.5);
+test('textarea insertion appends until focused, then replaces the selection and reports the new cursor',()=>{
+ assert.deepEqual(state.textareaInsertion('abc',{from:0,to:0},false,'{cam1.kbps}'),{from:3,to:3,insert:'{cam1.kbps}',cursor:14});
+ assert.deepEqual(state.textareaInsertion('abc',{from:1,to:1},true,'X'),{from:1,to:1,insert:'X',cursor:2});
+ assert.deepEqual(state.textareaInsertion('abc',{from:1,to:3},true,'日本'),{from:1,to:3,insert:'日本',cursor:3});
+ assert.deepEqual(state.textareaInsertion('',{from:0,to:0},false,'X'),{from:0,to:0,insert:'X',cursor:1});
+ const apply=(value,r)=>value.slice(0,r.from)+r.insert+value.slice(r.to);
+ assert.equal(apply('a<b>c',state.textareaInsertion('a<b>c',{from:2,to:2},true,state.valueText('now'))),'a<{now}b>c');
 });
-test('appearance changes exclude template, title, name and OBS dimensions',()=>{
- const base={name:'a',title:'A',template:'x',style:{color:''},css:'',obs_width:800,obs_height:200};
- for(const [key,value] of Object.entries({name:'b',title:'B',template:'y',obs_width:900,obs_height:300}))assert.equal(state.appearanceChanged({...base,[key]:value},base),false);
- assert.equal(state.appearanceChanged({...base,css:'new'},base),true);
- assert.equal(state.appearanceChanged({...base,style:{color:'#000000'}},base),true);
+test('a new source starts with an empty body and the wire shape is exactly name, title, body and OBS size',()=>{
+ const s={defaults:{name:'',title:'',body:'',obs_width:800,obs_height:200},broken:{},texts:{}};
+ state.openEditor(s,null);
+ assert.equal(s.fresh,true);assert.equal(s.draft.body,'');
+ assert.deepEqual(Object.keys(s.draft).sort(),['body','name','obs_height','obs_width','title']);
+ assert.equal(dirty(s.draft,s.base),false);
+ s.draft.name='demo';s.draft.body='<p>{cam1.kbps}</p>';
+ assert.equal(dirty(s.draft,s.base),true);
+ // Save posts the draft as is; the preview request carries the same body.
+ assert.deepEqual(JSON.parse(JSON.stringify(s.draft)),{name:'demo',title:'',body:'<p>{cam1.kbps}</p>',obs_width:800,obs_height:200});
+ assert.deepEqual(previewRequest(s.draft,[],{}).source.body,'<p>{cam1.kbps}</p>');
+ assert.equal('template' in s.draft||'css' in s.draft||'style' in s.draft,false);
 });
 test('preview errors belong to editor and clear on success',()=>{
  const s={draft:{},notice:'kept',editorNotice:'saved',preview:null,previewError:''};
@@ -99,11 +109,11 @@ test('delete prompts identify source titles and asset names, with fallback for m
  assert.equal(state.deletePrompt({name:'image.png',used_by:['a','b','gone']},list,t),'「image.png」を削除しますか？\n使用中のソース: 回線の表示, b, gone');
 });
 test('closing editor clears errors, preview and feedback without touching list notice',()=>{
- const s={draft:{},base:{},preview:{text:'x'},previewError:'bad',editorError:'error',editorNotice:'saved',notice:'kept',styleInputs:{padding:'0'}};
+ const s={draft:{},base:{},preview:{text:'x'},previewError:'bad',editorError:'error',editorNotice:'saved',notice:'kept'};
  state.clearEditor(s);
  for(const key of ['draft','base','preview'])assert.equal(s[key],null);
  for(const key of ['previewError','editorError','editorNotice'])assert.equal(s[key],'');
- assert.deepEqual(s.styleInputs,{});assert.equal(s.notice,'kept');
+ assert.equal(s.notice,'kept');
 });
 test('incomplete template retains last stylesheet until next successful preview',()=>{
  const s={draft:{},preview:{text:'last',css:'color{}'},previewError:''};
@@ -124,12 +134,12 @@ test('saved broken sources expose the same positioned error as draft previews',(
  assert.deepEqual(state.templateDiagnostics(error),[{line:1,column:2,message:error.error}]);
  assert.deepEqual(state.templateDiagnostics(null),[]);
  const s={defaults:{obs_width:800},broken:{bad:error},notice:'kept',texts:{bad:'stale'}};
- const src={name:'bad',template:'{link.kbps}',style:{}};
+ const src={name:'bad',body:'{link.kbps}'};
  state.openEditor(s,src);
  assert.equal(s.previewError,error.error);assert.equal(s.preview,null);
  assert.deepEqual(s.diagnostics,state.templateDiagnostics(error));
  assert.deepEqual(s.draft,src);assert.equal(dirty(s.draft,s.base),false);
- s.draft.template='fixed';assert.equal(s.base.template,'{link.kbps}');
+ s.draft.body='fixed';assert.equal(s.base.body,'{link.kbps}');
  assert.equal(s.notice,'kept');
  state.applyPreview(s,{text:'fixed',css:''});
  assert.equal(s.previewError,'');assert.deepEqual(s.diagnostics,[]);
@@ -137,11 +147,11 @@ test('saved broken sources expose the same positioned error as draft previews',(
  assert.equal(s.previewError,'1 行 2 文字目: 知らない値の名前です');
  assert.deepEqual(s.diagnostics,state.templateDiagnostics(error));
  state.clearEditor(s);assert.deepEqual(s.diagnostics,[]);
- state.openEditor(s,{name:'good',template:'hello',style:{}});
+ state.openEditor(s,{name:'good',body:'hello'});
  assert.equal(s.previewError,'');assert.deepEqual(s.diagnostics,[]);
 });
 test('collection loads preserve source JSON, refresh broken markers and clear stale preview text',()=>{
- const source={name:'bad',template:'{link.kbps}'};
+ const source={name:'bad',body:'{link.kbps}'};
  const data={sources:[source],broken:{bad:{code:'template.unknown',error:'unknown',line:1,column:2}},names:['now'],default:{obs_width:800}};
  const s={texts:{bad:'stale'},notice:'kept'};
  state.applyCollection(s,data);
@@ -153,7 +163,7 @@ test('collection loads preserve source JSON, refresh broken markers and clear st
 test('valid source names that match Object properties do not need repair',()=>{
  for(const name of ['constructor','toString','__proto__']){
   const s={defaults:{},broken:{},texts:{}};
-  state.openEditor(s,{name,template:'hello'});
+  state.openEditor(s,{name,body:'hello'});
   assert.equal(s.previewError,'');assert.deepEqual(s.diagnostics,[]);
  }
 });

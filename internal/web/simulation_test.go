@@ -22,7 +22,7 @@ func TestPreviewSimulation(t *testing.T) {
 		path, body string
 		status     int
 		want       string
-	}{{"/api/sources", `{"name":"a","template":"{obs.streaming}"}`, 201, `"ok":true`}, {"/api/sources/preview", `{"names":["a"],"simulate":{"stream":"streaming"}}`, 200, `"a":"true"`}, {"/api/sources/preview", `{"source":{"template":"{obs.streaming}","css":".irl-text{color:red}"},"simulate":{"stream":"offline"}}`, 200, `"text":"false"`}, {"/api/sources/preview", `{"source":{"template":"{unknown}"}}`, 200, `"template_error":`}, {"/api/sources/preview", `{"names":[],"source":{}}`, 400, `"error":`}} {
+	}{{"/api/sources", `{"name":"a","body":"{obs.streaming}"}`, 201, `"ok":true`}, {"/api/sources/preview", `{"names":["a"],"simulate":{"stream":"streaming"}}`, 200, `"a":"true"`}, {"/api/sources/preview", `{"source":{"body":"{obs.streaming}"},"simulate":{"stream":"offline"}}`, 200, `"text":"false"`}, {"/api/sources/preview", `{"source":{"body":"{unknown}"}}`, 200, `"template_error":`}, {"/api/sources/preview", `{"source":{"template":"x"}}`, 400, `"error":`}, {"/api/sources/preview", `{"source":{"body":"x","css":"a{}"}}`, 400, `"error":`}, {"/api/sources/preview", `{"source":{"body":"x","style":{}}}`, 400, `"error":`}, {"/api/sources/preview", `{"names":[],"source":{}}`, 400, `"error":`}} {
 		r := httptest.NewRequest("POST", tc.path, strings.NewReader(tc.body))
 		r.Header.Set(headerName, "1")
 		w := httptest.NewRecorder()
@@ -107,7 +107,7 @@ func TestTestOBSStreamingRejected(t *testing.T) {
 func TestPublicSimulationOptIn(t *testing.T) {
 	b := &sourcesBackend{store: sources.Store{Path: filepath.Join(t.TempDir(), "sources.yaml")}}
 	api := apiHandler(b, nil)
-	r := httptest.NewRequest("POST", "/api/sources", strings.NewReader(`{"name":"a","template":"{obs.streaming}"}`))
+	r := httptest.NewRequest("POST", "/api/sources", strings.NewReader(`{"name":"a","body":"{obs.streaming}"}`))
 	r.Header.Set(headerName, "1")
 	api.ServeHTTP(httptest.NewRecorder(), r)
 	e := NewEvents(b, nil, nil)
@@ -153,19 +153,19 @@ func TestPreviewErrorContracts(t *testing.T) {
 		method, path, body string
 		status             int
 	}{
-		{"POST", "/api/sources/preview", `{"source":{"template":"{if "}}`, 200},
-		{"POST", "/api/sources/preview", `{"source":{"template":"{unknown}"}}`, 200},
+		{"POST", "/api/sources/preview", `{"source":{"body":"{if "}}`, 200},
+		{"POST", "/api/sources/preview", `{"source":{"body":"{unknown}"}}`, 200},
 		{"POST", "/api/sources/preview", `{`, 400},
-		{"POST", "/api/sources/preview", `{"source":{"style":{"color":"bad"}}}`, 422},
+		{"POST", "/api/sources/preview", `{"source":{"name":"files"}}`, 422},
 		{"POST", "/api/sources/preview", `{"source":{},"simulate":{"line":"bad"}}`, 422},
 		{"POST", "/api/sources/preview", `{"source":{},"simulate":{"mode":"OK"}}`, 400},
 		{"POST", "/api/sources/preview", `{"source":{},"simulate":{"standby":"standby"}}`, 422},
 		{"POST", "/api/sources/preview", `{"source":{},"simulate":{"values":{"nope":1}}}`, 422},
 		{"POST", "/api/sources/preview", `{"source":{},"simulate":{"values":[1]}}`, 400},
 		{"POST", "/api/sources/preview", `{"names":["missing"]}`, 404},
-		{"POST", "/api/sources", `{"name":"a","template":"ok"}`, 201},
-		{"POST", "/api/sources", `{"name":"b","template":"{unknown}"}`, 422},
-		{"PUT", "/api/sources/a", `{"name":"a","template":"{if "}`, 422},
+		{"POST", "/api/sources", `{"name":"a","body":"ok"}`, 201},
+		{"POST", "/api/sources", `{"name":"b","body":"{unknown}"}`, 422},
+		{"PUT", "/api/sources/a", `{"name":"a","body":"{if "}`, 422},
 	} {
 		r := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
 		r.Header.Set(headerName, "1")
@@ -322,7 +322,7 @@ func TestSimulatedPagesFollowAllAxes(t *testing.T) {
 	b := &sourcesBackend{store: sources.Store{Path: filepath.Join(t.TempDir(), "sources.yaml")}}
 	b.snap.Cameras = []core.CameraStatus{{ID: "cam1", Kbps: 777, State: "OK"}}
 	api := apiHandler(b, nil)
-	r := httptest.NewRequest("POST", "/api/sources", strings.NewReader(`{"name":"a","template":"{cam1.state}/{cam1.kbps}/{obs.streaming}"}`))
+	r := httptest.NewRequest("POST", "/api/sources", strings.NewReader(`{"name":"a","body":"{cam1.state}/{cam1.kbps}/{obs.streaming}"}`))
 	r.Header.Set(headerName, "1")
 	api.ServeHTTP(httptest.NewRecorder(), r)
 	preview := func(path, body string) string {

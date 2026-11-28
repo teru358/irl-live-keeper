@@ -17,15 +17,19 @@ func TestReadBrokenTemplateTable(t *testing.T) {
 		count     int
 		bad       bool
 	}{
-		{"valid", "- name: good\n  template: hello\n", 1, false},
-		{"template and valid", "- name: broken\n  template: '{link.kbps}'\n- name: good\n  template: hello\n", 2, false},
-		{"syntax", "- name: broken\n  template: '{if}'\n", 1, false},
-		{"format", "- name: broken\n  template: '{obs.scene:0}'\n", 1, false},
+		{"valid", "- name: good\n  body: hello\n", 1, false},
+		{"template and valid", "- name: broken\n  body: '{link.kbps}'\n- name: good\n  body: hello\n", 2, false},
+		{"syntax", "- name: broken\n  body: '{if}'\n", 1, false},
+		{"format", "- name: broken\n  body: '{obs.scene:0}'\n", 1, false},
 		{"yaml", "[", 0, true},
-		{"unknown field", "- name: broken\n  template: '{link.kbps}'\n  extra: true\n", 0, true},
-		{"duplicate", "- name: broken\n  template: '{link.kbps}'\n- name: broken\n", 0, true},
-		{"style", "- name: broken\n  template: '{link.kbps}'\n  style: {font_size: 513}\n", 0, true},
-		{"name", "- name: '../bad'\n  template: '{link.kbps}'\n", 0, true},
+		{"unknown field", "- name: broken\n  body: '{link.kbps}'\n  extra: true\n", 0, true},
+		{"duplicate", "- name: broken\n  body: '{link.kbps}'\n- name: broken\n", 0, true},
+		{"old template field", "- name: broken\n  template: hello\n", 0, true},
+		{"old css field", "- name: broken\n  body: hello\n  css: 'a{}'\n", 0, true},
+		{"old style field", "- name: broken\n  body: hello\n  style: {font_size: 12}\n", 0, true},
+		{"reserved name", "- name: files\n  body: hello\n", 0, true},
+		{"body too large", "- name: big\n  body: '" + strings.Repeat("x", MaxBody+1) + "'\n", 0, true},
+		{"name", "- name: '../bad'\n  body: '{link.kbps}'\n", 0, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := Store{Path: filepath.Join(t.TempDir(), "sources.yaml")}
@@ -47,7 +51,7 @@ func TestReadBrokenTemplateTable(t *testing.T) {
 
 func TestReadAfterCameraIDChange(t *testing.T) {
 	s := Store{Path: filepath.Join(t.TempDir(), "sources.yaml")}
-	raw := "- name: camera\n  template: '{cam2.kbps}'\n- name: good\n  template: hello\n"
+	raw := "- name: camera\n  body: '{cam2.kbps}'\n- name: good\n  body: hello\n"
 	if err := os.WriteFile(s.Path, []byte(raw), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +92,7 @@ func TestBrokenLogOnlyOnChange(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	broken := "- name: bad\n  template: 'PRIVATE {link.kbps}'\n- name: good\n  template: hello\n"
+	broken := "- name: bad\n  body: 'PRIVATE {link.kbps}'\n- name: good\n  body: hello\n"
 	read(broken)
 	first := log.String()
 	if strings.Count(first, "source template needs repair") != 1 || !strings.Contains(first, "name=bad code=template.unknown") {
@@ -103,7 +107,7 @@ func TestBrokenLogOnlyOnChange(t *testing.T) {
 	if strings.Count(log.String(), "source template needs repair") != 2 {
 		t.Fatal(log.String())
 	}
-	read("- name: bad\n  template: repaired\n")
+	read("- name: bad\n  body: repaired\n")
 	read(broken)
 	if strings.Count(log.String(), "source template needs repair") != 3 {
 		t.Fatal("not logged after recovery", log.String())
@@ -131,7 +135,7 @@ func TestBrokenLoggingUsesGenerationLoggerOutsideStoreLock(t *testing.T) {
 	s.SetLogger(slog.New(slog.NewTextHandler(writer, nil)))
 	read := func(text string) {
 		t.Helper()
-		if err := os.WriteFile(s.Path, []byte("- name: bad\n  template: '"+text+"'\n"), 0600); err != nil {
+		if err := os.WriteFile(s.Path, []byte("- name: bad\n  body: '"+text+"'\n"), 0600); err != nil {
 			t.Fatal(err)
 		}
 		if err := s.Transaction(core.Snapshot{}, func([]Source, error) ([]Source, bool) { return nil, false }); err != nil {

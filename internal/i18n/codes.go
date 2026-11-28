@@ -26,7 +26,7 @@ func init() {
 }
 
 func init() {
-	Codes = append(Codes, "sources.invalid", "sources.unreadable", "sources.duplicate", "sources.write_failed")
+	Codes = append(Codes, "sources.invalid", "sources.reserved_name", "sources.body_too_large", "sources.unreadable", "sources.duplicate", "sources.write_failed")
 }
 
 func init() { Codes = append(Codes, "sources.render_failed") }

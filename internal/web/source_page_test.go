@@ -18,9 +18,7 @@ func TestSourcePublic(t *testing.T) {
 	b := &sourcesBackend{store: sources.Store{Path: filepath.Join(t.TempDir(), "sources.yaml")}}
 	s := sources.Default()
 	s.Name = "demo"
-	s.Template = "<tag>\ntext"
-	s.CSS = "/* </style> */"
-	s.Style.Font = "a\"\\\nb</style>"
+	s.Body = "<tag>\ntext"
 	if err := b.store.Transaction(b.Snapshot(), func([]sources.Source, error) ([]sources.Source, bool) { return []sources.Source{s}, true }); err != nil {
 		t.Fatal(err)
 	}
@@ -38,12 +36,12 @@ func TestSourcePublic(t *testing.T) {
 		if path == "/source/demo" && (!strings.Contains(body, `class="irl-source irl-source-demo"`) || !strings.Contains(body, "&lt;tag&gt;\ntext") || strings.Contains(body, "<style") || strings.Contains(body, "<script>")) {
 			t.Fatal(body)
 		}
-		if strings.HasSuffix(path, "css") && (w.Header().Get("Content-Type") != "text/css; charset=utf-8" || !strings.Contains(body, `font-family:"a\"\\\a b\3c /style>"`) || !strings.HasSuffix(body, s.CSS)) {
+		if strings.HasSuffix(path, "css") && (w.Header().Get("Content-Type") != "text/css; charset=utf-8" || body != sources.BaseStylesheet) {
 			t.Fatal(body)
 		}
 	}
 	for _, v := range []string{"obs.password", "stream.publish_url", "admin.password"} {
-		s.Template = "{" + v + "}"
+		s.Body = "{" + v + "}"
 		if s.Validate(b.Snapshot()) == nil {
 			t.Fatal(v)
 		}
@@ -53,7 +51,7 @@ func TestSourceTextChanges(t *testing.T) {
 	b := &sourcesBackend{store: sources.Store{Path: filepath.Join(t.TempDir(), "sources.yaml")}}
 	s := sources.Default()
 	s.Name = "demo"
-	s.Template = "{now:hms}"
+	s.Body = "{now:hms}"
 	_ = b.store.Transaction(b.Snapshot(), func([]sources.Source, error) ([]sources.Source, bool) { return []sources.Source{s}, true })
 	c := &eventClient{topics: map[string]bool{"source:demo": true, "sources": true}, queue: make(chan eventMessage, 10)}
 	e := &Events{backend: b, clients: map[*eventClient]bool{c: true}}
@@ -100,7 +98,7 @@ func (*deadlineRecorder) SetWriteDeadline(time.Time) error { return nil }
 
 func TestSourceFailureClearsAndLogs(t *testing.T) {
 	b := &sourcesBackend{store: sources.Store{Path: filepath.Join(t.TempDir(), "sources.yaml")}}
-	if err := os.WriteFile(b.store.Path, []byte("- name: demo\n  template: '{obs.password}'\n"), 0600); err != nil {
+	if err := os.WriteFile(b.store.Path, []byte("- name: demo\n  body: '{obs.password}'\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	var log bytes.Buffer
