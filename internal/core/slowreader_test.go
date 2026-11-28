@@ -45,7 +45,7 @@ func TestSlowReaderWarnings(t *testing.T) {
 	set(supervisor.SlowReader{Path: "live/cam1", Count: 4, Last: h.clk.Now()})
 	h.tick(h.clk.Now())
 	s := h.waitSnap("メインの警告", func(s Snapshot) bool { return len(s.OBS.Warnings) == 2 })
-	if i18n.Strings(i18n.JA, s.OBS.Warnings)[0] != "existing warning" || i18n.Strings(i18n.JA, s.OBS.Warnings)[1] != "メイン "+slowWarnTail {
+	if i18n.Strings(i18n.JA, s.OBS.Warnings)[0] != "existing warning" || i18n.Strings(i18n.JA, s.OBS.Warnings)[1] != "メイン"+slowWarnTail {
 		t.Errorf("warnings = %v", i18n.Strings(i18n.JA, s.OBS.Warnings))
 	}
 	// 健康には入れない
@@ -57,7 +57,7 @@ func TestSlowReaderWarnings(t *testing.T) {
 	set(supervisor.SlowReader{Path: "cam2", Count: 3, Last: h.clk.Now()}, supervisor.SlowReader{Path: "live/cam1", Count: 5, Last: h.clk.Now()})
 	h.tick(h.clk.Now())
 	s = h.waitSnap("2台の警告", func(s Snapshot) bool { return len(s.OBS.Warnings) == 3 })
-	if i18n.Strings(i18n.JA, s.OBS.Warnings)[1] != "メイン "+slowWarnTail || i18n.Strings(i18n.JA, s.OBS.Warnings)[2] != "サブ "+slowWarnTail {
+	if i18n.Strings(i18n.JA, s.OBS.Warnings)[1] != "メイン"+slowWarnTail || i18n.Strings(i18n.JA, s.OBS.Warnings)[2] != "サブ"+slowWarnTail {
 		t.Errorf("warnings = %v", i18n.Strings(i18n.JA, s.OBS.Warnings))
 	}
 

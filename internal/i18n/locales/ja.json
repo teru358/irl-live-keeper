@@ -52,7 +52,7 @@
     "switch.no_target": "切替先が OBS にないため、待機のままです",
     "mediamtx.exit": "mediamtx が終了しました",
     "mediamtx.exit_error": "mediamtx が終了しました: {error}",
-    "obs.slow_reader": "{name} の映像を OBS が読み切れていません（MediaMTX が映像を捨てています）。つなぎ直した直後なら、しばらくで消えることがあります。続くときは、送るビットレートや解像度を下げてください。OBS のメディアソースの「ハードウェアデコードを使用」が切れていれば、入れてください",
+    "obs.slow_reader": "{name}の映像を OBS が読み切れていません（MediaMTX が映像を捨てています）。つなぎ直した直後なら、しばらくで消えることがあります。続くときは、送るビットレートや解像度を下げてください。OBS のメディアソースの「ハードウェアデコードを使用」が切れていれば、入れてください",
     "config.lan": "admin.lan が true のため、管理 API と管理ページを LAN に公開しています。通信は平文のため、LAN 内で盗聴されるおそれがあります。パスワードを取られると、LAN の機器から、すべてのパスワードの表示と設定の変更ができます。ルーターでこのポートを転送しないでください",
     "mediamtx.write": "mediamtx.yml を書き込めません: {error}",
     "mediamtx.start": "mediamtx を起動できません: {error}",
