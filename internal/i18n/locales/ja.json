@@ -588,6 +588,7 @@
     "src_value_stream.congestion": "送信の混雑度（0–1）",
     "src_value_now": "今の時刻",
     "src_value_mediamtx.state": "MediaMTX の状態",
-    "src_lan_hint": "別の PC の OBS から読むには、設定の「LAN から開く」をオンにしてください。"
+    "src_lan_hint": "別の PC の OBS から読むには、設定の「LAN から開く」をオンにしてください。",
+    "camera_destination": "送り先"
   }
 }

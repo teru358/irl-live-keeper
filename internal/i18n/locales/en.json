@@ -588,6 +588,7 @@
     "src_value_stream.congestion": "Output congestion (0–1)",
     "src_value_now": "Current time",
     "src_value_mediamtx.state": "MediaMTX state",
-    "src_lan_hint": "To read from OBS on another PC, enable LAN access in settings."
+    "src_lan_hint": "To read from OBS on another PC, enable LAN access in settings.",
+    "camera_destination": "Send to"
   }
 }
