@@ -58,7 +58,7 @@ func TestSenderAddressesFilterVirtualInterfaces(t *testing.T) {
 }
 func TestBuildSender(t *testing.T) {
 	cfg := testConfig(t)
-	cfg.Cameras = []config.Camera{{ID: "main", Name: "メイン"}}
+	cfg.Cameras = []config.Camera{{ID: "cam1", Name: "メイン"}}
 	cfg.Stream.PublishHost = "example.com"
 	cfg.Stream.PublishPass = "&?:%/ space"
 	list := func() ([]netIface, error) {
@@ -77,7 +77,7 @@ func TestBuildSender(t *testing.T) {
 				for _, a := range got.Addresses {
 					want := buildCameraURLs(cfg, a.Address)[0]
 					c := a.Cameras[0]
-					if c.ID != "main" || c.Name != "メイン" || c.OBS != want.OBSRead {
+					if c.ID != "cam1" || c.Name != "メイン" || c.OBS != want.OBSRead {
 						t.Fatal(c)
 					}
 					if cfg.MediaMTX.SRTEnabled {

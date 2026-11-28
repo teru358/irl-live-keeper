@@ -11,7 +11,7 @@ import (
 type senderBackend struct{ fakeBackend }
 
 func (*senderBackend) Sender() SenderSettings {
-	return SenderSettings{Default: "host", Addresses: []SenderAddress{{Kind: "publish_host", Address: "host", Cameras: []SenderCamera{{ID: "main", SRT: &SenderProtocol{URL: "srt://host", Password: "secret"}}}}}}
+	return SenderSettings{Default: "host", Addresses: []SenderAddress{{Kind: "publish_host", Address: "host", Cameras: []SenderCamera{{ID: "cam1", SRT: &SenderProtocol{URL: "srt://host", Password: "secret"}}}}}}
 }
 func TestSenderAPI(t *testing.T) {
 	h := NewWithAuth(&senderBackend{}, testPass, 9999, NewAuth(nil))

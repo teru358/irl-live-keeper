@@ -36,11 +36,11 @@ func TestCameraValueIDMessage(t *testing.T) {
 		t.Fatalf("want validation error, got %v", err)
 	}
 	for _, field := range e.Fields {
-		if field.Field != "cameras[0].id" {
+		if field.Field != "cameras[kbps].id" {
 			continue
 		}
 		ja, en := i18n.Render(i18n.JA, field.Message), i18n.Render(i18n.EN, field.Message)
-		if !strings.Contains(ja, "kbps") || !strings.Contains(en, "kbps") || !strings.Contains(ja, "camera.*") || !strings.Contains(en, "camera.*") || ja == en || strings.Contains(en, "{a}") {
+		if !strings.Contains(ja, "kbps") || !strings.Contains(en, "kbps") || !strings.Contains(ja, "cam1") || !strings.Contains(en, "cam1") || ja == en || strings.Contains(en, "{a}") {
 			t.Fatalf("invalid localized reason: ja=%q en=%q", ja, en)
 		}
 		return

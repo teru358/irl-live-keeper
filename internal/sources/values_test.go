@@ -10,7 +10,7 @@ import (
 func TestValues(t *testing.T) {
 	now := time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC)
 	ret, health := "Camera", "LOW"
-	s := core.Snapshot{Cameras: []core.CameraStatus{{ID: "main", Name: "正面", State: "LOW", Kbps: 600, Online: true, Protocol: "srt", StateSince: now.Add(-12 * time.Second), Hidden: 2, SRT: &core.SRTStatus{RTTMs: 80, LossRate: 0.05, RecvMbps: 4.2}}, {ID: "rear", Name: "後方", State: "DOWN"}}, OBS: core.OBSStatus{Connected: true, Streaming: true, Scene: "Standby", SceneClass: "standby", SceneCameras: []string{"main"}, SceneHealth: &health, Standby: core.StandbyStatus{Owner: "auto", ReturnScene: &ret, Since: now.Add(-30 * time.Second)}}, MediaMTX: "running"}
+	s := core.Snapshot{Cameras: []core.CameraStatus{{ID: "cam1", Name: "正面", State: "LOW", Kbps: 600, Online: true, Protocol: "srt", StateSince: now.Add(-12 * time.Second), Hidden: 2, SRT: &core.SRTStatus{RTTMs: 80, LossRate: 0.05, RecvMbps: 4.2}}, {ID: "cam2", Name: "後方", State: "DOWN"}}, OBS: core.OBSStatus{Connected: true, Streaming: true, Scene: "Standby", SceneClass: "standby", SceneCameras: []string{"cam1"}, SceneHealth: &health, Standby: core.StandbyStatus{Owner: "auto", ReturnScene: &ret, Since: now.Add(-30 * time.Second)}}, MediaMTX: "running"}
 	d, v := Definitions(s), Values(s, now)
 	expected := map[string]template.Definition{}
 	add := func(names []string, typ template.Type, format string) {
@@ -25,7 +25,7 @@ func TestValues(t *testing.T) {
 	add([]string{"stream.kbps", "stream.dropped", "obs.render_skipped"}, template.Number, "0")
 	add([]string{"stream.congestion"}, template.Number, "2")
 	add([]string{"obs.fps"}, template.Number, "1")
-	for _, p := range []string{"camera.", "camera.main.", "camera.rear."} {
+	for _, p := range []string{"camera.", "camera.cam1.", "camera.cam2."} {
 		add([]string{p + "state", p + "protocol"}, template.String, "")
 		add([]string{p + "kbps"}, template.Number, "0")
 		add([]string{p + "online"}, template.Bool, "")
@@ -51,7 +51,7 @@ func TestValues(t *testing.T) {
 		}
 	}
 	for _, n := range []string{"state", "protocol", "kbps", "online", "state_for", "srt.rtt", "srt.loss", "srt.mbps", "name", "hidden"} {
-		if v["camera."+n] != v["camera.main."+n] {
+		if v["camera."+n] != v["camera.cam1."+n] {
 			t.Errorf("別名 %s", n)
 		}
 	}
@@ -66,12 +66,12 @@ func TestValues(t *testing.T) {
 		}
 		_ = p.Render(v)
 	}
-	for n, want := range map[string]string{"camera.state": "LOW", "camera.main.name": "正面", "camera.rear.state": "DOWN", "standby.return": "Camera", "obs.scene": "Standby", "obs.scene_class": "standby", "obs.scene_health": "LOW", "mediamtx.state": "running", "standby.owner": "auto", "camera.protocol": "srt"} {
+	for n, want := range map[string]string{"camera.state": "LOW", "camera.cam1.name": "正面", "camera.cam2.state": "DOWN", "standby.return": "Camera", "obs.scene": "Standby", "obs.scene_class": "standby", "obs.scene_health": "LOW", "mediamtx.state": "running", "standby.owner": "auto", "camera.protocol": "srt"} {
 		if !v[n].Defined || v[n].String != want {
 			t.Errorf("%s = %+v", n, v[n])
 		}
 	}
-	for n, want := range map[string]float64{"camera.kbps": 600, "camera.state_for": 12, "standby.for": 30, "camera.srt.rtt": 80, "camera.srt.loss": 0.05, "camera.srt.mbps": 4.2, "camera.main.hidden": 2} {
+	for n, want := range map[string]float64{"camera.kbps": 600, "camera.state_for": 12, "standby.for": 30, "camera.srt.rtt": 80, "camera.srt.loss": 0.05, "camera.srt.mbps": 4.2, "camera.cam1.hidden": 2} {
 		if !v[n].Defined || v[n].Number != want {
 			t.Errorf("%s = %+v", n, v[n])
 		}
@@ -85,8 +85,8 @@ func TestValues(t *testing.T) {
 		t.Error("now")
 	}
 	// v0.26: 受信していないカメラの protocol は空の文字でなく未定義
-	if v["camera.rear.protocol"].Defined {
-		t.Errorf("camera.rear.protocol = %+v, want 未定義", v["camera.rear.protocol"])
+	if v["camera.cam2.protocol"].Defined {
+		t.Errorf("camera.cam2.protocol = %+v, want 未定義", v["camera.cam2.protocol"])
 	}
 	for _, n := range []string{"stream.elapsed", "stream.kbps", "stream.dropped", "stream.congestion", "obs.fps", "obs.render_skipped"} {
 		if v[n].Defined {
@@ -101,7 +101,7 @@ func TestValues(t *testing.T) {
 	s.Cameras[0].Protocol = "rtmp"
 	s.OBS = core.OBSStatus{Standby: core.StandbyStatus{Owner: "none"}}
 	v = Values(s, now)
-	for _, n := range []string{"camera.srt.rtt", "camera.main.srt.rtt", "standby.for", "standby.return", "obs.scene", "obs.scene_health"} {
+	for _, n := range []string{"camera.srt.rtt", "camera.cam1.srt.rtt", "standby.for", "standby.return", "obs.scene", "obs.scene_health"} {
 		if v[n].Defined {
 			t.Error(n)
 		}
@@ -123,15 +123,15 @@ func TestCurrentCameraValues(t *testing.T) {
 			defined   bool
 		}{
 			{"zero", true, nil, false},
-			{"one", true, []string{"rear"}, true},
-			{"two", true, []string{"main", "rear"}, false},
-			{"disconnected", false, []string{"rear"}, false},
+			{"one", true, []string{"cam2"}, true},
+			{"two", true, []string{"cam1", "cam2"}, false},
+			{"disconnected", false, []string{"cam2"}, false},
 			{"unknown", true, []string{"missing"}, false},
 		} {
 			t.Run(protocol+"/"+tc.name, func(t *testing.T) {
 				s := core.Snapshot{
-					Cameras: []core.CameraStatus{{ID: "main", State: "DOWN"}, {
-						ID: "rear", Name: "後方", State: "LOW", Kbps: 601.5, Online: true,
+					Cameras: []core.CameraStatus{{ID: "cam1", State: "DOWN"}, {
+						ID: "cam2", Name: "後方", State: "LOW", Kbps: 601.5, Online: true,
 						Protocol: protocol, StateSince: now.Add(-12500 * time.Millisecond), Hidden: 2,
 						SRT: &core.SRTStatus{RTTMs: 81, LossRate: 0.06, RecvMbps: 4.3},
 					}},
@@ -146,7 +146,7 @@ func TestCurrentCameraValues(t *testing.T) {
 					"srt.rtt":   {Defined: protocol == "srt", Type: template.Number, Number: 81},
 					"srt.loss":  {Defined: protocol == "srt", Type: template.Number, Number: 0.06},
 					"srt.mbps":  {Defined: protocol == "srt", Type: template.Number, Number: 4.3},
-					"id":        {Defined: true, Type: template.String, String: "rear"},
+					"id":        {Defined: true, Type: template.String, String: "cam2"},
 					"name":      {Defined: true, Type: template.String, String: "後方"},
 					"hidden":    {Defined: true, Type: template.Number, Number: 2},
 				}
@@ -160,7 +160,7 @@ func TestCurrentCameraValues(t *testing.T) {
 					}
 				}
 				// Fixed cameras remain available regardless of scene/OBS connection.
-				if got := v["camera.rear.kbps"]; !got.Defined || got.Number != 601.5 {
+				if got := v["camera.cam2.kbps"]; !got.Defined || got.Number != 601.5 {
 					t.Errorf("fixed camera changed: %+v", got)
 				}
 			})
@@ -169,7 +169,7 @@ func TestCurrentCameraValues(t *testing.T) {
 }
 
 func TestRemovedValueNames(t *testing.T) {
-	s := core.Snapshot{Cameras: []core.CameraStatus{{ID: "main"}}}
+	s := core.Snapshot{Cameras: []core.CameraStatus{{ID: "cam1"}}}
 	d, v := Definitions(s), Values(s, time.Now())
 	for _, name := range []string{"link.state", "link.kbps", "link.online", "link.protocol", "link.state_for", "srt.rtt", "srt.loss", "srt.mbps"} {
 		t.Run(name, func(t *testing.T) {

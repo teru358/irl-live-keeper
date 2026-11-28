@@ -248,23 +248,23 @@ func plainPaths(ids ...string) []scenemap.CameraPath {
 }
 
 func TestMatchInputSettingsTwoLevel(t *testing.T) {
-	cams := []scenemap.CameraPath{{ID: "main", Path: "live/main"}}
+	cams := []scenemap.CameraPath{{ID: "cam1", Path: "live/cam1"}}
 	mk := func(u string) map[string]any { return map[string]any{"input": u, "is_local_file": false} }
-	if id, lg := matchInputSettings(mk("rtsp://127.0.0.1:8554/live/main"), cams, 8554); id != "main" || lg != "" {
+	if id, lg := matchInputSettings(mk("rtsp://127.0.0.1:8554/live/cam1"), cams, 8554); id != "cam1" || lg != "" {
 		t.Errorf("2段: %q %q", id, lg)
 	}
-	if id, lg := matchInputSettings(mk("rtsp://127.0.0.1:8554/main"), cams, 8554); id != "" || lg != "main" {
+	if id, lg := matchInputSettings(mk("rtsp://127.0.0.1:8554/cam1"), cams, 8554); id != "" || lg != "cam1" {
 		t.Errorf("1段: %q %q", id, lg)
 	}
 }
 
 func TestCameraWarningsLegacyURL(t *testing.T) {
-	cams := []CameraConfig{{ID: "main", Name: "メイン", Path: "live/main"}}
-	m := &scenemap.Map{Inputs: map[string]scenemap.Input{"i": {Name: "旧メイン", LegacyCameraID: "main"}}}
+	cams := []CameraConfig{{ID: "cam1", Name: "メイン", Path: "live/cam1"}}
+	m := &scenemap.Map{Inputs: map[string]scenemap.Input{"i": {Name: "旧メイン", LegacyCameraID: "cam1"}}}
 	got := i18n.Strings(i18n.JA, cameraWarnings(cams, m))
 	want := []string{
 		"メイン のメディアソースが OBS に見つかりません",
-		"メディアソース 旧メイン の URL が古い形（…/main）です。…/live/main に直してください",
+		"メディアソース 旧メイン の URL が古い形（…/cam1）です。…/live/cam1 に直してください",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("警告: %q", got)

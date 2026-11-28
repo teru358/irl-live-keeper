@@ -79,7 +79,7 @@ func testSetup(c *goobs.Client) error {
 		return err
 	}
 	if len(cfg.Cameras) < 2 {
-		return fmt.Errorf("config.yaml の cameras が %d 台。2台目（sub）を足して本体を起動し直してから", len(cfg.Cameras))
+		return fmt.Errorf("config.yaml の cameras が %d 台。2台目（cam2）を足して本体を起動し直してから", len(cfg.Cameras))
 	}
 	host := cfg.Stream.ObsReadHost
 	if host == "" {

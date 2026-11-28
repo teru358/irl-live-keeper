@@ -8,7 +8,7 @@ import (
 )
 
 func TestSceneDetails(t *testing.T) {
-	m := &scenemap.Map{Scenes: map[string]scenemap.Container{}, Inputs: map[string]scenemap.Input{"input": {CameraID: "main"}}}
+	m := &scenemap.Map{Scenes: map[string]scenemap.Container{}, Inputs: map[string]scenemap.Input{"input": {CameraID: "cam1"}}}
 	for _, name := range []string{"Camera", "OtherCamera", "Wait", "Image", "Talk"} {
 		sc := scenemap.Container{Name: name}
 		if name == "Camera" || name == "OtherCamera" {
@@ -34,7 +34,7 @@ func TestSceneDetails(t *testing.T) {
 			if got.Kind != tc.kind || !reflect.DeepEqual(got.FallbackOf, tc.parents) {
 				t.Fatalf("%+v", got)
 			}
-			if got.Kind == "camera" && !reflect.DeepEqual(got.Cameras, []string{"main"}) {
+			if got.Kind == "camera" && !reflect.DeepEqual(got.Cameras, []string{"cam1"}) {
 				t.Fatal(got)
 			}
 		})

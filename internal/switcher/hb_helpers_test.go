@@ -37,8 +37,8 @@ func keyName(k scenemap.ItemKey) string {
 func hbMap() *scenemap.Map {
 	m := testMap()
 	m.Inputs = map[string]scenemap.Input{
-		inMain: {Name: "main-src", CameraID: camMain},
-		inSub:  {Name: "sub-src", CameraID: camSub},
+		inMain: {Name: "cam1-src", CameraID: camMain},
+		inSub:  {Name: "cam2-src", CameraID: camSub},
 	}
 	it := func(id int, in string) scenemap.Item {
 		return scenemap.Item{ID: id, SourceUUID: in, SourceKind: scenemap.InputSource, Enabled: true}
@@ -413,11 +413,11 @@ func (h *hb) wantNoSent(c string) {
 	}
 }
 
-func (h *hb) wantErrContains(sub string) {
+func (h *hb) wantErrContains(cam2 string) {
 	h.t.Helper()
 	e := h.m.st.LastError
-	if e == nil || !strings.Contains(e.Msg, sub) {
-		h.t.Fatalf("LastError: got %s, want containing %q", show(e), sub)
+	if e == nil || !strings.Contains(e.Msg, cam2) {
+		h.t.Fatalf("LastError: got %s, want containing %q", show(e), cam2)
 	}
 }
 

@@ -26,27 +26,27 @@ authInternalUsers:
     ips: []
     permissions:
       - action: publish
-        path: "live/main"
+        path: "live/cam1"
       - action: publish
-        path: "live/sub"
+        path: "live/cam2"
       - action: publish
-        path: "live/hand"
+        path: "live/cam3"
   - user: obs
     pass: readPASS123
     ips: []
     permissions:
       - action: read
-        path: "live/main"
+        path: "live/cam1"
       - action: read
-        path: "live/sub"
+        path: "live/cam2"
       - action: read
-        path: "live/hand"
+        path: "live/cam3"
   - user: APIUSER
     pass: APIPASS
     ips: ["127.0.0.1", "::1"]
     permissions:
       - action: api
 paths:
-  "live/main": {}
-  "live/sub": {}
-  "live/hand": {}
+  "live/cam1": {}
+  "live/cam2": {}
+  "live/cam3": {}

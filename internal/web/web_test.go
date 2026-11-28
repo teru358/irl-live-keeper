@@ -309,18 +309,18 @@ func sampleSnapshot() core.Snapshot {
 	rs, health := "Camera", "OK"
 	return core.Snapshot{
 		Cameras: []core.CameraStatus{
-			{ID: "main", Name: "メイン", OnBad: "standby", State: "OK", Kbps: 4200.5, Online: true, Protocol: "srt",
+			{ID: "cam1", Name: "メイン", OnBad: "standby", State: "OK", Kbps: 4200.5, Online: true, Protocol: "srt",
 				SRT: &core.SRTStatus{RTTMs: 85.2, LossRate: 0.01, RecvMbps: 4.2}},
-			{ID: "sub", Name: "サブ", OnBad: "hide", State: "DOWN"},
+			{ID: "cam2", Name: "サブ", OnBad: "hide", State: "DOWN"},
 		},
 		OBS: core.OBSStatus{Connected: true, Streaming: true, Scene: "Standby", SceneClass: "standby",
-			SceneCameras: []string{"main"}, SceneHealth: &health,
+			SceneCameras: []string{"cam1"}, SceneHealth: &health,
 			Standby:     core.StandbyStatus{Owner: "auto", ReturnScene: &rs},
 			AutoEnabled: true, Warnings: []i18n.Msg{i18n.Text("シーン X がない")}},
 		MediaMTX: "running",
 		URLs: []core.CameraURLs{
-			{ID: "main", Name: "メイン", PublishSRT: "srt://a", PublishRTMP: "rtmp://b", OBSRead: "rtsp://obs:p@c"},
-			{ID: "sub", Name: "サブ", PublishSRT: "srt://a2", PublishRTMP: "rtmp://b2", OBSRead: "rtsp://obs:p@c2"},
+			{ID: "cam1", Name: "メイン", PublishSRT: "srt://a", PublishRTMP: "rtmp://b", OBSRead: "rtsp://obs:p@c"},
+			{ID: "cam2", Name: "サブ", PublishSRT: "srt://a2", PublishRTMP: "rtmp://b2", OBSRead: "rtsp://obs:p@c2"},
 		},
 		LastError: &core.LastError{At: time.Date(2026, 11, 20, 13, 0, 0, 0, time.UTC), Source: "switcher", Message: i18n.Text("失敗")},
 	}
@@ -383,11 +383,11 @@ func TestStatusShapeFull(t *testing.T) {
 	eqKeys(t, "urls[0]", urls[0], "id", "name", "publish_srt", "publish_rtmp", "obs_read")
 	eqKeys(t, "last_error", m["last_error"], "at", "source", "message")
 
-	if cam["id"] != "main" || cam["name"] != "メイン" || cam["on_bad"] != "standby" ||
+	if cam["id"] != "cam1" || cam["name"] != "メイン" || cam["on_bad"] != "standby" ||
 		cam["state"] != "OK" || cam["kbps"] != 4200.5 || cam["online"] != true || cam["protocol"] != "srt" {
 		t.Fatalf("cameras[0] = %v", cam)
 	}
-	if sc, _ := o["scene_cameras"].([]any); len(sc) != 1 || sc[0] != "main" || o["scene_health"] != "OK" {
+	if sc, _ := o["scene_cameras"].([]any); len(sc) != 1 || sc[0] != "cam1" || o["scene_health"] != "OK" {
 		t.Fatalf("scene_cameras/scene_health = %v / %v", o["scene_cameras"], o["scene_health"])
 	}
 	if o["scene_class"] != "standby" || o["standby"].(map[string]any)["owner"] != "auto" ||
@@ -408,7 +408,7 @@ func TestStatusShapeFull(t *testing.T) {
 
 func TestStatusShapeNulls(t *testing.T) {
 	b := &fakeBackend{snap: core.Snapshot{
-		Cameras: []core.CameraStatus{{ID: "main", Name: "メイン", OnBad: "standby", State: "DOWN"}},
+		Cameras: []core.CameraStatus{{ID: "cam1", Name: "メイン", OnBad: "standby", State: "DOWN"}},
 		OBS: core.OBSStatus{SceneClass: "unknown", SceneCameras: []string{}, Standby: core.StandbyStatus{Owner: "none"},
 			Warnings: []i18n.Msg{}},
 		URLs: []core.CameraURLs{},

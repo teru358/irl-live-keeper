@@ -27,7 +27,7 @@ const fbSubOnly = "SubOnly"
 
 // 2台目の standby のカメラ alt（入力 ALT）と、それを映す Dual（メイン＋alt）、AltOnly。メインの入力を共有する Dual と Camera を作る。
 const (
-	wAlt      = "alt"
+	wAlt      = "cam4"
 	fbDual    = "Dual"
 	fbAltOnly = "AltOnly"
 )
@@ -109,7 +109,7 @@ func (w *world) cameraIDs() []string {
 func (w *world) deviceCameras() []Camera {
 	cams := integCameras()
 	if w.fb != nil {
-		cams = append(cams, testCamera(wAlt, "alt", scenemap.MotionStandby))
+		cams = append(cams, testCamera(wAlt, "cam4", scenemap.MotionStandby))
 	}
 	return cams
 }

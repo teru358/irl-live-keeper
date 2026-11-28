@@ -113,7 +113,7 @@ const (
 // pMap は無作為に選んだ構造の地図（入れ子、共有の末端、ひし形、同カメラ複数入力）。
 func pMap(r *rand.Rand) *scenemap.Map {
 	m := hbMap()
-	m.Inputs[inSub+"2"] = scenemap.Input{Name: "sub-src2", CameraID: camSub}
+	m.Inputs[inSub+"2"] = scenemap.Input{Name: "cam2-src2", CameraID: camSub}
 	it := func(id int, src string) scenemap.Item { return scenemapItem(id, src, true) }
 	put := func(u string, items ...scenemap.Item) {
 		c := m.Scenes[u]

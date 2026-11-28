@@ -15,7 +15,7 @@ func TestApplySettings(t *testing.T) {
 	for _, streaming := range []bool{false, true} {
 		t.Run(map[bool]string{false: "idle", true: "streaming"}[streaming], func(t *testing.T) {
 			h := newHarness(t)
-			sub := h.core.SubscribeEvents(10)
+			cam2 := h.core.SubscribeEvents(10)
 			h.start()
 			h.obsEvent(switcher.OBSConnected{At: h.clk.Now(), Streaming: streaming, Scene: camera, SceneUUID: camera, Map: testMap()})
 			h.settle()
@@ -38,7 +38,7 @@ func TestApplySettings(t *testing.T) {
 			}
 			if streaming {
 				select {
-				case e := <-sub.C:
+				case e := <-cam2.C:
 					b, _ := json.Marshal(e)
 					if e.Kind() != "settings_applied" || strings.Contains(string(b), "secret-url") {
 						t.Fatalf("event: %s", b)
@@ -48,7 +48,7 @@ func TestApplySettings(t *testing.T) {
 				}
 			} else {
 				select {
-				case e := <-sub.C:
+				case e := <-cam2.C:
 					t.Fatalf("unexpected %v", e)
 				default:
 				}
@@ -73,7 +73,7 @@ func TestApplySettingsContextWithoutLoop(t *testing.T) {
 }
 
 func TestBuildSettingsURLsReselectsHost(t *testing.T) {
-	cfg := &config.Config{Cameras: []config.Camera{{ID: "main"}, {ID: "sub"}}}
+	cfg := &config.Config{Cameras: []config.Camera{{ID: "cam1"}, {ID: "cam2"}}}
 	calls := 0
 	choose := func() string { calls++; return "192.168.1.2" }
 	a := BuildSettingsURLs(cfg, choose)

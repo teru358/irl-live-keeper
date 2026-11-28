@@ -165,6 +165,7 @@ func serveSettings(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.
 			decode.KnownFields(true)
 			decodeErr = decode.Decode(&next)
 		}
+		next.SortCameras()
 		summary := settings.ClassifyChanges(old, &next, local)
 		if (save || revert) && !local {
 			for _, f := range summary.Fields {
@@ -312,7 +313,12 @@ func settingsChanges(next *config.Config, summary settings.ChangeSummary) []sett
 	var root yaml.Node
 	_ = root.Encode(next)
 	var changes []settings.Change
+	cameraChanged := false
 	for _, field := range summary.Fields {
+		if strings.HasPrefix(field.Path, "cameras[") || field.Path == "cameras" {
+			cameraChanged = true
+			continue
+		}
 		n := &root
 		for _, part := range strings.Split(field.Path, ".") {
 			key, index, indexed := strings.Cut(part, "[")
@@ -328,6 +334,9 @@ func settingsChanges(next *config.Config, summary settings.ChangeSummary) []sett
 			}
 		}
 		changes = append(changes, settings.Change{Path: field.Path, Value: n})
+	}
+	if cameraChanged {
+		changes = append(changes, settings.Change{Path: "cameras", Value: next.Cameras})
 	}
 	return changes
 }

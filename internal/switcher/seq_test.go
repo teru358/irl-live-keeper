@@ -1546,7 +1546,7 @@ func TestSnapshot(t *testing.T) {
 		t.Fatalf("初期の Snapshot = %+v", s)
 	}
 	if got := q.m.st.CameraStates[camMain]; got != DOWN {
-		t.Fatalf("設定後の main = %v, want DOWN", got)
+		t.Fatalf("設定後の cam1 = %v, want DOWN", got)
 	}
 	q.none(lc(0, OK))
 	q.none(conn(0, true, camera, ip(300)))

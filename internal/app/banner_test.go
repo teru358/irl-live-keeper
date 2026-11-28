@@ -7,13 +7,13 @@ import (
 	"github.com/teru358/irl-live-keeper/internal/i18n"
 )
 
-// mainCam と subCam は2台の表示の例（id は main と sub、表示名は メインカメラ と サブカメラ）。
+// mainCam と subCam は2台の表示の例（id は cam1 と cam2、表示名は メインカメラ と サブカメラ）。
 var mainCam = camURLs{
 	Name:        "メインカメラ",
-	ID:          "main",
-	PublishSRT:  "srt://192.168.1.10:8890?streamid=publish:main:irl:PPPP",
-	PublishRTMP: "rtmp://192.168.1.10:1935/main?user=irl&pass=PPPP",
-	OBSRead:     "rtsp://obs:RRRR@127.0.0.1:8554/main",
+	ID:          "cam1",
+	PublishSRT:  "srt://192.168.1.10:8890?streamid=publish:cam1:irl:PPPP",
+	PublishRTMP: "rtmp://192.168.1.10:1935/cam1?user=irl&pass=PPPP",
+	OBSRead:     "rtsp://obs:RRRR@127.0.0.1:8554/cam1",
 }
 
 func TestStartupBannerEnglish(t *testing.T) {
@@ -21,7 +21,7 @@ func TestStartupBannerEnglish(t *testing.T) {
 	if strings.Contains(got, "送信用 URL") || strings.Contains(got, "管理 API のパスワード") {
 		t.Fatalf("Japanese banner text in English mode:\n%s", got)
 	}
-	for _, want := range []string{"Publish URLs", "OBS media source URLs", "Admin API", "ADMINPW", "メインカメラ (main)"} {
+	for _, want := range []string{"Publish URLs", "OBS media source URLs", "Admin API", "ADMINPW", "メインカメラ (cam1)"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("English banner missing %q:\n%s", want, got)
 		}
@@ -70,10 +70,10 @@ func TestSensitiveOutputPolicy(t *testing.T) {
 
 var subCam = camURLs{
 	Name:        "サブカメラ",
-	ID:          "sub",
-	PublishSRT:  "srt://192.168.1.10:8890?streamid=publish:sub:irl:PPPP",
-	PublishRTMP: "rtmp://192.168.1.10:1935/sub?user=irl&pass=PPPP",
-	OBSRead:     "rtsp://obs:RRRR@127.0.0.1:8554/sub",
+	ID:          "cam2",
+	PublishSRT:  "srt://192.168.1.10:8890?streamid=publish:cam2:irl:PPPP",
+	PublishRTMP: "rtmp://192.168.1.10:1935/cam2?user=irl&pass=PPPP",
+	OBSRead:     "rtsp://obs:RRRR@127.0.0.1:8554/cam2",
 }
 
 func TestStartupBanner(t *testing.T) {
@@ -93,7 +93,7 @@ func TestStartupBanner(t *testing.T) {
 		{
 			name:    "1台、手動で、config を生成していない",
 			mutate:  func(b *bannerInfo) {},
-			want:    []string{mainCam.PublishSRT, mainCam.PublishRTMP, mainCam.OBSRead, "メインカメラ（main）", "http://127.0.0.1:8787"},
+			want:    []string{mainCam.PublishSRT, mainCam.PublishRTMP, mainCam.OBSRead, "メインカメラ（cam1）", "http://127.0.0.1:8787"},
 			wantNot: []string{"パスワード", "置き換え", "見つかりません"},
 		},
 		{
@@ -119,7 +119,7 @@ func TestStartupBanner(t *testing.T) {
 		{
 			name:    "2台、両方（それぞれの名前と URL を出す）",
 			mutate:  func(b *bannerInfo) { b.Cameras = []camURLs{mainCam, subCam} },
-			want:    []string{"メインカメラ（main）", "サブカメラ（sub）", mainCam.PublishSRT, mainCam.PublishRTMP, mainCam.OBSRead, subCam.PublishSRT, subCam.PublishRTMP, subCam.OBSRead},
+			want:    []string{"メインカメラ（cam1）", "サブカメラ（cam2）", mainCam.PublishSRT, mainCam.PublishRTMP, mainCam.OBSRead, subCam.PublishSRT, subCam.PublishRTMP, subCam.OBSRead},
 			wantNot: []string{"パスワード"},
 		},
 		{
@@ -157,7 +157,7 @@ func TestStartupBanner(t *testing.T) {
 	}
 }
 
-// 2台のとき、設定の順（main、sub）に並ぶ。自動の host の案内は1回だけ。
+// 2台のとき、設定の順（cam1、cam2）に並ぶ。自動の host の案内は1回だけ。
 func TestStartupBannerOrderAndNoteOnce(t *testing.T) {
 	got := startupBanner(bannerInfo{
 		Cameras:   []camURLs{mainCam, subCam},

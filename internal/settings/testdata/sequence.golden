@@ -4,9 +4,9 @@ stream:
   publish_pass: abcdefgh
   read_pass: abcdefgh
 cameras:
-  - id: one
+  - id: cam1
     name: 一
     on_bad: hide
-  - id: two
+  - id: cam2
     name: 二
     on_bad: standby

@@ -189,8 +189,8 @@ func (f *fakeOBS) StopStream() error {
 
 // mainCam と subCam は例に使うカメラの id。
 const (
-	mainCam = "main"
-	subCam  = "sub"
+	mainCam = "cam1"
+	subCam  = "cam2"
 )
 
 // testCamera は例のカメラの設定。閾値は testThresholds。
@@ -200,7 +200,7 @@ func testCamera(id, name string, onBad scenemap.Motion) Camera {
 }
 
 // testMap は例の地図。UUID は名前と同じにする。待機シーンと管理外のシーン（Talk、Opening）はカメラなし、
-// Camera と Camera2 には、カメラ main のメディアソース IRL を映す。
+// Camera と Camera2 には、カメラ cam1 のメディアソース IRL を映す。
 func testMap() *scenemap.Map {
 	cam := func(name string) scenemap.Container {
 		return scenemap.Container{Name: name, Items: []scenemap.Item{{ID: 1, SourceUUID: "IRL", SourceKind: scenemap.InputSource, Enabled: true}}}

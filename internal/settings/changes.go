@@ -21,6 +21,8 @@ const (
 
 // FieldChange は変更された項目とその扱いを表す。
 type FieldChange struct {
+	CameraName    string    `json:"camera_name,omitempty"`
+	Kind          string    `json:"kind,omitempty"` // added / removed for camera membership
 	Path          string    `json:"path"`
 	Apply         ApplyMode `json:"apply"`
 	LocalOnly     bool      `json:"local_only,omitempty"`
@@ -52,7 +54,7 @@ var applyModes = map[string]ApplyMode{
 	"log.dir": ApplyRestart, "log.keep_days": ApplyImmediate, "gui.close_action": ApplyImmediate,
 }
 
-var arrayIndex = regexp.MustCompile(`\[\d+\]`)
+var arrayIndex = regexp.MustCompile(`\[(?:\d+|cam[1-8])\]`)
 
 // ClassifyChanges は設定差分と要求元 locality を評価する純粋関数。
 func ClassifyChanges(old, next *config.Config, local bool) ChangeSummary {
@@ -67,6 +69,34 @@ func ClassifyChanges(old, next *config.Config, local bool) ChangeSummary {
 	for _, p := range ordered {
 		mode := modeForPath(p)
 		f := FieldChange{Path: p, Apply: mode}
+		if strings.HasPrefix(p, "cameras[") {
+			id, tail, _ := strings.Cut(strings.TrimPrefix(p, "cameras["), "]")
+			if old != nil {
+				for _, cam := range old.Cameras {
+					if cam.ID == id {
+						f.CameraName = cam.Name
+					}
+				}
+			}
+			if next != nil {
+				for _, cam := range next.Cameras {
+					if cam.ID == id {
+						f.CameraName = cam.Name
+					}
+				}
+			}
+			if tail == "" {
+				f.Kind = "added"
+				if old != nil {
+					for _, cam := range old.Cameras {
+						if cam.ID == id {
+							f.Kind = "removed"
+							break
+						}
+					}
+				}
+			}
+		}
 		if p == "mediamtx.binary" || p == "log.dir" {
 			f.LocalOnly = true
 			if !local {
@@ -90,8 +120,8 @@ func ClassifyChanges(old, next *config.Config, local bool) ChangeSummary {
 }
 
 func modeForPath(p string) ApplyMode {
-	// These aggregate paths are emitted for slice length changes. Camera list
-	// changes require restart; fallback rows remain live scene settings.
+	// Fallback row count changes remain live scene settings. Camera membership
+	// paths have no leaf mode and fall back to restart.
 	if p == "obs.scene_fallbacks" {
 		return ApplyImmediate
 	}
@@ -103,7 +133,7 @@ func modeForPath(p string) ApplyMode {
 }
 
 func obsURLPath(p string) bool {
-	return p == "stream.read_user" || p == "stream.read_pass" || p == "stream.app" || p == "stream.obs_read_host" || p == "mediamtx.rtsp_port" || p == "cameras" || strings.HasPrefix(p, "cameras[") && strings.HasSuffix(p, "].id")
+	return p == "stream.read_user" || p == "stream.read_pass" || p == "stream.app" || p == "stream.obs_read_host" || p == "mediamtx.rtsp_port"
 }
 
 func collectDiff(a, b reflect.Value, path string, out map[string]struct{}) {
@@ -149,6 +179,29 @@ func collectDiff(a, b reflect.Value, path string, out map[string]struct{}) {
 			collectDiff(a.Field(i), b.Field(i), p, out)
 		}
 	case reflect.Slice:
+		if path == "cameras" {
+			old, next := make(map[string]reflect.Value), make(map[string]reflect.Value)
+			for i := 0; i < a.Len(); i++ {
+				old[a.Index(i).FieldByName("ID").String()] = a.Index(i)
+			}
+			for i := 0; i < b.Len(); i++ {
+				next[b.Index(i).FieldByName("ID").String()] = b.Index(i)
+			}
+			for id, av := range old {
+				p := fmt.Sprintf("cameras[%s]", id)
+				if bv, ok := next[id]; ok {
+					collectDiff(av, bv, p, out)
+				} else {
+					out[p] = struct{}{}
+				}
+			}
+			for id := range next {
+				if _, ok := old[id]; !ok {
+					out[fmt.Sprintf("cameras[%s]", id)] = struct{}{}
+				}
+			}
+			return
+		}
 		if a.Len() != b.Len() {
 			out[path] = struct{}{}
 			return // A whole-list replacement already includes every element change.

@@ -148,6 +148,25 @@ func rewrite(src []byte, changes []Change, parse func([]byte) (*config.Config, e
 	if e != nil {
 		return nil, errInvalid
 	}
+	// Camera sequences are written as a whole section. Normalize even when a
+	// save only changes another section in a manually reversed file.
+	var original config.Config
+	if yaml.Unmarshal(src, &original) != nil {
+		return nil, errInvalid
+	}
+	normalized := make([]Change, 0, len(changes)+1)
+	cameraChanged := !reflect.DeepEqual(original.Cameras, want.Cameras)
+	for _, change := range changes {
+		if change.Path == "cameras" || strings.HasPrefix(change.Path, "cameras[") {
+			cameraChanged = true
+			continue
+		}
+		normalized = append(normalized, change)
+	}
+	if cameraChanged {
+		normalized = append(normalized, Change{Path: "cameras", Value: want.Cameras})
+	}
+	changes = normalized
 	out := string(src)
 	for _, c := range changes {
 		var doc yaml.Node

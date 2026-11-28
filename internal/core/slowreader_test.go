@@ -21,9 +21,9 @@ func TestSlowReaderWarnings(t *testing.T) {
 	set := func(r ...supervisor.SlowReader) { mu.Lock(); slow = r; mu.Unlock() }
 	h := newHarness(t, func(_ *switcher.Config, d *Deps) {
 		c1 := testCamera(mainCam, "メイン", scenemap.MotionStandby)
-		c1.Path = "live/main"
-		c2 := testCamera("sub", "サブ", scenemap.MotionStandby)
-		c2.Path = "sub" // app が空の1段の path
+		c1.Path = "live/cam1"
+		c2 := testCamera("cam2", "サブ", scenemap.MotionStandby)
+		c2.Path = "cam2" // app が空の1段の path
 		d.Cameras = []Camera{c1, c2}
 		d.WarningMessages = func() []i18n.Msg { return []i18n.Msg{i18n.Text("existing warning")} }
 		d.SlowReaders = func() []supervisor.SlowReader {
@@ -42,7 +42,7 @@ func TestSlowReaderWarnings(t *testing.T) {
 		t.Fatalf("warnings = %v", w)
 	}
 
-	set(supervisor.SlowReader{Path: "live/main", Count: 4, Last: h.clk.Now()})
+	set(supervisor.SlowReader{Path: "live/cam1", Count: 4, Last: h.clk.Now()})
 	h.tick(h.clk.Now())
 	s := h.waitSnap("メインの警告", func(s Snapshot) bool { return len(s.OBS.Warnings) == 2 })
 	if i18n.Strings(i18n.JA, s.OBS.Warnings)[0] != "existing warning" || i18n.Strings(i18n.JA, s.OBS.Warnings)[1] != "メイン "+slowWarnTail {
@@ -54,7 +54,7 @@ func TestSlowReaderWarnings(t *testing.T) {
 	}
 
 	// 1段の path のカメラ、2台とも。出る順はカメラの順
-	set(supervisor.SlowReader{Path: "sub", Count: 3, Last: h.clk.Now()}, supervisor.SlowReader{Path: "live/main", Count: 5, Last: h.clk.Now()})
+	set(supervisor.SlowReader{Path: "cam2", Count: 3, Last: h.clk.Now()}, supervisor.SlowReader{Path: "live/cam1", Count: 5, Last: h.clk.Now()})
 	h.tick(h.clk.Now())
 	s = h.waitSnap("2台の警告", func(s Snapshot) bool { return len(s.OBS.Warnings) == 3 })
 	if i18n.Strings(i18n.JA, s.OBS.Warnings)[1] != "メイン "+slowWarnTail || i18n.Strings(i18n.JA, s.OBS.Warnings)[2] != "サブ "+slowWarnTail {
@@ -68,18 +68,18 @@ func TestSlowReaderWarnings(t *testing.T) {
 
 	out := h.log.String()
 	for _, want := range []string{
-		"msg=\"obs reader too slow\" camera=main count=4",
-		"msg=\"obs reader too slow\" camera=sub count=3",
-		"msg=\"obs reader caught up\" camera=main count=0",
-		"msg=\"obs reader caught up\" camera=sub count=0",
+		"msg=\"obs reader too slow\" camera=cam1 count=4",
+		"msg=\"obs reader too slow\" camera=cam2 count=3",
+		"msg=\"obs reader caught up\" camera=cam1 count=0",
+		"msg=\"obs reader caught up\" camera=cam2 count=0",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("ログに %q がない:\n%s", want, out)
 		}
 	}
 	// 続けて追いつかないあいだは、1行ずつ（繰り返さない）
-	if n := strings.Count(out, "obs reader too slow camera=main"); n > 1 {
-		t.Errorf("main の too slow が %d 回", n)
+	if n := strings.Count(out, "obs reader too slow camera=cam1"); n > 1 {
+		t.Errorf("cam1 の too slow が %d 回", n)
 	}
 }
 
@@ -91,7 +91,7 @@ func TestSlowReaderWarningClearsWhenCameraDown(t *testing.T) {
 	set := func(r ...supervisor.SlowReader) { mu.Lock(); slow = r; mu.Unlock() }
 	h := newHarness(t, func(_ *switcher.Config, d *Deps) {
 		c1 := testCamera(mainCam, "メイン", scenemap.MotionStandby)
-		c1.Path = "live/main"
+		c1.Path = "live/cam1"
 		d.Cameras = []Camera{c1}
 		d.SlowReaders = func() []supervisor.SlowReader {
 			mu.Lock()
@@ -102,7 +102,7 @@ func TestSlowReaderWarningClearsWhenCameraDown(t *testing.T) {
 	h.start()
 
 	// DOWN のまま（まだ受信していない）なら出さない
-	set(supervisor.SlowReader{Path: "live/main", Count: 3, Last: h.clk.Now()})
+	set(supervisor.SlowReader{Path: "live/cam1", Count: 3, Last: h.clk.Now()})
 	h.tick(h.clk.Now())
 	if w := i18n.Strings(i18n.JA, h.core.Snapshot().OBS.Warnings); len(w) != 0 {
 		t.Fatalf("DOWN のカメラに警告: %v", w)
@@ -113,7 +113,7 @@ func TestSlowReaderWarningClearsWhenCameraDown(t *testing.T) {
 	h.sample(3000)
 	h.waitSnap("LOW", func(s Snapshot) bool { return s.Cameras[0].State == "LOW" })
 	h.clk.Advance(time.Second)
-	set(supervisor.SlowReader{Path: "live/main", Count: 3, Last: h.clk.Now()})
+	set(supervisor.SlowReader{Path: "live/cam1", Count: 3, Last: h.clk.Now()})
 	h.tick(h.clk.Now())
 	h.waitSnap("警告が出る", func(s Snapshot) bool { return len(s.OBS.Warnings) == 1 })
 
@@ -122,7 +122,7 @@ func TestSlowReaderWarningClearsWhenCameraDown(t *testing.T) {
 	h.waitSnap("DOWN で消える", func(s Snapshot) bool {
 		return s.Cameras[0].State == "DOWN" && len(s.OBS.Warnings) == 0
 	})
-	if out := h.log.String(); !strings.Contains(out, `msg="obs reader caught up" camera=main count=0 reason=camera_down`) {
+	if out := h.log.String(); !strings.Contains(out, `msg="obs reader caught up" camera=cam1 count=0 reason=camera_down`) {
 		t.Errorf("ログに camera_down の caught up がない:\n%s", out)
 	}
 
@@ -135,10 +135,10 @@ func TestSlowReaderWarningClearsWhenCameraDown(t *testing.T) {
 
 	// 新しい reader is too slow が来たら、また出る
 	h.clk.Advance(time.Second)
-	set(supervisor.SlowReader{Path: "live/main", Count: 4, Last: h.clk.Now()})
+	set(supervisor.SlowReader{Path: "live/cam1", Count: 4, Last: h.clk.Now()})
 	h.tick(h.clk.Now())
 	h.waitSnap("新しい記録で出る", func(s Snapshot) bool { return len(s.OBS.Warnings) == 1 })
-	if n := strings.Count(h.log.String(), `msg="obs reader too slow" camera=main`); n != 2 {
+	if n := strings.Count(h.log.String(), `msg="obs reader too slow" camera=cam1`); n != 2 {
 		t.Errorf("too slow のログが %d 回（2回のはず）", n)
 	}
 }

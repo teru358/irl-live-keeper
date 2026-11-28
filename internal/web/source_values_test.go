@@ -25,9 +25,9 @@ type listedValuesResponse struct {
 
 func TestSourceValuesAPI(t *testing.T) {
 	b := &sourcesBackend{}
-	b.snap.Cameras = []core.CameraStatus{{ID: "z", Name: "正面", State: "LOW", Kbps: 600.4}, {ID: "a", Name: "後方"}}
-	b.snap.OBS = core.OBSStatus{Connected: true, SceneCameras: []string{"z"}}
-	b.snap.SceneDetails = map[string]obs.Scene{"live": {Name: "Live", Kind: "camera", Cameras: []string{"z"}}}
+	b.snap.Cameras = []core.CameraStatus{{ID: "cam1", Name: "正面", State: "LOW", Kbps: 600.4}, {ID: "cam2", Name: "後方"}}
+	b.snap.OBS = core.OBSStatus{Connected: true, SceneCameras: []string{"cam1"}}
+	b.snap.SceneDetails = map[string]obs.Scene{"live": {Name: "Live", Kind: "camera", Cameras: []string{"cam1"}}}
 	h := apiHandler(b, nil)
 	for _, tc := range []struct{ method, body, kbps, elapsed string }{
 		{"GET", "", "600", ""},
@@ -104,7 +104,7 @@ func TestSourceValuesAPI(t *testing.T) {
 		}
 	}
 	for _, connected := range []bool{false, true} {
-		for _, ids := range [][]string{nil, {"z", "a"}} {
+		for _, ids := range [][]string{nil, {"cam1", "cam2"}} {
 			b.snap.OBS.Connected = connected
 			b.snap.OBS.SceneCameras = ids
 			w := httptest.NewRecorder()

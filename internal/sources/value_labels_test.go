@@ -10,7 +10,7 @@ import (
 )
 
 func TestEverySourceValueHasMeaning(t *testing.T) {
-	s := core.Snapshot{Cameras: []core.CameraStatus{{ID: "main"}, {ID: "rear-cam"}}}
+	s := core.Snapshot{Cameras: []core.CameraStatus{{ID: "cam1"}, {ID: "cam2"}}}
 	for _, lang := range []i18n.Lang{i18n.JA, i18n.EN} {
 		ui := i18n.UI(lang)
 		for name := range sources.Definitions(s) {

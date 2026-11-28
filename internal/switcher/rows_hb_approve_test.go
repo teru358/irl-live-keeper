@@ -71,7 +71,7 @@ func TestHBApprove(t *testing.T) {
 		{"HB-AP-04", func(t *testing.T) {
 			h := newHB(t)
 			b := h.hide(1000)
-			m := editMap(h.mp, func(m *scenemap.Map) { m.Inputs[inSub] = scenemap.Input{Name: "sub-src", CameraID: camMain} })
+			m := editMap(h.mp, func(m *scenemap.Map) { m.Inputs[inSub] = scenemap.Input{Name: "cam2-src", CameraID: camMain} })
 			h.smc(1050, m)
 			h.want(h.ap(b, 1100, kx, false), kx, b, 1100, false, Skip{})
 			h.wantQ("")
@@ -202,7 +202,7 @@ func TestHBApprove(t *testing.T) {
 			h2 := newHB(t)
 			h2.seedH(kx, ky)
 			bs2 := h2.tick(1000)
-			h2.smc(1050, editMap(h2.mp, func(m *scenemap.Map) { m.Inputs[inSub] = scenemap.Input{Name: "sub-src", CameraID: camMain} }))
+			h2.smc(1050, editMap(h2.mp, func(m *scenemap.Map) { m.Inputs[inSub] = scenemap.Input{Name: "cam2-src", CameraID: camMain} }))
 			if r := h2.m.Approve(bs2[0].BatchID, restartOf(inSub), OverrideNone{}, at(1100)); r != (Skip{}) {
 				t.Fatalf("不一致: %#v", r)
 			}
@@ -241,7 +241,7 @@ func TestHBApprove(t *testing.T) {
 			h.yOff()
 			h.seedH(kx)
 			h.sIs(1000, DOWN)
-			m := editMap(h.mp, func(m *scenemap.Map) { m.Inputs[inSub] = scenemap.Input{Name: "sub-src", CameraID: camMain} })
+			m := editMap(h.mp, func(m *scenemap.Map) { m.Inputs[inSub] = scenemap.Input{Name: "cam2-src", CameraID: camMain} })
 			bs := h.smc(1300, m)
 			h.out(bs, "Sc(s)[x]")
 			h.proceed(bs[0], 1400, kx, true)

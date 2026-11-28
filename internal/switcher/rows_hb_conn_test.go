@@ -27,14 +27,14 @@ func TestHBSceneMapChanged(t *testing.T) {
 			h.yOff()
 			h.seedH(kx)
 			h.out(h.sIs(1000, DOWN), "")
-			m := editMap(h.mp, func(m *scenemap.Map) { m.Inputs[inSub] = scenemap.Input{Name: "sub-src", CameraID: camMain} })
+			m := editMap(h.mp, func(m *scenemap.Map) { m.Inputs[inSub] = scenemap.Input{Name: "cam2-src", CameraID: camMain} })
 			bs := h.smc(1300, m)
 			h.out(bs, "Sc(s)[x]")
 			if bs[0].CameraID != camSub {
 				t.Fatalf("旧 id の Sc でない: %q", bs[0].CameraID)
 			}
 			h.wantEntries("x:H")
-			h.wantA(camera, "main") // 健康・表示の計算では旧 s として数えない
+			h.wantA(camera, "cam1") // 健康・表示の計算では旧 s として数えない
 			// 新 m を隠さない
 			for _, b := range bs {
 				if b.Purpose == PurposeHideCamera {
@@ -331,7 +331,7 @@ func TestHB接続配信設定StudioMode(t *testing.T) {
 			bs := h.ev(cfgS(h, 7000, func(c *ScenesConfigured) { c.Cameras[1].OnBad = scenemap.MotionStandby }))
 			h.out(bs, "F(A) Sc(s)[x,y]")
 			h.wantHealth(camera, DOWN)
-			h.wantV(camera, "main", "sub")
+			h.wantV(camera, "cam1", "cam2")
 		}},
 		{"HB-CF-02", func(t *testing.T) {
 			h := newHB(t)

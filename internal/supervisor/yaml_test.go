@@ -19,7 +19,7 @@ import (
 var update = flag.Bool("update", false, "ゴールデンファイルを更新する")
 
 // camsOne は1台のカメラ（id は live）の cameras の書き方。
-const camsOne = "cameras:\n  - id: live\n    name: ライブ\n    on_bad: standby\n"
+const camsOne = "cameras:\n  - id: cam1\n    name: ライブ\n    on_bad: standby\n"
 
 // loadCfgWith は固定のパスワードを入れた config を、既定値つきで読み込む。cams は cameras の区分の全体、extra は mediamtx などの追加。
 func loadCfgWith(t *testing.T, cams, extra string) *config.Config {
@@ -48,11 +48,11 @@ func loadCfg(t *testing.T, extra string) *config.Config {
 	return loadCfgWith(t, camsOne, extra)
 }
 
-// camsThree は id が main、sub、hand の3台（main と hand は standby、sub は hide）。
-const camsThree = "cameras:\n  - id: main\n    name: メインカメラ\n    on_bad: standby\n  - id: sub\n    name: サブカメラ\n    on_bad: hide\n  - id: hand\n    name: 手元カメラ\n    on_bad: standby\n"
+// camsThree は id が cam1、cam2、hand の3台（cam1 と hand は standby、cam2 は hide）。
+const camsThree = "cameras:\n  - id: cam1\n    name: メインカメラ\n    on_bad: standby\n  - id: cam2\n    name: サブカメラ\n    on_bad: hide\n  - id: cam3\n    name: 手元カメラ\n    on_bad: standby\n"
 
-// camsTwo は id が main と sub の2台。
-const camsTwo = "cameras:\n  - id: main\n    name: メイン\n    on_bad: standby\n  - id: sub\n    name: サブ\n    on_bad: hide\n"
+// camsTwo は id が cam1 と cam2 の2台。
+const camsTwo = "cameras:\n  - id: cam1\n    name: メイン\n    on_bad: standby\n  - id: cam2\n    name: サブ\n    on_bad: hide\n"
 
 // TestGenerateYAMLGoldenVariants は、カメラの台数（1台と3台）と受付の組み合わせ（両方、RTMP だけ、SRT だけ）ごとに、
 // 手で書いたゴールデンと一致することを確かめる。ゴールデンは -update で作らない。
@@ -64,9 +64,9 @@ func TestGenerateYAMLGoldenVariants(t *testing.T) {
 		golden string
 		ids    []string
 	}{
-		{"3台、両方有効", camsThree, "", "golden-3cams.yml", []string{"live/main", "live/sub", "live/hand"}},
-		{"RTMP だけ（SRT を止める）", camsOne, "mediamtx:\n  srt_enabled: false\n", "golden-rtmp-only.yml", []string{"live/live"}},
-		{"SRT だけ（RTMP を止める）", camsOne, "mediamtx:\n  rtmp_enabled: false\n", "golden-srt-only.yml", []string{"live/live"}},
+		{"3台、両方有効", camsThree, "", "golden-3cams.yml", []string{"live/cam1", "live/cam2", "live/cam3"}},
+		{"RTMP だけ（SRT を止める）", camsOne, "mediamtx:\n  srt_enabled: false\n", "golden-rtmp-only.yml", []string{"live/cam1"}},
+		{"SRT だけ（RTMP を止める）", camsOne, "mediamtx:\n  rtmp_enabled: false\n", "golden-srt-only.yml", []string{"live/cam1"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -182,20 +182,20 @@ func TestGenerateYAMLRejectsEmptyAPICreds(t *testing.T) {
 func TestURLs(t *testing.T) {
 	cfg := loadCfg(t, "")
 	p := PublishURLs(cfg, "192.168.1.5")[0]
-	if want := "srt://192.168.1.5:8890?streamid=publish:live/live:irl:pubPASS123"; p.SRT != want {
+	if want := "srt://192.168.1.5:8890?streamid=publish:live/cam1:irl:pubPASS123"; p.SRT != want {
 		t.Errorf("SRT = %q", p.SRT)
 	}
-	if want := "rtmp://192.168.1.5:1935/live/live?user=irl&pass=pubPASS123"; p.RTMP != want {
+	if want := "rtmp://192.168.1.5:1935/live/cam1?user=irl&pass=pubPASS123"; p.RTMP != want {
 		t.Errorf("RTMP = %q", p.RTMP)
 	}
 	r := ReadURLs(cfg, "127.0.0.1")[0]
-	if want := "rtsp://obs:readPASS123@127.0.0.1:8554/live/live"; r.RTSP != want {
+	if want := "rtsp://obs:readPASS123@127.0.0.1:8554/live/cam1"; r.RTSP != want {
 		t.Errorf("RTSP = %q", r.RTSP)
 	}
-	if want := "rtmp://127.0.0.1:1935/live/live?user=obs&pass=readPASS123"; r.RTMP != want {
+	if want := "rtmp://127.0.0.1:1935/live/cam1?user=obs&pass=readPASS123"; r.RTMP != want {
 		t.Errorf("RTMP = %q", r.RTMP)
 	}
-	if want := "srt://127.0.0.1:8890?streamid=read:live/live:obs:readPASS123"; r.SRT != want {
+	if want := "srt://127.0.0.1:8890?streamid=read:live/cam1:obs:readPASS123"; r.SRT != want {
 		t.Errorf("SRT = %q", r.SRT)
 	}
 	if got := PublishURLs(cfg, "::1")[0].RTMP; !strings.HasPrefix(got, "rtmp://[::1]:1935/") {
@@ -221,12 +221,12 @@ func TestURLTable(t *testing.T) {
 			pubHost: "192.168.1.5",
 			obsHost: "127.0.0.1",
 			wantPub: []PublishURLSet{
-				{ID: "main", SRT: "srt://192.168.1.5:8890?streamid=publish:live/main:irl:pubPASS123", RTMP: "rtmp://192.168.1.5:1935/live/main?user=irl&pass=pubPASS123"},
-				{ID: "sub", SRT: "srt://192.168.1.5:8890?streamid=publish:live/sub:irl:pubPASS123", RTMP: "rtmp://192.168.1.5:1935/live/sub?user=irl&pass=pubPASS123"},
+				{ID: "cam1", SRT: "srt://192.168.1.5:8890?streamid=publish:live/cam1:irl:pubPASS123", RTMP: "rtmp://192.168.1.5:1935/live/cam1?user=irl&pass=pubPASS123"},
+				{ID: "cam2", SRT: "srt://192.168.1.5:8890?streamid=publish:live/cam2:irl:pubPASS123", RTMP: "rtmp://192.168.1.5:1935/live/cam2?user=irl&pass=pubPASS123"},
 			},
 			wantRead: []ReadURLSet{
-				{ID: "main", RTSP: "rtsp://obs:readPASS123@127.0.0.1:8554/live/main", RTMP: "rtmp://127.0.0.1:1935/live/main?user=obs&pass=readPASS123", SRT: "srt://127.0.0.1:8890?streamid=read:live/main:obs:readPASS123"},
-				{ID: "sub", RTSP: "rtsp://obs:readPASS123@127.0.0.1:8554/live/sub", RTMP: "rtmp://127.0.0.1:1935/live/sub?user=obs&pass=readPASS123", SRT: "srt://127.0.0.1:8890?streamid=read:live/sub:obs:readPASS123"},
+				{ID: "cam1", RTSP: "rtsp://obs:readPASS123@127.0.0.1:8554/live/cam1", RTMP: "rtmp://127.0.0.1:1935/live/cam1?user=obs&pass=readPASS123", SRT: "srt://127.0.0.1:8890?streamid=read:live/cam1:obs:readPASS123"},
+				{ID: "cam2", RTSP: "rtsp://obs:readPASS123@127.0.0.1:8554/live/cam2", RTMP: "rtmp://127.0.0.1:1935/live/cam2?user=obs&pass=readPASS123", SRT: "srt://127.0.0.1:8890?streamid=read:live/cam2:obs:readPASS123"},
 			},
 		},
 		{
@@ -238,12 +238,12 @@ func TestURLTable(t *testing.T) {
 			rtmpPort: 21935,
 			obsHost:  "10.0.0.9",
 			wantPub: []PublishURLSet{
-				{ID: "main", SRT: "srt://[::1]:8890?streamid=publish:live/main:irl:pubPASS123", RTMP: ""},
-				{ID: "sub", SRT: "srt://[::1]:8890?streamid=publish:live/sub:irl:pubPASS123", RTMP: ""},
+				{ID: "cam1", SRT: "srt://[::1]:8890?streamid=publish:live/cam1:irl:pubPASS123", RTMP: ""},
+				{ID: "cam2", SRT: "srt://[::1]:8890?streamid=publish:live/cam2:irl:pubPASS123", RTMP: ""},
 			},
 			wantRead: []ReadURLSet{
-				{ID: "main", RTSP: "rtsp://obs:readPASS123@10.0.0.9:8554/live/main", RTMP: "", SRT: "srt://10.0.0.9:8890?streamid=read:live/main:obs:readPASS123"},
-				{ID: "sub", RTSP: "rtsp://obs:readPASS123@10.0.0.9:8554/live/sub", RTMP: "", SRT: "srt://10.0.0.9:8890?streamid=read:live/sub:obs:readPASS123"},
+				{ID: "cam1", RTSP: "rtsp://obs:readPASS123@10.0.0.9:8554/live/cam1", RTMP: "", SRT: "srt://10.0.0.9:8890?streamid=read:live/cam1:obs:readPASS123"},
+				{ID: "cam2", RTSP: "rtsp://obs:readPASS123@10.0.0.9:8554/live/cam2", RTMP: "", SRT: "srt://10.0.0.9:8890?streamid=read:live/cam2:obs:readPASS123"},
 			},
 		},
 		{
@@ -256,10 +256,10 @@ func TestURLTable(t *testing.T) {
 			srtPort:  28890,
 			obsHost:  "127.0.0.1",
 			wantPub: []PublishURLSet{
-				{ID: "live", SRT: "", RTMP: "rtmp://example.com:21935/live/live?user=irl&pass=pubPASS123"},
+				{ID: "cam1", SRT: "", RTMP: "rtmp://example.com:21935/live/cam1?user=irl&pass=pubPASS123"},
 			},
 			wantRead: []ReadURLSet{
-				{ID: "live", RTSP: "rtsp://obs:readPASS123@127.0.0.1:8554/live/live", RTMP: "rtmp://127.0.0.1:1935/live/live?user=obs&pass=readPASS123", SRT: ""},
+				{ID: "cam1", RTSP: "rtsp://obs:readPASS123@127.0.0.1:8554/live/cam1", RTMP: "rtmp://127.0.0.1:1935/live/cam1?user=obs&pass=readPASS123", SRT: ""},
 			},
 		},
 		{
@@ -270,10 +270,10 @@ func TestURLTable(t *testing.T) {
 			srtPort:  28890,
 			obsHost:  "192.168.1.20",
 			wantPub: []PublishURLSet{
-				{ID: "live", SRT: "srt://example.com:28890?streamid=publish:live/live:irl:pubPASS123", RTMP: "rtmp://example.com:21935/live/live?user=irl&pass=pubPASS123"},
+				{ID: "cam1", SRT: "srt://example.com:28890?streamid=publish:live/cam1:irl:pubPASS123", RTMP: "rtmp://example.com:21935/live/cam1?user=irl&pass=pubPASS123"},
 			},
 			wantRead: []ReadURLSet{
-				{ID: "live", RTSP: "rtsp://obs:readPASS123@192.168.1.20:8554/live/live", RTMP: "rtmp://192.168.1.20:1935/live/live?user=obs&pass=readPASS123", SRT: "srt://192.168.1.20:8890?streamid=read:live/live:obs:readPASS123"},
+				{ID: "cam1", RTSP: "rtsp://obs:readPASS123@192.168.1.20:8554/live/cam1", RTMP: "rtmp://192.168.1.20:1935/live/cam1?user=obs&pass=readPASS123", SRT: "srt://192.168.1.20:8890?streamid=read:live/cam1:obs:readPASS123"},
 			},
 		},
 	}
@@ -295,20 +295,20 @@ func TestPublishURLsPorts(t *testing.T) {
 	cfg := loadCfg(t, "")
 	cfg.Stream.PublishRTMPPort, cfg.Stream.PublishSRTPort = 21935, 28890
 	p := PublishURLs(cfg, "example.com")[0]
-	if want := "srt://example.com:28890?streamid=publish:live/live:irl:pubPASS123"; p.SRT != want {
+	if want := "srt://example.com:28890?streamid=publish:live/cam1:irl:pubPASS123"; p.SRT != want {
 		t.Errorf("SRT = %q, want %q", p.SRT, want)
 	}
-	if want := "rtmp://example.com:21935/live/live?user=irl&pass=pubPASS123"; p.RTMP != want {
+	if want := "rtmp://example.com:21935/live/cam1?user=irl&pass=pubPASS123"; p.RTMP != want {
 		t.Errorf("RTMP = %q, want %q", p.RTMP, want)
 	}
 	// 片方だけ上書き。0 の側は受信のポート
 	cfg.Stream.PublishSRTPort = 0
 	p = PublishURLs(cfg, "example.com")[0]
-	if want := "srt://example.com:8890?streamid=publish:live/live:irl:pubPASS123"; p.SRT != want {
+	if want := "srt://example.com:8890?streamid=publish:live/cam1:irl:pubPASS123"; p.SRT != want {
 		t.Errorf("SRT = %q, want %q", p.SRT, want)
 	}
 	// 読み出し側の候補は受信のポートのまま
-	if want := "rtmp://example.com:1935/live/live?user=obs&pass=readPASS123"; ReadURLs(cfg, "example.com")[0].RTMP != want {
+	if want := "rtmp://example.com:1935/live/cam1?user=obs&pass=readPASS123"; ReadURLs(cfg, "example.com")[0].RTMP != want {
 		t.Errorf("読み出し側のポートが変わった")
 	}
 }
@@ -476,9 +476,9 @@ func TestCheckPortsStoppedProtocol(t *testing.T) {
 	}
 }
 
-// YAML で真偽や数に読まれうる id（on、no、1）も、path の名前と権限の path が文字列のまま MediaMTX に渡ること。
-func TestGenerateYAMLQuotesAmbiguousIDs(t *testing.T) {
-	cams := "cameras:\n  - id: \"on\"\n    name: a\n    on_bad: standby\n  - id: \"no\"\n    name: b\n    on_bad: standby\n  - id: \"1\"\n    name: c\n    on_bad: standby\n"
+// 番号付きカメラの path と権限の path を文字列で MediaMTX に渡す。
+func TestGenerateYAMLNumberedCameraPaths(t *testing.T) {
+	cams := "cameras:\n  - id: cam1\n    name: a\n    on_bad: standby\n  - id: cam2\n    name: b\n    on_bad: standby\n  - id: cam3\n    name: c\n    on_bad: standby\n"
 	cfg := loadCfgWith(t, cams, "")
 	out, err := GenerateYAML(cfg, "apiU", "apiP")
 	if err != nil {
@@ -496,7 +496,7 @@ func TestGenerateYAMLQuotesAmbiguousIDs(t *testing.T) {
 	if err := yaml.Unmarshal(out, &doc); err != nil {
 		t.Fatal(err)
 	}
-	for _, id := range []string{"live/on", "live/no", "live/1"} {
+	for _, id := range []string{"live/cam1", "live/cam2", "live/cam3"} {
 		if _, ok := doc.Paths[id]; !ok {
 			t.Errorf("paths に文字列の %q がない（%v）", id, doc.Paths)
 		}
@@ -521,7 +521,7 @@ func TestGenerateYAMLAppEmpty(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := string(got)
-	for _, want := range []string{"  \"main\": {}\n", "  \"sub\": {}\n", "path: \"main\"\n", "path: \"sub\"\n"} {
+	for _, want := range []string{"  \"cam1\": {}\n", "  \"cam2\": {}\n", "path: \"cam1\"\n", "path: \"cam2\"\n"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("%q がない:\n%s", want, s)
 		}
@@ -529,13 +529,13 @@ func TestGenerateYAMLAppEmpty(t *testing.T) {
 	if strings.Contains(s, "live/") {
 		t.Errorf("app が空なのに2段の path:\n%s", s)
 	}
-	if want := "rtmp://h:1935/main?user=irl&pass=pubPASS123"; PublishURLs(cfg, "h")[0].RTMP != want {
+	if want := "rtmp://h:1935/cam1?user=irl&pass=pubPASS123"; PublishURLs(cfg, "h")[0].RTMP != want {
 		t.Errorf("RTMP = %q", PublishURLs(cfg, "h")[0].RTMP)
 	}
-	if want := "srt://h:8890?streamid=publish:main:irl:pubPASS123"; PublishURLs(cfg, "h")[0].SRT != want {
+	if want := "srt://h:8890?streamid=publish:cam1:irl:pubPASS123"; PublishURLs(cfg, "h")[0].SRT != want {
 		t.Errorf("SRT = %q", PublishURLs(cfg, "h")[0].SRT)
 	}
-	if want := "rtsp://obs:readPASS123@h:8554/main"; ReadURLs(cfg, "h")[0].RTSP != want {
+	if want := "rtsp://obs:readPASS123@h:8554/cam1"; ReadURLs(cfg, "h")[0].RTSP != want {
 		t.Errorf("RTSP = %q", ReadURLs(cfg, "h")[0].RTSP)
 	}
 }
@@ -547,10 +547,10 @@ func TestGenerateYAMLCustomApp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(got), "  \"show/live\": {}\n") {
-		t.Errorf("show/live の path がない:\n%s", got)
+	if !strings.Contains(string(got), "  \"show/cam1\": {}\n") {
+		t.Errorf("show/cam1 の path がない:\n%s", got)
 	}
-	if want := "rtmp://h:1935/show/live?user=irl&pass=pubPASS123"; PublishURLs(cfg, "h")[0].RTMP != want {
+	if want := "rtmp://h:1935/show/cam1?user=irl&pass=pubPASS123"; PublishURLs(cfg, "h")[0].RTMP != want {
 		t.Errorf("RTMP = %q", PublishURLs(cfg, "h")[0].RTMP)
 	}
 }

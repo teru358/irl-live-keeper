@@ -60,7 +60,7 @@ func bothInputs() []string { return []string{inMain, inSub} }
 
 // MC-SQ-01: 片方だけ悪化、両方悪化、順に回復。
 func TestMCSeq01(t *testing.T) {
-	main := func(t *testing.T, mods ...cfgMod) {
+	cam1 := func(t *testing.T, mods ...cfgMod) {
 		q := newSeq(t).multi(camera, true, [3]scenemap.CameraState{OK, OK, DOWN}, mods...)
 		e := q.epochs()
 		b := q.batchIn(cc(1000, OK, LOW, DOWN), 1, af, standby, camera, nil, camSub)
@@ -84,7 +84,7 @@ func TestMCSeq01(t *testing.T) {
 		q.owner(OwnerNone, "")
 		q.epochDelta(e, 0, 0, 0, 0)
 	}
-	t.Run("MC-SQ-01", func(t *testing.T) { main(t) })
+	t.Run("MC-SQ-01", func(t *testing.T) { cam1(t) })
 	// MC-SQ-01/hide（s を hide にして同じ手順）は 0b で hide が Hide / Show の動きを持つため、HB-SQ-01 などに置き換わった。
 	t.Run("MC-SQ-01/main_only", func(t *testing.T) {
 		q := newSeq(t).multi(camera, true, [3]scenemap.CameraState{OK, OK, DOWN})

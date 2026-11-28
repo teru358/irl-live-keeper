@@ -122,15 +122,15 @@ func TestHBUの再送とA(t *testing.T) {
 	h.itemDone(1200, req, ItemTimeout)
 	h.bdone(1300, b.BatchID, BatchCompleted, errTest)
 	h.wantEntries("x:U")
-	h.wantA(camera, "main", "sub") // U は表示と数える
-	h.tick(6000)                   // 5秒たった: 再送
+	h.wantA(camera, "cam1", "cam2") // U は表示と数える
+	h.tick(6000)                    // 5秒たった: 再送
 	hc := h.lastBatch
 	if hc.Purpose != PurposeHideCamera {
 		t.Fatalf("再送がない: %s", desc(hc))
 	}
 	h.proceed(hc, 6100, kx, false)
 	h.wantEntries("x:U")
-	h.wantA(camera, "main") // 送った false の応答前は非表示と数える
+	h.wantA(camera, "cam1") // 送った false の応答前は非表示と数える
 }
 
 func TestHB予約のあとに記録が消えても記録なしでは送らない(t *testing.T) {

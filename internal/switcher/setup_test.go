@@ -21,7 +21,7 @@ func all(fns ...setupFn) setupFn {
 
 func scn(uuid string) setupFn { return func(s *state) { s.Scene = uuid } }
 
-// link は単独のカメラ main の状態を設定する。
+// link は単独のカメラ cam1 の状態を設定する。
 func link(l scenemap.CameraState) setupFn { return func(s *state) { s.CameraStates[camMain] = l } }
 func own(o Owner, ret string) setupFn     { return func(s *state) { inStandby(s, o, ret) } }
 func autoOff(s *state)                    { s.AutoEnabled = false }
@@ -53,9 +53,9 @@ func sentAt(pp Purpose, ms int) setupFn {
 }
 
 // states は複数のカメラの状態を設定する。
-func states(m, sub, d scenemap.CameraState) setupFn {
+func states(m, cam2, d scenemap.CameraState) setupFn {
 	return func(s *state) {
-		s.CameraStates = map[string]scenemap.CameraState{camMain: m, camSub: sub, camDesk: d}
+		s.CameraStates = map[string]scenemap.CameraState{camMain: m, camSub: cam2, camDesk: d}
 	}
 }
 
@@ -82,7 +82,7 @@ func disconnected(s *state) {
 	s.Expectations = nil
 }
 
-// fresh は生成した直後の状態に、設定 CFG だけを入れた状態にする（未接続、地図なし、main は DOWN）。
+// fresh は生成した直後の状態に、設定 CFG だけを入れた状態にする（未接続、地図なし、cam1 は DOWN）。
 func fresh(s *state) {
 	*s = newMachine().st
 	s.Standby = "Standby"
@@ -129,7 +129,7 @@ func linkTo(l scenemap.CameraState) func(s *state) {
 	return func(s *state) { s.CameraStates[camMain] = l }
 }
 
-// mapChange は地図を visible のシーンにだけ main の項目を置いた地図に差し替えた変化（ConfigEpoch は進めない）。
+// mapChange は地図を visible のシーンにだけ cam1 の項目を置いた地図に差し替えた変化（ConfigEpoch は進めない）。
 // clear なら持ち主と戻り先も消す。
 func mapChange(clear bool, visible ...string) func(s *state) {
 	return func(s *state) {

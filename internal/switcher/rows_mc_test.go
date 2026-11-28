@@ -83,9 +83,9 @@ func itemTo(container string, id int, enabled bool) func(s *state) {
 	return func(s *state) { setItem(s.Map, container, id, enabled) }
 }
 
-func statesTo(m, sub, d scenemap.CameraState) func(s *state) {
+func statesTo(m, cam2, d scenemap.CameraState) func(s *state) {
 	return func(s *state) {
-		s.CameraStates = map[string]scenemap.CameraState{camMain: m, camSub: sub, camDesk: d}
+		s.CameraStates = map[string]scenemap.CameraState{camMain: m, camSub: cam2, camDesk: d}
 	}
 }
 
@@ -178,7 +178,7 @@ func TestMCRestartInputs(t *testing.T) {
 		{name: "MC-I-1", base: baseMulti, setup: all(own(OwnerAuto, camera), badAll), ev: toOK, change: statesTo(OK, OK, OK),
 			out: PurposeAutoRecover, in: []string{inMain, inSub}},
 		{name: "MC-I-2", base: baseMulti, setup: all(useMap(mm(
-			func(m *scenemap.Map) { m.Inputs[inMain2] = scenemap.Input{Name: "main-src2", CameraID: camMain} },
+			func(m *scenemap.Map) { m.Inputs[inMain2] = scenemap.Input{Name: "cam1-src2", CameraID: camMain} },
 			itemsOf(camera2, itm(1, inMain), itm(2, inMain)))), own(OwnerAuto, camera2), badAll),
 			ev: toOK, change: statesTo(OK, OK, OK), out: PurposeAutoRecover, in: []string{inMain, inMain2}},
 		{name: "MC-I-3", base: baseMulti, setup: all(own(OwnerAuto, camera2), badAll), ev: toOK, change: statesTo(OK, OK, OK),
@@ -306,8 +306,8 @@ func TestMCSceneMapChanged(t *testing.T) {
 		{name: "MC-MAP-14", base: baseMulti, setup: all(states(DOWN, OK, OK), failed),
 			ev: smcMap(1000, mm(func(m *scenemap.Map) { m.Groups = nil }))},
 		{name: "MC-MAP-14/camera_id_only", base: baseMulti, setup: all(useMap(aOnlyM), states(OK, DOWN, OK), failed),
-			ev:     smcMap(1000, editMap(aOnlyM, func(m *scenemap.Map) { m.Inputs[inMain] = scenemap.Input{Name: "main-src", CameraID: camSub} })),
-			change: toMap(editMap(aOnlyM, func(m *scenemap.Map) { m.Inputs[inMain] = scenemap.Input{Name: "main-src", CameraID: camSub} })),
+			ev:     smcMap(1000, editMap(aOnlyM, func(m *scenemap.Map) { m.Inputs[inMain] = scenemap.Input{Name: "cam1-src", CameraID: camSub} })),
+			change: toMap(editMap(aOnlyM, func(m *scenemap.Map) { m.Inputs[inMain] = scenemap.Input{Name: "cam1-src", CameraID: camSub} })),
 			out:    PurposeAutoFail, bad: camSub, check: wantSnap(ClassMonitored, true, DOWN, camSub, camSub)},
 		{name: "MC-MAP-17", base: baseMulti, setup: all(own(OwnerAuto, camera), failed, sentAt(PurposeAutoRecover, -4500)),
 			ev: smcMap(1000, mm(renamed(camera, "Camera-renamed"))), change: toMap(mm(renamed(camera, "Camera-renamed"))),

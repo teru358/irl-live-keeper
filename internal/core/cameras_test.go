@@ -80,7 +80,7 @@ func TestSampleSetSendsCamerasChangedOnce(t *testing.T) {
 	// 片方だけ変わる組。States には変わらない方も入る。
 	h.sampleSet(goodKbps, 0)
 	h.sampleSet(goodKbps, 0)
-	h.sampleSet(goodKbps, 0) // sub は 0 が3秒で LOW
+	h.sampleSet(goodKbps, 0) // cam2 は 0 が3秒で LOW
 	seen = h.settle()
 	if n := countOf[switcher.CamerasChanged](seen); n != 1 {
 		t.Fatalf("CamerasChanged = %d, want 1", n)
@@ -97,22 +97,22 @@ func TestSampleSetSendsCamerasChangedOnce(t *testing.T) {
 // 閾値はカメラごと。同じ kbps でも、上書きした閾値のカメラは違う状態になる。
 func TestSampleSetUsesPerCameraThresholds(t *testing.T) {
 	h := newHarness(t, func(_ *switcher.Config, d *Deps) {
-		main := testCamera(mainCam, "メイン", scenemap.MotionStandby)
-		sub := testCamera(subCam, "サブ", scenemap.MotionStandby)
-		sub.Thresholds.FailKbps, sub.Thresholds.RecoverKbps = 400, 800
-		d.Cameras = []Camera{main, sub}
+		cam1 := testCamera(mainCam, "メイン", scenemap.MotionStandby)
+		cam2 := testCamera(subCam, "サブ", scenemap.MotionStandby)
+		cam2.Thresholds.FailKbps, cam2.Thresholds.RecoverKbps = 400, 800
+		d.Cameras = []Camera{cam1, cam2}
 	})
 	h.start()
 	for range 5 {
 		h.sampleSet(goodKbps, goodKbps)
 	}
 	h.waitSnap("2台とも OK", func(s Snapshot) bool { return s.Cameras[0].State == "OK" && s.Cameras[1].State == "OK" })
-	for range 3 { // 500 kbps は main の fail_kbps（1000）未満、sub の fail_kbps（400）以上
+	for range 3 { // 500 kbps は cam1 の fail_kbps（1000）未満、cam2 の fail_kbps（400）以上
 		h.sampleSet(500, 500)
 	}
-	s := h.waitSnap("main だけ LOW", func(s Snapshot) bool { return s.Cameras[0].State == "LOW" })
+	s := h.waitSnap("cam1 だけ LOW", func(s Snapshot) bool { return s.Cameras[0].State == "LOW" })
 	if s.Cameras[1].State != "OK" {
-		t.Errorf("sub = %s, want OK（自分の閾値では十分）", s.Cameras[1].State)
+		t.Errorf("cam2 = %s, want OK（自分の閾値では十分）", s.Cameras[1].State)
 	}
 }
 
@@ -125,7 +125,7 @@ func TestSampleSetIgnoresUnknownAndMissingCameras(t *testing.T) {
 		{Camera: "ghost", At: at, Interval: time.Second, Online: true, Kbps: goodKbps},
 		{Camera: subCam, At: at, Interval: time.Second, Online: true, Kbps: goodKbps},
 	}})
-	s := h.waitSnap("sub が LOW", func(s Snapshot) bool { return s.Cameras[1].State == "LOW" })
+	s := h.waitSnap("cam2 が LOW", func(s Snapshot) bool { return s.Cameras[1].State == "LOW" })
 	if s.Cameras[0].State != "DOWN" || len(s.Cameras) != 2 {
 		t.Errorf("cameras = %+v", s.Cameras)
 	}
@@ -136,19 +136,19 @@ func TestCameraChangedLog(t *testing.T) {
 	h := newHarness(t, twoCameras)
 	h.start()
 	h.sampleSet(goodKbps, 0)
-	h.waitSnap("main が LOW", func(s Snapshot) bool { return s.Cameras[0].State == "LOW" })
+	h.waitSnap("cam1 が LOW", func(s Snapshot) bool { return s.Cameras[0].State == "LOW" })
 	out := h.log.String()
-	if !strings.Contains(out, `msg="camera changed" camera=main from=DOWN to=LOW kbps=3000`) {
+	if !strings.Contains(out, `msg="camera changed" camera=cam1 from=DOWN to=LOW kbps=3000`) {
 		t.Errorf("camera changed の行がない:\n%s", out)
 	}
-	if strings.Contains(out, "camera=sub") || strings.Contains(out, "link changed") {
+	if strings.Contains(out, "camera=cam2") || strings.Contains(out, "link changed") {
 		t.Errorf("変わらないカメラや古い行が出た:\n%s", out)
 	}
 }
 
 // ---- 複数のカメラの切替 ----
 
-// twoStandbyCameras は main と sub のどちらも on_bad: standby（待機シーンへ送る）の2台。
+// twoStandbyCameras は cam1 と cam2 のどちらも on_bad: standby（待機シーンへ送る）の2台。
 func twoStandbyCameras(_ *switcher.Config, d *Deps) {
 	d.Cameras = []Camera{testCamera(mainCam, "メイン", scenemap.MotionStandby), testCamera(subCam, "サブ", scenemap.MotionStandby)}
 }
@@ -171,12 +171,12 @@ func TestSceneSwitchLogsBadCamera(t *testing.T) {
 	if !reflect.DeepEqual(s.OBS.SceneCameras, []string{mainCam, subCam}) || s.OBS.SceneHealth == nil || *s.OBS.SceneHealth != "OK" {
 		t.Fatalf("scene_cameras = %v, scene_health = %v", s.OBS.SceneCameras, s.OBS.SceneHealth)
 	}
-	for range 3 { // sub だけ 0 が3秒続いて LOW
+	for range 3 { // cam2 だけ 0 が3秒続いて LOW
 		h.sampleSet(goodKbps, 0)
 	}
 	h.waitCall("scene:" + standby)
 	h.waitSeen("BatchDone", isBatchDone(switcher.BatchCompleted))
-	want := `msg="scene switch" from=Camera to=Standby reason=low camera=sub kbps=0`
+	want := `msg="scene switch" from=Camera to=Standby reason=low camera=cam2 kbps=0`
 	if out := h.log.String(); !strings.Contains(out, want) {
 		t.Errorf("ログに %q がない:\n%s", want, out)
 	}
@@ -206,7 +206,7 @@ func TestExecutorUsesUUIDsAndNames(t *testing.T) {
 	if calls := h.obs.Calls(); !reflect.DeepEqual(calls, []string{"override:u-standby", "scene:u-standby"}) {
 		t.Errorf("calls = %v", calls)
 	}
-	if want := `msg="scene switch" from=Camera to=Standby reason=low camera=main kbps=0`; !strings.Contains(h.log.String(), want) {
+	if want := `msg="scene switch" from=Camera to=Standby reason=low camera=cam1 kbps=0`; !strings.Contains(h.log.String(), want) {
 		t.Errorf("ログに %q がない:\n%s", want, h.log.String())
 	}
 	n := len(h.obs.Calls())
@@ -414,11 +414,11 @@ func TestAutoRecoverLogsLastRecoveredCamera(t *testing.T) {
 	}
 	h.waitSeen("AutoFail の BatchDone", isBatchDone(switcher.BatchCompleted))
 	h.waitSnap("自動の待機", both(sceneIs(standby), standbyIs("auto", camera)))
-	for range 5 { // 回復のきっかけは sub（main は OK のまま）。main の方が kbps は低い
+	for range 5 { // 回復のきっかけは cam2（cam1 は OK のまま）。cam1 の方が kbps は低い
 		h.sampleSet(2500, goodKbps)
 	}
 	h.waitSeen("AutoRecover の BatchDone", isBatchDone(switcher.BatchCompleted))
-	want := `msg="scene switch" from=Standby to=Camera reason=ok camera=sub kbps=3000`
+	want := `msg="scene switch" from=Standby to=Camera reason=ok camera=cam2 kbps=3000`
 	if out := h.log.String(); !strings.Contains(out, want) {
 		t.Errorf("ログに %q がない:\n%s", want, out)
 	}
