@@ -52,6 +52,12 @@ func escapeBraces(s string) string {
 	s = strings.ReplaceAll(s, "{", "{{")
 	return strings.ReplaceAll(s, "}", "}}")
 }
+
+// styleValueContext marks a template tag inside a style attribute value. It is
+// not an attribute name, so attribute rules do not apply, and it is not body
+// text, so the restricted-text-parent rule (table/tr direct text) does not apply.
+const styleValueContext = "\x00style-value"
+
 func (p *htmlScanner) tag(i int, attr string) (int, error) {
 	end := templateEnd(p.s, i)
 	text := p.s[i:end]
@@ -59,7 +65,7 @@ func (p *htmlScanner) tag(i int, attr string) (int, error) {
 		return end, p.fail(i+j, "html_nul")
 	}
 	kind := templateKind(text)
-	if attr != "" && attr != "style" && !has(htmlRules.TemplateAttributes, attr) && !pattern(htmlRules.TemplateAttributePatterns, attr) {
+	if attr != "" && attr != "style" && attr != styleValueContext && !has(htmlRules.TemplateAttributes, attr) && !pattern(htmlRules.TemplateAttributePatterns, attr) {
 		return end, p.fail(i, "html_template_position")
 	}
 	if attr == "style" {

@@ -1,6 +1,7 @@
-# S2-77 HTML 本文検査の設計案 v3.1
+# S2-77 HTML 本文検査の設計案 v3.2
 
 改訂 v3.1: レビュー回帰入力 H298 以降を共通入力表に追加。HTML の Number は NaN・±Inf を未定義と同じ空文字で描画する。
+改訂 v3.2: 閉鎖確認（Fable）の N1 の回帰入力 H353〜H356（table の中の要素の style の数値の差し込み）を足した。
 
 改訂 v3: Fable の閉鎖確認 N1〜N8 と指揮者の決めを反映。文字参照・差し込み・木の再検査・共通入力表を補強。
 
@@ -673,7 +674,11 @@ CSP（第6章）は `default-src 'none'; script-src 'self'; style-src 'self' 'un
     {"id": "H349", "mode": "rendered", "input": "<span style=\"x:&#35;{cam1.kbps}\"></span>", "expect": "ok", "reason": "描画後の波括弧はリテラル"},
     {"id": "H350", "mode": "rendered", "input": "<span style=\"content:&apos;{cam1.kbps}&apos;\"></span>", "expect": "ok", "reason": "描画後の波括弧はリテラル"},
     {"id": "H351", "mode": "rendered", "input": "<span style=\"&#47;&#42;{cam1.kbps}&#42;&#47;color:red\"></span>", "expect": "ok", "reason": "描画後の波括弧はリテラル"},
-    {"id": "H352", "mode": "save", "input": "<span style=\"{if(cam1.online)}\">x{ end }</span>", "expect": "error", "reason": "字句による枝の検査", "error": {"code": "template.html_branch", "line": 1, "column": 14}}
+    {"id": "H352", "mode": "save", "input": "<span style=\"{if(cam1.online)}\">x{ end }</span>", "expect": "error", "reason": "字句による枝の検査", "error": {"code": "template.html_branch", "line": 1, "column": 14}},
+    {"id": "H353", "mode": "save", "input": "<table><tr><td style=\"width:{cam1.kbps}px\">x</td></tr></table>", "expect": "ok", "reason": "table の中の要素の style の数値（本文の文字の決まりは属性に掛けない）"},
+    {"id": "H354", "mode": "save", "input": "<table><tr style=\"height:{cam1.kbps}px\"><td>x</td></tr></table>", "expect": "ok", "reason": "tr の style の数値"},
+    {"id": "H355", "mode": "save", "input": "<table><tbody style=\"height:{cam1.kbps}px\"><tr><th style=\"width:{cam1.kbps}px\">x</th></tr></tbody></table>", "expect": "ok", "reason": "tbody と th の style の数値"},
+    {"id": "H356", "mode": "save", "input": "<table><tr style=\"{cam1.name}\"><td>x</td></tr></table>", "expect": "error", "reason": "table の中でも style は数値だけ", "error": {"code": "template.html_style_type", "line": 1, "column": 19}}
   ]
 }
 

@@ -499,7 +499,7 @@ func (p *htmlScanner) run() error {
 					}
 					tagAttr := attr
 					if attr == "style" {
-						tagAttr = ""
+						tagAttr = styleValueContext
 					}
 					end, e := p.tag(i, tagAttr)
 					if e != nil {
