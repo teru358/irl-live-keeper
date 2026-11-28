@@ -145,7 +145,7 @@ func TestSettingsPageControls(t *testing.T) {
 	servePage(w, &displayFake{}, false)
 	app := pageModules(t)
 	html := w.Body.String() + string(app)
-	for _, want := range []string{`id="settings-panel"`, `id="settings-groups"`, `id="settings-fields"`, `id="settings-lan"`, `id="settings-local"`, `role="switch"`, `id="settings-confirm"`, `id="settings-update"`} {
+	for _, want := range []string{`id="settings-panel"`, `id=${page+'-groups'}`, `id=${page+'-fields'}`, `id=${page+'-lan'}`, `id=${page+'-local'}`, `role="switch"`, `id="settings-confirm"`, `id="cameras-confirm"`, `id=${page+'-update'}`} {
 		if !strings.Contains(html, want) {
 			t.Errorf("missing %s", want)
 		}
@@ -177,7 +177,7 @@ func TestSettingsFailureAndRefreshPaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"settings_not_saved", "s.errors=e.fields||{}", "fieldGroup", "s.group=fieldGroup", "focusSettingError", "settings_reloaded", "settings_changed", "JSON.stringify([status.generation,status.apply])", "!dirty(store.get())", "s.baseline=JSON.stringify(s.values)"} {
+	for _, want := range []string{"settings_not_saved", "s.errors=e.fields||{}", "fieldGroup", "s.group=fieldGroup", "focusSettingError", "settings_reloaded", "settings_conflicts", "JSON.stringify([status.generation,status.apply])", "rebaseDraft", "s.baseline=JSON.stringify(fresh)"} {
 		if !strings.Contains(string(js), want) {
 			t.Errorf("missing error/refresh path %s", want)
 		}
