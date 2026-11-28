@@ -1,9 +1,9 @@
 # チケット一覧
 
 自動生成: `ticket.py index` (tickets skill)。手で編集しない。
-未完了: 14 件。完了分は closed/。
+未完了: 15 件。完了分は closed/。
 
-## 設計待ち (14)
+## 設計待ち (15)
 
 ### 不具合 (2)
 
@@ -12,7 +12,7 @@
 | [asset-overwrite-404](open/asset-overwrite-404.md) | 低 | 2026-11-28 | 素材を同じ名前で上書きする間に、プレビューが ?v= なしで取りに行き 404 になる |
 | [html-split-charref](open/html-split-charref.md) | 低 | 2026-11-28 | 文字参照を差し込みや if で割ると、保存できたのに表示で誤りになる |
 
-### 機能 (9)
+### 機能 (10)
 
 | id | 優先 | 起票 | 概要 |
 |---|---|---|---|
@@ -25,6 +25,7 @@
 | [phone-menu-open-on-phone](open/phone-menu-open-on-phone.md) | 低 | 2026-11-28 | スマホのメニューに「スマホで開く」がない（意図どおりか確かめる） |
 | [regenerate-button-placement](open/regenerate-button-placement.md) | 低 | 2026-11-28 | カメラごとの送信用パスワードの作り直しを「送り先」の外に置くか |
 | [status-warning-heading-empty](open/status-warning-heading-empty.md) | 低 | 2026-11-28 | 「状態」の「注意」が、注意がないときも見出しとボタンだけ出る |
+| [stream-history](open/stream-history.md) | 低 | 2026-11-28 | 配信の記録（配信ごとのファイル、まとめ、一覧と詳しい画面、CSV、session.*） |
 
 ### 保守 (3)
 
