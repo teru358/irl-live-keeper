@@ -11,11 +11,15 @@ func Render(s Source, snapshot core.Snapshot, now time.Time, stats ...map[string
 	if s.Broken != nil {
 		return "", nil
 	}
-	p, err := template.Compile(s.Body, Definitions(snapshot))
+	p, err := CompileHTML(s.Body, Definitions(snapshot))
 	if err != nil {
 		return "", err
 	}
-	return p.Render(Values(snapshot, now, stats...)), nil
+	out := p.Render(Values(snapshot, now, stats...))
+	if err := ValidateHTML(out, "rendered"); err != nil {
+		return "", err
+	}
+	return out, nil
 }
 
 // BaseStylesheet is the page skeleton CSS until the body carries its own styles.

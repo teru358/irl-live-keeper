@@ -248,7 +248,7 @@ func RenderSimulation(src Source, s core.Snapshot, now time.Time, stats map[stri
 	if src.Broken != nil {
 		return "", nil
 	}
-	p, err := template.Compile(src.Body, Definitions(s))
+	p, err := CompileHTML(src.Body, Definitions(s))
 	if err != nil {
 		return "", err
 	}
@@ -256,5 +256,9 @@ func RenderSimulation(src Source, s core.Snapshot, now time.Time, stats map[stri
 	if err != nil {
 		return "", err
 	}
-	return p.Render(v), nil
+	out := p.Render(v)
+	if err := ValidateHTML(out, "rendered"); err != nil {
+		return "", err
+	}
+	return out, nil
 }

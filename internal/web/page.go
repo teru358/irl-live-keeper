@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/teru358/irl-live-keeper/internal/i18n"
+	"github.com/teru358/irl-live-keeper/internal/sources"
 	"io/fs"
 	"net/http"
 	"strings"
@@ -15,6 +16,11 @@ var assets embed.FS
 
 func serveAsset(w http.ResponseWriter, r *http.Request) bool {
 	path := r.URL.Path
+	if path == "/assets/app/html_rules.json" {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(sources.HTMLRules)
+		return true
+	}
 	if path == "/favicon.ico" {
 		path = "/assets/favicon-32.png"
 	}

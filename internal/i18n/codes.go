@@ -42,3 +42,7 @@ func init() {
 func init() {
 	Codes = append(Codes, "source_files.reason_bad_name", "source_files.reason_reserved_name", "source_files.reason_bad_extension", "source_files.reason_path_too_long", "source_files.reason_too_deep", "source_files.reason_too_large", "source_files.reason_not_image", "source_files.reason_ext_mismatch", "source_files.reason_symlink", "source_files.reason_not_regular", "source_files.reason_unreadable", "source_files.reason_over_limit", "source_files.scan_limit")
 }
+
+func init() {
+	Codes = append(Codes, "template.html_lex", "template.html_comment", "template.html_style_unclosed", "template.html_nul", "template.html_element", "template.html_attribute", "template.html_duplicate", "template.html_quote", "template.html_nesting", "template.html_branch", "template.html_template_position", "template.html_style_type", "template.html_url", "template.css_escape", "template.css_import", "template.css_function", "template.css_syntax")
+}

@@ -4,6 +4,7 @@ package template
 
 import (
 	"fmt"
+	"html"
 	"math"
 	"strconv"
 	"strings"
@@ -623,4 +624,42 @@ func References(text, name string) bool {
 		}
 	}
 	return false
+}
+
+// RenderHTML escapes substitutions while preserving literal template text.
+func (p *Program) RenderHTML(values map[string]Value) string {
+	var b strings.Builder
+	var walk func([]node)
+	walk = func(ns []node) {
+		for _, n := range ns {
+			if n.cond != nil {
+				if truth(n.cond.eval(values)) {
+					walk(n.yes)
+				} else {
+					walk(n.no)
+				}
+			} else if n.name != "" {
+				v := values[n.name]
+				if v.Type == Number && (math.IsNaN(v.Number) || math.IsInf(v.Number, 0)) {
+					v.Defined = false
+				}
+				b.WriteString(html.EscapeString(strings.ReplaceAll(format(v, n.format), "\x00", "")))
+			} else {
+				b.WriteString(n.text)
+			}
+		}
+	}
+	walk(p.nodes)
+	return b.String()
+}
+
+// TagToken returns the first lexical token of a template tag.
+func TagToken(s string) (kind, name string) {
+	p := parser{source: s}
+	_ = p.lex()
+	if len(p.parts) > 0 && len(p.parts[0].ts) > 0 {
+		t := p.parts[0].ts[0]
+		return t.kind, t.text
+	}
+	return "", ""
 }
