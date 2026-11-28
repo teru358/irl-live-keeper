@@ -219,8 +219,8 @@ func TestCompileLargeBodyIsFast(t *testing.T) {
 				}
 			}
 			t.Logf("%s: %d bytes, best of 5 %v", name, len(s), best)
-			if best > 20*time.Millisecond {
-				t.Fatalf("Compile of %d bytes took %v; want 20ms or less", len(s), best)
+			if best > compileBudgetMs*time.Millisecond {
+				t.Fatalf("Compile of %d bytes took %v; want %dms or less", len(s), best, compileBudgetMs)
 			}
 		})
 	}
