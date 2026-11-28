@@ -7,3 +7,4 @@ import './settings-pages.test.mjs';
 
 import './camera-credentials.test.mjs';
 import './syntax.test.mjs';
+import './html.test.mjs';

@@ -1,0 +1,212 @@
+{
+  "version": 3,
+  "elements": [
+    "div",
+    "span",
+    "p",
+    "br",
+    "hr",
+    "img",
+    "style",
+    "b",
+    "i",
+    "u",
+    "s",
+    "strong",
+    "em",
+    "small",
+    "sub",
+    "sup",
+    "ul",
+    "ol",
+    "li",
+    "table",
+    "thead",
+    "tbody",
+    "tr",
+    "th",
+    "td",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "section",
+    "header",
+    "footer"
+  ],
+  "globalAttributes": [
+    "class",
+    "id",
+    "title",
+    "alt",
+    "width",
+    "height",
+    "style",
+    "lang",
+    "dir"
+  ],
+  "attributeNamePatterns": [
+    "^data-[a-z0-9_.:-]+$",
+    "^aria-[a-z0-9_.:-]+$"
+  ],
+  "elementAttributes": {
+    "img": [
+      "src"
+    ]
+  },
+  "voidElements": [
+    "br",
+    "hr",
+    "img"
+  ],
+  "urlAttributes": {
+    "img": [
+      "src"
+    ]
+  },
+  "templateAttributes": [
+    "class",
+    "title",
+    "alt"
+  ],
+  "templateAttributePatterns": [
+    "^data-[a-z0-9_.:-]+$",
+    "^aria-[a-z0-9_.:-]+$"
+  ],
+  "styleAttribute": {
+    "substitutionTypes": [
+      "number"
+    ],
+    "controlTags": false
+  },
+  "css": {
+    "rejectBackslash": true,
+    "rejectAtRules": [
+      "import"
+    ],
+    "urlFunction": "url",
+    "rejectFunctions": [
+      "image-set",
+      "image",
+      "cross-fade",
+      "element",
+      "src"
+    ],
+    "urlKinds": [
+      "asset",
+      "data:image/",
+      "data:font/",
+      "fragment"
+    ],
+    "stripVendorPrefixes": [
+      "-webkit-",
+      "-moz-",
+      "-ms-",
+      "-o-"
+    ],
+    "fragmentPattern": "^#[A-Za-z_][A-Za-z0-9_-]*$"
+  },
+  "asset": {
+    "prefix": "/source/files/",
+    "segmentPattern": "^[A-Za-z0-9_-][A-Za-z0-9_.-]{0,127}$",
+    "maxSegments": 4,
+    "maxPathLength": 512,
+    "extensions": [
+      "png",
+      "jpg",
+      "jpeg",
+      "gif",
+      "webp",
+      "avif",
+      "bmp",
+      "svg"
+    ],
+    "savedQuery": false,
+    "renderedQueryPattern": "^v=[0-9a-f]{12}$"
+  },
+  "attributeFreeElements": [
+    "style"
+  ],
+  "nesting": {
+    "parents": {
+      "thead": [
+        "table"
+      ],
+      "tbody": [
+        "table"
+      ],
+      "tr": [
+        "table",
+        "thead",
+        "tbody"
+      ],
+      "td": [
+        "tr"
+      ],
+      "th": [
+        "tr"
+      ]
+    },
+    "children": {
+      "table": [
+        "thead",
+        "tbody",
+        "tr"
+      ],
+      "thead": [
+        "tr"
+      ],
+      "tbody": [
+        "tr"
+      ],
+      "tr": [
+        "th",
+        "td"
+      ]
+    },
+    "restrictedTextParents": [
+      "table",
+      "thead",
+      "tbody",
+      "tr"
+    ],
+    "allowWhitespaceCommentsControlTags": true,
+    "rejectSubstitutions": true,
+    "pForbiddenDescendants": [
+      "div",
+      "p",
+      "section",
+      "header",
+      "footer",
+      "h1",
+      "h2",
+      "h3",
+      "h4",
+      "h5",
+      "h6",
+      "ul",
+      "ol",
+      "table",
+      "hr",
+      "li"
+    ],
+    "liAncestorBoundary": [
+      "ul",
+      "ol"
+    ],
+    "liRejectAncestorBeforeBoundary": "li",
+    "headingElements": [
+      "h1",
+      "h2",
+      "h3",
+      "h4",
+      "h5",
+      "h6"
+    ],
+    "rejectHeadingDescendants": true,
+    "implicitTbody": true,
+    "maxDepth": 64
+  }
+}

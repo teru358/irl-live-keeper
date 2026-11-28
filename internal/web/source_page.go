@@ -50,6 +50,17 @@ func serveSource(w http.ResponseWriter, r *http.Request, b Backend, e *Events, l
 		writeError(w, 405, lang, i18n.New("api.method"))
 		return
 	}
+	if r.URL.Path == "/source/assets/html_rules.json" {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(sources.HTMLRules)
+		return
+	}
+	if r.URL.Path == "/source/assets/html.js" {
+		w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+		data, _ := assets.ReadFile("assets/app/html.js")
+		w.Write(data)
+		return
+	}
 	if r.URL.Path == "/source/assets/source.js" {
 		w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
 		fmt.Fprint(w, sourceJS)

@@ -48,7 +48,7 @@ func (s Source) Validate(snapshot core.Snapshot) error {
 	if len(s.Body) > MaxBody {
 		return &ValidationError{Message: i18n.New("sources.body_too_large")}
 	}
-	_, err := template.Compile(s.Body, Definitions(snapshot))
+	_, err := CompileHTML(s.Body, Definitions(snapshot))
 	return err
 }
 

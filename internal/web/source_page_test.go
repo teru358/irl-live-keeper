@@ -18,7 +18,7 @@ func TestSourcePublic(t *testing.T) {
 	b := &sourcesBackend{store: sources.Store{Path: filepath.Join(t.TempDir(), "sources.yaml")}}
 	s := sources.Default()
 	s.Name = "demo"
-	s.Body = "<tag>\ntext"
+	s.Body = "<b>x</b>\ntext"
 	if err := b.store.Transaction(b.Snapshot(), func([]sources.Source, error) ([]sources.Source, bool) { return []sources.Source{s}, true }); err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +33,7 @@ func TestSourcePublic(t *testing.T) {
 		if strings.Contains(body, "secret") {
 			t.Fatal(body)
 		}
-		if path == "/source/demo" && (!strings.Contains(body, `class="irl-source irl-source-demo"`) || !strings.Contains(body, "&lt;tag&gt;\ntext") || strings.Contains(body, "<style") || strings.Contains(body, "<script>")) {
+		if path == "/source/demo" && (!strings.Contains(body, `class="irl-source irl-source-demo"`) || !strings.Contains(body, "&lt;b&gt;x&lt;/b&gt;\ntext") || strings.Contains(body, "<style") || strings.Contains(body, "<script>")) {
 			t.Fatal(body)
 		}
 		if strings.HasSuffix(path, "css") && (w.Header().Get("Content-Type") != "text/css; charset=utf-8" || body != sources.BaseStylesheet) {
