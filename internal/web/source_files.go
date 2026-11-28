@@ -12,6 +12,9 @@ import (
 	"github.com/teru358/irl-live-keeper/internal/sources"
 )
 
+// Keep file deletion paused until saved source body references can be checked.
+const sourceFilesDeletionPaused = true
+
 func isSourceFilesAPI(p string) bool {
 	return p == "/api/source-files" || strings.HasPrefix(p, "/api/source-files/")
 }
@@ -22,7 +25,7 @@ func sourceFilesMethod(p, m string) string {
 		}
 		return ""
 	}
-	if strings.TrimPrefix(p, "/api/source-files/") != "" && !strings.Contains(strings.TrimPrefix(p, "/api/source-files/"), "/") && m == http.MethodDelete {
+	if rest := strings.TrimPrefix(p, "/api/source-files/"); rest != "" && (sourceFilesDeletionPaused || !strings.Contains(rest, "/")) && m == http.MethodDelete {
 		return m
 	}
 	if m == http.MethodGet {
@@ -155,12 +158,16 @@ func serveSourceFilesAPI(w http.ResponseWriter, r *http.Request, b Backend, lang
 		return
 	}
 	name := strings.TrimPrefix(r.URL.Path, "/api/source-files/")
-	if path.Base(name) != name || strings.ContainsAny(name, `/\\`) {
-		writeError(w, 400, lang, i18n.New("source_files.invalid"))
-		return
-	}
 	if r.Method != http.MethodDelete {
 		writeError(w, 405, lang, i18n.New("api.method"))
+		return
+	}
+	if sourceFilesDeletionPaused {
+		writeError(w, http.StatusConflict, lang, i18n.New("source_files.deletion_paused"))
+		return
+	}
+	if path.Base(name) != name || strings.ContainsAny(name, `/\\`) {
+		writeError(w, 400, lang, i18n.New("source_files.invalid"))
 		return
 	}
 	used, readErr := fileUsers(b, name)
@@ -195,18 +202,24 @@ func serveSourceFile(w http.ResponseWriter, r *http.Request, b Backend) {
 		return
 	}
 	name := strings.TrimPrefix(r.URL.Path, "/source/files/")
-	data, typ, err := store.Open(name)
+	data, typ, hash, err := store.OpenWithHash(name)
 	if err != nil {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
 	w.Header().Set("Content-Type", typ)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("Cache-Control", "public, max-age=3600")
+	w.Header().Set("Cache-Control", "no-cache")
+	etag := `"` + hash + `"`
+	w.Header().Set("ETag", etag)
 	if typ == "image/svg+xml" {
 		w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox")
 	} else {
 		w.Header().Set("Content-Security-Policy", "default-src 'none'; img-src 'self' data:")
+	}
+	if r.Header.Get("If-None-Match") == etag {
+		w.WriteHeader(http.StatusNotModified)
+		return
 	}
 	_, _ = w.Write(data)
 }
