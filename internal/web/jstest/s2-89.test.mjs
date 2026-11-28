@@ -76,5 +76,5 @@ test('reload asks only when the draft has a change, and cancel does nothing',()=
 });
 
 test('the reload button of the settings page goes through confirmReload',()=>{
- assert.match(read('settings.js'),/a==='reload'\)\{if\(!await confirmReload\(store\.get\(\),\(\)=>askConfirm\(/);
+ assert.match(read('settings.js'),/onReload:async e=>\{const opener=e\.currentTarget;if\(!await confirmReload\(store\.get\(\),\(\)=>askConfirm\(/);
 });

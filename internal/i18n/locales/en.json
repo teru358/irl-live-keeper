@@ -285,8 +285,7 @@
     "show_all_confirm": "Show all hidden camera feeds again?",
     "stream_start_title": "Start streaming?",
     "stream_stop_title": "Stop streaming?",
-    "stream_start_note": "Streaming in OBS will start.",
-    "stream_stop_note": "Streaming in OBS will stop.",
+    "stream_stop_note": "Viewers will lose the picture.",
     "stream_start_scene": "OBS will switch to the scene “{scene}”.",
     "stream_need_obs": "Not connected to OBS.",
     "settings_cameras_reset": "Reception from all cameras will drop once.",
@@ -622,6 +621,10 @@
     "phone_address": "Address to open on the phone",
     "phone_recreate": "Create a new QR code",
     "phone_close": "Close",
-    "src_name_help": "Letters, digits, - and _ (up to 32 characters). It cannot be changed after you create the source."
+    "src_name_help": "Letters, digits, - and _ (up to 32 characters). It cannot be changed after you create the source.",
+    "settings_unsaved_bar": "You have unsaved changes",
+    "settings_regenerate_restart_mode": "Creating it again restarts the app.",
+    "settings_regenerate_immediate": "Creating it again applies at once.",
+    "camera_display": "Camera display"
   }
 }

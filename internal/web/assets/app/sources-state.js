@@ -122,3 +122,10 @@ export function sourceValueGroups(groups,filter,t){
   return {key,title,values};
  }).filter(group=>group.values.length);
 }
+
+// The box of the preview has the shape of the recommended size (the width and the height of the browser source), so that the picture is as large
+// as the box allows and the box does not grow with the column beside it (B-9). A width or a height that is not a positive number is 16:9.
+export function previewRatio(source){
+ const w=Number(source?.obs_width),h=Number(source?.obs_height);
+ return w>0&&h>0&&Number.isFinite(w)&&Number.isFinite(h)?w+' / '+h:'16 / 9';
+}

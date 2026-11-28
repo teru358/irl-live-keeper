@@ -53,11 +53,17 @@ export function cameraUsageLines(ids,usage,t,saved={}){
 const cameraListChanged=preview=>(preview.fields||[]).some(f=>['added','removed'].includes(f.kind)&&/^cameras\[(cam[1-8])\]$/.test(f.path));
 // A save that touches a camera rewrites the cameras section of config.yaml, and its comments are lost (said here, not on the page).
 const cameraFieldChanged=preview=>(preview.fields||[]).some(f=>/^cameras\[/.test(f.path));
+// How the change is applied: a save says 「保存すると…」, creating a password again says 「作り直すと…」, a plain restart changes no setting.
+const modeKey=(action,preview)=>action==='restart'?'settings_restart_only':action==='regenerate'?(preview.apply==='restart'?'settings_regenerate_restart_mode':'settings_regenerate_immediate'):preview.apply==='restart'?'settings_restart_mode':'settings_immediate';
 // The lines under the title of the confirmation window: what happens.
 export function confirmationLines(action,payload,preview,streaming,t,saved={},usage=null){
  const lines=[];
- if(action==='regenerate'&&payload.target==='publish'){if(payload.camera)lines.push(cameraHeading({id:payload.camera},t));lines.push(t('publish_reset_warning'));}
- lines.push(t(action==='restart'?'settings_restart_only':preview.apply==='restart'?'settings_restart_mode':'settings_immediate'));
+ if(action==='regenerate'&&payload.target==='publish'){
+  if(payload.camera)lines.push(cameraHeading({id:payload.camera},t));
+  // While streaming, the warning of the restart (below) already says that the reception drops: one line, not two.
+  if(!(streaming&&preview.apply==='restart'))lines.push(t('publish_reset_warning'));
+ }
+ lines.push(t(modeKey(action,preview)));
  if(streaming&&preview.apply==='restart')lines.push(t('settings_stream_warning'));
  // While streaming, the warning above already says that the reception breaks.
  if(!streaming&&cameraListChanged(preview))lines.push(t('settings_cameras_reset'));
@@ -117,4 +123,15 @@ export function cameraCards(values=[],saved=[],removedIDs=[],rows={}){
   if(base&&!values.some(c=>c.id===id))cards.push({id,row:rows[id]||base,removing:true});
  }
  return cards.sort(byID);
+}
+
+// The range of a number field (A-16): the same bounds that the server checks, written on the input as min and max.
+// Ports are 1 to 65535 (the port that is sent to the cameras may be 0, which means the same as the MediaMTX one); the seconds are 1 and more;
+// kbps start at 0; the days of the log are kept at least 1 day.
+export function numberBounds(path,key){
+ if(key==='port'||key.endsWith('_port'))return {min:key.startsWith('publish_')?0:1,max:65535};
+ if(path==='log.keep_days')return {min:1,max:3650};
+ if(key.endsWith('_sec'))return {min:1,max:86400};
+ if(key.endsWith('_kbps'))return {min:0,max:1000000};
+ return {};
 }

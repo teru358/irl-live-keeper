@@ -285,8 +285,7 @@
     "show_all_confirm": "隠したカメラの映像をすべて戻しますか？",
     "stream_start_title": "配信を開始しますか？",
     "stream_stop_title": "配信を終了しますか？",
-    "stream_start_note": "OBS の配信を開始します。",
-    "stream_stop_note": "OBS の配信を終了します。",
+    "stream_stop_note": "視聴者の映像が切れます。",
     "stream_start_scene": "OBS は「{scene}」のシーンに切り替わります。",
     "stream_need_obs": "OBS につながっていません。",
     "settings_cameras_reset": "全カメラの受信が一度切れます。",
@@ -622,6 +621,10 @@
     "phone_address": "スマホから開くアドレス",
     "phone_recreate": "QR を作り直す",
     "phone_close": "閉じる",
-    "src_name_help": "英数字と - と _ が使えます（32文字まで）。作ったあとは変えられません。"
+    "src_name_help": "英数字と - と _ が使えます（32文字まで）。作ったあとは変えられません。",
+    "settings_unsaved_bar": "保存していない変更があります",
+    "settings_regenerate_restart_mode": "作り直すと、本体が再起動します。",
+    "settings_regenerate_immediate": "作り直すと、すぐに反映します。",
+    "camera_display": "カメラの表示"
   }
 }

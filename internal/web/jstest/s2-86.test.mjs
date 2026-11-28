@@ -233,7 +233,8 @@ test('the id of the admin page document is not repeated',()=>{
 
 test('"Send to" button on the status page names the destination and goes to the camera card',()=>{
  const main=read('main.js');
- assert.ok(main.includes("@click=${()=>goSender(c.id)}>${t('sender_link')}"));
+ // S2-94: a link of words only (the page is in the URL, so it is a link to #cameras)
+ assert.ok(main.includes("<a class=\"to-send\" href=\"#cameras\" @click=${e=>{e.preventDefault();goSender(c.id);}}>${t('sender_link')}"));
  assert.equal(table.ja.sender_link,'送り先');assert.equal(table.en.sender_link,table.en.camera_destination);
  // goSender: set the camera, open the Cameras page, scroll to its card (drawDestinations scrolls when the card is drawn).
  assert.ok(/function goSender\(id\)\{update\(s=>\{s\.camera=id;\}\);document\.querySelector\('\[data-page="cameras"\]'\)\.click\(\);/.test(main));
@@ -251,13 +252,13 @@ test('the Japanese warning of a missing media source has no space between the na
 test('warnings are shown one to a line on the destination area',()=>{
  const main=read('main.js');
  assert.ok(!main.includes(".join(' ')"));
- assert.ok(main.includes("].map(m=>html`<p>${m}</p>`)"));
+ assert.ok(main.includes("].map(m=>html`<p class=\"warn\">${m}</p>`)"));
 });
 
 test('narrow fields and button text: styles',()=>{
  const css=readFileSync(new URL('../assets/style.css',import.meta.url),'utf8');
  assert.ok(css.includes('.settings-field>span:not(.password-control){display:flex;flex:1 1 100%;min-width:0}'));
- assert.ok(css.includes('>input:not([type=checkbox]){flex:1;width:100%;min-width:0;box-sizing:border-box}'));
+ assert.ok(css.includes('>input:not([type=checkbox]){flex:1;width:100%;min-width:0;box-sizing:border-box;max-width:40em}'));
  assert.ok(css.includes('.btn,.seg button,#settings-groups button{word-break:keep-all;overflow-wrap:anywhere}'));
  assert.ok(css.includes('@supports (word-break:auto-phrase)'));
 });

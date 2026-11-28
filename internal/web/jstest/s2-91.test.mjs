@@ -151,7 +151,8 @@ test('each window of the settings page is a confirmation window of the same form
  assert.match(shell,/<dialog id="settings-confirm" class="confirm-dialog" aria-labelledby="settings-confirm-title">/);
  assert.match(shell,/<dialog id="cameras-confirm" class="confirm-dialog" aria-labelledby="cameras-confirm-title">/);
  // the focus goes back to the button that was pressed, which is read before the busy state disables it
- assert.match(settings,/preview\(a,undefined,opener\)/);
+ assert.match(settings,/onSave:e=>preview\('save',undefined,e\.currentTarget\)/);
+ assert.match(settings,/onRestart:e=>preview\('restart',undefined,e\.currentTarget\)/);
  assert.match(settings,/showConfirm\(dialog,specOf\(store\.get\(\)\),opener\)/);
  assert.match(settings,/const opener=document\.activeElement;const target=/);
  // the LAN switch asks first and is turned on only by 「はい」
@@ -217,14 +218,15 @@ test('the stream button cannot be pressed while OBS is not connected, and says w
 
 test('the confirmation of the stream button: the title asks, starting names the scene it switches to',()=>{
  const start=streamConfirm('stream/start',tja,'配信開始');
- assert.deepEqual([start.title,start.lines,start.danger,start.yesClass,start.focus],['配信を開始しますか？',['OBS の配信を開始します。','OBS は「配信開始」のシーンに切り替わります。'],false,'btn primary','yes']);
- assert.deepEqual(streamConfirm('stream/start',tja).lines,['OBS の配信を開始します。']);
+ // S2-94: the lines say what happens and do not say the title again
+ assert.deepEqual([start.title,start.lines,start.danger,start.yesClass,start.focus],['配信を開始しますか？',['OBS は「配信開始」のシーンに切り替わります。'],false,'btn primary','yes']);
+ assert.deepEqual(streamConfirm('stream/start',tja).lines,[]);
  const stop=streamConfirm('stream/stop',tja);
- assert.deepEqual([stop.title,stop.lines,stop.danger,stop.yesClass,stop.focus,stop.yesLabel,stop.noLabel],['配信を終了しますか？',['OBS の配信を終了します。'],true,'btn stop','no','はい','いいえ']);
- assert.equal(streamConfirm('stream/start',ten,'Live').lines[1],'OBS will switch to the scene “Live”.');
+ assert.deepEqual([stop.title,stop.lines,stop.danger,stop.yesClass,stop.focus,stop.yesLabel,stop.noLabel],['配信を終了しますか？',['視聴者の映像が切れます。'],true,'btn stop','no','はい','いいえ']);
+ assert.equal(streamConfirm('stream/start',ten,'Live').lines[0],'OBS will switch to the scene “Live”.');
  assert.equal(streamConfirm('stream/stop',ten).title,'Stop streaming?');
  // a scene name that has $& in it is put in as it is
- assert.equal(streamConfirm('stream/start',tja,'$&-$1').lines[1],'OBS は「$&-$1」のシーンに切り替わります。');
+ assert.equal(streamConfirm('stream/start',tja,'$&-$1').lines[0],'OBS は「$&-$1」のシーンに切り替わります。');
 });
 
 test('the scene of on_stream_start comes from the settings values, only when it is switched on',()=>{
@@ -237,7 +239,7 @@ test('the scene of on_stream_start comes from the settings values, only when it 
 test('the stream button asks before it acts, reads the settings only to start, and does not act when the state changed meanwhile',()=>{
  const main=read('main.js');
  const body=main.slice(main.indexOf('async function streamToggle('),main.indexOf('const loadSender='));
- assert.match(body,/if\(control\.path==='stream\/start'\)\{try\{scene=startScene\(await request\('settings'\)\);\}catch\(e\)\{notice\(e\);return;\}\}/);
+ assert.match(body,/if\(control\.path==='stream\/start'\)\{try\{scene=startScene\(await request\('settings'\)\);\}catch\(e\)\{notice\(e,'ops'\);return;\}\}/);
  assert.ok(body.indexOf('askConfirm(streamConfirm(')>body.indexOf('startScene(')&&body.indexOf('await command(control.path)')>body.indexOf('askConfirm('));
  assert.match(body,/now\.disabled\|\|now\.path!==control\.path/);
  // the other command that asks: back to showing all camera sources

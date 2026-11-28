@@ -17,8 +17,9 @@ export function streamControl(status,t){
 // The scene that starting the stream switches to (on_stream_start in the settings values), or ''.
 export const startScene=settings=>{const v=settings?.values?.on_stream_start;return v?.enabled&&v.scene?v.scene:'';};
 
-// The confirmation of the button: starting is a blue 「はい」; ending is red, and opens with the focus on 「いいえ」.
+// The confirmation of the button: starting is a blue 「はい」; ending is red, and opens with the focus on 「いいえ」. The lines say what happens and
+// do not say the title again: starting names the scene that is switched to (when there is one), ending says that the viewers lose the picture.
 export function streamConfirm(path,t,scene=''){
  if(path==='stream/stop')return confirmSpec(t,{title:t('stream_stop_title'),lines:[t('stream_stop_note')],danger:true});
- return confirmSpec(t,{title:t('stream_start_title'),lines:[t('stream_start_note'),scene?t('stream_start_scene').replace('{scene}',()=>scene):''],danger:false});
+ return confirmSpec(t,{title:t('stream_start_title'),lines:[scene?t('stream_start_scene').replace('{scene}',()=>scene):''],danger:false});
 }

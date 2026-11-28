@@ -1,23 +1,23 @@
 
 :root {
   --bg: #F5F7F6; --surface: #FFFFFF; --ink: #16202A; --muted: #5B6773; --line: #CFD6DC;
-  --ok: #0F7F62; --low: #A86A00; --down: #C2352C; --tally: #D7263D; --act: #2457D6; --act-ink: #FFFFFF;
-  --track: #E3E8EC;
+  --ok: #0F7F62; --low: #9E6300; --down: #C2352C; --tally: #D7263D; --tally-ink: #FFFFFF; --act: #2457D6; --act-ink: #FFFFFF;
+  --track: #E3E8EC; --field-line: #7A8794;
   --top-h: 65px;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #131B24; --surface: #1B2632; --ink: #E7EDF2; --muted: #93A1B0; --line: #2E3B49;
-    --ok: #45C99C; --low: #F2B544; --down: #FF6F61; --tally: #FF4D5E; --act: #86A8FF; --act-ink: #0E1622;
-    --track: #24313F;
+    --ok: #45C99C; --low: #F2B544; --down: #FF6F61; --tally: #FF4D5E; --tally-ink: #131B24; --act: #86A8FF; --act-ink: #0E1622;
+    --track: #24313F; --field-line: #6B7B8C;
     color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
   --bg: #131B24; --surface: #1B2632; --ink: #E7EDF2; --muted: #93A1B0; --line: #2E3B49;
-  --ok: #45C99C; --low: #F2B544; --down: #FF6F61; --tally: #FF4D5E; --act: #86A8FF; --act-ink: #0E1622;
-  --track: #24313F;
+  --ok: #45C99C; --low: #F2B544; --down: #FF6F61; --tally: #FF4D5E; --tally-ink: #131B24; --act: #86A8FF; --act-ink: #0E1622;
+  --track: #24313F; --field-line: #6B7B8C;
   color-scheme: dark;
 }
 
@@ -43,9 +43,9 @@ button { font: inherit; color: inherit; }
 .tally {
   display: inline-flex; align-items: center; gap: 8px;
   padding: 6px 12px; border-radius: 999px; font-weight: 700; font-size: 15px;
-  background: var(--tally); color: #fff;
+  background: var(--tally); color: var(--tally-ink);
 }
-.tally::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: #fff; }
+.tally::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: currentColor; }
 .tally.off { background: transparent; color: var(--muted); border: 2px solid var(--line); }
 .tally.off::before { background: var(--muted); }
 .prefs { display: none; gap: 6px; }
@@ -60,10 +60,14 @@ button { font: inherit; color: inherit; }
 .layout { display: grid; grid-template-columns: 1fr; gap: 0; max-width: 1120px; margin: 0 auto; }
 .col { display: grid; gap: 28px; }
 main { padding: 16px; display: grid; gap: 24px; }
-h2 { font-size: 15px; font-weight: 700; color: var(--muted); margin: 0 0 10px; }
+/* The title of a page (and of a window) is the largest heading; the headings of the parts of a page are smaller; the small labels of the status page keep the quiet form. */
+h2 { font-size: 20px; line-height: 1.35; font-weight: 700; color: var(--ink); margin: 0 0 12px; }
+#status h2 { font-size: 15px; line-height: 1.5; color: var(--muted); margin: 0 0 10px; }
+main h3 { font-size: 17px; line-height: 1.4; font-weight: 700; margin: 24px 0 8px; }
+.settings-card h4 { font-size: 16px; line-height: 1.4; margin: 0 0 8px; }
 
 /* 中心の一点: カメラの信号の帯 */
-.cam { display: grid; grid-template-columns: 1fr auto; row-gap: 6px; align-items: baseline; }
+.cam { display: grid; grid-template-columns: minmax(0,1fr) auto auto; column-gap: 12px; row-gap: 6px; align-items: center; }
 .cam-name { font-weight: 700; font-size: 18px; }
 .cam-read { font-size: 15px; color: var(--muted); }
 .cam-read b { color: var(--ink); font-size: 22px; }
@@ -80,7 +84,7 @@ h2 { font-size: 15px; font-weight: 700; color: var(--muted); margin: 0 0 10px; }
 /* LOW は斜線、DOWN は枠だけ（色だけに頼らない） */
 .cam[data-state="LOW"] .fill { background: repeating-linear-gradient(135deg, var(--low) 0 6px, transparent 6px 10px); border: 2px solid var(--low); }
 .cam[data-state="DOWN"] .fill { background: transparent; border: 2px dashed var(--down); width: 100% !important; }
-.tick { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--ink); opacity: .55; }
+.tick { position: absolute; top: -4px; bottom: -4px; width: 2px; background: color-mix(in srgb, var(--ink) 55%, transparent); }
 .tick span { position: absolute; top: 27px; left: 50%; transform: translateX(-50%); font-size: 11px; line-height: 1; color: var(--muted); white-space: nowrap; }
 .cam-sub { grid-column: 1 / -1; font-size: 14px; color: var(--muted); margin-top: 18px; }
 .cam.flash .strip { animation: flash 900ms ease-out 1; }
@@ -151,7 +155,7 @@ body.in-standby .standby-banner { display: block; }
 .standby-chip { color: var(--ink); background: var(--surface); border-color: var(--k-standby); font-weight: 700; }
 
 /* シーンの種類: 色・枠・文字の3つで区別する（色だけに頼らない） */
-:root { --k-cam: #2F6FDB; --k-none: #6F7C89; --k-standby: #7A4BC9; }
+:root { --k-cam: #2C6AD6; --k-none: #636F7B; --k-standby: #7A4BC9; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --k-cam: #7FA6FF; --k-none: #8D9AA7; --k-standby: #B79CFF; } }
 :root[data-theme="dark"] { --k-cam: #7FA6FF; --k-none: #8D9AA7; --k-standby: #B79CFF; }
 .scene { position: relative; padding-left: 16px; border-left-width: 6px; }
@@ -169,8 +173,9 @@ body.in-standby .standby-banner { display: block; }
 .scene.k-none[aria-pressed="true"] { border-left-color: var(--k-none); }
 .scene.k-standby[aria-pressed="true"] { border-left-color: var(--k-standby); }
 
-/* 回線の行から送信の設定へ */
-.to-send { margin-left: 12px; color: var(--act); font-weight: 700; }
+/* 回線の行から送信の設定へ: 字だけのリンク。押せる高さは 44px */
+.to-send { display: inline-flex; align-items: center; min-height: 44px; padding: 0 4px; color: var(--act); font-weight: 700; text-decoration: none; white-space: nowrap; }
+.to-send:hover { text-decoration: underline; }
 /* メニュー: 上から覆う板。画面の移動は大きな行、今の画面に印 */
 .sheet { position: fixed; left: 0; right: 0; top: var(--top-h); bottom: 0; z-index: 4; width: auto; height: auto; max-width: none; max-height: none; margin: 0; border: 0; color: var(--ink); background: var(--bg); padding: 8px 16px 24px; overflow-y: auto; flex-direction: column; gap: 16px; align-items: stretch; }
 .sheet[open] { display: flex; }
@@ -200,7 +205,7 @@ body.in-standby .standby-banner { display: block; }
 #manual-hint { margin-bottom: 16px; }
 
 .send-cam{margin-top:20px;padding:20px;border:1px solid var(--line);border-radius:12px}.send-cam summary{cursor:pointer;font-weight:600;margin-bottom:16px}.sender-field{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:12px 0}.sender-field label{flex-basis:100%;font-size:13px}.sender-field input{min-width:0;flex:1;font-family:monospace}.sender-field button{padding:8px}.send-cam .seg{margin:12px 0}
-.sender-field input{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:8px}.sender-field button{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:6px}
+.sender-field input{background:var(--surface);color:var(--ink);border:1px solid var(--field-line);border-radius:6px;padding:8px}.sender-field button{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:6px}
 /* 送信の設定: 住所の選択とプロトコルの切り替えを、屋外でも押しやすい大きさに */
 .send-cam .seg { display: flex; margin: 10px 0 12px; }
 .send-cam .seg button { flex: 1; min-height: 48px; }
@@ -208,8 +213,8 @@ body.in-standby .standby-banner { display: block; }
 #obs[data-connected="true"]{color:var(--ok)}
 #obs[data-connected="false"]{color:var(--down)}
 
-#settings-panel{grid-column:1/-1}.settings-layout{display:grid;grid-template-columns:160px minmax(0,1fr);gap:24px}#settings-groups{display:flex;flex-direction:column;gap:6px}#settings-groups button{min-height:48px;text-align:left;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px}#settings-groups button[aria-pressed=true]{box-shadow:inset 3px 0 var(--act);font-weight:bold}.settings-field{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0}.settings-field label{width:100%;font-weight:600}.settings-field input:not([type=checkbox]),.settings-field select{min-width:0;flex:1;padding:8px;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:6px}.settings-field input[readonly]{opacity:.65}.settings-field small,.settings-field p{width:100%;margin:0}.settings-field .settings-badge{display:inline;margin-left:12px;font-size:12px;font-weight:normal;color:var(--muted)}#settings-panel .row{margin-top:20px;flex-wrap:wrap}#settings-confirm{max-width:560px;width:calc(100% - 48px);max-height:80vh;overflow:auto;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:12px;padding:24px}#settings-confirm::backdrop{background:#0008}.danger{color:var(--down);border:2px solid var(--down);padding:12px}#settings-update-label{display:flex;align-items:center;gap:12px;margin:20px 0}fieldset{border:1px solid var(--line);border-radius:8px;min-width:0;margin:16px 0}
-@media(max-width:899px){.settings-layout{grid-template-columns:1fr}#settings-groups{flex-direction:row;flex-wrap:wrap}#settings-groups button{flex:1 0 30%}}
+#settings-panel{grid-column:1/-1}.settings-layout{display:grid;grid-template-columns:160px minmax(0,1fr);gap:24px}#settings-groups{display:flex;flex-direction:column;gap:6px}#settings-groups button{min-height:48px;text-align:left;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px}#settings-groups button[aria-pressed=true]{box-shadow:inset 3px 0 var(--act);font-weight:bold}.settings-field{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0}.settings-field label{width:100%;font-weight:600}.settings-field input:not([type=checkbox]),.settings-field select{min-width:0;flex:1;padding:8px;background:var(--surface);color:var(--ink);border:1px solid var(--field-line);border-radius:6px}.settings-field select{min-height:48px;max-width:40em}.settings-field input[readonly]{background:var(--bg)}.settings-field small,.settings-field p{width:100%;margin:0}.settings-field .settings-badge{display:inline;margin-left:12px;font-size:12px;font-weight:normal;color:var(--muted)}#settings-panel .row{margin-top:20px;flex-wrap:wrap}#settings-confirm{max-width:560px;width:calc(100% - 48px);max-height:80vh;overflow:auto;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:12px;padding:24px}#settings-confirm::backdrop{background:#0008}.danger{color:var(--down);border:2px solid var(--down);padding:12px}#settings-update-label{display:flex;align-items:center;gap:12px;margin:20px 0}fieldset{border:1px solid var(--line);border-radius:8px;min-width:0;margin:16px 0}
+@media(max-width:899px){.settings-layout{grid-template-columns:1fr}#settings-groups{flex-direction:row;flex-wrap:wrap}#settings-groups button{flex:1 0 45%}}
 #setup-fields{display:grid;gap:16px}#login input{box-sizing:border-box;width:100%;min-width:0}#login button{min-height:44px}
 .settings-note{margin:40px 0 24px;color:var(--muted)}.settings-card{border:1px solid var(--line);border-radius:8px;padding:16px;margin:16px 0}.settings-card summary{cursor:pointer;font-weight:600}.settings-field .settings-badge{color:var(--ink);margin-left:4px}.settings-field input{box-shadow:none}
 .sender-table{width:100%;border-collapse:collapse;margin-top:16px}.sender-table .sender-field{display:table-row}.sender-table th{text-align:left;width:25%;font-weight:normal;padding:12px 8px}.sender-table td{padding:12px 8px;border-bottom:1px solid var(--line)}.sender-table input{width:100%;box-sizing:border-box;min-width:0}.sender-table button{margin:8px 8px 0 0}
@@ -220,7 +225,7 @@ body.in-standby .standby-banner { display: block; }
 .password-control input{width:100%;box-sizing:border-box;padding-right:48px!important}
 .password-eye{position:absolute;right:2px;top:50%;transform:translateY(-50%);width:44px;min-height:44px!important;padding:8px!important;margin:0!important;border:0!important;background:transparent!important;color:var(--ink)}
 .password-eye .eye-slash{display:none}.password-eye[aria-pressed=true] .eye-slash{display:block}
-#login input{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:10px}
+#login input{background:var(--surface);color:var(--ink);border:1px solid var(--field-line);border-radius:6px;padding:10px}
 .confirm-dialog{max-width:560px;width:calc(100% - 48px);max-height:80vh;overflow:auto;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:12px;padding:24px}.confirm-dialog::backdrop{background:#0008}
 .confirm-dialog h2{position:static;margin:0 0 16px;font-size:20px;line-height:1.4;color:var(--ink)}
 .confirm-lines{margin-bottom:24px}.confirm-lines p{margin:8px 0}.confirm-lines p:first-child{margin-top:0}.confirm-lines:empty{display:none}
@@ -250,7 +255,7 @@ body.in-standby .standby-banner { display: block; }
 .source-free-values textarea { min-height:72px; font-family:monospace; }
 .source-field { display:flex; flex-direction:column; gap:6px; min-width:0; font-size:14px; }
 .source-input { display:flex; align-items:center; gap:8px; min-width:0; }
-#sources-panel input:not([type=checkbox]), #sources-panel select, #sources-panel textarea { min-width:0; max-width:100%; padding:8px; background:var(--surface); color:var(--ink); border:1px solid var(--line); border-radius:6px; font:inherit; }
+#sources-panel input:not([type=checkbox]), #sources-panel select, #sources-panel textarea { min-width:0; max-width:100%; padding:8px; background:var(--surface); color:var(--ink); border:1px solid var(--field-line); border-radius:6px; font:inherit; }
 #sources-panel select { min-height:48px; }
 .source-input input { width:100%; }
 #sources-panel input[type=color] { flex:0 0 48px; width:48px; padding:4px; }
@@ -260,16 +265,22 @@ body.in-standby .standby-banner { display: block; }
 .source-workspace { display:grid; gap:16px; margin:16px 0; min-width:0; }
 .source-workspace.horizontal { grid-template-columns:minmax(0,1fr) minmax(0,1fr); }
 .source-workspace.vertical, .source-workspace.editonly, .source-workspace.previewonly { grid-template-columns:minmax(0,1fr); }
-.source-workspace.editonly > .source-preview, .source-workspace.previewonly > .source-edit { display:none; }
+.source-workspace.editonly > .source-preview { display:none; }
+/* preview only: the editor is not drawn, but an error of the edit is still read (it is by the heading of the body) */
+.source-workspace.previewonly > .source-edit > :not(.source-edit-error) { display:none; }
+.source-workspace.previewonly > .source-edit:not(:has(.source-edit-error:not(:empty))) { display:none; }
+.source-edit-error { margin:6px 0; }
+.source-workspace > .source-preview { align-self:start; }
 .source-edit { min-width:0; }
 .source-insert { margin-bottom:12px; align-items:flex-end; }
 .source-insert .source-field { flex:1 1 120px; }
 .source-editor-label { display:block; margin-bottom:6px; font-size:14px; }
-.source-body { display:block; box-sizing:border-box; width:100%; min-height:260px; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:14px; line-height:1.5; tab-size:2; resize:vertical; white-space:pre; overflow:auto; }
-#sources-panel .cm-editor { min-height:180px; border:1px solid var(--line); }
+.source-body { display:flex; flex-direction:column; box-sizing:border-box; width:100%; min-height:260px; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:14px; line-height:1.5; tab-size:2; resize:vertical; white-space:pre; overflow:auto; }
+#sources-panel .cm-editor { flex:1 1 auto; min-height:180px; border:1px solid var(--field-line); }
 #sources-panel .cm-scroller { overflow:auto; }
-.source-preview { min-width:0; min-height:220px; overflow:auto; border:1px solid var(--line); border-radius:8px; background:repeating-conic-gradient(#8882 0% 25%,transparent 0% 50%) 0/20px 20px; }
-.source-workspace.previewonly > .source-preview { min-height:420px; }
+.source-preview { min-width:0; overflow:auto; border:1px solid var(--line); border-radius:8px; background:repeating-conic-gradient(#8882 0% 25%,transparent 0% 50%) 0/20px 20px; }
+/* The box of the preview has the shape of the recommended size (aspect-ratio in the element). Side by side, it stays in view while the other column is long. */
+.source-workspace.horizontal > .source-preview { position:sticky; top:calc(var(--top-h) + 12px); }
 .source-section { margin:12px 0; padding:16px; background:var(--surface); border:1px solid var(--line); border-radius:12px; }
 #sources-panel summary { cursor:pointer; font-weight:600; }
 .source-section[open] > summary { margin-bottom:16px; }
@@ -277,7 +288,6 @@ body.in-standby .standby-banner { display: block; }
 .source-fields { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:16px; }
 .source-file { margin-top:12px; }
 .source-file > span { flex:1; overflow-wrap:anywhere; }
-.source-file.unusable { opacity:.65; }
 .source-file.unusable > .source-file-reason { color:var(--muted); font-size:.9em; }
 .source-cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr)); gap:16px; margin-top:16px; }
 .source-cards article { display:flex; flex-direction:column; gap:16px; padding:20px; background:var(--surface); border:1px solid var(--line); border-radius:12px; min-width:0; }
@@ -290,7 +300,6 @@ body.in-standby .standby-banner { display: block; }
  .source-header > .source-field, .source-header > .source-actions { flex-basis:100%; }
  .source-fields { grid-template-columns:minmax(0,1fr); }
  .source-toolbar > *, .source-test { max-width:100%; }
- .source-workspace.previewonly > .source-preview { min-height:300px; }
 }
 
 .source-editor-notice { margin:8px 0 16px; white-space:pre-line; }
@@ -321,7 +330,9 @@ body.in-standby .standby-banner { display: block; }
 
 /* S2-86: 設定の入力欄は幅いっぱいに（空欄の文字が切れない）。ボタンの文字は文節で折り返す。 */
 .settings-field>span:not(.password-control){display:flex;flex:1 1 100%;min-width:0}
-.settings-field>span:not(.password-control)>input:not([type=checkbox]){flex:1;width:100%;min-width:0;box-sizing:border-box}
+.settings-field>span:not(.password-control)>input:not([type=checkbox]){flex:1;width:100%;min-width:0;box-sizing:border-box;max-width:40em}
+.settings-field>span:not(.password-control)>input[type=number]{max-width:12em}
+.settings-field .password-control{max-width:40em}
 .btn,.seg button,#settings-groups button{word-break:keep-all;overflow-wrap:anywhere}
 @supports (word-break:auto-phrase){.btn,.seg button,#settings-groups button{word-break:auto-phrase}}
 
@@ -340,7 +351,7 @@ main h2{scroll-margin-top:calc(var(--top-h) + 12px)}
 .settings-card{scroll-margin-top:calc(var(--top-h) + 12px)}
 /* The switch: a box 48x44 (the part that is pressed), with the track and the knob drawn inside it. */
 input[role=switch]{appearance:none;-webkit-appearance:none;position:relative;flex:none;width:48px;height:44px;min-height:44px;margin:0;padding:0;border:0;background:none;box-shadow:none}
-input[role=switch]::before{content:'';position:absolute;left:0;top:8px;width:48px;height:28px;border-radius:20px;background:var(--line)}
+input[role=switch]::before{content:'';position:absolute;left:0;top:8px;width:48px;height:28px;border-radius:20px;background:var(--field-line)}
 input[role=switch]::after{content:'';position:absolute;top:12px;left:4px;width:20px;height:20px;border-radius:50%;background:var(--ink)}
 input[role=switch]:checked::before{background:var(--act)}
 input[role=switch]:checked::after{left:24px;background:var(--surface)}
@@ -349,3 +360,32 @@ input[role=switch]:disabled{opacity:.5;cursor:not-allowed}
 #settings-update-label,#cameras-update-label{min-height:44px}
 /* A heading that takes the focus after a move is not operable: no ring on it (the page change is told by the focus and the reader). */
 h2[tabindex="-1"]:focus{outline:none}
+
+/* S2-94: the save row (one place on every group; sticks to the bottom while there is a draft), the restart below a line, the password button under its field. */
+.save-bar{margin:20px 0 0;padding:12px 0;display:grid;gap:8px}
+.save-bar.sticky{position:sticky;bottom:0;z-index:2;padding:12px 16px;background:var(--surface);border:1px solid var(--line);border-radius:12px 12px 0 0;box-shadow:0 -4px 12px #0002}
+.save-bar-main{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px}
+.save-bar-msg{margin:0;font-weight:700}
+.save-actions{display:flex;flex-wrap:wrap;gap:10px}
+.save-actions .btn{min-height:48px;padding:8px 20px}
+.notice{margin:0;font-size:15px}.notice:empty{display:none}
+.restart-zone{margin-top:28px;padding-top:16px;border-top:1px solid var(--line)}
+.btn.regenerate{margin:0 0 8px}
+#phone-dialog #phone-controls>.btn,#phone-dialog #phone-close{margin-top:12px}
+.login-title{margin:0}
+/* the state of a camera on the camera page has the shape of the one on the status page */
+.card-state{display:flex;align-items:center;gap:8px;margin:0 0 8px}
+.card-state .state{margin-left:0}
+.card-state[data-state="OK"] .state{color:var(--ok)}
+.card-state[data-state="LOW"] .state{color:var(--low)}
+.card-state[data-state="DOWN"] .state{color:var(--down)}
+.settings-card>.btn.stop{margin-top:16px}
+.settings-card>details{margin-top:12px}
+/* the mark 「未保存」 in the menus is apart from the name of the page and has a colour of its own */
+.sheet-nav small,#menu small{margin-left:8px;font-size:13px;font-weight:700;color:var(--low)}
+/* the parts of the operations are apart from each other (the show-all button no longer touches the line of the stream) */
+#ops-panel>section{margin-bottom:24px}
+/* the sources: the title of the page and the button that makes a new one are one row; the title of the test is a line of its own over its choices */
+.source-page-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 16px;margin-bottom:12px}
+.source-page-head h2{margin:0}
+.source-test-title{flex:0 0 100%;font-weight:700;color:var(--ink)}
