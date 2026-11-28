@@ -3,15 +3,15 @@ import {live} from '../vendor/lit-html-3.3.3/directives/live.js';
 import {repeat} from '../vendor/lit-html-3.3.3/directives/repeat.js';
 import {createStore} from './store.js';
 import {mountEditor} from './editor.js';
-import {layout,remember,dirty,previewRequest,sourceURL,decorationInput,decorationNumber,appearanceChanged,applyPreview,applySourceEvent,previewChanges,deletePrompt,clearEditor,visibleLayout,templateDiagnostics,applyCollection,openEditor,brokenError,sourceValueGroups,sourceFileDeletionPaused} from './sources-state.js';
+import {layout,remember,dirty,previewRequest,sourceURL,decorationInput,decorationNumber,appearanceChanged,applyPreview,applySourceEvent,previewChanges,deletePrompt,clearEditor,visibleLayout,templateDiagnostics,applyCollection,openEditor,testAxes,testInitial,testChoiceKey,simulateOf,testActive,testSignature,brokenError,sourceValueGroups,sourceFileDeletionPaused} from './sources-state.js';
 export function mountSources(t,request,lang){
  const root=document.querySelector('#sources-panel');
  const mobile=window.matchMedia('(max-width:700px)');
  let storage;try{storage=window.localStorage;}catch(_){}
- const store=createStore({list:[],broken:{},diagnostics:[],names:[],defaults:null,draft:null,base:null,fresh:false,mobile:mobile.matches,layout:layout(storage),mode:'actual',custom:'{}',texts:{},preview:null,files:[],fileNotices:[],notice:'',editorNotice:'',editorError:'',previewError:'',testNotice:'',testReason:'',styleInputs:{},styleVersions:{},busy:false,streaming:false,test:false,active:false,valueGroups:[],valuesOpen:false,valuesFilter:'',valuesError:'',settings:null,autoHost:''});
+ const store=createStore({list:[],broken:{},diagnostics:[],names:[],defaults:null,draft:null,base:null,fresh:false,mobile:mobile.matches,layout:layout(storage),...testInitial(),texts:{},preview:null,files:[],fileNotices:[],notice:'',editorNotice:'',editorError:'',previewError:'',testNotice:'',testReason:'',styleInputs:{},styleVersions:{},busy:false,streaming:false,test:false,active:false,valueGroups:[],valuesOpen:false,valuesFilter:'',valuesError:'',settings:null,autoHost:''});
  const update=f=>store.update(f);let editors=[],generation=0,previewVersion=0,timer,events,polling=false,valuesPolling=false,valuesVersion=0;
  const fail=e=>update(s=>{if(s.draft)s.editorError=e.message;else s.notice=e.message;});
- const sim=s=>({mode:({ok:'OK',low:'LOW',down:'DOWN',auto:'standby'})[s.mode]||s.mode,...s.mode==='custom'?{values:JSON.parse(s.custom)}:{}});
+ const sim=simulateOf;
  const sourcePath=n=>'/source/'+encodeURIComponent(n);
  // DOM component state lives with each host; renders only update changed parts.
  const shadows=new WeakMap();
@@ -54,7 +54,7 @@ export function mountSources(t,request,lang){
   if(!s.active||!s.draft||!s.valuesOpen||valuesPolling)return;
   const version=valuesVersion;valuesPolling=true;
   try{
-   const data=await request('source-values',s.mode==='actual'?undefined:{simulate:sim(s)});
+   const data=await request('source-values',testActive(s)?{simulate:sim(s)}:undefined);
    if(version!==valuesVersion)return;
    update(x=>{x.valueGroups=data.groups;x.valuesError='';});
   }catch(e){if(version===valuesVersion)update(x=>{x.valuesError=e.message;});}
@@ -66,7 +66,7 @@ export function mountSources(t,request,lang){
   ++valuesVersion;update(s=>{s.valuesOpen=open;});
   if(open)refreshValues();
  }
- function change(fn){const before=store.get();++previewVersion;editors[0]?.setErrors([]);update(s=>{s.diagnostics=[];s.previewError='';fn(s);});const next=store.get();if(before.mode!==next.mode||before.custom!==next.custom){++valuesVersion;refreshValues();}clearTimeout(timer);timer=setTimeout(()=>{timer=null;preview();},300);}
+ function change(fn){const before=store.get();++previewVersion;editors[0]?.setErrors([]);update(s=>{s.diagnostics=[];s.previewError='';fn(s);});const next=store.get();if(testSignature(before)!==testSignature(next)){++valuesVersion;refreshValues();}clearTimeout(timer);timer=setTimeout(()=>{timer=null;preview();},300);}
  function close(){const s=store.get();if(s.draft&&dirty(s.draft,s.base)&&!confirm(t('src_discard')))return false;++generation;++previewVersion;++valuesVersion;for(const ed of editors)ed.destroy();editors=[];clearTimeout(timer);timer=null;update(clearEditor);return true;}
  async function open(src){if(!close())return;update(s=>openEditor(s,src));const token=++generation;await new Promise(queueMicrotask);try{const s=store.get();for(const kind of ['template','css']){const ed=await mountEditor(root.querySelector('[data-editor="'+kind+'"]'),{kind,value:s.draft[kind],names:s.names,label:t('src_'+kind),t,onChange:value=>change(x=>{x.draft[kind]=value;})});if(token!==generation){ed.destroy();return;}editors.push(ed);}editors[0]?.setErrors(store.get().diagnostics);preview();}catch(e){fail(e);}}
  async function save(){const s=store.get(),snapshot=structuredClone(s.draft);update(x=>{x.busy=true;x.editorError='';x.editorNotice='';});try{await request('sources'+(s.fresh?'':'/'+encodeURIComponent(snapshot.name)),snapshot,s.fresh?'POST':'PUT');update(x=>{x.base=snapshot;x.fresh=false;x.editorNotice=t('src_saved')+(!s.fresh&&appearanceChanged(snapshot,s.base)?'\n'+t('src_obs_refresh'):'');x.styleVersions[snapshot.name]=(x.styleVersions[snapshot.name]||0)+1;});await load();}catch(e){if(e.line){const diagnostics=templateDiagnostics({...e,error:e.message});editors[0]?.setErrors(diagnostics);update(x=>{x.previewError=e.message;x.diagnostics=diagnostics;});}else fail(e);}finally{update(x=>{x.busy=false;});}}
@@ -91,8 +91,11 @@ export function mountSources(t,request,lang){
   const unit=['font_size','outline_width','shadow_blur','shadow_x','shadow_y','border_radius','padding','obs_width','obs_height'].includes(key)?'px':key==='background_opacity'?'0–1':key==='font_weight'?'100–900':'';
   return html`<label class="source-field">${t('src_'+key)}<span class="source-input">${style&&key.includes('color')?html`<span class=${'source-color'+(value?'':' empty')} title=${value||t('src_unset')}>${input('color')}</span>`:''}${input(type)}${unit?html`<span class="hint">${unit}</span>`:''}</span></label>`;
  };
- const segments=(label,values,current,select)=>html`<div class="source-control"><span class="hint">${label}</span><div class="seg" role="group" aria-label=${label}>${values.map(v=>html`<button type="button" aria-pressed=${String(current===v)} @click=${()=>select(v)}>${t('src_'+v)}</button>`)}</div></div>`;
- const testBar=s=>html`<div class="source-test">${segments(t('src_test'),['actual','ok','low','down','auto','offline','custom'],s.mode,mode=>{change(x=>{x.mode=mode;x.testNotice='';});if(s.test)queueMicrotask(()=>obs(true));})}${s.mode==='custom'?html`<label class="source-field">${t('src_custom_hint')}<textarea name="source-test-custom" .value=${live(s.custom)} @input=${e=>{const value=e.target.value;change(x=>{x.custom=value;});}}></textarea></label>`:''}<div class="settings-field source-obs"><label><input name="source-test-obs" type="checkbox" role="switch" .checked=${s.test} ?disabled=${s.streaming} @change=${e=>obs(e.target.checked)}>${t('src_obs')}</label></div></div>`;
+ const segments=(label,values,current,select,name=v=>t('src_'+v))=>html`<div class="source-control"><span class="hint">${label}</span><div class="seg" role="group" aria-label=${label}>${values.map(v=>html`<button type="button" aria-pressed=${String(current===v)} @click=${()=>select(v)}>${name(v)}</button>`)}</div></div>`;
+ // 軸や自由を変えたとき、OBS に反映中なら、実際だけに戻っていれば止め、そうでなければ新しい状況を送る。
+ const retest=()=>{if(store.get().test)queueMicrotask(()=>obs(testActive(store.get())));};
+ const choose=(axis,value)=>{change(x=>{x[axis]=value;x.testNotice='';});retest();};
+ const testBar=s=>html`<div class="source-test" role="group" aria-label=${t('src_test')}>${Object.entries(testAxes).map(([axis,values])=>segments(t('src_'+axis),values,s[axis],value=>choose(axis,value),value=>t(testChoiceKey(axis,value))))}<div class="settings-field source-free"><label><input name="source-test-free" type="checkbox" role="switch" .checked=${s.free} @change=${e=>{const free=e.target.checked;change(x=>{x.free=free;x.testNotice='';});retest();}}>${t('src_custom')}</label></div>${s.free?html`<label class="source-field source-free-values">${t('src_custom_hint')}<textarea name="source-test-custom" .value=${live(s.custom)} @input=${e=>{const value=e.target.value;change(x=>{x.custom=value;});}}></textarea></label>`:''}<div class="settings-field source-obs"><label><input name="source-test-obs" type="checkbox" role="switch" .checked=${s.test} ?disabled=${s.streaming||(!s.test&&!testActive(s))} @change=${e=>obs(e.target.checked)}>${t('src_obs')}</label></div></div>`;
  const copy=(src,s)=>{
   const urls=sourceURL(s.settings,s.autoHost,src.name);
   const row=(url,kind)=>html`<label class="source-field">${t('src_url_'+kind)}<span class="source-url"><input name=${'source-url-'+kind+'-'+src.name} readonly .value=${url} aria-label=${t('src_url_'+kind)}><button class="btn" @click=${async()=>{try{await navigator.clipboard.writeText(url);}catch(_){fail(Error(t('sender_manual')));}}}>${t('sender_copy')}</button></span></label>`;
@@ -101,7 +104,7 @@ export function mountSources(t,request,lang){
  const valuesList=s=>{
   const groups=sourceValueGroups(s.valueGroups,s.valuesFilter,t);
   return html`<details class="source-section source-values" .open=${s.valuesOpen} @toggle=${toggleValues}>
-   <summary>${t('src_values')}${s.mode!=='actual'?html` <span class="source-values-test">${t('src_values_test')}</span>`:''}</summary>
+   <summary>${t('src_values')}${testActive(s)||s.free?html` <span class="source-values-test">${t('src_values_test')}</span>`:''}</summary>
    <label class="source-field">${t('src_values_filter')}<input name="source-values-filter" type="search" placeholder=${t('src_values_filter_hint')} .value=${live(s.valuesFilter)} @input=${e=>{const value=e.target.value;update(x=>{x.valuesFilter=value;});}}></label>
    <p role="alert">${s.valuesError}</p>
    <div class="source-values-scroll">${repeat(groups,g=>g.key,g=>html`<section class="source-value-group"><h3>${g.title}</h3>${repeat(g.values,v=>v.name,v=>html`<button type="button" class="source-value-row" aria-label=${v.label} @click=${()=>editors[0]?.insertValue(v.name)}><span class="source-value-name">${v.name}</span><span>${v.meaning}</span><span class="source-value-text">${v.text}</span></button>`)}</section>`)}${!groups.length?html`<p class="hint">${t('src_values_empty')}</p>`:''}</div>
@@ -124,6 +127,6 @@ export function mountSources(t,request,lang){
  window.addEventListener('keeper-status',e=>update(s=>{s.streaming=e.detail.obs.streaming;}));
  window.addEventListener('keeper-page',e=>{const active=e.detail==='sources';++valuesVersion;update(s=>{s.active=active;});events?.close();events=null;if(active){load();events=new EventSource('/api/events?topics=sources&lang='+lang);events.addEventListener('sources',e=>{try{receive(JSON.parse(e.data));}catch(err){console.error(err);}});}});
  setInterval(()=>{refreshValues();},1000);
- setInterval(async()=>{const s=store.get();if(!s.active||polling||timer)return;polling=true;try{if(s.mode!=='actual'||s.draft)await preview();}finally{polling=false;}},1000);
+ setInterval(async()=>{const s=store.get();if(!s.active||polling||timer)return;polling=true;try{if(testActive(s)||s.draft)await preview();}finally{polling=false;}},1000);
  setInterval(()=>{if(store.get().test)request('sources/test-obs/alive',{}).then(receive).catch(fail);},15000);
 }

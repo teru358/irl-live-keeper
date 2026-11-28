@@ -119,7 +119,7 @@ func TestBrokenSourcesPublicAndPreview(t *testing.T) {
 			t.Fatalf("%s: %d %s", tc.path, w.Code, w.Body.String())
 		}
 	}
-	r := httptest.NewRequest("POST", "/api/sources/preview", strings.NewReader(`{"names":["broken","good"],"simulate":{"mode":"OK"}}`))
+	r := httptest.NewRequest("POST", "/api/sources/preview", strings.NewReader(`{"names":["broken","good"],"simulate":{"line":"OK"}}`))
 	r.Header.Set(headerName, "1")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, r)

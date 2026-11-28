@@ -83,6 +83,11 @@ func serveSimulation(w http.ResponseWriter, r *http.Request, b Backend, e *Event
 				fail(400)
 				return true
 			}
+			// すべての軸が実際で値もなければ、反映するものがない。
+			if sim.IsActual() {
+				fail(422)
+				return true
+			}
 			if _, err := sim.Apply(b.Snapshot(), now, nil); err != nil {
 				fail(422)
 				return true
@@ -107,12 +112,9 @@ func serveSimulation(w http.ResponseWriter, r *http.Request, b Backend, e *Event
 		}
 		e.mu.Unlock()
 		e.updateMu.Unlock()
-		if r.Method == "PUT" && (!previous.Enabled || previous.Simulate.Mode != sim.Mode) {
-			mode := sim.Mode
-			if mode == "" {
-				mode = "actual"
-			}
-			e.logger.Info("test obs enabled", "mode", mode)
+		if r.Method == "PUT" && (!previous.Enabled || !previous.Simulate.SameChoices(sim)) {
+			// 状況の名前だけを書く。自由の値は書かない。
+			e.logger.Info("test obs enabled", sim.LogFields()...)
 		} else if r.Method == "DELETE" && previous.Enabled {
 			e.logger.Info("test obs disabled")
 		}
