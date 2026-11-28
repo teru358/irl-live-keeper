@@ -142,7 +142,7 @@
 | S2-93 | スマホと移り方 | S2-92 | 監査の A-1、A-2、A-10〜A-15。メニューの今の画面の印と窓としての動き、ページごとの URL（`#cameras` など）、移ったあとのフォーカス、押す所 44px 以上、押せないスイッチの見え方 | Node: hash と戻る、メニューの窓。chromium-devtools: 390px で押す所の大きさを測る | |
 | S2-94 | 見た目 | S2-93 | 監査の B-1〜B-13（B-1 は S2-91 で済み）、A-6〜A-8、A-16〜A-18。色の差（目盛り、配信中の札、LOW）、見出しの順、窓と欄の形、保存の行と貼り付く保存の帯、誤りを操作の近くに、送り先を字のリンクに、プレビューとエディターの高さ、余白 | chromium-devtools: 4つのページを PC とスマホ、ライトとダークで写し、色の比を測る | |
 | S2-95 | S2-91〜S2-94 の実機の確認（Windows） | S2-94 | 確認の窓、配信開始・配信終了、文言、スマホ、ダーク | Windows 実機。結果を記録する | |
-| S2-96 | α版 v0.1.0-alpha.1 の準備 | S2-95、Z-11 | 版の番号を本体に埋める（ビルドで ldflags、`--version`、小さな窓、管理ページの下）。README（ja・en）を今の機能に書き直す（「開発中」の印の整理、第2段階の機能、MediaMTX を取ってくる手順、LAN の中継 PC、配信の記録は後回し）。THIRD_PARTY_NOTICES の確かめ。Windows の zip（exe、README、LICENSE、THIRD_PARTY_NOTICES）と Linux の版を作るスクリプト。タグ `v0.1.0-alpha.1` と GitHub の Release は、出す前にユーザーに確認する | `--version` の試験、zip の中身の一覧、Windows で zip を展開して起動できること | |
+| S2-96 | α版 v0.1.0-alpha.1 の準備 | S2-95、Z-11 | 版の番号を本体に埋める（ビルドで ldflags、`--version`、小さな窓、管理ページの下）。README（ja・en）を今の機能に書き直す（「開発中」の印の整理、第2段階の機能、LAN の中継 PC、配信の記録は後回し）。THIRD_PARTY_NOTICES の確かめ。Windows の zip（exe、MediaMTX v1.21.4 の公式の配布物をチェックサムで照らして改変せず同梱、`licenses/MediaMTX-LICENSE.txt`、README、LICENSE、THIRD_PARTY_NOTICES）と Linux の版を作るスクリプト。タグ `v0.1.0-alpha.1` と GitHub の Release は、出す前にユーザーに確認する | `--version` の試験、zip の中身の一覧、Windows で zip を展開して起動できること | |
 
 ## 進める順序
 
