@@ -401,6 +401,11 @@
     "setting_option_quit": "終了",
     "settings_not_saved": "保存していません。",
     "settings_reloaded": "読み直しました。",
+    "settings_cameras": "カメラ",
+    "settings_unsaved": "未保存",
+    "settings_conflicts": "ほかの保存で変わった項目の下書きを取り消しました。",
+    "settings_group_common": "共通",
+    "settings_regenerate_dirty": "保存していない変更を先に保存するか、戻してください。",
     "settings_changed": "設定が反映されました。未保存の変更があるため、読み直すときは「読み直す」を押してください。",
     "settings_group_camera": "カメラと切り替え",
     "settings_group_stream": "送信",
@@ -584,6 +589,7 @@
     "src_value_stream.congestion": "送信の混雑度（0–1）",
     "src_value_now": "今の時刻",
     "src_value_mediamtx.state": "MediaMTX の状態",
-    "src_lan_hint": "別の PC の OBS から読むには、設定の「LAN から開く」をオンにしてください。"
+    "src_lan_hint": "別の PC の OBS から読むには、設定の「LAN から開く」をオンにしてください。",
+    "camera_destination": "送り先"
   }
 }

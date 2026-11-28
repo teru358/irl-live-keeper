@@ -401,6 +401,11 @@
     "setting_option_quit": "Quit",
     "settings_not_saved": "Not saved.",
     "settings_reloaded": "Settings reloaded.",
+    "settings_cameras": "Cameras",
+    "settings_unsaved": "Unsaved",
+    "settings_conflicts": "Draft changes to fields changed by another save were discarded.",
+    "settings_group_common": "Common",
+    "settings_regenerate_dirty": "Save or discard unsaved changes first.",
     "settings_changed": "Settings applied. You have unsaved changes; use Reload to load the current settings.",
     "settings_group_camera": "Cameras and switching",
     "settings_group_stream": "Sending",
@@ -584,6 +589,7 @@
     "src_value_stream.congestion": "Output congestion (0–1)",
     "src_value_now": "Current time",
     "src_value_mediamtx.state": "MediaMTX state",
-    "src_lan_hint": "To read from OBS on another PC, enable LAN access in settings."
+    "src_lan_hint": "To read from OBS on another PC, enable LAN access in settings.",
+    "camera_destination": "Send to"
   }
 }

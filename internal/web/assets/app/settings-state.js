@@ -1,6 +1,6 @@
-export const groups={camera:['cameras','switch','on_stream_start'],stream:['stream'],obs:['obs'],admin:['admin','mediamtx'],other:['gui','log','language']};
+export const groups={stream:['stream'],obs:['obs','on_stream_start'],admin:['admin','mediamtx'],other:['gui','log','language']};
 export const dirty=s=>!!s.data&&JSON.stringify(s.values)!==s.baseline;
-export function fieldGroup(path){return Object.keys(groups).find(g=>groups[g].includes(path.split(/[.[]/)[0]))||'admin';}
+export function fieldGroup(path,locations){const p=path.replace(/\[(?:\d+|cam[1-8])\]/g,'[]');if(locations?.[p])return locations[p].group;if(p.startsWith('cameras'))return 'camera';if(p.startsWith('switch.')||['mediamtx.rtmp_enabled','mediamtx.srt_enabled','stream.app','stream.publish_host','stream.publish_rtmp_port','stream.publish_srt_port','stream.publish_user','stream.publish_pass'].includes(p))return 'common';if(p.startsWith('on_stream_start.')||p.startsWith('obs.'))return 'obs';return Object.keys(groups).find(g=>groups[g].includes(p.split('.')[0]))||'admin';}
 
 // Removed IDs last for this draft only; a new saved baseline permits reuse.
 export function nextCameraID(saved=[],draft=[],removed=[]){
