@@ -47,7 +47,7 @@ func TestReadBrokenTemplateTable(t *testing.T) {
 
 func TestReadAfterCameraIDChange(t *testing.T) {
 	s := Store{Path: filepath.Join(t.TempDir(), "sources.yaml")}
-	raw := "- name: camera\n  template: '{camera.cam2.kbps}'\n- name: good\n  template: '{camera.kbps}'\n"
+	raw := "- name: camera\n  template: '{cam2.kbps}'\n- name: good\n  template: hello\n"
 	if err := os.WriteFile(s.Path, []byte(raw), 0600); err != nil {
 		t.Fatal(err)
 	}

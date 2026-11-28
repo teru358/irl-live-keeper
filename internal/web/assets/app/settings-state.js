@@ -12,9 +12,8 @@ export function nextCameraID(saved=[],draft=[],removed=[]){
 export function cameraAddReason(saved=[],draft=[],removed=[]){
  return draft.length>=8?'settings_camera_limit':nextCameraID(saved,draft,removed)===null?'settings_camera_no_id':'';
 }
-export function cameraHeading(camera,t){
- return t('settings_camera')+' '+camera.id.slice(3)+(camera.name?'（'+camera.name+'）':'');
-}
+export {cameraHeading} from './camera-name.js';
+import {cameraHeading} from './camera-name.js';
 export function focusSettingError(errors,doc){
  const path=Object.keys(errors||{})[0];
  if(!path)return;

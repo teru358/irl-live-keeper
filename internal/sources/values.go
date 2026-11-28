@@ -8,17 +8,15 @@ import (
 	"github.com/teru358/irl-live-keeper/internal/sources/template"
 )
 
-// Definitions は Compile に渡す一覧。camera.* は今のシーンに映る1台のカメラの値。
+// Definitions は Compile に渡す一覧。cam<n>.* はカメラごとの値。
 // 呼び出しごとに独立した map を返す。資格情報と保留中の session は含めない。
 func Definitions(s core.Snapshot) map[string]template.Definition {
 	d := map[string]template.Definition{}
 	add := func(name string, typ template.Type, format string) {
 		d[name] = template.Definition{Type: typ, Format: format}
 	}
-	cameraDefinitions(d, "camera.")
-	add("camera.id", template.String, "")
 	for _, c := range s.Cameras {
-		prefix := "camera." + c.ID + "."
+		prefix := c.ID + "."
 		cameraDefinitions(d, prefix)
 	}
 	for _, n := range []string{"standby.owner", "standby.return", "obs.scene", "obs.scene_class", "obs.scene_health", "mediamtx.state"} {
@@ -74,7 +72,7 @@ func Values(s core.Snapshot, now time.Time, stats ...map[string]template.Value) 
 		}
 	}
 	for _, c := range s.Cameras {
-		p := "camera." + c.ID + "."
+		p := c.ID + "."
 		str(p+"name", c.Name)
 		num(p+"hidden", float64(c.Hidden))
 		str(p+"state", c.State)
@@ -85,9 +83,6 @@ func Values(s core.Snapshot, now time.Time, stats ...map[string]template.Value) 
 		boolean(p+"online", c.Online)
 		seconds(p+"state_for", c.StateSince)
 		srt(p+"srt.", c)
-	}
-	if s.OBS.Connected {
-		currentCameraValues(v, s.OBS.SceneCameras)
 	}
 
 	str("standby.owner", s.OBS.Standby.Owner)
@@ -116,24 +111,4 @@ func Values(s core.Snapshot, now time.Time, stats ...map[string]template.Value) 
 		}
 	}
 	return v
-}
-
-// currentCameraValues は今のシーンに映るカメラが1台なら、そのカメラの値を写す。
-// テストの状況でシーンを変えた場合も使うため、以前の camera.* を先に未定義に戻す。
-func currentCameraValues(v map[string]template.Value, ids []string) {
-	fields := map[string]template.Definition{}
-	cameraDefinitions(fields, "")
-	for field, def := range fields {
-		value := template.Value{Type: def.Type}
-		if len(ids) == 1 {
-			if x, ok := v["camera."+ids[0]+"."+field]; ok {
-				value = x
-			}
-		}
-		v["camera."+field] = value
-	}
-	v["camera.id"] = template.Value{Type: template.String}
-	if len(ids) == 1 && v["camera.name"].Defined {
-		v["camera.id"] = template.Value{Defined: true, Type: template.String, String: ids[0]}
-	}
 }

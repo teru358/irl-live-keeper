@@ -33,7 +33,7 @@ func TestSourceValuesAPI(t *testing.T) {
 		{"GET", "", "600", ""},
 		{"POST", `{"simulate":{"mode":"OK"}}`, "4200", "1:23:45"},
 		{"POST", `{"simulate":{"mode":"LOW"}}`, "600", "1:23:45"},
-		{"POST", `{"simulate":{"mode":"custom","values":{"camera.kbps":1234.6}}}`, "1235", ""},
+		{"POST", `{"simulate":{"mode":"custom","values":{"cam1.kbps":1234.6}}}`, "1235", ""},
 		{"POST", `{}`, "600", ""},
 	} {
 		r := httptest.NewRequest(tc.method, "/api/source-values", strings.NewReader(tc.body))
@@ -61,17 +61,17 @@ func TestSourceValuesAPI(t *testing.T) {
 				texts[v.Name] = v.Text
 			}
 		}
-		if !reflect.DeepEqual(kinds, []string{"current_camera", "camera", "camera", "standby", "obs", "stream", "other"}) {
+		if !reflect.DeepEqual(kinds, []string{"camera", "camera", "standby", "obs", "stream", "other"}) {
 			t.Fatal(kinds)
 		}
 		for i, c := range b.snap.Cameras {
-			g := data.Groups[i+1]
+			g := data.Groups[i]
 			if g.Camera == nil || g.Camera.ID != c.ID || g.Camera.Name != c.Name {
 				t.Errorf("camera heading %d=%+v", i, g.Camera)
 			}
 		}
-		if texts["camera.kbps"] == nil || *texts["camera.kbps"] != tc.kbps {
-			t.Errorf("kbps in %s: %v", tc.body, texts["camera.kbps"])
+		if texts["cam1.kbps"] == nil || *texts["cam1.kbps"] != tc.kbps {
+			t.Errorf("kbps in %s: %v", tc.body, texts["cam1.kbps"])
 		}
 		if tc.elapsed == "" {
 			if texts["stream.elapsed"] != nil {
@@ -103,24 +103,7 @@ func TestSourceValuesAPI(t *testing.T) {
 			}
 		}
 	}
-	for _, connected := range []bool{false, true} {
-		for _, ids := range [][]string{nil, {"cam1", "cam2"}} {
-			b.snap.OBS.Connected = connected
-			b.snap.OBS.SceneCameras = ids
-			w := httptest.NewRecorder()
-			h.ServeHTTP(w, httptest.NewRequest("GET", "/api/source-values", nil))
-			var data listedValuesResponse
-			_ = json.Unmarshal(w.Body.Bytes(), &data)
-			if w.Code != 200 || len(data.Groups) == 0 {
-				t.Fatal(w.Code, w.Body.String())
-			}
-			for _, v := range data.Groups[0].Values {
-				if v.Text != nil {
-					t.Errorf("connected=%v cameras=%v %s should be null", connected, ids, v.Name)
-				}
-			}
-		}
-	}
+
 }
 
 func TestSourceValuesErrorsMatchPreview(t *testing.T) {

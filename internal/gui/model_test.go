@@ -122,7 +122,7 @@ func TestCameraDisplay(t *testing.T) {
 		for _, dark := range []bool{false, true} {
 			s := app.WindowState{Language: lang, Snapshot: &core.Snapshot{Cameras: []core.CameraStatus{{Name: "メインカメラ", ID: "cam1", State: "DOWN"}, {Name: "cam2", State: "OK", Kbps: 2450, Protocol: "srt"}}}}
 			m := Build(s, dark)
-			if !strings.Contains(m.Rows[0].Text, "メインカメラ (cam1)") || strings.Contains(m.Rows[0].Text, "()") || !strings.Contains(m.Rows[1].Text, "2,450 kbps (SRT)") {
+			if !strings.Contains(m.Rows[0].Text, i18n.CameraName(lang, "cam1", "メインカメラ")) || strings.Contains(m.Rows[0].Text, "()") || !strings.Contains(m.Rows[1].Text, "2,450 kbps (SRT)") {
 				t.Fatal(m.Rows)
 			}
 			for _, kind := range []app.ApplyKind{app.ApplyRestart, ""} {

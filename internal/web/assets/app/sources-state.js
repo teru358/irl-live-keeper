@@ -1,3 +1,4 @@
+import {cameraHeading} from './camera-name.js';
 export function layout(storage){try{const v=JSON.parse(storage.getItem('source-layout'));return {mode:['editonly','previewonly','split'].includes(v?.mode)?v.mode:'split',axis:v?.axis==='vertical'?'vertical':'horizontal'};}catch(_){return {mode:'split',axis:'horizontal'};}}
 export function remember(storage,value){try{storage.setItem('source-layout',JSON.stringify(value));}catch(_){}}
 export const dirty=(draft,base)=>JSON.stringify(draft)!==JSON.stringify(base);
@@ -71,15 +72,15 @@ export function openEditor(state,source){
  state.previewError=error?.error||'';state.diagnostics=templateDiagnostics(error);
 }
 
-// Labels use src_value_<definition name>; camera IDs share camera.* labels.
+// Labels use src_value_<definition name>; camera IDs share cam<n>.* labels.
 export function sourceValueGroups(groups,filter,t){
  const query=filter.toLowerCase();
  return groups.map(group=>{
   const camera=group.kind==='camera'?group.camera:null;
   const key=camera?'camera:'+camera.id:group.kind;
-  const title=camera?t('src_values_camera').replace(/\{(id|name)\}/g,(_,field)=>camera[field]):t('src_values_'+group.kind);
+  const title=camera?cameraHeading(camera,t):t('src_values_'+group.kind);
   const values=group.values.map(value=>{
-   const name=camera?'camera.'+value.name.slice(('camera.'+camera.id+'.').length):value.name;
+   const name=camera?'cam<n>.'+value.name.slice((camera.id+'.').length):value.name;
    const meaning=t('src_value_'+name);
    return {...value,meaning,label:value.name+': '+meaning,text:value.text??'—'};
   }).filter(value=>value.name.toLowerCase().includes(query)||value.meaning.toLowerCase().includes(query));
