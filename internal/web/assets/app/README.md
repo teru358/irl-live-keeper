@@ -32,3 +32,9 @@ line/column は1始まり、column は Unicode 文字単位。エラーは現在
 ソースの編集は previewError / editorError / editorNotice を持ち、一覧の notice と分ける。
 sources の SSE によるテスト解除の案内は testNotice に置き、操作の知らせは上書きしない。
 プレビューの Shadow DOM は部品の境界で保持し、文字・CSS・保存の版が変わった部分だけ更新する。
+
+settings.js は cameras / settings のページごとに独立した store と確認窓を持つ。
+GET の field_locations が項目の所属を決め、settings-pages.js の projectPage で送る値を絞る。
+settings-pages.js の rebaseDraft は新しい保存済み値へ差分を当て直し、カメラは id で照合する。
+keeper-settings-refresh で両ページがハッシュを更新する。keeper-draft はメニューの印だけに使う。
+カメラの送り先は main.js が状態を持ち、settings.js の空の安定した入れ物を root として描く。

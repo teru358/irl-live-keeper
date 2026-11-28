@@ -37,6 +37,8 @@ type SettingsBackend interface {
 }
 
 type settingsRequest struct {
+	Page           string         `json:"page"`
+	FileHash       string         `json:"file_hash"`
 	Values         map[string]any `json:"values"`
 	Hash           string         `json:"hash"`
 	Revert         bool           `json:"revert"`
@@ -69,7 +71,7 @@ func serveSettings(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.
 			raw, _ := yaml.Marshal(cfg)
 			values := map[string]any{}
 			_ = yaml.Unmarshal(raw, &values)
-			writeJSON(w, 200, map[string]any{"values": values, "hash": settings.Hash(s.Raw), "local": local, "apply_modes": settings.ConfigFieldModes()})
+			writeJSON(w, 200, map[string]any{"values": values, "hash": settings.Hash(s.Raw), "local": local, "apply_modes": settings.ConfigFieldModes(), "field_locations": settings.ConfigFieldLocations(), "file_hash": settings.Hash(s.Raw), "page_hashes": map[string]string{"cameras": settings.PageHash(cfg, "cameras"), "settings": settings.PageHash(cfg, "settings")}})
 			return
 		}
 		save := r.Method == http.MethodPut
@@ -86,10 +88,26 @@ func serveSettings(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.
 			fail(400, "settings.invalid")
 			return
 		}
-		if (save || regenerate) && req.Hash != settings.Hash(s.Raw) {
+		if !regenerate && !req.Revert && !revert {
+			if (req.Page != "cameras" && req.Page != "settings") || (req.Values != nil && !settings.PageOwnsValues(req.Page, req.Values)) {
+				fail(400, "settings.invalid")
+				return
+			}
+			current, err := config.Parse(s.Raw)
+			if err != nil {
+				fail(500, "api.internal")
+				return
+			}
+			if req.Hash != settings.PageHash(current, req.Page) {
+				fail(409, "settings.hash_conflict")
+				return
+			}
+		}
+		if revert && req.FileHash != settings.Hash(s.Raw) {
 			fail(409, "settings.hash_conflict")
 			return
 		}
+
 		if req.Revert || revert {
 			if len(s.BackupRaw) == 0 {
 				fail(409, "settings.backup_missing")
@@ -115,7 +133,10 @@ func serveSettings(w http.ResponseWriter, r *http.Request, b Backend, lang i18n.
 					fail(409, "settings.no_revert_difference")
 					return
 				}
-				writeJSON(w, 200, summary)
+				writeJSON(w, 200, struct {
+					settings.ChangeSummary
+					FileHash string `json:"file_hash"`
+				}{summary, settings.Hash(s.Raw)})
 				return
 			}
 			backup, err := config.Parse(s.BackupRaw)

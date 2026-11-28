@@ -34,13 +34,14 @@ func TestSenderAPI(t *testing.T) {
 func TestSenderElementsAndCatalog(t *testing.T) {
 	html, _ := assets.ReadFile("assets/page.html")
 	js, _ := assets.ReadFile("assets/app/main.js")
-	for _, key := range []string{"sender-address", "sender-cameras"} {
-		if !strings.Contains(string(html)+string(js), key) {
+	settingsJS, _ := assets.ReadFile("assets/app/settings.js")
+	for _, key := range []string{"camera-address-select", "data-camera-sender"} {
+		if !strings.Contains(string(html)+string(js)+string(settingsJS), key) {
 			t.Fatal(key)
 		}
 	}
 	for _, key := range []string{"sender-qr-template", "sender-qr-toggle", "sender-qr-image"} {
-		if strings.Contains(string(html)+string(js), key) {
+		if strings.Contains(string(html)+string(js)+string(settingsJS), key) {
 			t.Fatal(key)
 		}
 	}

@@ -1,6 +1,7 @@
 package web
 
 import (
+	"github.com/teru358/irl-live-keeper/internal/config"
 	"github.com/teru358/irl-live-keeper/internal/i18n"
 	"github.com/teru358/irl-live-keeper/internal/settings"
 	"net/http/httptest"
@@ -44,7 +45,8 @@ func TestSettingsStartsAfterResponseAndUnlock(t *testing.T) {
 		b.mu.Unlock()
 		started = true
 	}
-	body := `{"hash":"` + settings.Hash(b.store.Raw) + `","values":{"log":{"keep_days":3}}}`
+	cfg, _ := config.Parse(b.store.Raw)
+	body := `{"page":"settings","hash":"` + settings.PageHash(cfg, "settings") + `","values":{"log":{"keep_days":3}}}`
 	r := httptest.NewRequest("PUT", "/api/settings", strings.NewReader(body))
 	r.RemoteAddr = "127.0.0.1:1234"
 	serveSettings(w, r, b, i18n.JA)

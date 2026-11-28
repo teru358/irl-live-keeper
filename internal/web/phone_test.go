@@ -72,7 +72,7 @@ func TestPhoneLink(t *testing.T) {
 func TestDesignV019Elements(t *testing.T) {
 	js := pageModules(t)
 	html := js
-	for _, part := range []string{"camera:['cameras','switch','on_stream_start']", "admin:['admin','mediamtx']", "other:['gui','log','language']", "settings-card", "settings_restart_note", "placeholder=String(s.values.switch[key])", "'_help'", "phone-link", "60000"} {
+	for _, part := range []string{"obs:['obs','on_stream_start']", "admin:['admin','mediamtx']", "other:['gui','log','language']", "settings-card", "settings_restart_note", "placeholder=String(s.values.switch[key])", "'_help'", "phone-link", "60000"} {
 		if !strings.Contains(string(js), part) {
 			t.Fatal(part)
 		}
