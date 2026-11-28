@@ -206,7 +206,7 @@ test('outside <style> and in a not yet closed style the drop keeps its form; the
  assert.equal(styleStart('<span><style class="x">.a'),'<span><style class="x">'.length);
  assert.equal(styleStart('<span>'),-1);assert.equal(insideStyle('<style>x'),true);assert.equal(insideStyle('<style>x</style>'),false);
  // No cursor yet: the end of the text, with the same decision; nested paths stay encoded.
- assert.equal(bodyAssetInsertion('<style>.a { ',{from:0,to:0},false,'d/あ b.png').insert,'url("/source/files/d/%E3%81%82%20b.png")');
+ assert.equal(bodyAssetInsertion('<style>.a { ',{from:0,to:0},false,'d/あ b.png').insert,'url("/source/files/d/あ b.png")');
  // A selection is replaced.
  const r=bodyAssetInsertion('<style>XY',{from:7,to:9},true,'a.png');assert.deepEqual([r.from,r.to,r.insert],[7,9,rule]);
  assert.equal(cssContext(''),'rule');

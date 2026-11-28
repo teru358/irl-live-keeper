@@ -1,5 +1,7 @@
 {
   "messages": {
+    "src_upload_names": "Names are normalized before upload. Some compatibility ideographs become standard characters; remaining combining marks become underscores.",
+    "source_files.name_too_long": "The name is too long. Use at most 128 UTF-8 bytes including the extension (about 41 Japanese characters plus .png).",
     "sources.render_failed": "Source rendering failed",
     "template.html_lex": "Line {line}, column {column}: Invalid HTML syntax",
     "template.html_comment": "Line {line}, column {column}: Invalid or unclosed comment",
@@ -196,10 +198,10 @@
     "template.asset_missing": "Asset not found: {assets}",
     "template.style_literal": "Value names inside <style> are not substituted. Put them in a style attribute to use values.",
     "source_files.reason_name_collision": "Items have colliding names. Rename the file or its parent folder.",
-    "source_files.reason_bad_name": "The name cannot be used (letters, digits, _ , - and a middle . only, up to 128 characters)",
+    "source_files.reason_bad_name": "The name contains unsupported characters. Upload it again from this page or rename it.",
     "source_files.reason_reserved_name": "Reserved Windows name",
     "source_files.reason_bad_extension": "Not an image extension (png, jpg, jpeg, gif, webp, avif, bmp, svg)",
-    "source_files.reason_path_too_long": "The whole path is longer than 512 characters",
+    "source_files.reason_path_too_long": "The whole path exceeds 512 UTF-8 bytes",
     "source_files.reason_too_deep": "Folders are nested deeper than 3 levels",
     "source_files.reason_too_large": "Larger than the 5 MiB per-file limit",
     "source_files.reason_not_image": "Cannot be read as an image",

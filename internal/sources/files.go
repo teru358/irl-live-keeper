@@ -8,10 +8,10 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"io"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"sync"
 	"unicode/utf8"
@@ -25,7 +25,8 @@ const (
 var ErrFileTooLarge = errors.New("source file exceeds size limit")
 var ErrTotalTooLarge = errors.New("source files exceed total size limit")
 
-var fileNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-][A-Za-z0-9_.-]{0,127}$`)
+var ErrNameTooLong = errors.New("asset name too long")
+var ErrReservedName = errors.New("reserved asset name")
 var filesMu sync.Mutex
 
 // FileInfo is one listed file. Name is the relative path with "/" only.
@@ -47,7 +48,7 @@ type FilesStore struct {
 }
 
 func SafeFileName(upload string) (string, error) {
-	if upload == "" || strings.ContainsAny(upload, `/\\`) || upload == "." || upload == ".." || strings.Contains(upload, "..") {
+	if !utf8.ValidString(upload) || upload == "" || strings.ContainsAny(upload, `/\\／＼`) || upload == "." || upload == ".." || strings.Contains(upload, "..") {
 		return "", errors.New("invalid file name")
 	}
 	base := filepath.Base(upload)
@@ -68,6 +69,15 @@ func SafeFileName(upload string) (string, error) {
 		}
 	}
 	name := b.String() + ext
+	if strings.HasPrefix(name, ".") {
+		name = "_" + name[1:]
+	}
+	if len(name) > 128 {
+		return "", ErrNameTooLong
+	}
+	if CheckPath(name) == ReasonReservedName {
+		return "", ErrReservedName
+	}
 	if CheckPath(name) != "" {
 		return "", errors.New("invalid file name")
 	}
@@ -373,26 +383,61 @@ func (s *FilesStore) Delete(name string) error {
 // ReadUpload accepts one bounded multipart file field named "file".
 func ReadUpload(w http.ResponseWriter, r *http.Request) (string, []byte, error) {
 	r.Body = http.MaxBytesReader(w, r.Body, MaxFileSize+(1<<20))
-	if err := r.ParseMultipartForm(MaxFileSize); err != nil {
+	mr, err := r.MultipartReader()
+	if err != nil {
 		return "", nil, err
 	}
-	defer func() {
-		if r.MultipartForm != nil {
-			_ = r.MultipartForm.RemoveAll()
+	var name string
+	var data []byte
+	var selected bool
+	var selectionErr error
+	headers := 0
+	for count := 0; ; count++ {
+		part, err := mr.NextPart()
+		if err == io.EOF {
+			break
 		}
-	}()
-	f, h, err := r.FormFile("file")
-	if err != nil {
+		if err != nil {
+			return "", nil, err
+		}
+		if count >= 1000 {
+			return "", nil, errors.New("too many parts")
+		}
+		typ, params, parseErr := mime.ParseMediaType(part.Header.Get("Content-Disposition"))
+		if parseErr == nil && typ == "form-data" && params["filename"] != "" {
+			for _, values := range part.Header {
+				headers += len(values)
+			}
+			if headers > 10000 {
+				return "", nil, errors.New("too many headers")
+			}
+			if !selected && params["name"] == "file" {
+				selected = true
+				name, selectionErr = SafeFileName(params["filename"])
+				data, err = io.ReadAll(io.LimitReader(part, MaxFileSize+1))
+				if err != nil {
+					return "", nil, err
+				}
+				if len(data) > MaxFileSize {
+					selectionErr = errors.New("too large")
+				}
+			}
+		}
+		if _, err = io.Copy(io.Discard, part); err != nil {
+			return "", nil, err
+		}
+		if err = part.Close(); err != nil {
+			return "", nil, err
+		}
+	}
+	if _, err = io.Copy(io.Discard, r.Body); err != nil {
 		return "", nil, err
 	}
-	defer f.Close()
-	name, err := SafeFileName(h.Filename)
-	if err != nil {
-		return "", nil, err
+	if !selected {
+		return "", nil, errors.New("missing file")
 	}
-	data, err := io.ReadAll(io.LimitReader(f, MaxFileSize+1))
-	if err != nil || len(data) > MaxFileSize {
-		return "", nil, errors.New("too large")
+	if selectionErr != nil {
+		return "", nil, selectionErr
 	}
 	return name, data, nil
 }
