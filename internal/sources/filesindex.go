@@ -316,7 +316,7 @@ func (s *FilesStore) scan() (*fileIndex, error) {
 	idxMu.Lock()
 	s.scans++
 	idxMu.Unlock()
-	idx := &fileIndex{byPath: map[string]*fileEntry{}}
+	idx := &fileIndex{byPath: map[string]*fileEntry{}, parents: map[string]*parentNames{}}
 	root, err := os.OpenRoot(s.Dir)
 	if errors.Is(err, os.ErrNotExist) {
 		return idx, nil
@@ -454,10 +454,7 @@ func (s *FilesStore) OpenWithHash(name string) ([]byte, string, string, error) {
 	if filesOperationHook != nil {
 		filesOperationHook("OpenWithHash")
 	}
-	e, ok, err := s.lookup(name)
-	if err != nil {
-		return nil, "", "", err
-	}
+	e, ok, _ := s.peek(name)
 	if !ok || !e.Usable {
 		return nil, "", "", os.ErrNotExist
 	}
@@ -617,7 +614,7 @@ func (s *FilesStore) Refresh(paths []string) bool {
 			continue
 		}
 		// A row over the limit stays so until the next rebuild counts the files again.
-		if known && (old.Reason == ReasonOverLimit || lst.Size() == old.Size && lst.ModTime().Equal(old.ModTime)) {
+		if known && (old.ContentReason == ReasonOverLimit || lst.Size() == old.Size && lst.ModTime().Equal(old.ModTime)) {
 			continue
 		}
 		data, info, err := readRegular(root, rel, lst)
@@ -789,6 +786,9 @@ func (s *FilesStore) refreshNames(root *os.Root, rels []string) bool {
 	idxMu.Lock()
 	defer idxMu.Unlock()
 	changed := false
+	if s.idx.parents == nil {
+		s.idx.parents = map[string]*parentNames{}
+	}
 	for dir, p := range updates {
 		s.idx.parents[dir] = p
 	}

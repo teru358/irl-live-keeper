@@ -357,7 +357,7 @@ func (s *FilesStore) Delete(name string) error {
 	idxMu.Lock()
 	_, known := s.idx.byPath[name]
 	idxMu.Unlock()
-	if !known || CheckPath(name) != "" {
+	if reason := CheckPath(name); !known || (reason != "" && reason != ReasonBadExtension) {
 		return os.ErrNotExist
 	}
 	root, err := os.OpenRoot(s.Dir)

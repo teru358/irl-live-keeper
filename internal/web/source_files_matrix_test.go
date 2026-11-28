@@ -74,6 +74,9 @@ func TestSourceFileMultipartMatrix(t *testing.T) {
 		code       string
 	}
 	rows := []row{
+		{"fullwidth slash", file("a／b.svg", image) + end, 400, "source_files.invalid"},
+		{"fullwidth backslash", file("a＼b.svg", image) + end, 400, "source_files.invalid"},
+		{"invalid UTF8", file("a\xff.svg", image) + end, 400, "source_files.invalid"},
 		{"ordinary then file", part(`form-data; name="file"`, "value") + good + end, 201, ""},
 		{"empty filename", part(`form-data; name="file"; filename=""`, image) + end, 400, "source_files.invalid"},
 		{"absent", part(`form-data; name="other"; filename="a.svg"`, image) + end, 400, "source_files.invalid"},

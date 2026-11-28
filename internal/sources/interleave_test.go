@@ -126,3 +126,63 @@ func TestPartialReadDirFailsClosed(t *testing.T) {
 		})
 	}
 }
+
+// Pause after ReadDir returned the parent's snapshot, while filesMu is held.
+func TestRefreshParentReadRebuildBarrier(t *testing.T) {
+	for _, first := range []string{"Refresh", "Rebuild"} {
+		t.Run(first, func(t *testing.T) {
+			s := &FilesStore{Dir: t.TempDir()}
+			if err := s.Save("A.svg", []byte("<svg/>")); err != nil {
+				t.Fatal(err)
+			}
+			original := readIndexDir
+			entered, release, done1, done2 := make(chan struct{}), make(chan struct{}), make(chan struct{}), make(chan struct{})
+			blocked := false
+			readIndexDir = func(f *os.File, n int) ([]fs.DirEntry, error) {
+				des, err := original(f, n)
+				if !blocked {
+					blocked = true
+					close(entered)
+					<-release
+				}
+				return des, err
+			}
+			defer func() { readIndexDir = original }()
+			run := func(op string) {
+				if op == "Refresh" {
+					s.Refresh([]string{AssetPrefix + "A.svg"})
+				} else {
+					_ = s.Rebuild()
+				}
+			}
+			go func() { run(first); close(done1) }()
+			waitBarrier(t, entered)
+			if err := os.WriteFile(filepath.Join(s.Dir, "a.svg"), []byte("<svg/>"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			second := "Rebuild"
+			if first == "Rebuild" {
+				second = "Refresh"
+			}
+			started := make(chan struct{})
+			go func() { close(started); run(second); close(done2) }()
+			waitBarrier(t, started)
+			select {
+			case <-done2:
+				t.Error("update escaped filesMu")
+			default:
+			}
+			close(release)
+			waitBarrier(t, done1)
+			waitBarrier(t, done2)
+			for _, name := range []string{"A.svg", "a.svg"} {
+				if _, _, _, err := s.OpenWithHash(name); err == nil {
+					t.Fatalf("served collision %s", name)
+				}
+			}
+			if len(s.Available()) != 0 {
+				t.Fatal("collision advertised")
+			}
+		})
+	}
+}

@@ -27,3 +27,16 @@ test('delete handler encodes Japanese paths by segment on the wire',async()=>{
  await remove({name:'親/夕焼け.svg',used_by:[]});
  assert.equal(sent[0],'source-files/%E8%A6%AA/%E5%A4%95%E7%84%BC%E3%81%91.svg');assert.equal(sent[2],'DELETE');
 });
+test('unusable rows offer deletion only for name collisions',()=>{
+ const start=source.indexOf('<div class="source-file unusable">');
+ const template=source.slice(start,source.indexOf("</div>",start)+6);
+ assert.ok(template);
+ const render=runInNewContext('(f=>html`'+template+'`)',{
+ html:(parts,...values)=>parts.reduce((out,part,i)=>out+part+(values[i]??''),''),
+ t:x=>x,removeFile:()=>{},
+ });
+ assert.match(render({name:'A.svg',reason:'name_collision',reason_text:'collision'}),/<button/);
+ for(const reason of ['bad_name','bad_extension','unreadable','over_limit']){
+ assert.doesNotMatch(render({name:'x.svg',reason,reason_text:reason}),/<button/);
+ }
+});
