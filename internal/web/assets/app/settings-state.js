@@ -53,7 +53,6 @@ export function confirmationLines(action,payload,preview,streaming,t,saved={},us
   lines.push((camera?cameraHeading(camera,t)+' — ':'')+t(f.kind?'settings_'+f.kind:'setting_'+key));
  }
  lines.push(...cameraUsageLines(removedCameraIDs(preview),usage,t,saved));
- if(action==='revert')lines.push(t('revert_credentials'));
  if(preview.admin_lan_will_close)lines.push(t('settings_lan_close'));
  return lines;
 }

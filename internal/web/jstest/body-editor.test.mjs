@@ -31,7 +31,8 @@ test('four templates use lowest numeric camera id or retain cam1',()=>{
  }
 });
 test('asset insertion uses cursor context and preserves nested paths',()=>{
- assert.equal(bodyAssetInsertion('<style>',{from:7,to:7},true,'a/b.png').insert,'url("/source/files/a/b.png")');
+ assert.equal(bodyAssetInsertion('<style>.x { background: ',{from:25,to:25},true,'a/b.png').insert,'url("/source/files/a/b.png")');
+ assert.equal(bodyAssetInsertion('<style>',{from:7,to:7},true,'a/b.png').insert,'.image { background: url("/source/files/a/b.png") no-repeat; }');
  assert.equal(bodyAssetInsertion('abc',{from:0,to:0},false,'a/b.png').from,3);
  assert.equal(bodyAssetInsertion('abc',{from:0,to:1},true,'x.svg').insert,'<img src="/source/files/x.svg">');
 });

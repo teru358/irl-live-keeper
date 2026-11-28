@@ -13,5 +13,4 @@ test('publish confirmation identifies target and warns about every camera',()=>{
  const lines=confirmationLines('regenerate',{target:'publish',camera:'cam2'},{apply:'restart'},false,k=>k);
  assert.ok(lines.includes('settings_camera 2'));
  assert.ok(lines.includes('publish_reset_warning'));
- assert.ok(confirmationLines('revert',{}, {apply:'restart'},false,k=>k).includes('revert_credentials'));
 });

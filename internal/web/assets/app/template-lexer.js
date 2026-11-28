@@ -88,11 +88,13 @@ export function templateCompletion(prefix,explicit=false){
  return {from:word?prefix.length-word[0].length:prefix.length};
 }
 
-export function insideStyle(prefix){
- const state=templateState();
- for(let p=0;p<prefix.length;){p=nextTemplateToken(prefix,p,state).end;}
- return state.raw;
+// Where the CSS of the open <style> starts in the prefix (just after its '>'), or -1 when the end of the prefix is not inside a <style>.
+export function styleStart(prefix){
+ const state=templateState();let start=-1;
+ for(let p=0;p<prefix.length;){const wasRaw=state.raw;p=nextTemplateToken(prefix,p,state).end;if(!wasRaw&&state.raw)start=p;}
+ return state.raw?start:-1;
 }
+export function insideStyle(prefix){return styleStart(prefix)>=0;}
 export function bodyCompletion(prefix,names,files,explicit=false){
  const match=/\/source\/files\/([A-Za-z0-9_./-]*)$/.exec(prefix);
  if(match)return {from:prefix.length-match[1].length,options:files.filter(f=>f.usable).map(f=>({label:f.name,type:'text'})),validFor:/^[A-Za-z0-9_./-]*$/};

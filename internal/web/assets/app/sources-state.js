@@ -43,6 +43,9 @@ export const testActive=state=>Object.keys(testAxes).some(axis=>axisOf(state,axi
 export const testSignature=state=>JSON.stringify([state.line,state.standby,state.stream,state.free,state.custom]);
 // 配信の開始で、すべての軸を実際に戻し、自由も切る。
 export function testReset(state){state.line='actual';state.standby='actual';state.stream='actual';state.free=false;}
+// The notice that the OBS test was released stays only while the stream runs (the reason the server keeps outlives the stream).
+export const testNoticeFor=s=>s.streaming?s.testNotice:'';
+export function streamingChanged(state,streaming){state.streaming=streaming;if(!streaming)state.testNotice='';}
 export function applyPreview(state,data){
  state.previewError=data.template_error?.error||'';
  state.warnings=data.template_error?[]:(data.warnings||[]);

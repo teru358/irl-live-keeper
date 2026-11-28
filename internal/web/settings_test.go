@@ -80,7 +80,7 @@ func settingsCall(b *settingsTestBackend, method, path, body, remote string, hea
 	// Older scenario fixtures use file hashes; send them through the page protocol.
 	if path == "/api/settings" && method == "PUT" || path == "/api/settings/preview" {
 		var req map[string]any
-		if json.Unmarshal([]byte(body), &req) == nil && req["page"] == nil && req["revert"] != true {
+		if json.Unmarshal([]byte(body), &req) == nil && req["page"] == nil {
 			page := "settings"
 			if values, ok := req["values"].(map[string]any); ok {
 				if values["cameras"] != nil || values["switch"] != nil {
@@ -311,14 +311,9 @@ func TestSettingsConcurrent(t *testing.T) {
 
 func TestSettingsPreviewAndBackup(t *testing.T) {
 	b := settingsFixture(t)
-	b.store.BackupRaw = append([]byte(nil), b.store.Raw...)
 	w := settingsCall(b, "POST", "/api/settings/preview", `{"values":{"log":{"dir":"new"}}}`, "192.168.1.2:4", true)
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"local_only":true`) || b.writes != 0 {
 		t.Fatal(w.Code, w.Body.String())
-	}
-	w = settingsCall(b, "POST", "/api/settings/preview", `{"revert":true}`, "127.0.0.1:4", true)
-	if w.Code != 409 {
-		t.Fatal(w.Code)
 	}
 	b.store.Backup = func() error { return errors.New("backup failed") }
 	w = settingsCall(b, "PUT", "/api/settings", `{"hash":"`+settings.Hash(b.store.Raw)+`","values":{"log":{"keep_days":3}}}`, "127.0.0.1:4", true)
@@ -327,55 +322,29 @@ func TestSettingsPreviewAndBackup(t *testing.T) {
 	}
 }
 
-func TestSettingsRevertAndPreview(t *testing.T) {
+// v0.32: the admin page has no undo. There is no revert entry, preview does not take revert, and GET has no file_hash.
+func TestSettingsHaveNoRevert(t *testing.T) {
 	b := settingsFixture(t)
-	previous := append([]byte(nil), b.store.Raw...)
-	current := *b.store.Current
-	current.Log.KeepDays++
-	b.store.Current = &current
-	b.store.Raw = configBytes(t, &current)
-	b.store.BackupRaw = previous
-	b.store.Backup = func() error { b.store.BackupRaw = append([]byte(nil), b.store.Raw...); return nil }
+	for _, body := range []string{`{"file_hash":"x"}`, `{}`} {
+		w := settingsCall(b, "POST", "/api/settings/revert", body, "127.0.0.1:4", true)
+		if w.Code != 404 && w.Code != 405 || b.writes != 0 {
+			t.Fatalf("revert entry: %d %s", w.Code, w.Body.String())
+		}
+	}
 	w := settingsCall(b, "POST", "/api/settings/preview", `{"revert":true}`, "127.0.0.1:4", true)
-	if w.Code != 200 || !strings.Contains(w.Body.String(), "log.keep_days") || b.writes != 0 {
-		t.Fatal(w.Code, w.Body.String())
+	if w.Code != 400 || b.writes != 0 {
+		t.Fatalf("preview revert: %d %s", w.Code, w.Body.String())
 	}
-	w = settingsCall(b, "POST", "/api/settings/revert", `{"file_hash":"`+settings.Hash(b.store.Raw)+`"}`, "127.0.0.1:4", true)
-	if w.Code != 202 || !strings.Contains(w.Body.String(), `"kind":"revert"`) || b.writes != 1 {
-		t.Fatal(w.Code, w.Body.String())
+	w = settingsCall(b, "GET", "/api/settings", "", "127.0.0.1:4", true)
+	var got map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil || w.Code != 200 {
+		t.Fatal(w.Code, err)
 	}
-	got, err := config.Parse(b.store.Raw)
-	want, _ := config.Parse(previous)
-	if err != nil || got.Log.KeepDays != want.Log.KeepDays {
-		t.Fatal(err, got.Log.KeepDays, want.Log.KeepDays)
+	if _, ok := got["file_hash"]; ok {
+		t.Fatal("file_hash is still returned")
 	}
-	// Since Backup rotates on every write, a second revert restores the value that was just replaced.
-	w = settingsCall(b, "POST", "/api/settings/revert", `{"file_hash":"`+settings.Hash(b.store.Raw)+`"}`, "127.0.0.1:4", true)
-	if w.Code != 202 || b.writes != 2 {
-		t.Fatal(w.Code, w.Body.String())
-	}
-}
-
-func TestSettingsRevertConflicts(t *testing.T) {
-	for _, tc := range []struct {
-		name     string
-		backup   bool
-		applying bool
-		want     int
-	}{
-		{"missing", false, false, 409}, {"no-difference", true, false, 409}, {"applying", true, true, 409},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			b := settingsFixture(t)
-			b.store.Applying = tc.applying
-			if tc.backup {
-				b.store.BackupRaw = append([]byte(nil), b.store.Raw...)
-			}
-			w := settingsCall(b, "POST", "/api/settings/revert", `{"file_hash":"`+settings.Hash(b.store.Raw)+`"}`, "127.0.0.1:4", true)
-			if w.Code != tc.want || b.writes != 0 {
-				t.Fatal(w.Code, w.Body.String())
-			}
-		})
+	if got["hash"] == nil || got["page_hashes"] == nil {
+		t.Fatal("hash and page_hashes must stay")
 	}
 }
 
@@ -467,26 +436,6 @@ func TestSettingsChangesListLength(t *testing.T) {
 	changes := settingsChanges(&next, settings.ClassifyChanges(&old, &next, true))
 	if len(changes) != 1 || changes[0].Path != "cameras" {
 		t.Fatalf("%+v", changes)
-	}
-}
-
-func TestRevertAuditOnly(t *testing.T) {
-	b := settingsFixture(t)
-	backup := *b.store.Current
-	backup.Log.KeepDays++
-	b.store.BackupRaw = configBytes(t, &backup)
-	var output bytes.Buffer
-	r := httptest.NewRequest("POST", "/api/settings/revert", strings.NewReader(`{"file_hash":"`+settings.Hash(b.store.Raw)+`"}`))
-	r.RemoteAddr = "127.0.0.1:4"
-	r.Header.Set(headerName, "1")
-	r = r.WithContext(context.WithValue(r.Context(), loggerKey{}, slog.New(slog.NewTextHandler(&output, nil))))
-	w := httptest.NewRecorder()
-	apiHandler(b, nil).ServeHTTP(w, r)
-	if w.Code != 202 {
-		t.Fatalf("%d %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(output.String(), "settings reverted") || strings.Contains(output.String(), "settings saved") {
-		t.Fatal(output.String())
 	}
 }
 

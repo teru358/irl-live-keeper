@@ -173,11 +173,8 @@ func TestSettingsPageControls(t *testing.T) {
 }
 
 func TestSettingsFailureAndRefreshPaths(t *testing.T) {
-	js, err := assets.ReadFile("assets/app/settings.js")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, want := range []string{"settings_not_saved", "s.errors=e.fields||{}", "fieldGroup", "s.group=fieldGroup", "focusSettingError", "settings_reloaded", "settings_conflicts", "JSON.stringify([status.generation,status.apply])", "rebaseDraft", "s.baseline=JSON.stringify(fresh)"} {
+	js := pageModules(t)
+	for _, want := range []string{"settings_not_saved", "s.errors=e.fields||{}", "fieldGroup", "s.group=fieldGroup", "focusSettingError", "settings_reloaded", "settings_conflicts", "JSON.stringify([status.generation,status.apply])", "reloadAfterApply", "rebaseDraft", "s.baseline=JSON.stringify(fresh)"} {
 		if !strings.Contains(string(js), want) {
 			t.Errorf("missing error/refresh path %s", want)
 		}
@@ -187,7 +184,7 @@ func TestSettingsFailureAndRefreshPaths(t *testing.T) {
 func pageModules(t *testing.T) []byte {
 	t.Helper()
 	var result []byte
-	for _, name := range []string{"main", "shell", "settings", "settings-state", "phone", "sources"} {
+	for _, name := range []string{"main", "shell", "settings", "settings-state", "settings-flow", "connection", "phone", "sources"} {
 		b, err := assets.ReadFile("assets/app/" + name + ".js")
 		if err != nil {
 			t.Fatal(err)
