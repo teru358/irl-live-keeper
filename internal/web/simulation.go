@@ -177,13 +177,13 @@ func serveSimulation(w http.ResponseWriter, r *http.Request, b Backend, e *Event
 			return true
 		}
 		if src.Name == "" {
-			src.Name = "preview"
+			src.Name = "unnamed-preview"
 		}
 		if src.Validate(snapshot) != nil {
 			fail(422)
 			return true
 		}
-		writeJSON(w, 200, map[string]any{"text": text, "css": sources.BaseStylesheet, "warnings": sourceWarnings(b, src, snapshot, lang)})
+		writeJSON(w, 200, map[string]any{"text": text, "warnings": sourceWarnings(b, src, snapshot, lang)})
 		return true
 	}
 	list := sourceList(b)

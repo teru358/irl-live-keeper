@@ -13,8 +13,8 @@ const appDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'assets', 'ap
 test('all admin-page modules parse as ES modules', () => {
   const dir = mkdtempSync(join(tmpdir(), 'irl-syntax-'));
   try {
-    for (const name of readdirSync(appDir).filter(n => n.endsWith('.js'))) {
-      const copy = join(dir, name.replace(/\.js$/, '.mjs'));
+    for (const name of [...readdirSync(appDir).filter(n => n.endsWith('.js')), '../source.js']) {
+      const copy = join(dir, name.replace('../', '').replace(/\.js$/, '.mjs'));
       writeFileSync(copy, readFileSync(join(appDir, name)));
       const r = spawnSync(process.execPath, ['--check', copy], {encoding: 'utf8'});
       assert.equal(r.status, 0, `${name}: ${r.stderr}`);

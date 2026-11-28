@@ -199,7 +199,7 @@ func pageModules(t *testing.T) []byte {
 
 func TestSourcesPageControls(t *testing.T) {
 	app := string(pageModules(t))
-	for _, want := range []string{`id="sources-panel"`, `data-page="sources"`, `id="source-body"`, `name="source-body"`, `adoptedStyleSheets`, `attachShadow`, `src_discard`, `sources/test-obs/alive`} {
+	for _, want := range []string{`id="sources-panel"`, `data-page="sources"`, `id="source-body"`, `name="source-body"`, `allow-same-origin`, `/api/sources/frame`, `updateRendered`, `src_discard`, `sources/test-obs/alive`} {
 		if !strings.Contains(app, want) {
 			t.Fatal(want)
 		}

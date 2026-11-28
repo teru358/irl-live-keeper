@@ -20,6 +20,9 @@ func TestValidation(t *testing.T) {
 		{"body over 64 KiB in bytes", func(s *Source) { s.Body = strings.Repeat("あ", MaxBody/3+1) }, "sources.body_too_large"},
 		{"template", func(s *Source) { s.Body = "{unknown}" }, "template.unknown"},
 		{"reserved files", func(s *Source) { s.Name = "files" }, "sources.reserved_name"},
+		{"reserved frame", func(s *Source) { s.Name = "frame" }, "sources.reserved_name"},
+		{"reserved preview", func(s *Source) { s.Name = "preview" }, "sources.reserved_name"},
+		{"reserved test-obs", func(s *Source) { s.Name = "test-obs" }, "sources.reserved_name"},
 		{"reserved assets", func(s *Source) { s.Name = "assets" }, "sources.reserved_name"},
 	}
 	for _, tt := range tests {

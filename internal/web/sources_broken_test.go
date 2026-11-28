@@ -108,14 +108,18 @@ func TestBrokenSourcesPublicAndPreview(t *testing.T) {
 	e := NewEvents(b, nil, nil)
 	defer e.Close()
 	h := apiHandler(b, e)
-	for _, tc := range []struct{ path, want string }{
-		{"/source/broken", `<span class="irl-text"></span>`},
-		{"/source/good", `<span class="irl-text">hello</span>`},
-		{"/source/broken/style.css", `.irl-source{opacity:1;}`},
+	// The page starts with an empty outer frame for both; the body arrives over SSE (S2-78).
+	for _, tc := range []struct {
+		path, want string
+		code       int
+	}{
+		{"/source/broken", `<div class="irl-source irl-source-broken"></div>`, 200},
+		{"/source/good", `<div class="irl-source irl-source-good"></div>`, 200},
+		{"/source/broken/style.css", "", 404},
 	} {
 		w := httptest.NewRecorder()
 		serveSource(w, httptest.NewRequest("GET", tc.path, nil), b, e, "en")
-		if w.Code != 200 || !strings.Contains(w.Body.String(), tc.want) {
+		if w.Code != tc.code || !strings.Contains(w.Body.String(), tc.want) {
 			t.Fatalf("%s: %d %s", tc.path, w.Code, w.Body.String())
 		}
 	}

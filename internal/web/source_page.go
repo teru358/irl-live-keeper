@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"github.com/teru358/irl-live-keeper/internal/i18n"
 	"github.com/teru358/irl-live-keeper/internal/sources"
-	"github.com/teru358/irl-live-keeper/internal/sources/template"
-	"html"
 	"log/slog"
 	"net/http"
 	"os"
@@ -15,7 +13,7 @@ import (
 	"time"
 )
 
-const sourceCSP = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; font-src 'self' data:; img-src 'self' data:"
+const sourceCSP = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; font-src 'self' data:; img-src 'self' data:; base-uri 'none'; form-action 'none'"
 
 //go:embed assets/source.js
 var sourceJS string
@@ -55,9 +53,9 @@ func serveSource(w http.ResponseWriter, r *http.Request, b Backend, e *Events, l
 		w.Write(sources.HTMLRules)
 		return
 	}
-	if r.URL.Path == "/source/assets/html.js" {
+	if r.URL.Path == "/source/assets/html.js" || r.URL.Path == "/source/assets/reconcile.js" {
 		w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
-		data, _ := assets.ReadFile("assets/app/html.js")
+		data, _ := assets.ReadFile("assets/app/" + strings.TrimPrefix(r.URL.Path, "/source/assets/"))
 		w.Write(data)
 		return
 	}
@@ -77,10 +75,6 @@ func serveSource(w http.ResponseWriter, r *http.Request, b Backend, e *Events, l
 		}
 		if len(parts) == 2 {
 			switch parts[1] {
-			case "style.css":
-				w.Header().Set("Content-Type", "text/css; charset=utf-8")
-				fmt.Fprint(w, sources.BaseStylesheet)
-				return
 			case "events":
 				if e == nil {
 					writeError(w, 503, lang, i18n.New("api.stopped"))
@@ -91,21 +85,7 @@ func serveSource(w http.ResponseWriter, r *http.Request, b Backend, e *Events, l
 			}
 			break
 		}
-		var stats map[string]template.Value
-		if e != nil {
-			stats = e.statisticsValues(time.Now())
-		}
-		sim := sources.Simulation{}
-		if e != nil {
-			sim = e.simulation(time.Now())
-		}
-		text, _ := sources.RenderSimulation(s, b.Snapshot(), time.Now(), stats, sim, assetVersions(b))
-		empty := ""
-		if text == "" {
-			empty = " irl-empty"
-		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		fmt.Fprintf(w, `<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="/source/%s/style.css"><script defer src="/source/assets/source.js"></script></head><body><div class="irl-source irl-source-%s%s"><span class="irl-text">%s</span></div></body></html>`, s.Name, s.Name, empty, html.EscapeString(text))
+		writeSourceFrame(w, s.Name, true)
 		return
 	}
 	writeError(w, 404, lang, i18n.New("api.not_found"))
@@ -152,4 +132,20 @@ func (e *Events) serveSource(w http.ResponseWriter, r *http.Request, name string
 			}
 		}
 	}
+}
+
+func writeSourceFrame(w http.ResponseWriter, name string, script bool) {
+	w.Header().Set("Content-Security-Policy", sourceCSP)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	styles := sources.BaseStylesheet
+	if !script {
+		styles += "html,body{overflow:hidden;}\n"
+	}
+	js := ""
+	if script {
+		js = `<script type="module" src="/source/assets/source.js"></script>`
+	}
+	fmt.Fprintf(w, `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="%s"><style>%s</style>%s</head><body><div class="irl-source irl-source-%s"></div></body></html>`, sourceCSP, styles, js, name)
 }

@@ -324,3 +324,6 @@ body.in-standby .standby-tile { display: none; }
  .source-value-row { grid-template-columns:minmax(0,1fr); gap:4px; }
 }
 #cameras-panel{grid-column:1/-1;min-width:0}#cameras-panel .settings-layout{grid-template-columns:minmax(0,1fr)}#cameras-panel .row{margin-top:20px;flex-wrap:wrap}#cameras-confirm{max-width:560px;width:calc(100% - 48px);max-height:80vh;overflow:auto;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:12px;padding:24px}#cameras-confirm::backdrop{background:#0008}#cameras-update-label{display:flex;align-items:center;gap:12px;margin:20px 0}
+
+.source-preview { position:relative; overflow:hidden; }
+.source-preview iframe { position:absolute; left:0; top:0; border:0; transform-origin:top left; }

@@ -1,42 +1,41 @@
+import {updateRendered} from './reconcile.js';
 import {html,render} from '../vendor/lit-html-3.3.3/lit-html.js';
 import {live} from '../vendor/lit-html-3.3.3/directives/live.js';
 import {repeat} from '../vendor/lit-html-3.3.3/directives/repeat.js';
 import {createStore} from './store.js';
-import {layout,remember,dirty,previewRequest,sourceURL,valueText,conditionText,textareaInsertion,applyPreview,applySourceEvent,previewChanges,deletePrompt,clearEditor,visibleLayout,templateDiagnostics,applyCollection,openEditor,testAxes,testInitial,testChoiceKey,simulateOf,testActive,testSignature,brokenError,sourceValueGroups} from './sources-state.js';
+import {layout,remember,dirty,previewRequest,sourceURL,valueText,conditionText,textareaInsertion,applyPreview,applySourceEvent,deletePrompt,clearEditor,visibleLayout,templateDiagnostics,applyCollection,openEditor,testAxes,testInitial,testChoiceKey,simulateOf,testActive,testSignature,brokenError,sourceValueGroups} from './sources-state.js';
 export function mountSources(t,request,lang){
  const root=document.querySelector('#sources-panel');
  const mobile=window.matchMedia('(max-width:700px)');
  let storage;try{storage=window.localStorage;}catch(_){}
- const store=createStore({list:[],broken:{},diagnostics:[],names:[],defaults:null,draft:null,base:null,fresh:false,mobile:mobile.matches,layout:layout(storage),...testInitial(),texts:{},preview:null,files:[],fileNotices:[],notice:'',editorNotice:'',editorError:'',previewError:'',warnings:[],testNotice:'',testReason:'',styleVersions:{},busy:false,streaming:false,test:false,active:false,valueGroups:[],valuesOpen:false,valuesFilter:'',valuesError:'',settings:null,autoHost:''});
+ const store=createStore({list:[],broken:{},diagnostics:[],names:[],defaults:null,draft:null,base:null,fresh:false,mobile:mobile.matches,layout:layout(storage),...testInitial(),texts:{},preview:null,files:[],fileNotices:[],notice:'',editorNotice:'',editorError:'',previewError:'',warnings:[],testNotice:'',testReason:'',busy:false,streaming:false,test:false,active:false,valueGroups:[],valuesOpen:false,valuesFilter:'',valuesError:'',settings:null,autoHost:''});
  const update=f=>store.update(f);let bodyFocused=false,generation=0,previewVersion=0,timer,events,polling=false,valuesPolling=false,valuesVersion=0;
  const fail=e=>update(s=>{if(s.draft)s.editorError=e.message;else s.notice=e.message;});
  const sim=simulateOf;
- const sourcePath=n=>'/source/'+encodeURIComponent(n);
- // DOM component state lives with each host; renders only update changed parts.
- const shadows=new WeakMap();
- function shadow(host,text='',css,name,version=0){
-  let component=shadows.get(host);
-  const next={name,text,css,version},changes=previewChanges(component?.value,next);
-  if(!component){
-   const root=host.shadowRoot||host.attachShadow({mode:'open'});
-   const box=document.createElement('div'),span=document.createElement('span');
-   span.className='irl-text';box.append(span);root.append(box);
-   component={root,box,span};shadows.set(host,component);
+ const frames=new WeakMap(), activeFrames=new Set();
+ function cleanupFrames(){for(const c of activeFrames)if(!c.host.isConnected){c.observer.disconnect();activeFrames.delete(c);}}
+ const rulesPromise=fetch('/source/assets/html_rules.json').then(r=>r.json());
+ function previewFrame(host,text='',name,width=1920,height=1080){
+  let c=frames.get(host);
+  if(!c){
+   const frame=document.createElement('iframe');
+   frame.setAttribute('sandbox','allow-same-origin');frame.src='/api/sources/frame';frame.title=t('src_previewonly');
+   c={host,frame,box:null,text,name,width,height};frames.set(host,c);activeFrames.add(c);
+   const paint=()=>{
+    const scale=Math.min(host.clientWidth/c.width,host.clientHeight/c.height,1);
+    frame.style.width=c.width+'px';frame.style.height=c.height+'px';frame.style.transform='scale('+scale+')';
+   };
+   c.paint=paint;
+   frame.addEventListener('load',()=>{c.box=frame.contentDocument.querySelector('.irl-source');refresh();});
+   const observer=new ResizeObserver(paint);observer.observe(host);c.observer=observer;
+   host.append(frame);
   }
-  if(changes.style){
-   if(css!==undefined){
-    component.sheet??=new CSSStyleSheet();component.sheet.replaceSync(css);
-    component.root.adoptedStyleSheets=[component.sheet];
-   }else{
-    if(!component.link){component.link=document.createElement('link');component.link.rel='stylesheet';component.root.prepend(component.link);}
-    component.link.href=sourcePath(name)+'/style.css?v='+version;
-   }
-  }
-  if(changes.text){
-   component.box.className='irl-source irl-source-'+name+(text?'':' irl-empty');
-   component.span.textContent=text;
-  }
-  component.value=next;
+  Object.assign(c,{text,name,width,height});c.paint();
+  function refresh(){rulesPromise.then(rules=>{
+   if(!host.isConnected){c.observer.disconnect();return;}
+   if(c.box&&(c.lastName!==c.name||c.lastText!==c.text)){c.box.className='irl-source irl-source-'+c.name;if(updateRendered(c.box,c.text,rules,new DOMParser())){c.lastName=c.name;c.lastText=c.text;}}
+  }).catch(console.error);}
+  refresh();
  }
  async function load(){try{const d=await request('sources');const f=await request('source-files');const settings=await request('settings');const sender=await request('sender');update(s=>{applyCollection(s,d);s.files=f.files;s.fileNotices=f.notices||[];s.settings=settings.values;s.autoHost=sender.addresses.find(a=>a.kind==='lan')?.address||'';});await preview();}catch(e){fail(e);}}
  async function preview(){
@@ -67,7 +66,7 @@ export function mountSources(t,request,lang){
  function change(fn){const before=store.get();++previewVersion;update(s=>{s.diagnostics=[];s.previewError='';fn(s);});const next=store.get();if(testSignature(before)!==testSignature(next)){++valuesVersion;refreshValues();}clearTimeout(timer);timer=setTimeout(()=>{timer=null;preview();},300);}
  function close(){const s=store.get();if(s.draft&&dirty(s.draft,s.base)&&!confirm(t('src_discard')))return false;++generation;++previewVersion;++valuesVersion;bodyFocused=false;clearTimeout(timer);timer=null;update(clearEditor);return true;}
  async function open(src){if(!close())return;update(s=>openEditor(s,src));bodyFocused=false;preview();}
- async function save(){const s=store.get(),snapshot=structuredClone(s.draft);update(x=>{x.busy=true;x.editorError='';x.editorNotice='';});try{await request('sources'+(s.fresh?'':'/'+encodeURIComponent(snapshot.name)),snapshot,s.fresh?'POST':'PUT');update(x=>{x.base=snapshot;x.fresh=false;x.editorNotice=t('src_saved');x.styleVersions[snapshot.name]=(x.styleVersions[snapshot.name]||0)+1;});await load();}catch(e){fail(e);}finally{update(x=>{x.busy=false;});}}
+ async function save(){const s=store.get(),snapshot=structuredClone(s.draft);update(x=>{x.busy=true;x.editorError='';x.editorNotice='';});try{await request('sources'+(s.fresh?'':'/'+encodeURIComponent(snapshot.name)),snapshot,s.fresh?'POST':'PUT');update(x=>{x.base=snapshot;x.fresh=false;x.editorNotice=t('src_saved');});await load();}catch(e){fail(e);}finally{update(x=>{x.busy=false;});}}
  async function remove(src){if(!confirm(deletePrompt(src,store.get().list,t)))return;try{await request('sources/'+encodeURIComponent(src.name),undefined,'DELETE');await load();}catch(e){fail(e);}}
  async function obs(enabled){update(x=>{x.testNotice='';});try{const d=await request('sources/test-obs',enabled?sim(store.get()):undefined,enabled?'PUT':'DELETE');receive(d);}catch(e){fail(e);}}
  function receive(d){
@@ -132,9 +131,9 @@ export function mountSources(t,request,lang){
  <div class=${'source-workspace '+s.layout.mode+' '+axis}><div class="source-edit"><div class="source-insert"><button class="btn" @click=${()=>insertBody(conditionText('cam1.kbps < 800'))}>${t('src_condition')}</button><label class="source-field">${t('src_files')}<select name="source-insert-file" @change=${e=>{if(e.target.value)insertBody('/source/files/'+e.target.value.split('/').map(encodeURIComponent).join('/'));e.target.value='';}}><option value="">${t('src_insert')}</option>${s.files.filter(f=>f.usable).map(f=>html`<option value=${f.name}>${f.name}</option>`)}</select></label></div>${valuesList(s)}<label class="source-editor-label" for="source-body">${t('src_body')}</label><textarea id="source-body" name="source-body" class="source-body" spellcheck="false" autocomplete="off" rows="14" .value=${live(s.draft.body)} @focus=${()=>{bodyFocused=true;}} @input=${e=>{const value=e.target.value;change(x=>{x.draft.body=value;});}}></textarea></div><div class="source-preview" data-preview="editor" aria-label=${t('src_previewonly')}></div></div>
  <details class="source-section"><summary>${t('src_files')}</summary><label class="source-field">${t('src_upload')}<input name="source-upload" type="file" accept="image/png,image/jpeg,image/gif,image/webp" @change=${upload}></label>${s.fileNotices.map(n=>html`<p role="status">${n.message}</p>`)}${s.files.map(f=>f.usable?html`<div class="source-file"><span>${f.name}</span><button class="btn" @click=${()=>removeFile(f)}>${t('src_delete')}</button></div>`:html`<div class="source-file unusable"><span>${f.name}</span><span class="source-file-reason">${f.reason_text}</span></div>`)}</details>
  <details class="source-section"><summary>${t('src_obs_import')}</summary><div class="source-fields">${field(s,'obs_width','number')}${field(s,'obs_height','number')}</div>${s.fresh?html`<p class="hint">${t('src_save_url')}</p>`:copy(s.draft,s)}<p>${t('src_steps')}</p>${sourceURL(s.settings,s.autoHost,s.draft.name).hint?html`<p class="hint">${t('src_lan_hint')}</p>`:''}</details>`:html`
- <div class="source-toolbar">${testBar(s)}<button class="btn primary" @click=${()=>open()}>${t('src_new')}</button></div><div class="source-cards">${repeat(s.list,src=>src.name,src=>html`<article><h3>${src.title||src.name}</h3>${brokenError(s.broken,src.name)?html`<div class="source-repair"><span class="source-repair-badge">${t('src_needs_repair')}</span><p>${brokenError(s.broken,src.name).error}</p></div>`:''}${copy(src,s)}<div class="source-preview" data-preview=${src.name}></div><div class="source-actions"><button class="btn" @click=${()=>open(src)}>${t('src_edit')}</button><button class="btn" @click=${()=>remove(src)}>${t('src_delete')}</button></div><details><summary>${t('src_obs_import')}</summary><p>${t('src_steps')}</p>${sourceURL(s.settings,s.autoHost,src.name).hint?html`<p>${t('src_lan_hint')}</p>`:''}<p>${t('src_width')}: ${src.obs_width} × ${t('src_height')}: ${src.obs_height}</p></details></article>`)}</div>`}<p role="status">${s.testNotice}</p>${s.draft?'':html`<p role="status">${s.notice}</p>`}`;}
+ <div class="source-toolbar">${testBar(s)}<button class="btn primary" @click=${()=>open()}>${t('src_new')}</button></div><div class="source-cards">${repeat(s.list,src=>src.name,src=>html`<article><h3>${src.title||src.name}</h3>${brokenError(s.broken,src.name)?html`<div class="source-repair"><span class="source-repair-badge">${t('src_needs_repair')}</span><p>${brokenError(s.broken,src.name).error}</p></div>`:''}${copy(src,s)}<div class="source-preview" data-preview=${src.name}></div><div class="source-actions"><button class="btn" @click=${()=>open(src)}>${t('src_edit')}</button><button class="btn" @click=${()=>remove(src)}>${t('src_delete')}</button></div><details><summary>${t('src_obs_import')}</summary><p>${t('src_steps')}</p>${sourceURL(s.settings,s.autoHost,src.name).hint?html`<p>${t('src_lan_hint')}</p>`:''}<p>${t('src_width')}: ${src.obs_width} × ${t('src_height')}: ${src.obs_height}</p></details></article>`)}</div>`}<p class="hint">${t('src_font_hint')}</p><p role="status">${s.testNotice}</p>${s.draft?'':html`<p role="status">${s.notice}</p>`}`;}
  function setLayout(v){if(v.axis==='horizontal'&&store.get().mobile)return;const next={...store.get().layout,...v};remember(storage,next);update(s=>{s.layout=next;});}
- store.subscribe(s=>{try{render(view(s),root);for(const host of root.querySelectorAll('[data-preview]')){const key=host.dataset.preview;if(s.draft){shadow(host,s.preview?.text||'',s.preview?.css||'',s.draft.name);}else shadow(host,brokenError(s.broken,key)?'':s.texts[key],undefined,key,s.styleVersions[key]||0);}}catch(e){console.error(e);render(html`<p role="alert">${t('failed')}</p>`,root);}});
+ store.subscribe(s=>{try{render(view(s),root);cleanupFrames();for(const host of root.querySelectorAll('[data-preview]')){const key=host.dataset.preview;if(s.draft){previewFrame(host,s.preview?.text||'',s.draft.name,s.draft.obs_width,s.draft.obs_height);}else {const src=s.list.find(x=>x.name===key);previewFrame(host,brokenError(s.broken,key)?'':s.texts[key],key,src.obs_width,src.obs_height);};}}catch(e){console.error(e);render(html`<p role="alert">${t('failed')}</p>`,root);cleanupFrames();}});
  window.addEventListener('keeper-before-page',e=>{if(e.detail!=='sources'&&!close())e.preventDefault();});
  window.addEventListener('beforeunload',e=>{const s=store.get();if(s.draft&&dirty(s.draft,s.base)){e.preventDefault();e.returnValue='';}});
  window.addEventListener('keeper-status',e=>update(s=>{s.streaming=e.detail.obs.streaming;}));

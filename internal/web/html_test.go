@@ -27,7 +27,7 @@ func TestHTMLValidationAPI(t *testing.T) {
 		if w.Code != c.status || !strings.Contains(w.Body.String(), "template.html_element") {
 			t.Fatalf("%s: %d %s", c.path, w.Code, w.Body.String())
 		}
-		if c.status == 200 && !strings.Contains(w.Body.String(), "template_error") {
+		if c.status == 200 && (!strings.Contains(w.Body.String(), "template_error") || strings.Contains(w.Body.String(), `"text":`) || strings.Contains(w.Body.String(), `"html":`)) {
 			t.Fatal(w.Body.String())
 		}
 	}

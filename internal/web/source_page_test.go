@@ -23,22 +23,27 @@ func TestSourcePublic(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := New(b, "secret")
-	for _, path := range []string{"/source/demo", "/source/demo/style.css", "/source/assets/source.js"} {
+	for _, path := range []string{"/source/demo", "/source/assets/source.js"} {
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, httptest.NewRequest("GET", path, nil))
-		if w.Code != 200 || w.Header().Get("Content-Security-Policy") != "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; font-src 'self' data:; img-src 'self' data:" {
+		if w.Code != 200 || w.Header().Get("Content-Security-Policy") != "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; font-src 'self' data:; img-src 'self' data:; base-uri 'none'; form-action 'none'" {
 			t.Fatal(w.Code, w.Header())
 		}
 		body := w.Body.String()
 		if strings.Contains(body, "secret") {
 			t.Fatal(body)
 		}
-		if path == "/source/demo" && (!strings.Contains(body, `class="irl-source irl-source-demo"`) || !strings.Contains(body, "&lt;b&gt;x&lt;/b&gt;\ntext") || strings.Contains(body, "<style") || strings.Contains(body, "<script>")) {
+		if path == "/source/demo" && (!strings.Contains(body, `class="irl-source irl-source-demo"`) || !strings.Contains(body, `class="irl-source irl-source-demo"></div>`) || !strings.Contains(body, "<style>html,body") || strings.Contains(body, "irl-text") || strings.Contains(body, "<script>")) {
 			t.Fatal(body)
 		}
 		if strings.HasSuffix(path, "css") && (w.Header().Get("Content-Type") != "text/css; charset=utf-8" || body != sources.BaseStylesheet) {
 			t.Fatal(body)
 		}
+	}
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("GET", "/source/demo/style.css", nil))
+	if w.Code != 404 {
+		t.Fatal("old stylesheet still served", w.Code)
 	}
 	for _, v := range []string{"obs.password", "stream.publish_url", "admin.password"} {
 		s.Body = "{" + v + "}"
@@ -110,5 +115,49 @@ func TestSourceFailureClearsAndLogs(t *testing.T) {
 	e.updateSources(time.Now())
 	if len(c.queue) != 1 || (<-c.queue).value != "" || log.Len() == 0 {
 		t.Fatal("failure did not clear and log", log.String())
+	}
+}
+
+func TestSourceOldCSSRemoved(t *testing.T) {
+	w := httptest.NewRecorder()
+	serveSource(w, httptest.NewRequest("GET", "/source/demo/style.css", nil), &sourcesBackend{store: sources.Store{Path: filepath.Join(t.TempDir(), "sources.yaml")}}, nil, "en")
+	if w.Code != 404 {
+		t.Fatal(w.Code)
+	}
+}
+
+func TestSourceFrame(t *testing.T) {
+	b := &sourcesBackend{store: sources.Store{Path: filepath.Join(t.TempDir(), "sources.yaml")}}
+	h := New(b, "secret")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("GET", "/api/sources/frame", nil))
+	if w.Code != 401 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	w = httptest.NewRecorder()
+	serveSources(w, httptest.NewRequest("GET", "/api/sources/frame", nil), b, "en")
+	if w.Code != 200 || w.Header().Get("Content-Security-Policy") != sourceCSP || strings.Contains(w.Body.String(), "<script") || !strings.Contains(w.Body.String(), `class="irl-source irl-source-preview"></div>`) {
+		t.Fatal(w.Code, w.Body.String())
+	}
+}
+
+func TestSourceSSEInitialHTML(t *testing.T) {
+	e := &Events{clients: map[*eventClient]bool{}, sourceTexts: map[string]string{"demo": `<b>ready</b>`}, ticker: func(time.Duration) (<-chan time.Time, func()) { return make(chan time.Time), func() {} }}
+	r := httptest.NewRequest("GET", "/source/demo/events", nil)
+	ctx, cancel := context.WithCancel(r.Context())
+	cancel()
+	w := &deadlineRecorder{ResponseRecorder: httptest.NewRecorder()}
+	e.serveSource(w, r.WithContext(ctx), "demo")
+	if got := w.Body.String(); got != "data: \"\\u003cb\\u003eready\\u003c/b\\u003e\"\n\n" {
+		t.Fatal(got)
+	}
+}
+
+func TestFrameSkeletonStyle(t *testing.T) {
+	w := httptest.NewRecorder()
+	writeSourceFrame(w, "", false)
+	body := w.Body.String()
+	if strings.Contains(body, "opacity:1") || !strings.Contains(body, "overflow:hidden") {
+		t.Fatal(body)
 	}
 }

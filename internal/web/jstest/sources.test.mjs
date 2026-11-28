@@ -49,7 +49,7 @@ test('preview errors belong to editor and clear on success',()=>{
  const s={draft:{},notice:'kept',editorNotice:'saved',preview:null,previewError:''};
  state.applyPreview(s,{template_error:{error:'bad',line:1,column:2,code:'bad'}});
  assert.equal(s.previewError,'bad');assert.equal(s.notice,'kept');assert.equal(s.preview,null);
- state.applyPreview(s,{text:'ok',css:''});assert.equal(s.previewError,'');assert.equal(s.preview.text,'ok');assert.equal(s.editorNotice,'saved');
+ state.applyPreview(s,{text:'ok'});assert.equal(s.previewError,'');assert.equal(s.preview.text,'ok');assert.equal(s.editorNotice,'saved');
 });
 test('stream start resets all axes and free without overwriting operation notice; timeout and disabled do not',()=>{
  for(const reason of ['stream_started','timeout','disabled']){
@@ -91,16 +91,7 @@ test('testReset sets every axis to actual and turns free off, keeping the typed 
  assert.deepEqual(s,{line:'actual',standby:'actual',stream:'actual',free:false,custom:'{"a":1}'});
  assert.equal(state.testSignature(s)===state.testSignature({...s,line:'OK'}),false);
 });
-test('preview changes keep stylesheet for text ticks and only reload after source save',()=>{
- const first={name:'a',text:'one',version:0};
- assert.deepEqual(state.previewChanges(null,first),{text:true,style:true});
- assert.deepEqual(state.previewChanges(first,{...first,text:'two'}),{text:true,style:false});
- assert.deepEqual(state.previewChanges(first,{...first}),{text:false,style:false});
- assert.deepEqual(state.previewChanges(first,{...first,version:1}),{text:false,style:true});
- const editor={name:'a',text:'one',css:'a{}'};
- assert.equal(state.previewChanges(editor,{...editor,text:'two'}).style,false);
- assert.equal(state.previewChanges(editor,{...editor,css:'b{}'}).style,true);
-});
+
 test('delete prompts identify source titles and asset names, with fallback for missing sources',()=>{
  const list=[{name:'a',title:'回線の表示'},{name:'b',title:''}];
  const t=key=>({src_confirmdelete:'「{name}」を削除しますか？',src_used:'使用中のソース: {sources}',src_file_used_note:'直しが要ります。OBS は空になります。'})[key];
@@ -138,12 +129,12 @@ test('closing editor clears errors, preview and feedback without touching list n
  for(const key of ['previewError','editorError','editorNotice'])assert.equal(s[key],'');
  assert.equal(s.notice,'kept');
 });
-test('incomplete template retains last stylesheet until next successful preview',()=>{
- const s={draft:{},preview:{text:'last',css:'color{}'},previewError:''};
+test('incomplete template retains last preview until stream reset',()=>{
+ const s={draft:{},preview:{text:'last'},previewError:''};
  state.applyPreview(s,{template_error:{error:'bad'}});
- assert.deepEqual(s.preview,{text:'last',css:'color{}'});
+ assert.deepEqual(s.preview,{text:'last'});
  state.applySourceEvent(s,{sources:{},test_obs:{enabled:false,reason:'stream_started'}},'stopped');
- assert.equal(s.preview.css,'color{}');assert.equal(s.preview.text,'');
+ assert.equal(s.preview.text,'');
 });
 test('mobile split hides axis choice and preserves desktop preference',()=>{
  const saved={mode:'split',axis:'horizontal'};
@@ -164,7 +155,7 @@ test('saved broken sources expose the same positioned error as draft previews',(
  assert.deepEqual(s.draft,src);assert.equal(dirty(s.draft,s.base),false);
  s.draft.body='fixed';assert.equal(s.base.body,'{link.kbps}');
  assert.equal(s.notice,'kept');
- state.applyPreview(s,{text:'fixed',css:''});
+ state.applyPreview(s,{text:'fixed'});
  assert.equal(s.previewError,'');assert.deepEqual(s.diagnostics,[]);
  state.applyPreview(s,{template_error:error});
  assert.equal(s.previewError,'1 行 2 文字目: 知らない値の名前です');
